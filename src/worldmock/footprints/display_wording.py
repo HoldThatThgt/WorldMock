@@ -4,6 +4,9 @@
 名称只取这次运行冻结的环境目录（docs/design/05-recording-engine.md「显示写法与检查工具」）。查看器的
 tools/run-viewer-wording.js 是这里的镜像，两份实现由 tests/fixtures/display-wording-cases.json 约束。
 写法不含时刻、状态和时长，由各处另写。名称取不到是运行故障，不给任何降级文字。
+
+一串内容标题至多照列 TITLE_LIST_LIMIT 条，多出时只写前几条再接「等 K 条」（title_list）；列表之外的各条照样按身份取名。
+人物读到的结束句（settled_text）与第二条结果的 details.contents（result_projection）也用这个上限。
 """
 
 from __future__ import annotations
@@ -29,6 +32,8 @@ _STEP_LABELS = MappingProxyType({"navigation": "导航", "ordering": "下单", "
 #: 三种手机事件的种类文字。
 _PHONE_LABELS = MappingProxyType({"app_foreground": "app 前台", "order_notification": "订单通知",
                                   "payment_notification": "消费通知"})
+#: 一串内容标题照列的最多条数；显示写法、结束句与结果明细的 contents 共用这一个上限。
+TITLE_LIST_LIMIT = 3
 
 
 class ContentName(NamedTuple):
@@ -145,9 +150,19 @@ def _distinct(content_ids: Sequence[str | None]) -> list[str | None]:
     return [key for index, key in enumerate(content_ids) if index == 0 or key != content_ids[index - 1]]
 
 
+def title_list(titles: Sequence[str]) -> str:
+    """@brief 一串标题的写法：每条加一个书名号，书名号之间不加字；不多于 TITLE_LIST_LIMIT 条时全部照列，多于时只写前
+    TITLE_LIST_LIMIT 条再接「等 <总条数> 条」；空串列得空串。
+
+    @param titles 标题文字（不是内容身份），按先后；调用方决定要不要先去掉重复。
+    """
+    listed = "".join(f"《{title}》" for title in titles[:TITLE_LIST_LIMIT])
+    return listed if len(titles) <= TITLE_LIST_LIMIT else f"{listed}等 {len(titles)} 条"
+
+
 def _titles(names: DisplayNames, content_ids: Iterable[str | None]) -> str:
-    """@brief 各条内容的标题依次各加一个书名号，书名号之间不加字。"""
-    return "".join(f"《{display_name(names, 'content', key).title}》" for key in content_ids)
+    """@brief 各条内容先按身份逐一取名（列表之外的也取，取不到是运行故障），再把全部标题交给 title_list。"""
+    return title_list([display_name(names, "content", key).title for key in content_ids])
 
 
 def _interact_phrase(names: DisplayNames, snapshot: Mapping[str, Any], content_ids: list[str | None]) -> str:

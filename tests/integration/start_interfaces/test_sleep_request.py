@@ -198,7 +198,7 @@ def test_closed_location_cannot_start_sleep_but_does_not_wake_a_sleeper(engine_f
     counter = 0
     while _local(engine).strftime("%H:%M") < "08:20":
         counter += 1
-        _, video = act(engine, f"wait-{counter}", use_app("哔哩哔哩"))
+        _, video = act(engine, f"wait-{counter}", use_app("Keep"))
         assert video.status == "in_progress", video.error_code
         finish_activity(engine, video, f"wait-{counter}")
     assert _local(engine).strftime("%H:%M") < "09:00"

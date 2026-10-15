@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from worldmock.catalog.models import Catalog
-from worldmock.life.models import ActivityState
+from worldmock.life.models import ActivityKind, ActivityState
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,4 +28,14 @@ def activity_snapshot(activity: ActivityState, index: TitleIndex) -> dict:
     content_id = activity.data.get("content_id")
     if content_id is not None:
         payload["content_title"] = index.contents[content_id]
+    return payload
+
+
+def progress_snapshot(activity: ActivityState, index: TitleIndex) -> dict:
+    """@brief activity_progress 事件里的活动快照：interact 活动不带 played 列表，改带条数 played_count，其余照
+    activity_snapshot；别的种类与 activity_snapshot 相同。世界状态和别的事件的快照照旧带完整列表。"""
+    payload = activity_snapshot(activity, index)
+    if activity.kind == ActivityKind.INTERACT:
+        data = {key: value for key, value in payload["data"].items() if key != "played"}
+        payload["data"] = {**data, "played_count": len(activity.data["played"])}
     return payload

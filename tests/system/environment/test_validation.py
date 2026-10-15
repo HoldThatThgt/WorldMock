@@ -248,12 +248,12 @@ def test_package_with_or_without_optional_catalog_files_is_valid(published_envir
 
 
 @pytest.mark.parametrize("change,code,reason", [
-    ({"rules_version": 4}, "RULES_VERSION_MISMATCH", "The environment was published for a different rules version."),
-    ({"rules_version": 4, "format_version": 4}, "RULES_VERSION_MISMATCH",
+    ({"rules_version": 5}, "RULES_VERSION_MISMATCH", "The environment was published for a different rules version."),
+    ({"rules_version": 5, "format_version": 4}, "RULES_VERSION_MISMATCH",
      "The environment was published for a different rules version."),
 ])
 def test_package_published_for_the_previous_rules_version_is_refused(published_environment, change, code, reason):
-    """@brief 规则版本是 4 的夹具副本：输出 {path, code, reason}，非零退出，原因没有详情时只有固定原因。"""
+    """@brief 规则版本是 5 的夹具副本：输出 {path, code, reason}，非零退出，原因没有详情时只有固定原因。"""
     path = published_environment / "catalog/manifest.json"
     path.write_bytes(json.dumps({**json.loads(path.read_bytes()), **change}, separators=(",", ":")).encode() + b"\n")
     assert report(published_environment) == [{"path": "catalog", "code": code, "reason": reason}]

@@ -155,7 +155,7 @@ MUTATIONS = (
         "max(0, ended_at - max(started_at, window_start))", "max(0, ended_at - started_at)",
         ("tests/unit/life/test_sleep_plan.py::test_a_sleep_across_the_window_start_counts_only_the_part_inside",)),
     SourceMutation("pause_allowed_in_the_last_three_minutes", "worldmock.life.activity_control::pausable",
-        "and activity.planned_end_at - state.current_time >= PAUSE_MIN_REMAINING_SECONDS)", "and True)",
+        "or activity.planned_end_at - state.current_time >= PAUSE_MIN_REMAINING_SECONDS))", "or True))",
         ("tests/integration/life/test_pause_limit.py"
          "::test_pause_with_179_seconds_left_is_refused_changes_nothing_and_conclude_succeeds",)),
     SourceMutation("pause_refused_with_exactly_three_minutes_left", "worldmock.life.activity_control::pausable",
@@ -285,8 +285,8 @@ MUTATIONS = (
         "if project_location_stays(events) != stays:", "if False:",
         ("tests/integration/footprints/test_acs_export.py"
          "::test_location_stays_artifact_is_compared_with_the_projection_of_the_events",)),
-    SourceMutation("rules_version_still_four", "worldmock.exchange.constants::RULES_VERSION",
-        "RULES_VERSION = 5", "RULES_VERSION = 4",
+    SourceMutation("rules_version_still_five", "worldmock.exchange.constants::RULES_VERSION",
+        "RULES_VERSION = 6", "RULES_VERSION = 5",
         ("tests/unit/exchange/test_constants.py::test_fixed_travel_delivery_map_and_push_constants",)),
     SourceMutation("catalog_format_version_still_four", "worldmock.catalog.models::CatalogManifest",
         "format_version: Literal[5]", "format_version: Literal[4]",
@@ -296,8 +296,8 @@ MUTATIONS = (
         "WORLD_SCHEMA_VERSION = 14", "WORLD_SCHEMA_VERSION = 13",
         ("tests/integration/life/test_state_serialization.py"
          "::test_world_state_schema_is_fourteen_and_the_previous_version_is_refused",)),
-    SourceMutation("export_schema_version_still_five", "worldmock.footprints.export::EXPORT_SCHEMA_VERSION",
-        "EXPORT_SCHEMA_VERSION = 6", "EXPORT_SCHEMA_VERSION = 5",
+    SourceMutation("export_schema_version_still_six", "worldmock.footprints.export::EXPORT_SCHEMA_VERSION",
+        "EXPORT_SCHEMA_VERSION = 7", "EXPORT_SCHEMA_VERSION = 6",
         ("tests/integration/footprints/test_acs_export.py"
          "::test_actual_purchase_content_and_current_artifacts_are_authenticated",)),
     SourceMutation("result_details_schema_refuses_query", "worldmock.life.prompt_schemas::_RESULT_DETAILS",
@@ -386,7 +386,7 @@ MUTATIONS = (
          "tests/unit/start_interfaces/test_location_units.py"
          "::test_unit_done_raises_every_content_behind_to_the_next_round")),
     SourceMutation("terminal_result_lists_no_contents", "worldmock.life.result_projection::_details",
-        'details["contents"] = contents', "pass",
+        "details.update(_done_contents(_activity_rows(payload), inputs))", "pass",
         ("tests/integration/life/test_result_contents.py::test_finished_app_use_lists_what_was_watched",)),
     SourceMutation("contents_list_only_the_current_content", "worldmock.life.result_projection::_done_contents",
         'for item in data["played"]]', 'for item in data["played"][-1:]]',
@@ -629,4 +629,135 @@ MUTATIONS = (
          "::test_answer_is_the_second_result_and_replaying_the_action_returns_it",
          "tests/integration/life/test_query_answer.py"
          "::test_answer_stays_for_the_stay_and_leaves_a_settled_line_after_departure")),
+    # ---- 自动接续轨道（A）：「内容 app 自动接续」「自动接续的显示与记录」 ----
+    SourceMutation("standalone_item_ends_the_use", "worldmock.life.content_select::autoplay_content",
+        "unseen = [item for unit, item in pairs if item.series is None and item.content_id not in agent.content_progress]",
+        "unseen = []",
+        ("tests/integration/life/test_autoplay.py"
+         "::test_a_feed_chains_unseen_items_by_keyed_draws_and_stops_when_none_is_left",
+         "tests/integration/life/test_autoplay.py::test_only_pushable_standalone_items_chain_after_a_standalone_item")),
+    SourceMutation("autoplay_draws_unpushable_content", "worldmock.life.content_select::autoplay_content",
+        "pairs = [(unit, item) for unit, item in pairs if item.pushable]",
+        "pairs = [(unit, item) for unit, item in pairs]",
+        ("tests/integration/life/test_autoplay.py::test_only_pushable_standalone_items_chain_after_a_standalone_item",
+         "tests/unit/life/test_autoplay_order.py::test_autoplay_content_picks_by_the_rows_on_real_catalog_rows")),
+    SourceMutation("last_episode_ends_the_use", "worldmock.life.content_select::autoplay_content",
+        "return _started_series(pairs, agent, reserved)", "return None",
+        ("tests/integration/life/test_autoplay.py::test_the_last_episode_continues_with_another_started_series",
+         "tests/integration/life/test_autoplay.py::test_the_most_recently_watched_started_series_comes_first")),
+    SourceMutation("reserved_item_autoplays_when_nothing_else_is_left", "worldmock.life.content_select::autoplay_content",
+        "unseen = sorted((item for item in unseen if item.content_id not in reserved), key=lambda item: item.content_id)",
+        "unseen = sorted((item for item in unseen if item.content_id not in reserved), key=lambda item: item.content_id)"
+        " or sorted(unseen, key=lambda item: item.content_id)",
+        ("tests/integration/life/test_autoplay.py"
+         "::test_a_feed_chains_unseen_items_by_keyed_draws_and_stops_when_none_is_left",
+         "tests/unit/life/test_autoplay_order.py::test_autoplay_content_picks_by_the_rows_on_real_catalog_rows")),
+    SourceMutation("autoplay_draw_keyed_like_the_opening", "worldmock.life.interact::InteractivityRuntime._autoplay",
+        'stream = random_stream(state.random_state, f"{activity.activity_id}:{index}")',
+        'stream = random_stream(state.random_state, f"{activity.activity_id}:0")',
+        ("tests/integration/life/test_autoplay.py"
+         "::test_a_feed_chains_unseen_items_by_keyed_draws_and_stops_when_none_is_left",)),
+    SourceMutation("replay_inside_a_use", "worldmock.life.content_select::autoplay_content",
+        "return unseen[stream.randrange(len(unseen))] if unseen else None",
+        "return unseen[stream.randrange(len(unseen))] if unseen else next((item for unit, item in pairs"
+        " if item.series is None), None)",
+        ("tests/integration/life/test_autoplay.py"
+         "::test_a_feed_chains_unseen_items_by_keyed_draws_and_stops_when_none_is_left",
+         "tests/integration/life/test_autoplay.py::test_only_pushable_standalone_items_chain_after_a_standalone_item")),
+    SourceMutation("autoplay_draw_reads_the_start_location", "worldmock.life.interact::InteractivityRuntime._autoplay",
+        "stay = present_location(state, activity.agent_id)", "stay = activity.location_id",
+        ("tests/integration/life/test_autoplay.py::test_a_draw_sees_the_stay_of_its_own_second[drive]",)),
+    SourceMutation("app_use_paused_only_with_three_minutes_left", "worldmock.life.activity_control::pausable",
+        'and (activity.data["app_id"] is not None', "and (False",
+        ("tests/integration/life/test_autoplay.py::test_an_app_use_can_be_paused_at_any_time",
+         "tests/integration/life/test_pause_limit.py"
+         "::test_sleep_refusal_offers_pausing_the_app_only_while_it_can_be_paused",
+         "tests/unit/life/test_autoplay_order.py::test_an_app_use_is_pausable_however_little_is_left")),
+    SourceMutation("concluded_app_use_ends_early", "worldmock.life.activity_evidence::app_use_ended",
+        "return (activity.status == ActivityStatus.CANCELLED and activity.kind == ActivityKind.INTERACT",
+        "return (False and activity.kind == ActivityKind.INTERACT",
+        ("tests/integration/life/test_autoplay.py::test_a_concluded_app_use_reads_end_of_use",
+         "tests/integration/start_interfaces/test_location_activities.py"
+         "::test_memory_sentence_keeps_the_unfinished_half_only_for_app_content",
+         "tests/unit/life/test_autoplay_order.py::test_one_predicate_words_the_ending_and_the_outcome")),
+    SourceMutation("progress_snapshot_keeps_the_played_list", "worldmock.life.activity_titles::progress_snapshot",
+        'data = {key: value for key, value in payload["data"].items() if key != "played"}',
+        'data = dict(payload["data"])',
+        ("tests/integration/life/test_autoplay.py"
+         "::test_progress_events_carry_the_played_count_and_other_snapshots_the_list",
+         "tests/unit/life/test_autoplay_order.py::test_progress_snapshot_counts_played_items_only_for_interactions")),
+    SourceMutation("app_row_duration_drops_the_per_item_label", "worldmock.life.tool_layer::_app_duration",
+        'else f"每条{span}"', "else span",
+        ("tests/integration/life/test_autoplay_display.py::test_content_app_rows_label_the_length_per_item",
+         "tests/integration/life/test_content_start_evidence.py"
+         "::test_clock_in_at_the_office_starts_the_content_and_finishes_past_the_window_end[morning]")),
+    SourceMutation("app_use_progress_counts_only_finished_items", "worldmock.life.activity_control::_app_use_progress",
+        'count = len(activity.data["played"]) + (0 if activity.status == ActivityStatus.COMPLETED else 1)',
+        'count = len(activity.data["played"])',
+        ("tests/integration/life/test_autoplay_display.py"
+         "::test_running_app_use_row_says_time_used_and_the_item_playing",
+         "tests/integration/life/test_autoplay_display.py"
+         "::test_paused_app_use_in_the_todo_layer_says_time_used_and_the_item_playing")),
+    SourceMutation("title_list_writes_every_title", "worldmock.footprints.display_wording::title_list",
+        'listed = "".join(f"《{title}》" for title in titles[:TITLE_LIST_LIMIT])',
+        'listed = "".join(f"《{title}》" for title in titles)',
+        ("tests/unit/footprints/test_display_wording.py"
+         "::test_shared_cases_give_the_same_names_and_wording_as_the_viewer",
+         "tests/integration/life/test_autoplay_display.py"
+         "::test_timeline_row_of_a_long_app_use_lists_three_titles_and_the_count",
+         "tests/integration/life/test_autoplay_display.py"
+         "::test_settled_sentence_lists_three_titles_the_count_and_the_unfinished_item")),
+    SourceMutation("result_contents_list_every_row", "worldmock.life.result_projection::_done_contents",
+        "for key, finished in done[:TITLE_LIST_LIMIT]]", "for key, finished in done]",
+        ("tests/unit/life/test_result_contents.py::test_public_result_contents_follow_the_snapshot",
+         "tests/integration/life/test_autoplay_display.py"
+         "::test_ended_app_use_lists_three_contents_and_says_how_many_are_left_out")),
+    # ---- 自动接续轨道（A）结束 ----
+    # ---- 提示与计划轨道（B）：「系统层措辞」「零点计划、上班安排与明天」「饭点的食欲加成」 ----
+    SourceMutation("arrangement_note_written_without_a_change", "worldmock.life.work_schedule::_exception_note",
+        "if usual == (shift_on(schedule, day) is not None):", "if False:",
+        ("tests/unit/life/test_work_schedule_boundaries.py"
+         "::test_note_is_written_only_when_an_exception_changes_work_or_rest",
+         "tests/integration/life/test_day_plan_arrangement.py::test_no_note_without_a_change_of_work_or_rest")),
+    SourceMutation("tomorrow_reads_today", "worldmock.life.work_schedule::tomorrow",
+        "day = datetime.fromtimestamp(now, ZoneInfo(timezone_name)).date() + timedelta(days=1)",
+        "day = datetime.fromtimestamp(now, ZoneInfo(timezone_name)).date()",
+        ("tests/unit/life/test_work_schedule_boundaries.py"
+         "::test_tomorrow_is_the_next_local_date_with_its_weekday_and_day_kind",
+         "tests/integration/life/test_day_plan_arrangement.py"
+         "::test_tomorrow_reads_the_arrangement_of_the_next_local_date")),
+    SourceMutation("meal_bonus_ignores_energy", "worldmock.life.felt::compute_appetite",
+        "bonus = meal_window_bonus(time_hour, windows) if energy_kcal < appetite_anchor_kcal else 0.0",
+        "bonus = meal_window_bonus(time_hour, windows)",
+        ("tests/unit/life/test_body_felt_sleep_boundaries.py::test_meal_bonus_is_added_only_below_the_hunger_anchor",
+         "tests/integration/life/test_meal_window_appetite.py"
+         "::test_crossing_the_lunch_window_edges_wakes_only_a_hungry_person",
+         "tests/integration/life/test_meal_window_appetite.py"
+         "::test_falling_below_the_anchor_inside_a_meal_window_is_a_felt_band_change")),
+    # ---- 提示与计划轨道（B）结束 ----
+    # ---- 地点与 app 轨道（C）：「地点系列、暂停拒绝与关着的 app」 ----
+    SourceMutation("series_prefix_dropped", "worldmock.life.location_activities::running_series_note",
+        'return "；".join([_episode_note(content, len(contents)), *_food_notes(contents)])', "return None",
+        ("tests/unit/start_interfaces/test_running_series_note.py"
+         "::test_running_location_series_names_its_episode_then_its_meal_episodes",
+         "tests/integration/life/test_running_series_row.py"
+         "::test_running_series_row_names_the_episode_and_the_meal_episode")),
+    SourceMutation("series_pause_refusal_says_it_ends", "worldmock.life.activity_control::_continues_with_next_episode",
+        "return next_episode(catalog, agent, content, rounds) is not None", "return False",
+        ("tests/unit/life/test_series_pause_wording.py"
+         "::test_a_location_series_with_a_next_episode_gets_the_continuing_refusal",
+         "tests/integration/life/test_series_pause_refusal.py"
+         "::test_pause_179_seconds_before_a_non_last_episode_ends_says_the_series_continues")),
+    SourceMutation("next_opening_search_stops_at_six_days", "worldmock.life.content_prerequisite::time_phrase",
+        "for offset in range(1, NEXT_OPENING_DAYS + 1):", "for offset in range(1, NEXT_OPENING_DAYS):",
+        ("tests/unit/life/test_next_opening.py::test_next_opening_is_found_on_the_seventh_day_after_today",
+         "tests/integration/life/test_closed_app_state.py"
+         "::test_row_and_refusal_name_an_opening_on_the_seventh_day_or_none_within_seven_days")),
+    SourceMutation("closed_app_state_ignores_eligible_contents", "worldmock.life.content_prerequisite::app_time_state",
+        "rows = _unmet_contents(catalog, app_id, stay, local_moment)",
+        "rows = [(catalog.contents[key], ()) for key in sorted(catalog.contents_by_app.get(app_id, ()))]",
+        ("tests/unit/life/test_next_opening.py::test_app_time_state_is_null_while_some_content_can_start",
+         "tests/integration/life/test_closed_app_state.py"
+         "::test_clock_in_app_state_names_todays_hours_or_the_next_opening")),
+    # ---- 地点与 app 轨道（C）结束 ----
 )

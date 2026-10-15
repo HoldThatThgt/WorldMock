@@ -27,7 +27,7 @@ APPETITE_STARVING_LEVEL = "饿得发慌"
 APPETITE_CIRCADIAN_AMPLITUDE = 0.17
 #: 昼夜项峰值时刻（自午夜起的小时数）。出处：Scheer、Morris 与 Shea 2013。
 APPETITE_CIRCADIAN_PEAK_HOUR = 20.0
-#: 餐时项幅度（窗口内 +0.15，窗口外为零）。
+#: 餐时项幅度（窗口内且能量低于锚定热量时 +0.15，其余为零）。
 #: experiment_assumption：docs/design/02-exchange-engine.md「身体共同结算」明示
 #: 属实验假设。
 APPETITE_MEAL_WINDOW_BONUS = 0.15
@@ -159,7 +159,7 @@ def compute_appetite(
 ) -> float:
     """@brief 计算饥饿体感 appetite（docs/design/02-exchange-engine.md「身体共同结算」）。
 
-    appetite = clamp((anchor − energy)/(anchor − 400), 0, 1) · 昼夜因子 + 餐时项。
+    appetite = clamp((anchor − energy)/(anchor − 400), 0, 1) · 昼夜因子 + 餐时项（仅当能量低于锚定热量）。
     只夹基值分数，乘昼夜因子与加餐时项后可超过 1（上限 1.32）——顶档按
     ≥ 0.85 判"饿得难受"，与 docs/design/02-exchange-engine.md「身体共同结算」的 800/400 kcal 阈值一致。
     """
@@ -173,9 +173,8 @@ def compute_appetite(
     span = appetite_anchor_kcal - APPETITE_KCAL_FLOOR
     base = _clamp((appetite_anchor_kcal - energy_kcal) / span, 0.0, 1.0)
     windows = meal_windows if meal_windows is not None else MealWindows()
-    return base * appetite_circadian_multiplier(time_hour) + meal_window_bonus(
-        time_hour, windows
-    )
+    bonus = meal_window_bonus(time_hour, windows) if energy_kcal < appetite_anchor_kcal else 0.0
+    return base * appetite_circadian_multiplier(time_hour) + bonus
 
 
 @dataclass(frozen=True, slots=True)

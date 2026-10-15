@@ -94,7 +94,8 @@ flowchart LR
 工作班次沿用日内分钟 `starts`、`ends`、`breaks`，半开且不跨日，休息时段在班次内、升序、不重叠。
 `weekly` 使用星期键 `"0"` 至 `"6"`，未声明的日子不当班；`exceptions` 使用规范 ISO 日期，
 声明一个班次覆盖当天，空数组表示休息。TOML 不使用 null，也不增加独立休息日配置。
-排班与运行日历按现行特殊日期规则核对，不从内容推断人物是否在岗。
+哪天上班只看 `weekly` 与 `exceptions`，不读运行配置的 `calendar`，也不从内容推断人物是否在岗。
+`exceptions` 改了某天上不上班时，人物那天的上班安排带一句说明；条件与写法见[人物](06-agent.md#agent-环境层-duty)。
 
 <a name="configuration-运行配置"></a>
 ## 运行配置
@@ -190,7 +191,7 @@ flowchart LR
 | 快递费 | `courier-fee:{goods_id}:{app_id}`，零或五百分等概率，跨日期稳定；`app_id` 是最终的下单 app，意向用得上时就是意向 app |
 | 查询时长 | `query-duration:{action_id}`，`action_id` 是开始这次查询的那条动作；三百至六百整数秒，两端都能取到，受理时抽一次，恢复和重放读活动上的值 |
 | 查询所在的 app | `query-app:{action_id}`；只在 `prefer` 用不上、且有下单 app 卖所查商品至少一件时取流，候选按 `app_id` 升序，等概率取一个；`prefer` 用得上或没有候选时不抽 |
-| 内容选择 | `{activity_id}:{draw_index}`，只用于内容 app；在地点点名内容单元不抽随机数 |
+| 内容选择 | `{activity_id}:{draw_index}`，只用于内容 app：打开时 `draw_index` 为 0；一次 app 使用每自动接续一条加一，接下一集或另一部系列不抽，接一条没看过的独立内容时用加一后的键抽一次；在地点点名内容单元不抽随机数 |
 | 回调链 | `callback:{rule_id}:{anchor}:{step_index}`，步骤下标从零开始 |
 | 指标自举 | `bootstrap-metric:{name}`，抽取六十四位整数供 NumPy |
 | 评审自举 | `bootstrap-review:{dimension}`，抽取六十四位整数供 NumPy |

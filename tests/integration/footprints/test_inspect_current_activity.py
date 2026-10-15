@@ -17,7 +17,7 @@ from scripts import inspect_run
 from tests.integration.reflection_fixtures import host_run
 from tests.integration.runtime.current_contract_fixtures import ToolResponse, decide
 from tests.life.conftest import advance_next, do_at, purchase, sleep, stage_day_plan, travel, use_app
-from tests.life.environment_runtime import act, events, finish_activity, reach
+from tests.life.environment_runtime import act, conclude_app_use, events, finish_activity, reach
 from worldmock.status import write_status
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -184,7 +184,7 @@ def test_inspector_accepted_and_rejected_lines_read_the_current_fields(engine_fa
     _, refused = act(engine, "refused", travel("家"))
     assert refused.status == "rejected"
     _, watched = act(engine, "watch", use_app("哔哩哔哩"))
-    finish_activity(engine, watched, "watch")
+    conclude_app_use(engine, watched.activity_id, "watch")
     _, bought = act(engine, "buy", purchase("牛肉面"))
     lines = _events(engine, capsys)
     accepted = {row.activity_id: row for row in events(engine, "action_accepted")}

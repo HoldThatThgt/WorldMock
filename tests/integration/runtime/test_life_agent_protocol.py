@@ -414,7 +414,7 @@ def test_plan_day_is_no_person_tool_and_revision_carries_remind_time() -> None:
 
 def test_how_to_live_a_day_is_one_resident_section_of_both_decision_stages() -> None:
     """起居规则只在系统层 rules 写一次：生活决策的每个请求都带同一份系统层；只读问答用自己的系统层；「怎样过一天」已删。
-    同时进行的两个槽位只在讲槽位的一条（rules[9]）说一次，睡着后何时再请决策只在睡眠那一条说一次（docs/design/04-simulation-engine.md）。"""
+    同时进行的两个槽位只在讲槽位的一条（rules[9]）说一次，醒着时何时再请决策只在讲决策怎样结束的一条（rules[2]）说一次，睡着后何时再请决策只在睡眠那一条说一次（docs/design/04-simulation-engine.md）。"""
     agent = _prepared()
     request = ReactLoopRequest(0, _context().observed_at, _observations())
     agent.prepare_react_loop(request)
@@ -427,14 +427,18 @@ def test_how_to_live_a_day_is_one_resident_section_of_both_decision_stages() -> 
     assert readonly_system == render_layer_json(READONLY_SYSTEM_LAYER)
     rules = json.loads(action_system)["rules"]
     for sentence in ("同时最多两项活动", "睡着后到你写的时长才会再请你决策", "商品实际收到时自动吃掉或用掉",
-                     "只是自己的想法，不能改变身体、资金、内容进度或订单结果", "工作安排由环境给出"):
+                     "只是自己的想法，不能改变身体、资金、内容进度或订单结果", "工作安排由环境给出",
+                     "没有进行中的活动时时间不会往前走", "打开后放完一条自动接下一条", "环境也不按它们限制你此刻能做什么",
+                     "系列的 note 或进行中活动的 state", "今日计划只是自己的打算", "available 为 true 的动作单独提交都会受理",
+                     "个人事务只记要买到或取到的商品"):
         assert sum(sentence in rule for rule in rules) == 1
     assert "同时最多两项活动，槽位 1 和槽位 2 各放一项" in rules[9]
+    assert "醒着时，手上的事做完" in rules[2]
     assert all("名额" not in rule and "睡够了" not in rule for rule in rules)
     assert sum("不保存库存" in rule for rule in rules) == 1
     for system in (action_system, readonly_system):
         assert "怎样过一天" not in system and "你不是AI助手" not in system
-        for banned in ("评审", "评分", "引擎期望", "budget", "based_on_action_id", "supply_id"):
+        for banned in ("评审", "评分", "引擎期望", "budget", "based_on_action_id", "supply_id", "正确答案", "环境期望"):
             assert banned not in system
     assert "能送到这里的都算" not in readonly_system
 

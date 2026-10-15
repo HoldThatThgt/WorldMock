@@ -11,13 +11,14 @@ from worldmock.life.tool_groups import expand_tool_layer
 
 from typing import Any
 
+from worldmock.footprints.display_wording import TITLE_LIST_LIMIT
 from worldmock.life import felt
 from worldmock.life.callable_index import MAX_EXAMPLES
 from worldmock.life.control_items import CONTROL_TOOLS
 from worldmock.life.action_contract import ACTIVITY_ACTIONS
 from worldmock.life.models import ActionStatus
 from worldmock.life.schedule import INTENT_KINDS
-from worldmock.life.work_schedule import DUTY_DAYS, DUTY_STATUSES
+from worldmock.life.work_schedule import DUTY_DAYS, DUTY_STATUSES, WEEKDAY_NAMES
 
 #: 带时区的 ISO 8601 时刻（秒精度）。
 _TIME = {"type": "string", "pattern": r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$"}
@@ -183,13 +184,16 @@ TODO_LAYER_SCHEMA: dict[str, Any] = {
 
 
 
-#: 工作日写班次、工作地点名与四种状态之一。
+#: 工作日写班次、工作地点名与四种状态之一；note 是日期例外改了上不上班时的一句说明，其余为 null。
 _DUTY = _object({"day": {"enum": list(DUTY_DAYS)}, "hours": _NULLABLE_TEXT, "place": _NULLABLE_TEXT,
-                 "breaks": {"type": "array", "items": _TEXT}, "status": {"enum": [*DUTY_STATUSES, None]}})
+                 "breaks": {"type": "array", "items": _TEXT}, "note": _NULLABLE_TEXT,
+                 "status": {"enum": [*DUTY_STATUSES, None]}})
 _DUTY["if"] = {"properties": {"day": {"const": "休息日"}}}
 _DUTY["then"] = {"properties": {"hours": {"type": "null"}, "place": {"type": "null"},
                                 "status": {"type": "null"}, "breaks": {"maxItems": 0}}}
 _DUTY["else"] = {"properties": {"hours": _TEXT, "place": _TEXT, "status": {"enum": list(DUTY_STATUSES)}}}
+#: 明天：下一个本地日的日期、星期名与那天是工作日还是休息日；没有工作安排时 day 为 null。
+_TOMORROW = _object({"date": _DATE, "weekday": {"enum": list(WEEKDAY_NAMES)}, "day": {"enum": [*DUTY_DAYS, None]}})
 ENVIRONMENT_LAYER_SCHEMA: dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema", "title": "环境层",
     **_object({
@@ -199,6 +203,7 @@ ENVIRONMENT_LAYER_SCHEMA: dict[str, Any] = {
                              "travel_method": _TEXT}, optional=("travel_method",)),
         "weather": {"enum": ["晴", "多云", "小雨", "大雨", "雪"]},
         "duty": {"oneOf": [{"type": "null"}, _DUTY]},
+        "tomorrow": _TOMORROW,
     }),
 }
 
@@ -210,9 +215,11 @@ _PURCHASE["oneOf"] = [{"required": ["paid"], "not": {"required": ["price"]}},
 #: 第一条结果里实际开始的那条内容；在地点做的事 app 为 null。
 _CONTENT = _object({"app": _NULLABLE_TEXT, "title": _TEXT, "summary": _SUMMARY, "duration": _TEXT,
                     "pushed": {"type": "boolean"}})
-#: 第二条结果里做过的各条内容，至少一行；finished 表示这条做到了头。
-_CONTENTS = {"type": "array", "minItems": 1, "items": _object({
+#: 第二条结果里做过的各条内容，一到 TITLE_LIST_LIMIT 行；finished 表示这条做到了头。
+_CONTENTS = {"type": "array", "minItems": 1, "maxItems": TITLE_LIST_LIMIT, "items": _object({
     "title": _TEXT, "summary": _SUMMARY, "duration": _TEXT, "finished": {"type": "boolean"}})}
+#: contents 多于 TITLE_LIST_LIMIT 行时没写出的行数，至少一行时才写。
+_CONTENTS_OMITTED = {"type": "string", "pattern": r"^还有 [1-9][0-9]* 条没列$"}
 #: 查询答案的一行：九个键都出现；可以下单时 reason 为 null，不可下单时是非空原因。
 _QUERY_ROW = _reason_unless(_object({
     "product": _TEXT, "route": {"enum": ["到店", "外卖", "快递", None]}, "store": _NULLABLE_TEXT,
@@ -232,6 +239,7 @@ _RESULT_DETAILS = _object({
     "purchases": {"type": "array", "items": _PURCHASE},
     "planned": {"type": "array", "items": _object({"name": _TEXT, "duration": _TEXT})},
     "content": _CONTENT, "contents": _CONTENTS, "query": _QUERY,
+    "contents_omitted": _CONTENTS_OMITTED,
     "arrival": _object({"place": _TEXT, "access": {"enum": ["进入", "没能进去"]}}),
     "recall": {"type": "object"}, "reason": _TEXT, "next_step": _TEXT, "fix": _TEXT,
     "items": {"type": "array", "items": {"type": "object"}},
@@ -239,8 +247,8 @@ _RESULT_DETAILS = _object({
     "resolved": {"type": "array", "items": {"type": "object"}},
     "notes": {"type": "array", "items": _TEXT},
     "errands": {"type": "array", "items": _object({"errand": _TEXT, "change": _TEXT})},
-}, optional=("purchases", "planned", "content", "contents", "query", "arrival", "recall", "reason", "next_step",
-             "fix", "items", "outcome", "resolved", "notes", "errands"))
+}, optional=("purchases", "planned", "content", "contents", "contents_omitted", "query", "arrival", "recall",
+             "reason", "next_step", "fix", "items", "outcome", "resolved", "notes", "errands"))
 _RESULT = _object({"occurred_at": _TIME, "status": {"enum": list(ACTION_STATUSES)},
                    "error_code": _NULLABLE_TEXT, "message": _TEXT, "details": _RESULT_DETAILS})
 

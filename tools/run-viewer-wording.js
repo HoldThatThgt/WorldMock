@@ -3,7 +3,8 @@
 /** @brief 查看器的显示写法：src/worldmock/footprints/display_wording.py 的镜像，两份实现由
  *  tests/fixtures/display-wording-cases.json 约束。名称只取本库运行清单登记的冻结目录文件；另算出查看器独有的
  *  同一 app 连续使用（docs/design/05-recording-engine.md「显示写法与检查工具」）。查看器是容错的阅读工具，
- *  取不到名称时显示「名称缺失（身份）」并写英文错误，不像 Python 一侧那样报运行故障。 */
+ *  取不到名称时显示「名称缺失（身份）」并写英文错误，不像 Python 一侧那样报运行故障。一串内容标题与 Python 一侧同一上限：
+ *  多于三条时只写前三条再接「等 K 条」，活动表的目标、泳道标签和连续使用的条块文字都经这一处。 */
 const ViewerWording = {};
 {
   /* 显示名称读的五份目录：运行清单 environment_assets 里的素材名与名称表的字段；出行方式文件可选。 */
@@ -29,6 +30,8 @@ const ViewerWording = {};
   const CATEGORY_LABELS = {snack: '零食', meal: '食品', drink: '饮料', goods: '商品'};
   /* 查看器各行里写统一写法的种类；出行、睡眠照原格式，没有专门写法的种类在目标处是「—」。 */
   const WORDED_KINDS = new Set(['interact', 'purchase', 'query']);
+  /* 一串内容标题照列的最多条数：worldmock.footprints.display_wording.TITLE_LIST_LIMIT 的镜像。 */
+  const TITLE_LIST_LIMIT = 3;
 
   /** @brief 同一个键只写一次英文错误的报告函数；页面传入它自己的（随换库清空），单独加载时用这一个。 */
   function onceReporter() {
@@ -145,9 +148,16 @@ const ViewerWording = {};
     return contentIds.filter((key, index) => index === 0 || key !== contentIds[index - 1]);
   }
 
-  /** @brief 各条内容的标题依次各加一个书名号，书名号之间不加字。 */
+  /** @brief 一串标题的写法：每条加一个书名号，书名号之间不加字；不多于 TITLE_LIST_LIMIT 条时全部照列，多于时只写前
+   *  TITLE_LIST_LIMIT 条再接「等 <总条数> 条」；空串列得空串。参数是标题文字，不是内容身份。 */
+  function titleList(texts) {
+    const listed = texts.slice(0, TITLE_LIST_LIMIT).map(text => `《${text}》`).join('');
+    return texts.length <= TITLE_LIST_LIMIT ? listed : `${listed}等 ${texts.length} 条`;
+  }
+
+  /** @brief 各条内容先按身份逐一取名（列表之外的也取，缺名照样显示并写英文错误），再把全部标题交给 titleList。 */
   function titles(contentIds) {
-    return contentIds.map(key => `《${name('content', key).title}》`).join('');
+    return titleList(contentIds.map(key => name('content', key).title));
   }
 
   /** @brief 用 app 写「使用<app 名>《标题》……」；在地点做事写「在<地点>：<单元名>」，系列再列各集。 */

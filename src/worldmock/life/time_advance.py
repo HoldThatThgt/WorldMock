@@ -61,7 +61,7 @@ from worldmock.life.travel import persisted_trip, record_arrival, update_travel
 from worldmock.scheduling.effects import process_scheduled_events
 
 from worldmock.life.engine_context import EngineContext
-from worldmock.life.activity_titles import activity_snapshot, title_index
+from worldmock.life.activity_titles import activity_snapshot, progress_snapshot, title_index
 from worldmock.life.world_ops import place_names, meal_windows_by_agent
 
 class TimeAdvanceCoordinator:
@@ -283,7 +283,7 @@ class TimeAdvanceCoordinator:
             state.agents[activity.agent_id]=state.agents[activity.agent_id].model_copy(
                 update={"next_decision_at":target})
         data={"interval_start":activity.last_settled_at,"interval_end":target,
-              "activity":activity_snapshot(changed,title_index(self.context.catalog)),
+              "activity":progress_snapshot(changed,title_index(self.context.catalog)),
               "body_settlement_event_id":body_event_id}
         flows=[*merged.pop(RESOURCE_FLOWS_FIELD,[]),*_resource_flows_data(activity.agent_id,target)]
         data.update(merged)

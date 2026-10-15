@@ -28,16 +28,16 @@ flowchart LR
 
 | 文件 | 是否必需 | 登记内容 | 不存在时 |
 | --- | --- | --- | --- |
-| `manifest.json` | 必需 | `format_version: 5`、环境身份和版本、`rules_version: 5`、每个存在的目录 JSONL 的路径、摘要和字节数，以及 `catalog_content_sha256` | 加载失败 |
+| `manifest.json` | 必需 | `format_version: 5`、环境身份和版本、`rules_version: 6`、每个存在的目录 JSONL 的路径、摘要和字节数，以及 `catalog_content_sha256` | 加载失败 |
 | `app-catalog.jsonl` | 必需 | app 身份、名称、角色，以及功能 app 的购买绑定与出行方式绑定 | 加载失败 |
 | `location.jsonl` | 必需 | 全部实际地点、显示名、自由类型、内容 app、住宿和驿站资格、营业安排 | 加载失败 |
 | `merchant-catalog.jsonl` | 必需 | 商品身份、名称、四类商品、固定价格、地点类型或内容 app 绑定 | 加载失败 |
-| `content-catalog.jsonl` | 必需 | 内容身份、标题、时长、体力消耗、推送资格、心理缓解档位、摘要与容器；绑定到 app 的内容可以另写前提 `prerequisite`；绑定到地点类型的内容可以另写凭状态 `consumes_state` 与完成效果 `completion_effects` | 加载失败 |
+| `content-catalog.jsonl` | 必需 | 内容身份、标题、时长、体力消耗、推送与自动接续资格、心理缓解档位、摘要与容器；绑定到 app 的内容可以另写前提 `prerequisite`；绑定到地点类型的内容可以另写凭状态 `consumes_state` 与完成效果 `completion_effects` | 加载失败 |
 | `callbacks.jsonl` | 可选 | 状态声明和触发规则 | 没有状态，没有规则 |
 | `map.jsonl` | 可选 | 声明的两地距离 | 没有声明，地图全部随机生成 |
 | `travel-method.jsonl` | 可选 | 数据集定义的出行方式 | 只有引擎自带的步行 |
 
-规则版本 `RULES_VERSION` 是 5，目录格式 `format_version` 是 5；这两个号只在本节维护。
+规则版本 `RULES_VERSION` 是 6，目录格式 `format_version` 是 5；这两个号只在本节维护。
 四个必需文件名是 `catalog.identity` 的 `REQUIRED_CATALOG_FILES`，三个可选文件名是 `OPTIONAL_CATALOG_FILES`，其余模块只引用这两个常量。
 可选文件「存在」指 `catalog/` 下有这个名字的目录条目，不论类型；存在的条目必须是普通文件，链接和目录由安全文件边界拒绝。
 可选文件允许零字节。零字节表示零行，加载出的目录、地图和运行行为与文件不存在完全相同；两者只在清单文件表和目录摘要上不同。
@@ -329,7 +329,9 @@ app 行只有 `app_id`、`name`、`role` 和功能 app 的两个绑定字段，�
 内容必填身份、标题、`exertion`、`pushable`、`relaxation_relief`、`social_relief`、摘要、来源和时长。
 体力消耗档为 `idle`、`light`、`moderate`、`heavy`；两个心理缓解档独立取 `none`、`low`、`medium`、`high`，
 固定每小时缓解量为 0、0.1、0.3、0.5，由身体结算按实际消费时间应用。
-`pushable` 是严格布尔，时长是至少 60 秒的严格整数，摘要至多 200 字符。
+`pushable` 是严格布尔：为真的 app 内容可以被推送，也可以在一次 app 使用里接在同一个 app 的别的内容之后自动放；
+为假的只在打开 app 时被挑中，或作为正在放的系列的下一集接着放。同一系列各集可以不同，自动接续怎样读它见[模拟引擎](04-simulation-engine.md)「出行、内容与查询」。
+时长是至少 60 秒的严格整数，摘要至多 200 字符。
 来源完整形状为 `{kind, url, notice}`，真实来源必须有非空 URL。
 
 绑定到地点类型的内容可以另写两个可选字段，绑定到 app 的内容不得写；两个字段互不要求。
@@ -363,7 +365,7 @@ app 行只有 `app_id`、`name`、`role` 和功能 app 的两个绑定字段，�
 同一系列各集的 `consumes_state` 必须相同（都不写，或写同一个状态名）；`completion_effects` 每集各写各的，不要求相同，一个系列可以有几集声明 `food`。
 绑定到地点类型的内容，不属于系列时的 `title` 和系列的 `series.title` 是人物要写的名称，系列各集的 `title` 不是；
 绑定到 app 的内容标题不是可写的名称，人物只写 app 名。
-目录提供按集号排序的系列索引；推荐、进度、连续消费和恢复由模拟引擎处理，不由推送资格决定。
+目录提供按集号排序的系列索引；挑选、进度、自动接续和恢复由模拟引擎处理。
 
 绑定到 app 的内容可以另写前提 `prerequisite`，声明这条内容只有人在某类地点、或当地时间落在某些时段内才能开始。
 省略表示没有前提，随时随地能开始；「没有前提」只有省略一种写法，显式 `null` 拒绝。前提对象只有两个成员，其他键拒绝。

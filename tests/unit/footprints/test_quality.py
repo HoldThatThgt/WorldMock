@@ -689,7 +689,7 @@ def test_decision_rhythm_counts_same_moment_rounds():
 
 
 def test_errand_reminder_due_is_a_known_wake_reason():
-    """个人事务提醒的唤醒原因 errand_reminder_due（docs/design/04-simulation-engine.md#simulation-engine-提醒时刻）由质量报告按同一份足迹词表
+    """个人事务提醒的唤醒原因 errand_reminder_due（docs/design/04-simulation-engine.md#simulation-engine-唤醒-日计划与个人事务）由质量报告按同一份足迹词表
     分桶：共同身体结算与 decision_started 里的它都计入已知原因，与同刻到期的当日目标提醒各计一次，未识别的原因为空。"""
     reasons = ["reminder_due"]
     events = [

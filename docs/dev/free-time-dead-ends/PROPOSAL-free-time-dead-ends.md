@@ -1,6 +1,7 @@
 # Phone-first free time and dead ends
 
-Status: proposal, awaiting review. Date: 2026-10-14.
+Status: frozen with the owner's rulings of 2026-10-15 (see "Rulings"); the WorldMock part is specified in
+[SPEC-free-time-dead-ends.md](SPEC-free-time-dead-ends.md). Date: 2026-10-14.
 
 Source baselines: WorldMock `d27f2c5a6c2d4532c2a06a1b63c7ee521abc5864`; WorldMock-Dataset `224cc29a3666fd9a68bb4354726f6113ba6fc6c3`
 (the white-collar environment `0001-white-collar-lianqiu`, environment version 6).
@@ -456,6 +457,22 @@ baselines. The rule count stays at twenty, and the agent chapter's list of syste
 | Tomorrow's arrangement | Show tomorrow's work arrangement in the environment layer so holiday-evening notes stop assuming work tomorrow (a new field on every observation), or leave the person aware of today only |
 
 Take the auto-play decisions before the engine work, and all wording-related decisions before the system-layer pass.
+
+### Rulings
+
+The owner answered the eight decisions that change WorldMock on 2026-10-15. The remaining rows are dataset-author
+choices and stay open for the WorldMock-Dataset release.
+
+| Decision | Ruling |
+| --- | --- |
+| Auto-play after a standalone item | A random unseen item, as proposed |
+| Which content auto-plays | Pushable content only, as proposed |
+| Pausing a feed | An app use can be paused at any time, as proposed |
+| Feeds while driving | Leave as today |
+| Plan-time list of what is available | Not adopted; the revise rule alone |
+| Meal-window appetite bonus | Apply it only when energy is below the hunger anchor |
+| Grocery-kit wording | Keep the wording |
+| Tomorrow's arrangement | Show it: 「要，日期，周几，明天要不要上班」 (tomorrow's date, weekday and whether she works) |
 
 ## Implementation scope and order
 

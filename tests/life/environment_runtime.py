@@ -108,12 +108,42 @@ def run_to_end(engine):
 
 
 def until_ended(engine, activity_id):
-    """推进到这项活动终结：其间的决策机会只播报进行中的活动、给别的已结束活动收尾，不替这项活动收尾。"""
+    """推进到这项活动终结：其间的决策机会只播报进行中的活动、给别的已结束活动收尾，不替这项活动收尾。
+
+    不要用在会自动接续的 app 使用上，它会把整个可推送的内容放完；那种用 conclude_app_use。
+    """
     while engine.context.state.activities[activity_id].status == "active":
         if engine.scheduling_state().ready_agent_ids:
             settle_decision(engine, f"settle-{engine.context.state.current_time}")
         else:
             advance_next(engine)
+
+
+def conclude_app_use(engine, activity_id, label, items=1):
+    """推进一次 app 使用，等它放到至少 items 条、并且人物就绪时收尾它，返回这次收尾的动作结果。
+
+    其间人物就绪而条数不够时用 settle_decision 处理这次决策（照旧收尾别的待收尾活动、播报进行中的活动，包括这次使用），
+    不就绪时 advance_next。条数不够而这项活动已不在进行中（自己停下了或被暂停），或这项活动已经收尾，都断言失败并点名
+    活动。条件满足后在同一次 conclude_activity 里点名这项活动和此刻全部别的待收尾活动：同一秒还有活动在进行时不会再有
+    同秒决策，所以要一次点全。
+
+    :param items: 收尾之前至少放过的条数（data.played 的项数）。
+    """
+    while True:
+        activity = engine.context.state.activities[activity_id]
+        played = len(activity.data["played"])
+        assert activity.concluded_at is None, f"{activity.name} was already concluded"
+        assert played >= items or activity.status == "active", f"{activity.name} stopped after {played} items"
+        ready = engine.scheduling_state().ready_agent_ids
+        if played >= items and ready:
+            break
+        if ready:
+            settle_decision(engine, f"{label}-report-{engine.context.state.current_time}")
+        else:
+            advance_next(engine)
+    others = [item.name for item in engine.context.state.activities.values() if item.activity_id != activity_id
+              and item.status not in {"active", "paused"} and item.concluded_at is None]
+    return act(engine, f"{label}-conclude", conclude_request(activity.name, *others), "conclude_activity")[1]
 
 
 def observe_only(engine, label):

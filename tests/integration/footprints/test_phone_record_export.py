@@ -82,7 +82,7 @@ def of_kind(events, kind):
 
 def test_day_with_every_phone_record_exports_six_artifacts_and_certifies(phone_export):
     manifest, events = phone_export["manifest"], phone_export["events"]
-    assert manifest["schema_version"] == 6 and manifest["experiment_completed"] is True
+    assert manifest["schema_version"] == 7 and manifest["experiment_completed"] is True
     assert set(manifest["artifacts"]) == {"events", "activities", "verified_experiences", "purchases", "app_usage",
                                           "location_stays"}
     directory, ids = phone_export["directory"], phone_export["activities"]
@@ -317,7 +317,7 @@ def test_rewritten_artifacts_and_the_old_manifest_are_refused(exported, fault, r
         usage[0]["segments"][0]["ended_at"] -= 1
         write_rows(exported, manifest, "app_usage", usage)
     elif fault == "old_manifest":
-        manifest["schema_version"] = 5
+        manifest["schema_version"] = 6
     else:
         del manifest["artifacts"]["location_stays"]
     write_manifest(exported, manifest)

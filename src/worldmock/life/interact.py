@@ -1,4 +1,4 @@
-"""@brief 真实容器互动、共享内容进度与同系列自动接续。"""
+"""@brief 真实容器互动、共享内容进度与自动接续：系列接下一集，内容 app 的一次使用另按接续顺序接着放。"""
 from __future__ import annotations
 import logging
 import math
@@ -8,9 +8,10 @@ from worldmock.footprints.callback_contract import ConsumeOnStartResult
 from worldmock.footprints.models import EventDraft, validate_resource_flows
 from worldmock.life.activities import ActivityStartParams, start_activity, schedule_feedback
 from worldmock.life.activity_control import activity_name
+from worldmock.life.admission import present_location
 from worldmock.life.app_push import open_app_push, release_app_pushes
 from worldmock.life.completion_effects import settle_completion_effects
-from worldmock.life.content_select import ContentRequest, select_content
+from worldmock.life.content_select import ContentRequest, autoplay_content, next_episode, select_content
 from worldmock.life.location_activities import next_content
 from worldmock.life.models import ActivityState, ActivityStatus, ContentProgress, WorldState
 from worldmock.life.randomness import random_stream
@@ -85,7 +86,7 @@ class InteractivityRuntime:
     def _consume(self, state: WorldState, activity: ActivityState) -> tuple[WorldState, list[EventDraft]]:
         """@brief 凭状态的地点内容开始时把本人这个回调状态减 1，写一条 consume_on_start 草稿；不凭状态的原样返回。
 
-        受理已保证减之前不小于 1，不钳位；减后小于 0 是运行故障。只在开始时调用：恢复暂停的活动、系列自动接下一集、
+        受理已保证减之前不小于 1，不钳位；减后小于 0 是运行故障。只在开始时调用：恢复暂停的活动、自动接续的下一条、
         提前结束与运行截止都不经过这里。回调效果的草稿构造时就要恰一个起因，所以先回链这次开始调用的请求事件，
         受理时由决策协调改指主调用的受理结果（docs/design/04-simulation-engine.md「出行、内容与查询」）。
         """
@@ -108,7 +109,7 @@ class InteractivityRuntime:
         return _put_agent(state, agent), [draft]
 
     def advance(self, state: WorldState, activity: ActivityState, target: int) -> tuple[WorldState, dict | None]:
-        """@brief 泛型游标已推进后保存实际内容区间，不再另加心理效果。"""
+        """@brief 泛型游标已推进后保存实际内容区间，不再另加心理效果；一条放完时按接续顺序接着放或停下。"""
         content_id = activity.data["content_id"]
         content = self.context.catalog.contents[content_id]
         changed = state.model_copy(deep=True)
@@ -159,26 +160,49 @@ class InteractivityRuntime:
         return changed, {**evidence, "completion_effects": settled}, validate_resource_flows(flows)
 
     def _complete_content(self, state: WorldState, activity: ActivityState, content, rounds: int) -> ActivityState:
-        """@brief 独立内容立即停止；同系列仅按集号接续下一条未完成集。"""
+        """@brief 一条放完：记进 played，再按接续顺序找下一条，接上时同一项活动继续，找不到时照旧停下等收尾。
+
+        先找同一系列的下一集（app 使用与在地点做的事都这样）；没有下一集时，只有一次 app 使用另按接续顺序挑同一 app 的
+        另一部开始了的系列或没看过的单条（_autoplay）。接上任何一条都把 draw_index 加一。
+        """
         played = [*activity.data["played"], {"content_id": content.content_id,
             "from_position": activity.data["start_position_seconds"], "to_position": content.duration_seconds}]
         activity = activity.model_copy(update={"data": {**activity.data, "played": played}}, deep=True)
-        if content.series is None:
-            return activity
-        ids = self.context.catalog.contents_by_series[content.series.title]
         agent = state.agents[activity.agent_id]
-        candidates = [self.context.catalog.contents[key] for key in ids
-            if self.context.catalog.contents[key].series.episode > content.series.episode
-            and (key not in agent.content_progress or agent.content_progress[key].completed_rounds < rounds)]
-        if not candidates:
+        index = activity.data["draw_index"] + 1
+        upcoming = next_episode(self.context.catalog, agent, content, rounds)
+        if upcoming is None and activity.data["app_id"] is not None:
+            upcoming = self._autoplay(state, activity, content, index)
+        if upcoming is None:
             return activity
-        next_content = candidates[0]
-        previous = agent.content_progress.get(next_content.content_id)
+        return self._continue(activity, upcoming, agent, index)
+
+    def _autoplay(self, state: WorldState, activity: ActivityState, content, index: int):
+        """@brief 一次 app 使用的接续抽取：按这一秒本人的停留判定合格，随机流键是活动身份加加一后的 draw_index。
+
+        停留在这一秒结算活动的过程中求值，到达那一秒仍是路上（会话在活动结算之后才切换）。
+        :param content: 刚放完的那一条，写进请求的 previous_content_id。
+        :param index: 加一之后的 draw_index。
+        :returns: 接着放的那一条，没有可接的时为 None。
+        """
+        stay = present_location(state, activity.agent_id)
+        request = ContentRequest(activity.agent_id, activity.data["app_id"], stay, activity.activity_id,
+                                 content.content_id)
+        stream = random_stream(state.random_state, f"{activity.activity_id}:{index}")
+        return autoplay_content(self.context.catalog, state, request, stream)
+
+    def _continue(self, activity: ActivityState, upcoming, agent, index: int) -> ActivityState:
+        """@brief 接上下一条：同一项活动回到进行中，从这一条保存的位置接着放，played 与受理事件带过去，反馈重排。
+
+        :param upcoming: 接着放的那一条。
+        :param index: 加一之后的 draw_index。
+        """
+        previous = agent.content_progress.get(upcoming.content_id)
         position = 0.0 if previous is None else previous.position_seconds
-        data = _content_data(next_content, activity.data["app_id"], position, None)
-        data.update(draw_index=activity.data["draw_index"] + 1, played=played,
+        data = _content_data(upcoming, activity.data["app_id"], position, None)
+        data.update(draw_index=index, played=activity.data["played"],
                     accepted_event_id=activity.data["accepted_event_id"])
-        remaining = _remaining(next_content, position)
+        remaining = _remaining(upcoming, position)
         result = activity.model_copy(update={"data": {"action": "interact", **data},
             "media_position_seconds": position, "status": ActivityStatus.ACTIVE, "ended_at": None,
             "planned_end_at": activity.last_settled_at + remaining,

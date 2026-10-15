@@ -11,11 +11,13 @@ from worldmock.errors import BusinessRuleError
 from worldmock.footprints.models import EventDraft
 from worldmock.life import errands
 from worldmock.life.activities import at_decision_boundary
+from worldmock.life.activity_evidence import OUTCOME_APP_USE_ENDED, app_use_ended
 from worldmock.life.activity_titles import TitleIndex
 from worldmock.life.error_contract import ErrorItem, items_fix
 from worldmock.life.guidance import Refusal, items_refusal, refusal_for_code
 from worldmock.life.action_evidence import (_activity_terminal_draft, _activity_terminal_result,
                                             _terminal_action_records)
+from worldmock.life.content_select import next_episode
 from worldmock.life.models import (CONCLUDABLE_TERMINAL_STATUSES, ActivityKind, ActivityState, ActivityStatus,
                                    PendingAction, WorldState, active_activities)
 from worldmock.life.name_resolution import near_names
@@ -28,7 +30,7 @@ if TYPE_CHECKING:
 
 #: 每人活动槽位数（常量，不设场景参数）。
 SLOT_LIMIT = 2
-#: 进行中的活动离计划结束不足这么多秒时不能暂停，只能结束或等它做完；恰好还剩这么多秒可以暂停。
+#: 在地点做的事离计划结束不足这么多秒时不能暂停，只能结束或等它做完；恰好还剩这么多秒可以暂停。一次 app 使用随时可以暂停。
 PAUSE_MIN_REMAINING_SECONDS = 180
 #: 活动阶段的人读说法：进行中、已暂停、刚结束（待收尾）、已收尾、已结束（实验截止截断）。
 PHASE_ACTIVE, PHASE_PAUSED, PHASE_PENDING, PHASE_CONCLUDED, PHASE_ENDED = (
@@ -92,13 +94,14 @@ def concludable(activity: ActivityState) -> bool:
 
 
 def pausable(state: WorldState, activity: ActivityState) -> bool:
-    """@brief 活动能否暂停的唯一判定：进行中的交互活动，并且离计划结束不少于 PAUSE_MIN_REMAINING_SECONDS。
+    """@brief 活动能否暂停的唯一判定：进行中的交互活动，且是一次 app 使用（随时可停）或离计划结束不少于 PAUSE_MIN_REMAINING_SECONDS。
 
     暂停的受理、工具层 pause_activity 一行的可用性与原因、同槽位占用与槽位超限的下一步写不写「暂停」都读它。
     计划结束取活动此刻的计划结束（系列是正在做的这一集）；决策边界只关乎暂停的时机，不在此判定。
     """
     return (activity.status == ActivityStatus.ACTIVE and activity.kind == ActivityKind.INTERACT
-            and activity.planned_end_at - state.current_time >= PAUSE_MIN_REMAINING_SECONDS)
+            and (activity.data["app_id"] is not None
+                 or activity.planned_end_at - state.current_time >= PAUSE_MIN_REMAINING_SECONDS))
 
 
 def free_slots(state: WorldState, agent_id: int) -> int:
@@ -136,7 +139,13 @@ def oversleep_phrase(activity: ActivityState) -> str:
 
 
 def objective_progress(activity: ActivityState) -> str:
-    """@brief 活动客观进度写已做时长，进行或暂停中的活动另写剩余时长，睡过头的睡眠另写多睡了多久。"""
+    """@brief 活动客观进度：一次 app 使用写「已用…，放到第 K 条」（见 _app_use_progress）；别的活动写已做时长，
+    进行或暂停中的活动另写剩余时长，睡过头的睡眠另写多睡了多久。
+
+    工具层活动行的 state、待办层暂停行的 progress 与回看任务的 objective_progress 都读这一句。
+    """
+    if activity.kind == ActivityKind.INTERACT and activity.data["app_id"] is not None:
+        return _app_use_progress(activity)
     parts = [f"已做{duration_phrase(activity.elapsed_seconds)}"]
     if activity.status in {ActivityStatus.ACTIVE, ActivityStatus.PAUSED}:
         remaining = max(0, activity.planned_duration_seconds - activity.elapsed_seconds)
@@ -147,14 +156,26 @@ def objective_progress(activity: ActivityState) -> str:
     return "，".join(parts)
 
 
+def _app_use_progress(activity: ActivityState) -> str:
+    """@brief 一次 app 使用的客观进度「已用<不含暂停的已用时长>，放到第 K 条」。
+
+    K 是放完的条数（data.played 的项数），状态不是 completed 时再加 1：进行中、暂停中、被收尾结束、被截断的使用都还有
+    一条正放着或停在半截；放完一条后没有能接的内容而停下（completed）的使用没有这一条。
+    """
+    count = len(activity.data["played"]) + (0 if activity.status == ActivityStatus.COMPLETED else 1)
+    return f"已用{duration_phrase(activity.elapsed_seconds)}，放到第 {count} 条"
+
+
 def ending_phrase(activity: ActivityState) -> str:
-    """@brief 已结束活动的终局说法：到达、按计划结束、睡过头、提前结束或失败（工具层刚结束的状态与 settled 句共用）。"""
+    """@brief 已结束活动的终局说法：到达、按计划结束、睡过头、结束使用（被收尾的 app 使用）、提前结束或失败。"""
     if activity.status == ActivityStatus.FAILED:
         return "失败"
     if activity.kind == ActivityKind.TRAVEL and activity.status == ActivityStatus.COMPLETED:
         return "到达"
     if activity.status == ActivityStatus.COMPLETED and activity.boundary_type == "planned_end":
         return oversleep_phrase(activity) or "按计划结束"
+    if app_use_ended(activity):
+        return OUTCOME_APP_USE_ENDED
     return "提前结束"
 
 
@@ -261,7 +282,7 @@ def control_refusal(context: Context, tool: str, activity: ActivityState) -> Ref
 
     report_status：只接受进行中或暂停的活动；暂停的活动只在实际开始地点恢复。
     恢复要有空槽位且与进行中活动的占用不能冲突（按这个顺序）。
-    pause_activity：只暂停进行中的活动；只有离计划结束不少于三分钟的进行中交互活动可以暂停；须在活动的决策边界。
+    pause_activity：只暂停进行中的交互活动：一次 app 使用随时可以，在地点做的事离计划结束须不少于三分钟；须在决策边界。
     conclude_activity：只结束能结束的活动（进行中、暂停中或待收尾）；有别的待收尾活动时先收尾；进行中的活动须在决策边界
     。
 
@@ -301,7 +322,7 @@ def _report_refusal(context: Context, activity: ActivityState) -> Refusal | None
 
 
 def _pause_refusal(context: Context, activity: ActivityState) -> Refusal | None:
-    """@brief 暂停：能暂停（离计划结束不少于三分钟的进行中交互活动，pausable），并在决策边界。"""
+    """@brief 暂停：能暂停（进行中的 app 使用，或离计划结束不少于三分钟的在地点做的事，pausable），并在决策边界。"""
     if not pausable(context.state, activity):
         return _unpausable_refusal(context, activity)
     if not at_decision_boundary(activity, context.state.current_time):
@@ -310,10 +331,21 @@ def _pause_refusal(context: Context, activity: ActivityState) -> Refusal | None:
 
 
 def _unpausable_refusal(context: Context, activity: ActivityState) -> Refusal:
-    """@brief 不能暂停的活动按第一条不成立的条件拒绝：不在进行中；是交互活动而离计划结束不足三分钟；其余种类。"""
+    """@brief 不能暂停的活动按第一条不成立的条件拒绝：不在进行中；是交互活动而离计划结束不足三分钟；其余种类。
+
+    离计划结束不足三分钟的交互活动有两种文字：做完这一集还会接下一集时（_continues_with_next_episode），原因说这一集
+    快完了、之后接着做下一集，下一步与改法是结束它或让它继续；不再接续时原因说这件事快做完了，下一步与改法是结束它或
+    等它做完。
+    """
     if activity.status != ActivityStatus.ACTIVE:
         return refusal_for_code("ACTION_REQUEST_INVALID")
     name = context.activity_names.get(activity.activity_id, activity.name)
+    if activity.kind == ActivityKind.INTERACT and _continues_with_next_episode(context, activity):
+        return Refusal("ACTIVITY_PAUSE_UNAVAILABLE",
+                       f"{name} cannot be paused while its current episode ends in under three minutes; "
+                       "it then continues with the next episode.",
+                       f"Conclude {name}, or keep it running.",
+                       fix="Conclude this activity or keep it running instead.")
     if activity.kind == ActivityKind.INTERACT:
         return Refusal("ACTIVITY_PAUSE_UNAVAILABLE",
                        f"The activity {name} ends in under three minutes and cannot be paused.",
@@ -322,6 +354,20 @@ def _unpausable_refusal(context: Context, activity: ActivityState) -> Refusal:
         return Refusal("ACTIVITY_PAUSE_UNAVAILABLE", f"The activity {name} cannot be paused while travelling.",
                        f"Conclude {name}.")
     return refusal_for_code("ACTIVITY_PAUSE_UNAVAILABLE")
+
+
+def _continues_with_next_episode(context: Context, activity: ActivityState) -> bool:
+    """@brief 交互活动做完当前这一集后是否接着做下一集：与系列接续同一个判定 content_select.next_episode。
+
+    轮数取当前内容此刻的完成轮数（没有进度记录按 0 算）加一，即这一集做完之后的完成轮数，与接续时传入的是同一个数。
+    独立内容、系列最后一集、后面各集轮数都不低于这个数的系列都不接续。读准入上下文的环境输入与人物此刻的状态。
+    """
+    catalog = context.inputs.catalog
+    agent = context.state.agents[activity.agent_id]
+    content = catalog.contents[activity.data["content_id"]]
+    progress = agent.content_progress.get(content.content_id)
+    rounds = (0 if progress is None else progress.completed_rounds) + 1
+    return next_episode(catalog, agent, content, rounds) is not None
 
 
 def _conclude_refusal(context: Context, activity: ActivityState) -> Refusal | None:

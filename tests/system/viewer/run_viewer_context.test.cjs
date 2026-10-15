@@ -132,7 +132,7 @@ const START_TOOL_LAYER = {layer: '工具层', groups: [
   {kind: 'product', action: 'purchase', shared: {duration: '1–5 分钟', quantity: '1 件'}, targets: [
     {name: '柠檬茶', available: true, price: '12 元', note: '运费5 元，预计01月05日 08:18到达'}]},
   {kind: 'app', action: 'interact', shared: {available: true}, targets: [
-    {name: '哔哩哔哩', duration: '约 5 分钟–约 40 分钟'}]},
+    {name: '哔哩哔哩', duration: '每条约 5 分钟–约 40 分钟'}]},
 ], callable_index: {}};
 
 /** @brief 不读录制夹具，按七层合同内联构造一个现行行动请求：系统层、六个用户层与含两个开始工具的工具数组。 */
@@ -177,7 +177,7 @@ test('tool layer drill-down writes action names in Chinese and keeps categories 
   assert.deepEqual(text('家 · 睡觉 · 可用'), {action: 'sleep', state: '全天营业', available: true,
     note: '现在不欠觉', name: '家', kind: 'location'});
   assert.deepEqual(text('哔哩哔哩 · 使用 · 可用'), {action: 'interact', available: true, name: '哔哩哔哩',
-    duration: '约 5 分钟–约 40 分钟', kind: 'app'});
+    duration: '每条约 5 分钟–约 40 分钟', kind: 'app'});
   assert.deepEqual(text('公司（location）'), {state: '全天营业', name: '公司', detail: '步行', available: true,
     price: '0 元', duration: '约 32 分钟', note: '费力', kind: 'location'});
   for (const item of items) {

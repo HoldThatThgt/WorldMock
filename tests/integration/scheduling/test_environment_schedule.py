@@ -171,7 +171,7 @@ def test_push_stops_being_offered_after_its_window_and_expires_with_the_stay(eng
     assert pushed.data["content_id"] == "dingtalk-morning" and pushed.data["session_id"] == office.session_id
     observed, _ = act(engine, "after-push", report_request(name), "report_status")
     row = target_actions(observed, "钉钉")["interact"]
-    assert (row["available"], row["duration"], row["note"]) == (True, "约 1 分钟", "有推送：《晨会纪要》")
+    assert (row["available"], row["duration"], row["note"]) == (True, "先放的一条约 1 分钟", "有推送：《晨会纪要》")
     reach(engine, moment(12, 10))
     assert advance_until_ready(engine)
     assert moment(12, 10) <= engine.context.state.current_time < moment(12, 11)
@@ -180,7 +180,7 @@ def test_push_stops_being_offered_after_its_window_and_expires_with_the_stay(eng
     observed, concluded = act(engine, "stop-work", conclude_request(name), "conclude_activity")
     assert concluded.status == "completed", concluded.error_code
     row = target_actions(observed, "钉钉")["interact"]
-    assert (row["duration"], row["note"]) == ("约 5 分钟", None)
+    assert (row["duration"], row["note"]) == ("每条约 5 分钟", None)
     _, opened = act(engine, "open-late", use_app("钉钉"))
     assert opened.status == "in_progress", opened.error_code
     activity = engine.context.state.activities[opened.activity_id]

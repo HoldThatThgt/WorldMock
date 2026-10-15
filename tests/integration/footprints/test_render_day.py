@@ -12,7 +12,7 @@ from tests.life.conftest import (
 from tests.life.environment_inputs import (
     catalog_rows, copy_environment, replace_travel_methods, travel_method_row, write_catalog_rows,
 )
-from tests.life.environment_runtime import act, events, finish_activity, settle_decision
+from tests.life.environment_runtime import act, conclude_app_use, events, finish_activity, settle_decision
 from tests.life.prerequisite_inputs import add_rows
 from worldmock.footprints.models import EventDraft
 from worldmock.footprints.store import FootprintStore
@@ -122,16 +122,20 @@ def _played(engine, activity_id):
 
 
 def test_app_use_row_names_the_app_and_every_item_in_order(engine_factory, tmp_path):
-    """用哔哩哔哩看完一条：一行「使用哔哩哔哩《实际标题》」，标签检查零发现。哔哩哔哩只留三集的副本里，一次使用放完第一集、
+    """用哔哩哔哩放完至少一条后收尾：一行「使用哔哩哔哩」接这项活动各条进度事件结算的内容标题（相邻重复只写一次），
+    多于三条时只写前三条再写「等 K 条」，标签检查零发现。哔哩哔哩只留三集的副本里，一次使用放完第一集、
     第二集放到一半时结束：一行列出两集，没有系列名、没有「未完」，跨两个结算段的第一集只写一次；暂停再恢复得到两行，各列各的。"""
     engine = engine_factory()
     _, watched = act(engine, "watch", use_app("哔哩哔哩"))
     assert watched.status == "in_progress", watched.error_code
-    finish_activity(engine, watched, "watch")
-    titles = "".join(f"《{engine.context.catalog.contents[row['content_id']].title}》"
-                     for row in engine.context.state.activities[watched.activity_id].data["played"])
+    conclude_app_use(engine, watched.activity_id, "watch")
+    played = _played(engine, watched.activity_id)
+    titles = [engine.context.catalog.contents[key].title
+              for index, key in enumerate(played) if index == 0 or key != played[index - 1]]
+    listed = "".join(f"《{title}》" for title in titles[:3])
     [label] = _labels(engine, tmp_path / "plain", "使用")
-    assert label == f"使用哔哩哔哩{titles}" and titles and label_findings(label) == []
+    assert label == f"使用哔哩哔哩{listed if len(titles) <= 3 else f'{listed}等 {len(titles)} 条'}"
+    assert titles and label_findings(label) == []
 
     drama = _drama_only(tmp_path)
     engine = engine_factory(environment_root=drama, mutate=_report_every_quarter_hour)
