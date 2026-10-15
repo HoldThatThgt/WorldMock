@@ -686,5 +686,31 @@ MUTATIONS = (
         ("tests/integration/life/test_autoplay.py"
          "::test_progress_events_carry_the_played_count_and_other_snapshots_the_list",
          "tests/unit/life/test_autoplay_order.py::test_progress_snapshot_counts_played_items_only_for_interactions")),
+    SourceMutation("app_row_duration_drops_the_per_item_label", "worldmock.life.tool_layer::_app_duration",
+        'else f"每条{span}"', "else span",
+        ("tests/integration/life/test_autoplay_display.py::test_content_app_rows_label_the_length_per_item",
+         "tests/integration/life/test_content_start_evidence.py"
+         "::test_clock_in_at_the_office_starts_the_content_and_finishes_past_the_window_end[morning]")),
+    SourceMutation("app_use_progress_counts_only_finished_items", "worldmock.life.activity_control::_app_use_progress",
+        'count = len(activity.data["played"]) + (0 if activity.status == ActivityStatus.COMPLETED else 1)',
+        'count = len(activity.data["played"])',
+        ("tests/integration/life/test_autoplay_display.py"
+         "::test_running_app_use_row_says_time_used_and_the_item_playing",
+         "tests/integration/life/test_autoplay_display.py"
+         "::test_paused_app_use_in_the_todo_layer_says_time_used_and_the_item_playing")),
+    SourceMutation("title_list_writes_every_title", "worldmock.footprints.display_wording::title_list",
+        'listed = "".join(f"《{title}》" for title in titles[:TITLE_LIST_LIMIT])',
+        'listed = "".join(f"《{title}》" for title in titles)',
+        ("tests/unit/footprints/test_display_wording.py"
+         "::test_shared_cases_give_the_same_names_and_wording_as_the_viewer",
+         "tests/integration/life/test_autoplay_display.py"
+         "::test_timeline_row_of_a_long_app_use_lists_three_titles_and_the_count",
+         "tests/integration/life/test_autoplay_display.py"
+         "::test_settled_sentence_lists_three_titles_the_count_and_the_unfinished_item")),
+    SourceMutation("result_contents_list_every_row", "worldmock.life.result_projection::_done_contents",
+        "for key, finished in done[:TITLE_LIST_LIMIT]]", "for key, finished in done]",
+        ("tests/unit/life/test_result_contents.py::test_public_result_contents_follow_the_snapshot",
+         "tests/integration/life/test_autoplay_display.py"
+         "::test_ended_app_use_lists_three_contents_and_says_how_many_are_left_out")),
     # ---- 自动接续轨道（A）结束 ----
 )
