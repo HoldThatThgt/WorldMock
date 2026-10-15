@@ -12,7 +12,7 @@ from tests.life.conftest import (
 from tests.life.environment_inputs import (
     catalog_rows, copy_environment, replace_travel_methods, travel_method_row, write_catalog_rows,
 )
-from tests.life.environment_runtime import act, events, finish_activity, settle_decision
+from tests.life.environment_runtime import act, conclude_app_use, events, finish_activity, settle_decision
 from tests.life.prerequisite_inputs import add_rows
 from worldmock.footprints.models import EventDraft
 from worldmock.footprints.store import FootprintStore
@@ -127,7 +127,7 @@ def test_app_use_row_names_the_app_and_every_item_in_order(engine_factory, tmp_p
     engine = engine_factory()
     _, watched = act(engine, "watch", use_app("哔哩哔哩"))
     assert watched.status == "in_progress", watched.error_code
-    finish_activity(engine, watched, "watch")
+    conclude_app_use(engine, watched.activity_id, "watch")
     titles = "".join(f"《{engine.context.catalog.contents[row['content_id']].title}》"
                      for row in engine.context.state.activities[watched.activity_id].data["played"])
     [label] = _labels(engine, tmp_path / "plain", "使用")

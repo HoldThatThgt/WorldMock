@@ -120,10 +120,10 @@ def test_slot_conflict_offers_pausing_only_while_the_running_activity_can_be_pau
     assert engine.context.state.activities[activity_id].status == "active"
 
 
-@pytest.mark.parametrize("left,step", [(179, "Conclude"), (180, "Conclude or pause")])
-def test_sleep_refusal_offers_pausing_the_app_only_while_it_can_be_paused(engine_factory, left, step):
-    """槽位 2 的 app 内容离结束不足三分钟时去睡觉：睡眠约束的下一步只写「先结束」，照做之后能睡；恰好三分钟时写
-    「先结束或暂停」，照着暂停之后也能睡。工具层 pause_activity 一行可用与否和这句下一步说的是同一件事。"""
+@pytest.mark.parametrize("left", [179, 180])
+def test_sleep_refusal_offers_pausing_the_app_only_while_it_can_be_paused(engine_factory, left):
+    """槽位 2 的 app 使用还在放时去睡觉：app 使用随时可以暂停，离这一条结束不足三分钟和恰好三分钟一样，睡眠约束的
+    下一步写「先结束或暂停」，工具层 pause_activity 一行可用，照着暂停之后能睡。"""
     engine = engine_factory(mutate=_decides_after(_RUN_SECONDS - left))
     stage_day_plan(engine, submitted=True)
     _, used = act(engine, "keep", use_app("Keep"))
@@ -136,17 +136,14 @@ def test_sleep_refusal_offers_pausing_the_app_only_while_it_can_be_paused(engine
     observed, refused = act(engine, "sleepy", sleep(30))
     assert refused.status == "rejected" and refused.error_code == "RESOURCE_CONFLICT"
     assert refused.message == refused.data["reason"] == _SLEEP_REASON
-    assert refused.data["next_step"] == f"{step} the second activity first."
+    assert refused.data["next_step"] == "Conclude or pause the second activity first."
     assert refused.data["fix"] is None and refused.data["unmet"] == []
     assert engine.context.state.activities[used.activity_id].model_dump(mode="json") == before
     pausing = target_tools(observed, activity.name)["pause_activity"]
-    assert pausing["available"] is (left >= 180)
-    assert pausing["reason"] == (None if left >= 180 else _reason(activity.name))
-    if left >= 180:
-        _, released = act(engine, "release", pause_request(activity.name), "pause_activity")
-    else:
-        _, released = act(engine, "release", conclude_request(activity.name), "conclude_activity")
+    assert pausing == {"tool": "pause_activity", "available": True, "reason": None}
+    _, released = act(engine, "release", pause_request(activity.name), "pause_activity")
     assert released.status == "completed", released.error_code
+    assert engine.context.state.activities[used.activity_id].status == "paused"
     _, slept = act(engine, "sleep", sleep(30))
     assert slept.status == "in_progress", slept.error_code
     assert engine.context.state.activities[slept.activity_id].kind == "sleep"
@@ -176,36 +173,38 @@ def test_sleep_refusal_never_offers_pausing_a_running_purchase(engine_factory):
     assert slept.status == "in_progress", slept.error_code
 
 
-def _one_minute_keep(tmp_path):
-    """夹具副本：Keep 唯一的那条内容改成 60 秒。"""
+def _one_minute_rest(tmp_path):
+    """夹具副本：家里的「测试休息」改成 60 秒。"""
     root = copy_environment(tmp_path / "one-minute")
     rows = catalog_rows(root, "content-catalog.jsonl")
-    next(row for row in rows if row["content_id"] == "c-run")["duration_seconds"] = 60
+    next(row for row in rows if row["content_id"] == "c-rest")["duration_seconds"] = 60
     write_catalog_rows(root, "content-catalog.jsonl", rows)
     return root
 
 
 def test_a_sixty_second_content_is_never_pausable(engine_factory, tmp_path):
-    """整段只有 60 秒的 app 内容从开始就不能暂停：刚开始时判定就是不能，做到一半时工具层照样标不可用、暂停被拒；
-    这时再开一个 app 的同槽位占用拒绝只写「先结束」。等它做完后照常收尾。"""
-    engine = engine_factory(_one_minute_keep(tmp_path), mutate=_decides_after(20))
+    """整段只有 60 秒的在地点做的事从开始就不能暂停：刚开始时判定就是不能，做到一半时工具层照样标不可用、暂停以
+    不足三分钟的三句被拒；这时点名「测试闲聊」的同槽位占用拒绝只写「先结束」。等它做完后照常收尾。"""
+    engine = engine_factory(_one_minute_rest(tmp_path), mutate=_decides_after(20))
     stage_day_plan(engine, submitted=True)
     start = engine.context.state.current_time
-    _, used = act(engine, "keep", use_app("Keep"))
+    _, used = act(engine, "rest", do_at("家", "测试休息"))
     assert used.status == "in_progress", used.error_code
     activity = engine.context.state.activities[used.activity_id]
-    assert activity.planned_duration_seconds == 60 and activity.data["content_id"] == "c-run"
+    assert activity.planned_duration_seconds == 60 and activity.data["content_id"] == "c-rest"
     assert activity_control.pausable(engine.context.state, activity) is False
     assert advance_until_ready(engine) and engine.context.state.current_time == start + 20
     observed, refused = act(engine, "pause", pause_request(activity.name), "pause_activity")
     assert target_tools(observed, activity.name)["pause_activity"] == {
         "tool": "pause_activity", "available": False, "reason": _reason(activity.name)}
     assert refused.status == "rejected" and refused.message == _reason(activity.name)
-    _, second = act(engine, "douyin", use_app("抖音"))
+    assert refused.data["next_step"] == f"Conclude {activity.name} or let it finish."
+    assert refused.data["fix"] == "Conclude this activity or let it finish instead."
+    _, second = act(engine, "chat", do_at("家", "测试闲聊"))
     assert second.status == "rejected" and second.error_code == "RESOURCE_CONFLICT"
     assert second.data["next_step"] == f"Conclude {activity.name} first."
     assert not _paused_events(engine)
-    concluded = finish_activity(engine, used, "keep")
+    concluded = finish_activity(engine, used, "rest")
     assert concluded.status == "completed", concluded.error_code
     done = engine.context.state.activities[used.activity_id]
     assert done.status == "completed" and done.ended_at == start + 60 and done.concluded_at == start + 60

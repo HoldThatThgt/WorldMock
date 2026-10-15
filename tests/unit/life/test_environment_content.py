@@ -134,11 +134,13 @@ def test_consumption_uses_shared_actual_position_and_repeated_boundary_has_no_ef
 
 
 def test_single_content_and_last_series_episode_stop(context_state):
+    """没有可接内容的单条与没有别的开始了的系列的最后一集放完就停：Keep 唯一的一条不可推送，最后一集之后没有别的
+    开始了没看完的系列。"""
     context,state=context_state
-    for content_id in ('c-course','c-drama-3'):
+    for content_id,app_id in (('c-run','keep'),('c-drama-3','bilibili')):
         content=context.catalog.contents[content_id]
         _,activity=start_activity(state.agents[1],ActivityStartParams('interact',content.duration_seconds,
-            data=_content_data(content,'bilibili',0,None)),state.current_time,
+            data=_content_data(content,app_id,0,None)),state.current_time,
             ActivityOrigin('action','decision','event'),context.body)
         activity=activity.model_copy(update={'media_position_seconds':content.duration_seconds,
             'elapsed_seconds':content.duration_seconds,'last_settled_at':state.current_time+content.duration_seconds,

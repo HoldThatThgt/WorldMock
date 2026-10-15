@@ -108,9 +108,11 @@ OWNERS = {'base_models.py': ('StrictModel',
  'evaluation/behavior_metrics.py': ('BEDTIME_MIN_SECONDS', 'BEDTIME_DAY_START_MINUTES'),
  'life/location_activities.py': ('location_units', 'next_content', 'unit_facts', 'held_refusal'),
  'life/content_prerequisite.py': ('prerequisite_unmet', 'app_prerequisite_refusal'),
- 'life/content_select.py': ('eligible_contents', 'pinned_push_content'),
+ 'life/content_select.py': ('eligible_contents', 'pinned_push_content', 'autoplay_content', 'next_episode'),
  'life/start_group.py': ('GROUP_REJECTION_SUFFIX', 'group_rejection', 'frozen_observation'),
- 'life/activity_control.py': ('pausable', 'PAUSE_MIN_REMAINING_SECONDS')}
+ 'life/activity_control.py': ('pausable', 'PAUSE_MIN_REMAINING_SECONDS'),
+ 'life/activity_evidence.py': ('app_use_ended', 'OUTCOME_APP_USE_ENDED'),
+ 'life/activity_titles.py': ('progress_snapshot',)}
 # 语义排除仅限普通 logger、Python 类型声明、不同类作用域的薄协议钩子与导入绑定。
 SEMANTIC_EXCLUSIONS = ('module logger', 'Python type declaration', 'thin decorated protocol hook', 'import binding')
 

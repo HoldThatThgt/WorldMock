@@ -506,8 +506,8 @@ def test_concluded_location_activity_stays_cancelled_and_writes_no_extra_event(e
 @pytest.mark.parametrize("request_builder,unfinished", [
     (lambda: do_at("家", "测试休息"), False), (lambda: use_app("Keep"), True)], ids=["location", "app"])
 def test_memory_sentence_keeps_the_unfinished_half_only_for_app_content(engine_factory, request_builder, unfinished):
-    """做 5 分钟后结束、离开这一段：记忆层里在地点做的事的结束句以「提前结束」收尾，用内容 app 的结束句带
-    「（《测试慢跑》未完）」。"""
+    """做 5 分钟后结束、离开这一段：记忆层里在地点做的事的结束句以「提前结束」收尾，用内容 app 的结束句以「结束使用」
+    收尾并带「（《测试慢跑》未完）」。"""
     engine = engine_factory(mutate=_attentive)
     _, started = act(engine, "started", request_builder())
     assert started.status == "in_progress", started.error_code
@@ -520,7 +520,7 @@ def test_memory_sentence_keeps_the_unfinished_half_only_for_app_content(engine_f
     memory = engine.observe(context(engine, "road"))["memory_layer"]
     (sentence,) = [line for entry in memory["earlier_today"] for line in entry["settled"] if line.startswith(name)]
     if unfinished:
-        assert sentence.endswith("，提前结束，（《测试慢跑》未完）")
+        assert sentence.endswith("，结束使用，（《测试慢跑》未完）")
     else:
         assert sentence.endswith("，提前结束") and "未完" not in sentence
 

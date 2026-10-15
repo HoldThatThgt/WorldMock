@@ -3,7 +3,7 @@ from datetime import timedelta
 import pytest
 from scripts import render_day
 from tests.life.conftest import MAIN_TOOL, SIDE_TOOL, do_at, purchase, stage_day_plan, travel, use_app
-from tests.life.environment_runtime import act, act_group, events, finish_activity, run_to_end
+from tests.life.environment_runtime import act, act_group, conclude_app_use, events, finish_activity, run_to_end
 from worldmock.footprints.export import export_run
 from worldmock.footprints.timeline_labels import label_findings
 from worldmock.footprints.validation import validate_export
@@ -40,7 +40,7 @@ def test_day_timeline_of_a_real_day_names_what_each_start_tool_started(engine_fa
     _, (rest, watch) = act_group(engine, "home", do_at("家", "测试休息"), use_app("哔哩哔哩"))
     assert (rest.status, watch.status) == ("in_progress", "in_progress"), (rest.error_code, watch.error_code)
     finish_activity(engine, rest, "rest")
-    finish_activity(engine, watch, "watch")
+    conclude_app_use(engine, watch.activity_id, "watch")
     _, bought = act(engine, "buy", purchase("柠檬茶", "柠檬茶"))
     assert bought.status == "in_progress", bought.error_code
     finish_activity(engine, bought, "buy")

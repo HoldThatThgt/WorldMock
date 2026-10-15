@@ -5,7 +5,7 @@ import hashlib
 import json
 
 from tests.life.conftest import purchase, use_app
-from tests.life.environment_runtime import act, finish_activity, run_to_end
+from tests.life.environment_runtime import act, conclude_app_use, finish_activity, run_to_end
 
 #: 导出清单 artifacts 的键与各自的文件名。
 ARTIFACT_FILES = {"events": "events.jsonl", "activities": "activities.jsonl",
@@ -20,7 +20,8 @@ def short_window(persona, config):
 
 
 def recorded_engine(engine_factory, *, purchases=True, content=True):
-    """通过真实请求得到付款、本人收货和持续内容接触。"""
+    """通过真实请求得到付款、本人收货和持续内容接触；哔哩哔哩放完第一条之后的第一次决策就收尾这次使用，人物随后
+    步行回家，运行截止时已在家。"""
     engine = engine_factory(mutate=short_window)
     if purchases:
         _, result = act(engine, "recorded-basket", purchase("柠檬茶", "纸巾"))
@@ -29,6 +30,7 @@ def recorded_engine(engine_factory, *, purchases=True, content=True):
     if content:
         _, result = act(engine, "recorded-content", use_app("哔哩哔哩"))
         assert result.status == "in_progress", result.error_code
+        conclude_app_use(engine, result.activity_id, "recorded-content")
     run_to_end(engine)
     return engine, final_checkpoint(engine)
 

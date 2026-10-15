@@ -155,7 +155,7 @@ MUTATIONS = (
         "max(0, ended_at - max(started_at, window_start))", "max(0, ended_at - started_at)",
         ("tests/unit/life/test_sleep_plan.py::test_a_sleep_across_the_window_start_counts_only_the_part_inside",)),
     SourceMutation("pause_allowed_in_the_last_three_minutes", "worldmock.life.activity_control::pausable",
-        "and activity.planned_end_at - state.current_time >= PAUSE_MIN_REMAINING_SECONDS)", "and True)",
+        "or activity.planned_end_at - state.current_time >= PAUSE_MIN_REMAINING_SECONDS))", "or True))",
         ("tests/integration/life/test_pause_limit.py"
          "::test_pause_with_179_seconds_left_is_refused_changes_nothing_and_conclude_succeeds",)),
     SourceMutation("pause_refused_with_exactly_three_minutes_left", "worldmock.life.activity_control::pausable",
