@@ -139,7 +139,13 @@ def oversleep_phrase(activity: ActivityState) -> str:
 
 
 def objective_progress(activity: ActivityState) -> str:
-    """@brief 活动客观进度写已做时长，进行或暂停中的活动另写剩余时长，睡过头的睡眠另写多睡了多久。"""
+    """@brief 活动客观进度：一次 app 使用写「已用…，放到第 K 条」（见 _app_use_progress）；别的活动写已做时长，
+    进行或暂停中的活动另写剩余时长，睡过头的睡眠另写多睡了多久。
+
+    工具层活动行的 state、待办层暂停行的 progress 与回看任务的 objective_progress 都读这一句。
+    """
+    if activity.kind == ActivityKind.INTERACT and activity.data["app_id"] is not None:
+        return _app_use_progress(activity)
     parts = [f"已做{duration_phrase(activity.elapsed_seconds)}"]
     if activity.status in {ActivityStatus.ACTIVE, ActivityStatus.PAUSED}:
         remaining = max(0, activity.planned_duration_seconds - activity.elapsed_seconds)
@@ -148,6 +154,16 @@ def objective_progress(activity: ActivityState) -> str:
     if overslept:
         parts.append(overslept)
     return "，".join(parts)
+
+
+def _app_use_progress(activity: ActivityState) -> str:
+    """@brief 一次 app 使用的客观进度「已用<不含暂停的已用时长>，放到第 K 条」。
+
+    K 是放完的条数（data.played 的项数），状态不是 completed 时再加 1：进行中、暂停中、被收尾结束、被截断的使用都还有
+    一条正放着或停在半截；放完一条后没有能接的内容而停下（completed）的使用没有这一条。
+    """
+    count = len(activity.data["played"]) + (0 if activity.status == ActivityStatus.COMPLETED else 1)
+    return f"已用{duration_phrase(activity.elapsed_seconds)}，放到第 {count} 条"
 
 
 def ending_phrase(activity: ActivityState) -> str:

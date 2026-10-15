@@ -22,7 +22,7 @@ OWNERS = {'base_models.py': ('StrictModel',
  'footprints/intervals.py': ('valid_interval', 'is_body_settlement', 'body_settlements'),
  'footprints/timeline_labels.py': ('window_days', 'local_day_bounds', 'split_local_days'),
  'footprints/display_wording.py': ('DisplayNames', 'display_names', 'goods_items', 'event_content_id',
-                                   'activity_phrase', 'phone_phrase'),
+                                   'activity_phrase', 'phone_phrase', 'TITLE_LIST_LIMIT', 'title_list'),
  'life/models.py': ('validated_payload', 'active_side_activities', 'NavigationForeground',
                     'RUN_MANIFEST_SCHEMA_VERSION'),
  'life/navigation_foreground.py': ('settle_navigation', 'navigation_app', 'foreground_event'),
@@ -108,7 +108,8 @@ OWNERS = {'base_models.py': ('StrictModel',
  'evaluation/behavior_metrics.py': ('BEDTIME_MIN_SECONDS', 'BEDTIME_DAY_START_MINUTES'),
  'life/location_activities.py': ('location_units', 'next_content', 'unit_facts', 'held_refusal'),
  'life/content_prerequisite.py': ('prerequisite_unmet', 'app_prerequisite_refusal'),
- 'life/content_select.py': ('eligible_contents', 'pinned_push_content', 'autoplay_content', 'next_episode'),
+ 'life/content_select.py': ('eligible_contents', 'pinned_push_content', 'autoplay_content', 'next_episode',
+                            'opening_duration', 'OpeningDuration'),
  'life/start_group.py': ('GROUP_REJECTION_SUFFIX', 'group_rejection', 'frozen_observation'),
  'life/activity_control.py': ('pausable', 'PAUSE_MIN_REMAINING_SECONDS'),
  'life/activity_evidence.py': ('app_use_ended', 'OUTCOME_APP_USE_ENDED'),
@@ -233,7 +234,9 @@ def test_copied_rule_table_fails_even_after_renaming(tmp_path):
                                     'EXPORT_SCHEMA_VERSION = 4\n',
                                     'ORDER_TITLES = frozenset({"订单已取消"})\n',
                                     'def shipping_delay_seconds(interval):\n return interval // 2\n',
-                                    'def active_side_activities(state, agent_id):\n return ()\n'])
+                                    'def active_side_activities(state, agent_id):\n return ()\n',
+                                    'TITLE_LIST_LIMIT = 5\n',
+                                    'def opening_duration(catalog, state, request):\n return None\n'])
 def test_wrong_shared_rule_owner_fails(tmp_path, source):
     _sample(tmp_path, 'custom/wrong.py', source)
     assert any('wrong owner' in item for item in single_source_violations(tmp_path))

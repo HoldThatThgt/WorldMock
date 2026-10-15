@@ -123,9 +123,23 @@ def _same_unit(unit: tuple[Content, ...], finished: Content) -> bool:
         return first.series is None and first.content_id == finished.content_id
     return first.series is not None and first.series.title == finished.series.title
 
-def content_duration_range(catalog: Catalog, state: WorldState, request: ContentRequest) -> tuple[int, int] | None:
-    """@brief 内容 app 的查询不抽样：只在合格内容里算，优先推送或未完成余量，否则全长范围；内容此刻都不合格
-    （没有登记内容的 app 也是这样）时为 None。"""
+@dataclass(frozen=True)
+class OpeningDuration:
+    """@brief 内容 app 行时长的唯一判定结果：此刻打开会不会先放一条已知内容，以及要写的秒数。"""
+    #: 此刻打开会先放一条已知内容（会被钉住的推送，或排除预留之后最近没放完的那一条）。
+    known_first: bool
+    #: known_first 为真时是那一条的余量（整秒向上取整）；否则是此刻全部合格内容全长的最小值（秒）。
+    shortest: int
+    #: known_first 为真时等于 shortest；否则是此刻全部合格内容全长的最大值（秒）。
+    longest: int
+
+def opening_duration(catalog: Catalog, state: WorldState, request: ContentRequest) -> OpeningDuration | None:
+    """@brief 内容 app 行的时长写哪一种只在这里判定，不抽样、不改状态；内容此刻都不合格（没有登记内容的 app 也是这样）
+    时为 None。
+
+    打开顺序排在最前的两步（推送钉住、最近未完）用的是同一对助手，所以 known_first 为真时的那一条就是此刻打开这个 app
+    会开始的那一条，秒数是它的余量；否则取此刻全部合格内容（含不可推送的）全长的最小值与最大值。
+    """
     contents = eligible_contents(catalog, state, request)
     if not contents:
         return None
@@ -135,9 +149,9 @@ def content_duration_range(catalog: Catalog, state: WorldState, request: Content
         _exclude_reserved(content_units(contents), state, request), agent)
     if item is not None:
         remaining = ceil(item.duration_seconds - _position(agent, item))
-        return remaining, remaining
+        return OpeningDuration(True, remaining, remaining)
     durations = tuple(item.duration_seconds for item in contents)
-    return min(durations), max(durations)
+    return OpeningDuration(False, min(durations), max(durations))
 
 def pinned_push_content(contents: tuple[Content, ...], state: WorldState,
                         request: ContentRequest) -> tuple[Content, str] | None:

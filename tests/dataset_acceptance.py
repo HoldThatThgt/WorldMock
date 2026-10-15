@@ -386,7 +386,7 @@ MUTATIONS = (
          "tests/unit/start_interfaces/test_location_units.py"
          "::test_unit_done_raises_every_content_behind_to_the_next_round")),
     SourceMutation("terminal_result_lists_no_contents", "worldmock.life.result_projection::_details",
-        'details["contents"] = contents', "pass",
+        "details.update(_done_contents(_activity_rows(payload), inputs))", "pass",
         ("tests/integration/life/test_result_contents.py::test_finished_app_use_lists_what_was_watched",)),
     SourceMutation("contents_list_only_the_current_content", "worldmock.life.result_projection::_done_contents",
         'for item in data["played"]]', 'for item in data["played"][-1:]]',

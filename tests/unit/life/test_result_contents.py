@@ -1,4 +1,5 @@
-"""进度层结果明细：Schema 认得的键与形状，退役的键与写错的形状被拒；终态结果按活动快照投影出 contents。"""
+"""进度层结果明细：Schema 认得的键与形状，退役的键与写错的形状被拒；终态结果按活动快照投影出 contents，
+多于三行时只写前三行并写 contents_omitted。"""
 
 from __future__ import annotations
 
@@ -27,7 +28,7 @@ _ANSWERED = {"app": "美团外卖", "scope": "只列经这个 app 能买的", "r
 _UNFINISHED = {"app": "饿了么", "state": "没有查完"}
 _EVERY_KEY = {
     "purchases": [_DELIVERED], "planned": [{"name": "进行测试休息（1月5日 08:00 起）", "duration": "约 15 分钟"}],
-    "content": {**_CONTENT, "app": None}, "contents": [_DONE],
+    "content": {**_CONTENT, "app": None}, "contents": [_DONE], "contents_omitted": "还有 2 条没列",
     "query": {"app": None, "scope": "列出全部途径", "rows": [_ORDERABLE]},
     "arrival": {"place": "公司", "access": "进入"}, "recall": {"date": "2026-01-04"},
     "reason": "测试原因。", "next_step": "测试下一步。", "fix": "测试改法。", "items": [{"written": "咖啡"}],
@@ -58,14 +59,16 @@ def _problem(details: dict) -> str | None:
 @pytest.mark.parametrize("details", [
     pytest.param({"content": _CONTENT, "planned": [{"name": "使用Keep", "duration": "约 20 分钟"}]}, id="content"),
     pytest.param({"contents": [_DONE, _UNDONE]}, id="contents"),
+    pytest.param({"contents": [_DONE, _DONE, _DONE], "contents_omitted": "还有 2 条没列"},
+                 id="three-contents-and-how-many-are-left-out"),
     pytest.param({"purchases": [_DELIVERED, _IN_STORE]}, id="purchase-channel"),
     pytest.param({"query": _ANSWERED}, id="query-answered"),
     pytest.param({"query": _UNFINISHED}, id="query-unfinished"),
     pytest.param(_EVERY_KEY, id="every-key"),
 ])
 def test_result_details_schema_accepts_every_listed_key(details):
-    """带 content、contents、购买行的 channel、查完与没有查完两种 query 的进度层，以及键表全部键同时出现的进度层，
-    各自通过层校验。"""
+    """带 content、contents、三行 contents 加 contents_omitted、购买行的 channel、查完与没有查完两种 query 的进度层，
+    以及键表全部键同时出现的进度层，各自通过层校验。"""
     assert _problem(details) is None
 
 
@@ -73,14 +76,18 @@ def test_result_details_schema_accepts_every_listed_key(details):
     pytest.param({"purchases": [{key: value for key, value in _DELIVERED.items() if key != "channel"}]},
                  id="purchase-without-channel"),
     pytest.param({"contents": []}, id="empty-contents"),
+    pytest.param({"contents": [_DONE, _DONE, _DONE, _UNDONE]}, id="four-contents-rows"),
+    pytest.param({"contents": [_DONE, _DONE, _DONE], "contents_omitted": "还有 0 条没列"}, id="none-left-out"),
+    pytest.param({"contents": [_DONE, _DONE, _DONE], "contents_omitted": "还有2条没列"},
+                 id="count-without-spaces"),
     pytest.param({"contents": [{**_DONE, "app": "Keep"}]}, id="contents-row-with-an-extra-key"),
     pytest.param({"goods": [{"name": "冰美式咖啡", "price": "22 元"}]}, id="retired-goods"),
     pytest.param({"app": "美团外卖"}, id="retired-app"),
     pytest.param({"duration": "约 3 分钟"}, id="retired-duration"),
 ])
 def test_result_details_schema_rejects_retired_keys(details):
-    """购买行缺 channel、contents 是空数组、contents 的行多一个键、带 goods、app、duration 三个退役键之一，
-    各自被层校验拒绝。"""
+    """购买行缺 channel、contents 是空数组、contents 多于三行、contents_omitted 写「还有 0 条没列」或数字两侧没有空格、
+    contents 的行多一个键、带 goods、app、duration 三个退役键之一，各自被层校验拒绝。"""
     with pytest.raises(ValueError, match=r"Prompt layer 进度层 violates its schema at \['events', 0\]"):
         validate_layer(_layer(details))
 
@@ -113,25 +120,32 @@ def _terminal(status: str, activity: dict) -> dict:
 
 
 _DRAMA = ("c-drama-1", "c-drama-2")
+#: 放完四条的 played：第一至三集与 c-run（手工快照，只为多于三行）。
+_FOUR = (*_DRAMA, "c-drama-3", "c-run")
+_FIRST_THREE = [_row("c-drama-1", True), _row("c-drama-2", True), _row("c-drama-3", True)]
 
 
 @pytest.mark.parametrize("result,expected", [
     pytest.param(_terminal("cancelled", _interact("cancelled", _DRAMA, "c-drama-3", (0.0, 600.0))),
-                 [_row("c-drama-1", True), _row("c-drama-2", True), _row("c-drama-3", False)],
+                 {"contents": [_row("c-drama-1", True), _row("c-drama-2", True), _row("c-drama-3", False)]},
                  id="several-played-then-the-advanced-current-one"),
     pytest.param(_terminal("cancelled", _interact("cancelled", _DRAMA[:1], "c-drama-2", (0.0, 0.0))),
-                 [_row("c-drama-1", True)], id="current-one-not-advanced"),
+                 {"contents": [_row("c-drama-1", True)]}, id="current-one-not-advanced"),
     pytest.param(_terminal("cancelled", _interact("cancelled", (), "c-rest", (300.0, 300.0), None)), None,
                  id="nothing-advanced-since-resuming-writes-no-key"),
     pytest.param(_terminal("cancelled", _interact("cancelled", (), "c-rest", (0.0, 0.0), None)), None,
                  id="nothing-done-writes-no-key"),
     pytest.param(_terminal("completed", _interact("completed", (*_DRAMA, "c-drama-3"), "c-drama-3", (0.0, 1800.0))),
-                 [_row("c-drama-1", True), _row("c-drama-2", True), _row("c-drama-3", True)],
-                 id="completed-does-not-repeat-the-last-one"),
+                 {"contents": _FIRST_THREE}, id="completed-does-not-repeat-the-last-one"),
+    pytest.param(_terminal("cancelled", _interact("cancelled", _FOUR, "c-rest", (0.0, 300.0))),
+                 {"contents": _FIRST_THREE, "contents_omitted": "还有 2 条没列"},
+                 id="more-rows-than-the-limit-say-how-many-are-left-out"),
+    pytest.param(_terminal("completed", _interact("completed", _FOUR, "c-run", (0.0, 1200.0))),
+                 {"contents": _FIRST_THREE, "contents_omitted": "还有 1 条没列"}, id="four-played-rows-leave-one-out"),
     pytest.param(_terminal("cancelled", _interact("truncated", (), "c-rest", (0.0, 420.0), None)),
-                 [_row("c-rest", False)], id="truncated-at-run-end"),
+                 {"contents": [_row("c-rest", False)]}, id="truncated-at-run-end"),
     pytest.param(_terminal("failed", _interact("failed", (), "c-run", (0.0, 100.0), "keep")),
-                 [_row("c-run", False)], id="failed"),
+                 {"contents": [_row("c-run", False)]}, id="failed"),
     pytest.param(_terminal("completed", {"kind": "travel", "status": "completed", "media_position_seconds": 0.0,
                                          "data": {"arrival": None}}), None, id="travel-writes-no-key"),
     pytest.param({"occurred_at": 1767571200, "status": "completed", "message": "Activities concluded",
@@ -140,11 +154,13 @@ _DRAMA = ("c-drama-1", "c-drama-2")
 ])
 def test_public_result_contents_follow_the_snapshot(frozen_inputs, result, expected):
     """终态结果按活动快照列出做过的内容：played 各条在前、finished 为真；状态不是 completed 且当前这条确有推进时再加
-    一行、finished 为假；一行都没有、不是 interact 活动或是控制结果时不写 contents；每行恰为四个键、按次序写出。"""
+    一行、finished 为假。全部行不多于三行时照列、不写 contents_omitted；多于三行时只写按先后的前三行，紧跟着写
+    contents_omitted「还有 N 条没列」，N 是没写出的行数。一行都没有、不是 interact 活动或是控制结果时两个键都不写；
+    每行恰为四个键、按次序写出。"""
     details = public_result(result, frozen_inputs.record(ENVIRONMENT_ROOT)["inputs"])["details"]
     if expected is None:
-        assert "contents" not in details
+        assert "contents" not in details and "contents_omitted" not in details
     else:
-        assert details == {"contents": expected}
+        assert details == expected and list(details) == list(expected)
         assert all(list(row) == ["title", "summary", "duration", "finished"] for row in details["contents"])
         validate_layer(_layer(details))

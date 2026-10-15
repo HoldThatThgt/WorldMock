@@ -483,7 +483,7 @@ def test_time_only_app_content_follows_the_clock_on_the_road(engine_factory, tmp
     observed, result = act(engine, "on-the-road", use_app("钉钉"))
     row = target_actions(observed, "钉钉")["interact"]
     if accepted:
-        assert (row["available"], row["reason"], row["duration"]) == (True, None, "约 1 分钟")
+        assert (row["available"], row["reason"], row["duration"]) == (True, None, "每条约 1 分钟")
         assert result.status == "in_progress", result.error_code
         activity = engine.context.state.activities[result.activity_id]
         assert activity.data["content_id"] == "dingtalk-reminder" and activity.started_at == now
