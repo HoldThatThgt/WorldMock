@@ -159,6 +159,15 @@ def test_app_time_state_is_null_while_some_content_can_start(tmp_path):
     assert _state(both, (17, 9), "office", "meituan") is None
 
 
+def test_app_time_state_names_only_contents_that_declare_opens(tmp_path):
+    """打卡加只限办公室、不限时段的门禁登记：人在家时两条都不合格，state 只写打卡的时间（周一今天的时段、周六下周一
+    的时段），不因门禁登记没写 opens 而为 None；周六在办公室门禁登记合格，为 None。"""
+    catalog = _catalog(tmp_path, CLOCK, app_content("dingtalk-badge", "门禁登记", {"location_kinds": ["office"]}))
+    assert _state(catalog, (12, 12, 30), "home") == f"available {HOURS} today"
+    assert _state(catalog, (17, 9), "home") == NEXT_MONDAY
+    assert _state(catalog, (17, 9), "office") is None
+
+
 def test_app_time_state_is_null_when_no_content_declares_opens(tmp_path):
     """钉钉只有一条只限办公室、不限时段的内容：周一 12:30 人在家，原因叫她去办公室，目标 state 没有时间可写。"""
     catalog = _catalog(tmp_path, app_content("dingtalk-badge", "门禁登记", {"location_kinds": ["office"]}))

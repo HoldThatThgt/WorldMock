@@ -70,6 +70,11 @@ _CASES = {
         "unpushable", "c-anime-2", {**_ANIME_DONE, "c-doc-1": (0, 1, 60)}, None, None, None),
     "a-pushable-representative-is-chosen-despite-an-unpushable-episode": (
         "unpushable", "c-anime-2", {**_ANIME_DONE, "c-doc-1": (120, 0, 60)}, None, None, "c-doc-1"),
+    "a-push-for-a-later-episode-does-not-reserve-the-series": (
+        "plain", "c-anime-2", {**_ANIME_DONE, "c-drama-1": (300, 0, 60)}, ("bilibili", "c-drama-2", "pending"), None,
+        "c-drama-1"),
+    "an-item-never-chains-into-a-started-series": (
+        "plain", "c-image", {**_SEEN, "c-article": (0, 1, 0), "c-drama-1": (300, 0, 60)}, None, None, None),
 }
 
 
@@ -94,8 +99,9 @@ def _world(root, progress, push, paused):
 
 @pytest.mark.parametrize("case", list(_CASES))
 def test_autoplay_content_picks_by_the_rows_on_real_catalog_rows(catalogs, case):
-    """接续顺序的选取细则：可推送与预留按将要放的那一条判，开始了没看完有两种情形、看完的不算，同一时刻按代表集身份，
-    刚放完的单元整体排除，没看过只认没有进度记录；第 3 行恰取一次随机数，第 2 行与没有候选时随机流不动。"""
+    """接续顺序的选取细则：可推送与预留按将要放的那一条判（指向系列里别的一集的推送不预留这部系列），开始了没看完
+    有两种情形、看完的不算，同一时刻按代表集身份，刚放完的单元整体排除，没看过只认没有进度记录；单条之后不接开始了的
+    系列；第 3 行恰取一次随机数，第 2 行与没有候选时随机流不动。"""
     copy, finished, progress, push, paused, expected = _CASES[case]
     catalog, state = _world(catalogs[copy], progress, push, paused)
     request = ContentRequest(1, "bilibili", "home", "activity-feed", finished)
@@ -120,6 +126,15 @@ def test_an_app_use_is_pausable_however_little_is_left(seconds):
     app_use, location = _app_use(seconds, app=True), _app_use(seconds, app=False)
     assert activity_control.pausable(occupied(app_use), app_use) is True
     assert activity_control.pausable(occupied(location), location) is (seconds >= 180)
+
+
+@pytest.mark.parametrize("status", [ActivityStatus.PAUSED, ActivityStatus.COMPLETED, ActivityStatus.CANCELLED,
+                                    ActivityStatus.FAILED, ActivityStatus.TRUNCATED])
+def test_a_paused_or_ended_app_use_is_never_pausable(status):
+    """「随时可以暂停」只对进行中的 app 使用成立：暂停中或已结束（完成、收尾、失败、截断）的 app 使用离计划结束还剩
+    900 秒也不可暂停。"""
+    app_use = _app_use(900, app=True).model_copy(update={"status": status})
+    assert activity_control.pausable(occupied(app_use), app_use) is False
 
 
 #: 「收尾的说法」一表：（状态，是不是 app 使用）→（settled 句的终局，收尾结果的 outcome；截断不收尾为 None）。
@@ -149,8 +164,9 @@ def test_one_predicate_words_the_ending_and_the_outcome(status, app):
 
 
 def test_progress_snapshot_counts_played_items_only_for_interactions():
-    """进度快照：interact 活动不带 played、带条数 played_count，其余与 activity_snapshot 相同；出行活动与它完全相同。"""
-    index = TitleIndex(contents={"c-run": "测试慢跑"})
+    """进度快照：interact 活动（app 使用与在地点做的事都是）不带 played、带条数 played_count，其余与 activity_snapshot
+    相同；出行活动与它完全相同。"""
+    index = TitleIndex(contents={"c-run": "测试慢跑", "c-rest": "测试休息"})
     played = [{"content_id": "c-run", "from_position": 0.0, "to_position": 1200},
               {"content_id": "c-run", "from_position": 0.0, "to_position": 1200}]
     activity = _app_use(900, app=True)
@@ -161,6 +177,13 @@ def test_progress_snapshot_counts_played_items_only_for_interactions():
         key: value for key, value in full["data"].items() if key != "played"}
     assert {key: value for key, value in counted.items() if key != "data"} == {
         key: value for key, value in full.items() if key != "data"}
+    unit = _app_use(900, app=False)
+    rested = [{"content_id": "c-rest", "from_position": 0.0, "to_position": 900} for _ in range(2)]
+    unit = unit.model_copy(update={"data": {**unit.data, "content_id": "c-rest", "played": rested}})
+    counted = progress_snapshot(unit, index)
+    assert "played" not in counted["data"] and counted["data"]["played_count"] == 2
+    assert {key: value for key, value in counted["data"].items() if key != "played_count"} == {
+        key: value for key, value in activity_snapshot(unit, index)["data"].items() if key != "played"}
     trip = running("travel", ActivityKind.TRAVEL, "first")
     assert progress_snapshot(trip, index) == activity_snapshot(trip, index)
 

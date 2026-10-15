@@ -130,6 +130,15 @@ def test_state_stays_empty_when_no_content_declares_opening_hours(engine_factory
     _refused_with(engine, f"{AT_OFFICE}.", GO_TO_OFFICE, None)
 
 
+def test_state_names_only_contents_that_declare_opening_hours(engine_factory, tmp_path):
+    """打卡加只限办公室、不限时段的门禁登记，周一 12:30 人在家：原因两句（门禁登记按内容身份在前），目标 state 只写
+    打卡今天的时段。"""
+    badge = app_content("dingtalk-badge", "门禁登记", {"location_kinds": ["office"]})
+    engine = _staged(engine_factory, tmp_path, (12, 12, 30), "home", CLOCK, badge)
+    _refused_with(engine, f"{AT_OFFICE}; or it requires presence at {OFFICE} during {HOURS} today.",
+                  GO_TO_OFFICE, TODAY)
+
+
 def test_opening_state_stays_visible_behind_slot_and_conclusion_messages(engine_factory, tmp_path):
     """周六 09:00 在办公室，重估间隔 300 秒，09:00 打开 Keep（「测试慢跑」1200 秒）：钉钉一行的原因依次是前提原因、槽位 2
     被占、先收尾，准入次序不变；目标 state 三次都是下周一的开放时间。"""

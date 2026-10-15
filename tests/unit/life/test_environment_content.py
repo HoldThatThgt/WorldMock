@@ -329,6 +329,14 @@ def test_duration_range_counts_only_eligible_contents(tmp_path):
     assert opening_duration(catalog, state, ContentRequest(1, "meituan", None)) is None
 
 
+def test_per_item_range_counts_contents_autoplay_does_not_chain(tmp_path):
+    """60 秒的不可推送内容与 300 秒的可推送内容同时合格：「每条」的范围取全部合格内容，不只取可推送的，是 60 到 300 秒。"""
+    context, state = dingtalk_world(tmp_path, (app_content("dingtalk-a", "甲", duration_seconds=60),
+                                               app_content("dingtalk-b", "乙", duration_seconds=300, pushable=True)))
+    request = ContentRequest(1, "dingtalk", "office")
+    assert opening_duration(context.catalog, state, request) == OpeningDuration(False, 60, 300)
+
+
 def test_app_whose_contents_are_all_ineligible_has_no_duration(tmp_path):
     context, state = dingtalk_world(tmp_path, location_id="home")
     request = ContentRequest(1, "dingtalk", "home")
