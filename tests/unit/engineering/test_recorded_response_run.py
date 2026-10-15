@@ -301,6 +301,19 @@ def test_first_call_after_a_restart_reports_whether_it_equals_the_discarded_requ
     assert cassette.divergences[0]["matches_discarded_request"] is True
 
 
+def test_a_body_that_is_not_a_json_object_is_a_mismatch(restarted):
+    cassette, requests, discarded = restarted
+    _send(cassette, _sent(requests[0]))
+    _send(cassette, _sent(discarded))
+    cassette.begin_segment(2)
+    status, payload = cassette.answer("POST", CHAT, _headers(), b"[1, 2]")
+    assert status == 400 and json.loads(payload)["error"]["code"] == "recorded_response_divergence"
+    (divergence,) = cassette.divergences
+    assert (divergence["kind"], divergence["fields"], divergence["matches_discarded_request"]) == (
+        "mismatch", ["body"], False)
+    assert cassette.error is None
+
+
 def test_a_credential_other_than_the_dummy_is_refused_and_not_logged(two_calls, caplog):
     cassette, requests = two_calls
     status, payload = _send(cassette, _sent(requests[0]), _headers("Bearer sk-real"))

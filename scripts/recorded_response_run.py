@@ -323,6 +323,16 @@ def _purpose(request: dict | None, data_purpose: str | None) -> str | None:
     return "reflection" if names == ["submit_reflection"] else "other"
 
 
+def _json_object(body: bytes) -> dict | None:
+    """@brief 请求正文解析成的 JSON 对象；不是 JSON 或不是对象时为 None，由调用方记成 mismatch 偏差（带错误日志）。"""
+    try:
+        value = json.loads(body)
+    except ValueError:
+        logger.error("Recorded-response request body is not JSON")
+        return None
+    return value if isinstance(value, dict) else None
+
+
 def _error_body(code: str, message: str) -> bytes:
     """@brief HTTP 400 正文：LiteLLM 把它读成 BadRequestError，AS2 不重试。"""
     return json.dumps({"error": {"type": "invalid_request_error", "code": code, "message": message}}).encode()
@@ -344,8 +354,9 @@ class Cassette:
         self.lock = threading.Lock()
         self.connections = [_open(run) for run in plan.chain.runs]
         (self.work / "server" / "bodies").mkdir(parents=True, exist_ok=True)
-        self.metadata_path = urlsplit(plan.metadata.get("metadata_url", "/models")).path
-        base_path = urlsplit(plan.chain.manifests[-1]["stage_model_identity"]["base_url"]).path.rstrip("/")
+        identity = plan.chain.manifests[-1]["stage_model_identity"]
+        self.metadata_path = urlsplit(identity["metadata_url"]).path
+        base_path = urlsplit(identity["base_url"]).path.rstrip("/")
         self.chat_path = f"{base_path}/chat/completions"
 
     def begin_segment(self, segment: int) -> None:
@@ -413,11 +424,8 @@ class Cassette:
         if self.divergences:
             self._log(method, path, body, None, "divergence")
             return 400, _error_body("after_divergence", "The replay already diverged")
-        try:
-            received = json.loads(body)
-        except ValueError:
-            received = None
-        if not isinstance(received, dict):
+        received = _json_object(body)
+        if received is None:
             return self._diverge("mismatch", request, {"fields": ["body"], "layer": "body", "message_index": None,
                                                        "diff": ""})
         if self.segment in self.refused:
@@ -493,22 +501,24 @@ class Cassette:
         call = self.plan.calls[self.next_call - 1]
         if boundary is not None and boundary.discarded_seq is not None:
             event = self._event(boundary.discarded_seq, self.connections[boundary.segment - 1])
-            seq, segment, occurred_at = boundary.discarded_seq, boundary.segment, event["occurred_at"]
+            seq, occurred_at = boundary.discarded_seq, event["occurred_at"]
             request, data_purpose = event["data"]["request"], event["data"].get("purpose")
         else:
-            seq, segment, occurred_at = call.request_seq, call.segment, call.occurred_at
+            seq, occurred_at = call.request_seq, call.occurred_at
             request, data_purpose = self._recorded_request(call.index), call.purpose
+        segment = boundary.segment if boundary is not None else call.segment
         moment = datetime.fromtimestamp(occurred_at, ZoneInfo(self.plan.chain.timezone)).isoformat()
         return {"call_index": call.index, "source_seq": seq, "segment": segment, "simulated_time": moment,
                 "purpose": _purpose(request, data_purpose)}
 
     def _matches_discarded(self, kind: str, body: bytes) -> bool | None:
-        """@brief 重启后第一次调用偏离时，收到的正文是否等于来源丢弃的那条请求 D_k。"""
+        """@brief 重启后第一次调用偏离时，收到的正文是否等于来源丢弃的那条请求 D_k；正文不是 JSON 对象即不等。"""
         for boundary in self.plan.boundaries:
             if (kind == "mismatch" and boundary.segment + 1 == self.segment and boundary.first_call == self.next_call
                     and boundary.discarded_request is not None):
-                received = json.loads(body)
-                return first_difference(expected_body(boundary.discarded_request), received) is None
+                received = _json_object(body)
+                return received is not None and first_difference(expected_body(boundary.discarded_request),
+                                                                 received) is None
         return None
 
     def _record(self, record: dict) -> None:

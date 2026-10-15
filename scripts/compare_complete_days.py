@@ -131,7 +131,7 @@ def _verdict(work: Path, signatures: tuple[dict, dict], rules: list[str]) -> tup
 
 
 def main(argv: list[str] | None = None) -> int:
-    """@brief 命令入口；0 相等（或在规则下相等）、1 不同、2 输入错误。"""
+    """@brief 命令入口；0 相等（或在规则下相等）、1 不同、2 输入错误或意外故障（不当作不同）。"""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     parser = argparse.ArgumentParser(description="Compare two checkouts on the two scripted complete days")
     parser.add_argument("--base-root", type=Path, required=True)
@@ -148,6 +148,9 @@ def main(argv: list[str] | None = None) -> int:
         signatures = (record_side(base, work / "base"), record_side(head, work / "head"))
         verdict, kinds = _verdict(work, signatures, arguments.rule)
     except ComparisonError:
+        return 2
+    except Exception:
+        logger.exception("Complete-day comparison failed")
         return 2
     report = {"base_root": str(base), "head_root": str(head), "kinds": kinds, "rules": list(arguments.rule),
               "verdict": verdict}

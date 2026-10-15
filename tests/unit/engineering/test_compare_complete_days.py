@@ -90,6 +90,17 @@ def test_root_whose_as2_resolves_elsewhere_is_refused(roots, monkeypatch, caplog
     assert code == 2 and "imports AS2 from" in caplog.text
 
 
+def test_an_unexpected_failure_exits_2_not_as_different(roots, monkeypatch, caplog):
+    base, head, _, work = roots
+
+    def broken(root, case_root):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(complete_days, "record_side", broken)
+    code, report = _main(base, head, work)
+    assert code == 2 and report is None and "Complete-day comparison failed" in caplog.text
+
+
 def test_different_signatures_equal_under_rules(roots, monkeypatch):
     base, head, signatures, work = roots
     signatures["head"]["callback"]["summary"]["checkpoints_sha256"] = "9" * 64
