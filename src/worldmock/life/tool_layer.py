@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 from worldmock.errors import BusinessRuleError
 from worldmock.life import activity_control, admission, same_moment
 from worldmock.life.action_contract import START_TOOLS, start_tool
+from worldmock.life.content_prerequisite import app_time_state
 from worldmock.life.content_select import (ContentRequest, content_duration_range, eligible_contents,
                                            pinned_push_content)
 from worldmock.life.felt import sleep_debt_phrase
@@ -122,14 +123,22 @@ def tool_layer(context: LayerContext, index: dict) -> dict:
 
 
 def _binding_target(context: LayerContext, row: dict) -> dict:
-    """@brief 公共行不带内部身份、类别推断、app 路由或支付渠道；凭状态而未开放的单元（私有绑定 locked 为真）不列出。"""
+    """@brief 公共行不带内部身份、类别推断、app 路由或支付渠道；凭状态而未开放的单元（私有绑定 locked 为真）不列出。
+
+    目标的 state：地点行写当天的营业时段（中文）；内容 app 行是 content_prerequisite.app_time_state，内容此刻全都不合格
+    时写开放时间，停留地点与本地时刻与副调用准入相同；商品行为 None。本地时刻在开头按运行时区算一次，两种行共用。
+    """
     kind = "product" if row["kind"] == "supply" else row["kind"]
+    local = datetime.fromtimestamp(context.state.current_time, ZoneInfo(context.config.timezone))
     state = None
     if row["kind"] == "location":
         location = context.catalog.locations[row["object_id"]]
-        local = datetime.fromtimestamp(context.state.current_time, ZoneInfo(context.config.timezone))
         intervals = location.opening_intervals(local.date())
         state = "全天营业" if location.opens is None else "、".join(interval_phrases(intervals)) or "今日休息"
+    elif row["kind"] == "app":
+        stay = admission.present_location(context.state, context.agent_id)
+        state = app_time_state(context.catalog, row["object_id"],
+                               None if stay is None else context.catalog.locations[stay], local)
     return {"name": row["object"], "kind": kind, "phase": None, "state": state,
             "actions": [_action_row(context, row, action) for action in row["actions"] if not action.get("locked")],
             "tools": []}

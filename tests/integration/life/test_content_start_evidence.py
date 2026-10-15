@@ -164,9 +164,10 @@ CLOCK_REFUSALS = [
     ((12, 12, 30), "office", f"Nothing in 钉钉 can start now: it is available {HOURS} today.",
      "Choose another action.", ["content_time"]),
     ((12, 12, 30), "home", f"{AT_OFFICE} during {HOURS} today.", GO_TO_OFFICE, ["content_location", "content_time"]),
-    ((17, 9, 0), "office", "Nothing in 钉钉 can start now: it is not available today.",
+    ((17, 9, 0), "office",
+     f"Nothing in 钉钉 can start now: it is not available today (next available Mon 10-19 {HOURS}).",
      "Choose another action.", ["content_time"]),
-    ((17, 9, 0), "home", f"{AT_OFFICE} and is not available today.", GO_TO_OFFICE,
+    ((17, 9, 0), "home", f"{AT_OFFICE} and is not available today (next available Mon 10-19 {HOURS}).", GO_TO_OFFICE,
      ["content_location", "content_time"]),
 ]
 
