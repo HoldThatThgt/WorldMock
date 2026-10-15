@@ -93,8 +93,7 @@ def concludable(activity: ActivityState) -> bool:
 
 
 def pausable(state: WorldState, activity: ActivityState) -> bool:
-    """@brief 活动能否暂停的唯一判定：进行中的交互活动，并且是一次 app 使用（随时可停），或离计划结束不少于
-    PAUSE_MIN_REMAINING_SECONDS（在地点做的事）。
+    """@brief 活动能否暂停的唯一判定：进行中的交互活动，且是一次 app 使用（随时可停）或离计划结束不少于 PAUSE_MIN_REMAINING_SECONDS。
 
     暂停的受理、工具层 pause_activity 一行的可用性与原因、同槽位占用与槽位超限的下一步写不写「暂停」都读它。
     计划结束取活动此刻的计划结束（系列是正在做的这一集）；决策边界只关乎暂停的时机，不在此判定。
