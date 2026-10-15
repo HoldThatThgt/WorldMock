@@ -2,8 +2,8 @@
 「唤醒、日计划与个人事务」）：都经真实引擎与 SQLite。
 
 零点计划经生产入口 runtime.settle_pending_day_plans（确定性客户端桩记下那次请求）；环境层读 observe_only 的观察与
-落库的那次观察；个人事务经 act 提交真实的 conclude_activity。人设的例外、去掉的班次与去掉的工作安排都由
-tests/life/work_arrangement_inputs.py 的变更函数写在样例环境的副本上。
+落库的那次观察；个人事务经 act 提交真实的 conclude_activity。人设的例外、去掉的班次、去掉的工作安排与挪到零点的
+运行开始都由 tests/life/work_arrangement_inputs.py 的变更函数写在样例环境的副本上。
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ import pytest
 from tests.life.conftest import StubPlanDayClient, conclude_request, do_at, errand_add, settle_day_plans
 from tests.life.environment_runtime import act, observe_only, until_ended
 from tests.life.work_arrangement_inputs import (
-    holiday_monday, makeup_monday, no_work_schedule, rest_tuesday, shorter_monday,
+    holiday_monday, makeup_monday, no_work_schedule, rest_tuesday, rest_tuesday_from_midnight, shorter_monday,
 )
 from worldmock.life.day_planning import PLAN_DAY_PROMPT
 from worldmock.life.prompt_schemas import validate_layer
@@ -80,6 +80,17 @@ def test_tomorrow_reads_the_arrangement_of_the_next_local_date(engine_factory):
     """明天按下一个本地日的安排写：星期二按日期例外休息时，今天照常上班、没有说明，tomorrow 写星期二休息日；
     落库的这次观察与返回的相同。"""
     _, _, observed, stored = _planned_and_observed(engine_factory(mutate=rest_tuesday))
+    layer = observed["environment_layer"]
+    assert (layer["duty"]["day"], layer["duty"]["note"]) == ("工作日", None)
+    assert layer["tomorrow"] == {"date": "2026-01-06", "weekday": "星期二", "day": "休息日"}
+    assert stored["tomorrow"] == layer["tomorrow"]
+
+
+def test_tomorrow_counts_the_local_date_in_the_run_timezone(engine_factory):
+    """本地日按运行配置的时区数，与 UTC 的日期无关：运行从星期一 00:00（上海）开始，那一刻 UTC 还是 1 月 4 日星期日；
+    星期二按日期例外休息时，计划的生成时刻写星期一，tomorrow 仍写星期二休息日；落库的这次观察与返回的相同。"""
+    _, payload, observed, stored = _planned_and_observed(engine_factory(mutate=rest_tuesday_from_midnight))
+    assert payload["生成时刻"] == "1月5日 00:00（星期一）"
     layer = observed["environment_layer"]
     assert (layer["duty"]["day"], layer["duty"]["note"]) == ("工作日", None)
     assert layer["tomorrow"] == {"date": "2026-01-06", "weekday": "星期二", "day": "休息日"}
