@@ -629,4 +629,26 @@ MUTATIONS = (
          "::test_answer_is_the_second_result_and_replaying_the_action_returns_it",
          "tests/integration/life/test_query_answer.py"
          "::test_answer_stays_for_the_stay_and_leaves_a_settled_line_after_departure")),
+    # ---- 提示与计划轨道（B）：「系统层措辞」「零点计划、上班安排与明天」「饭点的食欲加成」 ----
+    SourceMutation("arrangement_note_written_without_a_change", "worldmock.life.work_schedule::_exception_note",
+        "if usual == (shift_on(schedule, day) is not None):", "if False:",
+        ("tests/unit/life/test_work_schedule_boundaries.py"
+         "::test_note_is_written_only_when_an_exception_changes_work_or_rest",
+         "tests/integration/life/test_day_plan_arrangement.py::test_no_note_without_a_change_of_work_or_rest")),
+    SourceMutation("tomorrow_reads_today", "worldmock.life.work_schedule::tomorrow",
+        "day = datetime.fromtimestamp(now, ZoneInfo(timezone_name)).date() + timedelta(days=1)",
+        "day = datetime.fromtimestamp(now, ZoneInfo(timezone_name)).date()",
+        ("tests/unit/life/test_work_schedule_boundaries.py"
+         "::test_tomorrow_is_the_next_local_date_with_its_weekday_and_day_kind",
+         "tests/integration/life/test_day_plan_arrangement.py"
+         "::test_tomorrow_reads_the_arrangement_of_the_next_local_date")),
+    SourceMutation("meal_bonus_ignores_energy", "worldmock.life.felt::compute_appetite",
+        "bonus = meal_window_bonus(time_hour, windows) if energy_kcal < appetite_anchor_kcal else 0.0",
+        "bonus = meal_window_bonus(time_hour, windows)",
+        ("tests/unit/life/test_body_felt_sleep_boundaries.py::test_meal_bonus_is_added_only_below_the_hunger_anchor",
+         "tests/integration/life/test_meal_window_appetite.py"
+         "::test_crossing_the_lunch_window_edges_wakes_only_a_hungry_person",
+         "tests/integration/life/test_meal_window_appetite.py"
+         "::test_falling_below_the_anchor_inside_a_meal_window_is_a_felt_band_change")),
+    # ---- 提示与计划轨道（B）结束 ----
 )
