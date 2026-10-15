@@ -56,8 +56,8 @@ def test_recent_window_only_projects_own_committed_progress_before_observation(s
             "data": {"arrival": {"location_id": "office", "access_status": "allowed"}},
         }),
     ]
-    committed = store.commit(store.state, drafts)
-    observation = store.commit(store.state, [EventDraft(
+    committed = store.append_evidence(drafts)
+    observation = store.append_evidence([EventDraft(
         event_type="observation", occurred_at=100, agent_id=1,
     )])[0]
     expected = project_verified_experiences(committed, agent_id=1, cutoff_seq=observation.event_seq - 1)
@@ -79,7 +79,7 @@ def test_recent_window_only_projects_own_committed_progress_before_observation(s
 
 def test_received_orders_are_distinct_and_projection_is_idempotent(store):
     """@brief 同一商品的两笔真实收货分别保留，重复读取同一事件不重复增加事实。"""
-    events = store.commit(store.state, [_receipt("first"), _receipt("second")])
+    events = store.append_evidence([_receipt("first"), _receipt("second")])
     facts = project_verified_experiences(events, agent_id=1, cutoff_seq=2)
     assert [row["order_id"] for row in facts] == ["first", "second"]
     assert [row["quantity"] for row in facts] == [1, 1]
@@ -93,13 +93,13 @@ def test_received_orders_are_distinct_and_projection_is_idempotent(store):
 def test_missing_settlement_evidence_is_an_error_not_a_guessed_fact(store, field):
     draft = _receipt("order")
     del draft.data[field]
-    event = store.commit(store.state, [draft])[0]
+    event = store.append_evidence([draft])[0]
     with pytest.raises(IntegrityError, match="receipt evidence"):
         project_verified_experiences([event], agent_id=1, cutoff_seq=1)
 
 
 def test_reference_window_rejects_other_person_and_future_time(store):
-    event = store.commit(store.state, [_receipt("order")])[0]
+    event = store.append_evidence([_receipt("order")])[0]
     fact = project_verified_experiences([event], agent_id=1, cutoff_seq=1)[0]
     with pytest.raises(IntegrityError):
         validate_verified_experiences([{**fact, "agent_id": 2}], 1, 100)
@@ -108,7 +108,7 @@ def test_reference_window_rejects_other_person_and_future_time(store):
 
 
 def test_observed_window_rejects_invalid_boundary_duplicates_and_reordering(store):
-    events = store.commit(store.state, [_receipt("first"), _receipt("second")])
+    events = store.append_evidence([_receipt("first"), _receipt("second")])
     facts = project_verified_experiences(events, agent_id=1, cutoff_seq=2)
     with pytest.raises(IntegrityError, match="window"):
         validate_verified_experiences(facts, 0, 100)
@@ -119,7 +119,7 @@ def test_observed_window_rejects_invalid_boundary_duplicates_and_reordering(stor
 
 
 def test_projection_rejects_uncommitted_origin_conflict_and_invalid_cutoff(store):
-    events = store.commit(store.state, [_receipt("first"), _receipt("second")])
+    events = store.append_evidence([_receipt("first"), _receipt("second")])
     with pytest.raises(IntegrityError, match="boundary"):
         project_verified_experiences(events, agent_id=0, cutoff_seq=2)
     with pytest.raises(IntegrityError, match="cutoff"):
@@ -135,7 +135,7 @@ def test_projection_rejects_uncommitted_origin_conflict_and_invalid_cutoff(store
 
 
 def test_recent_experience_reader_rejects_uncommitted_cutoff_and_bad_query(store):
-    store.commit(store.state, [_receipt("first")])
+    store.append_evidence([_receipt("first")])
     with pytest.raises(IntegrityError, match="cutoff"):
         recent_verified_experiences(store, 1, store.last_event_seq + 1)
     with pytest.raises(IntegrityError, match="boundary"):
@@ -143,13 +143,13 @@ def test_recent_experience_reader_rejects_uncommitted_cutoff_and_bad_query(store
 
 
 def test_recent_reader_returns_no_experience_from_another_person(store):
-    store.commit(store.state, [_receipt("other", agent_id=2)])
+    store.append_evidence([_receipt("other", agent_id=2)])
     assert recent_verified_experiences(store, 1, store.last_event_seq) == []
 
 
 def test_received_window_ignores_payment_delivery_and_retired_consumption(store):
     """@brief 付款与送达订单不是付款人的收货，旧进食载荷也不能合成为经历。"""
-    events = store.commit(store.state, [
+    events = store.append_evidence([
         EventDraft(event_type="action_result", occurred_at=100, agent_id=1,
                    data={"orders": [{"order_id": "other", "status": "delivered", "recipient_id": "agent:2"}]}),
         EventDraft(event_type="environment_event", occurred_at=100, agent_id=1,
@@ -173,7 +173,7 @@ def test_received_window_ignores_payment_delivery_and_retired_consumption(store)
 ])
 def test_received_source_requires_environment_recipient_visibility_and_no_activity(store, change, error):
     """@brief 收货事实不能借用模型来源、系统可见事件或其他活动身份。"""
-    event = store.commit(store.state, [_receipt("order")])[0]
+    event = store.append_evidence([_receipt("order")])[0]
     with pytest.raises(IntegrityError, match=error):
         project_verified_experiences([event.model_copy(update=change)], agent_id=1, cutoff_seq=1)
 
@@ -181,7 +181,7 @@ def test_received_source_requires_environment_recipient_visibility_and_no_activi
 @pytest.mark.parametrize("quantity", [True, 0, -1, float("nan"), float("inf")])
 def test_received_quantity_requires_positive_finite_actual_evidence(store, quantity):
     """@brief 份数不能由缺失、布尔、非有限数或非正数猜出。"""
-    event = store.commit(store.state, [_receipt("order")])[0]
+    event = store.append_evidence([_receipt("order")])[0]
     changed = event.model_copy(update={"data": {**event.data, "quantity": quantity}})
     with pytest.raises(IntegrityError, match="receipt evidence"):
         project_verified_experiences([changed], agent_id=1, cutoff_seq=1)
@@ -189,11 +189,11 @@ def test_received_quantity_requires_positive_finite_actual_evidence(store, quant
 
 def test_received_recent_window_pages_past_nonprojected_activity_sources(store, monkeypatch):
     """@brief 收货走本人截止前的索引分页，越过无经历的活动页，不扫描所有事件。"""
-    own = store.commit(store.state, [_receipt(f"order-{index}") for index in range(8)])
-    store.commit(store.state, [_progress("sleep", f"sleep-{index}") for index in range(40)])
-    store.commit(store.state, [_receipt("other", agent_id=2)])
+    own = store.append_evidence([_receipt(f"order-{index}") for index in range(8)])
+    store.append_evidence([_progress("sleep", f"sleep-{index}") for index in range(40)])
+    store.append_evidence([_receipt("other", agent_id=2)])
     cutoff = store.last_event_seq
-    store.commit(store.state, [_receipt("future")])
+    store.append_evidence([_receipt("future")])
     original = store.read_recent_experience_sources
     calls = []
 
@@ -212,7 +212,7 @@ def test_received_recent_window_pages_past_nonprojected_activity_sources(store, 
 
 
 def test_zero_playback_and_unfinished_travel_do_not_become_completed_facts(store):
-    events = store.commit(store.state, [
+    events = store.append_evidence([
         _progress("interact", "app", activity={"data": {"app_id": "bilibili", "action": "interact", "content_id": "c-article"}}, content={
             "content_id": "c-article", "app_id": "bilibili",
             "position_before_seconds": 10, "position_after_seconds": 10,
@@ -240,7 +240,7 @@ def test_arrival_snapshot_at_origin_still_projects_arrived(store):
         "status": "completed", "destination_id": "office", "location_id": "home",
         "data": {"arrival": {"location_id": "office", "access_status": "allowed"}},
     })
-    event = store.commit(store.state, [arrived])[0]
+    event = store.append_evidence([arrived])[0]
     facts = project_verified_experiences([event], agent_id=1, cutoff_seq=event.event_seq)
     assert [(row["kind"], row["location_id"], row["access_status"]) for row in facts] == [
         ("arrived", "office", "allowed")]
@@ -255,10 +255,10 @@ def test_arrival_snapshot_at_origin_still_projects_arrived(store):
 @pytest.mark.parametrize("count", [8, 40])
 def test_recent_window_returns_latest_five_before_cutoff_with_more_history(store, count):
     """最近窗口明确排除旧经历、其他人物以及截止之后的新经历。"""
-    own = store.commit(store.state, [_receipt(f"own-{index}") for index in range(count)])
-    store.commit(store.state, [_receipt("other", agent_id=2)])
+    own = store.append_evidence([_receipt(f"own-{index}") for index in range(count)])
+    store.append_evidence([_receipt("other", agent_id=2)])
     cutoff = store.last_event_seq
-    store.commit(store.state, [_receipt("after-cutoff")])
+    store.append_evidence([_receipt("after-cutoff")])
     facts = recent_verified_experiences(store, 1, cutoff)
     assert [row["order_id"] for row in facts] == [f"own-{index}" for index in range(count - 5, count)]
     assert [row["source_event_id"] for row in facts] == [event.event_id for event in own[-5:]]

@@ -100,7 +100,7 @@ def tamper_orders(engine, changes):
     for identity, values in changes.items():
         staged.deliveries[identity] = staged.deliveries[identity].model_copy(update=values)
     staged.version += 1
-    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
+    engine.context.store.commit(engine.context.state.model_dump(mode="json"), staged.model_dump(mode="json"), [EventDraft(
         event_type="environment_event", occurred_at=staged.current_time, visibility="system",
         data={"kind": "test_orders_tampered"})])
     engine.context.state = staged

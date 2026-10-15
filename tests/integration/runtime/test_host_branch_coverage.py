@@ -516,9 +516,9 @@ def test_read_status_reports_event_wall_time_and_runtime(tmp_path):
     store = FootprintStore.create(tmp_path / "run", manifest,
                                   {"version": 0, "current_time": 100, "end_time": 200,
                                    "activities": {}, "agents": {}})
-    store.commit(store.state, [EventDraft(event_type="observation", occurred_at=100,
-                                          agent_id=1, decision_id="d1",
-                                          data={"balance_fen": 800})])
+    store.append_evidence([EventDraft(event_type="observation", occurred_at=100,
+                                      agent_id=1, decision_id="d1",
+                                      data={"balance_fen": 800})])
     store.close()
     write_status(tmp_path / "run", "completed", "stopped")
     result = read_status(tmp_path / "run")

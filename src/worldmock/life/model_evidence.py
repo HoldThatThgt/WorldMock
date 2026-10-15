@@ -13,7 +13,6 @@ from worldmock.errors import IntegrityError, ProtocolError
 from worldmock.footprints.models import EventDraft
 from worldmock.life.memory_evidence import _memory_evidence_data, due_reflection, memory_write_points
 from worldmock.life.decision_start import maybe_action_request_start
-from worldmock.life.models import validated_payload
 
 from worldmock.life.engine_context import EngineContext
 
@@ -68,8 +67,7 @@ class ModelEvidenceRecorder:
         start = maybe_action_request_start(
             self.decisions.pending_decision_starts, context.agent_id, self.context.state.current_time, exchange
         )
-        event = self.context.store.commit(
-            validated_payload(self.context.state), [item for item in (start, draft) if item is not None])[-1]
+        event = self.context.store.append_evidence([item for item in (start, draft) if item is not None])[-1]
         if exchange.phase == "request":
             self.request_events[key] = event.event_id
         else:
@@ -116,7 +114,7 @@ class ModelEvidenceRecorder:
             source_kind="environment",
             data=data,
         )
-        self.context.store.commit(validated_payload(self.context.state), [draft])
+        self.context.store.append_evidence([draft])
         self.context.ops.log(
             self.context.state.current_time,
             "memory",

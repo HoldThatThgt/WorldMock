@@ -135,9 +135,9 @@ def _populate_branch(store: FootprintStore, checkpoint, events, stage: Path, met
                 child._insert_event(event)
         state = dict(checkpoint.state)
         state.update(run_id=manifest["run_id"], version=state["version"] + 1)
-        child.commit(state, [EventDraft(event_type="environment_event", occurred_at=state["current_time"],
-                                       visibility="system", data={"kind": "branch_created",
-                                       "parent_checkpoint_id": checkpoint.checkpoint_id})])
+        child.commit(checkpoint.state, state, [EventDraft(
+            event_type="environment_event", occurred_at=state["current_time"], visibility="system",
+            data={"kind": "branch_created", "parent_checkpoint_id": checkpoint.checkpoint_id})])
         atomic_write(stage / "restored-checkpoint.json", canonical_json(checkpoint.model_dump()))
     finally:
         child.close()

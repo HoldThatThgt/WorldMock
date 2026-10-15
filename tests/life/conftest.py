@@ -52,7 +52,7 @@ def stage_day_plan(engine: LifeEngine, agent_id: int = 1, goals: tuple = (), sub
     staged.agents[agent_id] = agent.model_copy(
         update={"day_plan": DayPlan(day_end=day_end, goals=tuple(goals)), "plan_submitted_dates": dates}, deep=True)
     staged.version += 1
-    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
+    engine.context.store.commit(engine.context.state.model_dump(mode="json"), staged.model_dump(mode="json"), [EventDraft(
         event_type="environment_event", occurred_at=staged.current_time,
         visibility="system", data={"kind": "test_day_plan_staged"})])
     engine.context.state = staged
@@ -67,7 +67,7 @@ def stage_errands(engine: LifeEngine, agent_id: int, errands=()) -> None:
     staged.agents[agent_id] = staged.agents[agent_id].model_copy(
         update={"errands": {item.errand_id: item for item in errands}}, deep=True)
     staged.version += 1
-    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
+    engine.context.store.commit(engine.context.state.model_dump(mode="json"), staged.model_dump(mode="json"), [EventDraft(
         event_type="environment_event", occurred_at=staged.current_time,
         visibility="system", data={"kind": "test_errands_staged"})])
     engine.context.state = staged
@@ -95,7 +95,7 @@ def stage_legacy_control_request(engine: LifeEngine, tool: str, agent_id: int = 
     staged.version += 1
     shared = {"occurred_at": staged.current_time, "agent_id": agent_id, "decision_id": requested.decision_id,
               "action_id": action_id}
-    engine.context.store.commit(staged.model_dump(mode="json"), [
+    engine.context.store.commit(engine.context.state.model_dump(mode="json"), staged.model_dump(mode="json"), [
         EventDraft(event_type="action_requested", source_kind="model", data=data, **shared),
         EventDraft(event_type="action_result", data={**result.data, "action_id": action_id}, **shared)])
     engine.context.state = staged
@@ -133,7 +133,7 @@ def bring_to_window(engine: LifeEngine, object_ids, agent_id: int = 1) -> None:
     staged.presentation_state = {**staged.presentation_state,
                                  agent_id: {item: staged.current_time for item in sorted(everything - wanted)}}
     staged.version += 1
-    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
+    engine.context.store.commit(engine.context.state.model_dump(mode="json"), staged.model_dump(mode="json"), [EventDraft(
         event_type="environment_event", occurred_at=staged.current_time, visibility="system",
         data={"kind": "test_brought_to_window"})])
     engine.context.state = staged

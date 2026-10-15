@@ -1443,7 +1443,7 @@ async def test_native_memory_update_records_real_subjective_merge_without_duplic
         tmp_path / "run", {"run_id": "run", "agent_ids": [7]},
         {"version": 0, "current_time": _NOW_EPOCH},
     )
-    source = footprint.commit(footprint.state, [EventDraft(
+    source = footprint.append_evidence([EventDraft(
         event_type="activity_progress", occurred_at=_NOW_EPOCH,
         agent_id=7, activity_id="wait-activity",
         data={"interval_start": _NOW_EPOCH - 60, "interval_end": _NOW_EPOCH,

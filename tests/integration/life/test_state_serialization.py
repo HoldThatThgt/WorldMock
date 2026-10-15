@@ -99,7 +99,8 @@ from worldmock.life.models import WorldState
 store = FootprintStore(sys.argv[1])
 state = WorldState.model_validate(store.state)
 payload = state.model_dump(mode="json")
-store.commit(payload, [EventDraft(event_type="environment_event", occurred_at=1,
+store.require_committed(payload)
+store.append_evidence([EventDraft(event_type="environment_event", occurred_at=1,
                                   visibility="system", data={"kind": "readonly_probe"})])
 sys.stdout.buffer.write(canonical_json(payload))
 store.close()

@@ -21,7 +21,7 @@ def test_final_checkpoint_completes_only_the_full_committed_cutoff(engine_factor
     with pytest.raises(IntegrityError, match="completed experiment"):
         validate_export(tmp_path / "partial")
     assert validate_export(tmp_path / "complete")[0] == complete
-    store.commit(store.state, [EventDraft(event_type="observation", occurred_at=store.state["current_time"])])
+    store.append_evidence([EventDraft(event_type="observation", occurred_at=store.state["current_time"])])
     late = export_run(store, store.last_event_seq, tmp_path / "late")
     assert late["experiment_completed"] is False
 

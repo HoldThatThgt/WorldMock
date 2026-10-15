@@ -8,6 +8,7 @@ import json
 import logging
 import sqlite3
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -38,8 +39,44 @@ SELECT RAISE(ABORT,'Checkpoints are immutable'); END;
 """
 
 
+@dataclass(frozen=True)
+class CommittedWorld:
+    """@brief 单写入者最近一次成功提交（或第一次写入时读到）的世界摘要；只整体替换，从不原地修改。"""
+
+    #: 已提交世界版本。
+    version: int
+    #: 已提交世界时钟（UTC 纪元秒）。
+    current_time: int
+    #: 已提交账户余额的副本；世界没有 accounts 字段时为 None（只有存储单元测试的最小世界如此）。
+    accounts: dict[str, int] | None
+    #: 已提交世界的规范 JSON 字节，与 world_state.body 的 UTF-8 编码逐字节相同。
+    body: bytes
+
+    @classmethod
+    def of(cls, state: dict, body: bytes) -> CommittedWorld:
+        """@brief 由已提交世界及其规范字节建立摘要；账户复制一份，不与调用方共享。"""
+        accounts = dict(state["accounts"]) if "accounts" in state else None
+        return cls(state["version"], state["current_time"], accounts, body)
+
+    def ledger_view(self) -> dict:
+        """@brief 账本核对用的已提交世界：只含 accounts；世界没有账户时为空字典，账本核对随之跳过。"""
+        return {} if self.accounts is None else {"accounts": self.accounts}
+
+
+def _validate_step(committed: CommittedWorld, state: dict, events: list[EventDraft]) -> None:
+    """@brief 一步世界推进只能把版本恰好加一、时钟不回退，并且至少带一条因果事件；同版本写入只能走证据追加。"""
+    if type(state["version"]) is not int or type(state["current_time"]) is not int:
+        raise IntegrityError("World version and current time must be integers")
+    if state["current_time"] < committed.current_time:
+        raise IntegrityError("World time cannot move backwards")
+    if state["version"] != committed.version + 1:
+        raise IntegrityError("World state version is discontinuous")
+    if not events:
+        raise IntegrityError("World state changes require at least one causal event")
+
+
 class FootprintStore:
-    """@brief 环境 actor 独占写入；其他消费者只读取固定导出。"""
+    """@brief 环境 actor 独占写入并缓存已提交世界；其他消费者只读取固定导出。"""
 
     def __init__(self, run_dir: Path):
         """@brief 只打开已有运行；缺失数据不能隐式新建。"""
@@ -53,6 +90,8 @@ class FootprintStore:
         self.connection.execute("PRAGMA foreign_keys=ON")
         self.assets = AssetStore(self.run_dir / "assets")
         self._started = time.monotonic()
+        #: 已提交世界缓存：第一次走写入路径时载入（_committed_world），只在推进世界的事务成功后整体替换。
+        self._committed: CommittedWorld | None = None
 
     @classmethod
     def create(cls, run_dir: Path, manifest: dict, initial_state: dict) -> FootprintStore:
@@ -92,47 +131,95 @@ class FootprintStore:
         """@brief 返回持久事件最后序号，空库为零。"""
         return self.connection.execute("SELECT COALESCE(MAX(event_seq),0) FROM events").fetchone()[0]
 
-    def commit(self, state: dict, events: list[EventDraft]) -> list[Event]:
-        """@brief 原子提交状态与全部事件，任一检查或写入失败则回滚。"""
-        before = self.state
-        self._validate_state(before, state)
-        if state["version"] != before["version"] and not events:
-            raise IntegrityError("World state changes require at least one causal event")
-        validate_account_transition(before, state, events, self.last_event_seq == 0)
-        records = self._build_events(before, state, events)
+    def _committed_world(self) -> CommittedWorld:
+        """@brief 返回已提交世界缓存；第一次调用时读并解析 world_state 一次，只读的打开者从不付这笔开销。"""
+        if self._committed is None:
+            body = self.connection.execute("SELECT body FROM world_state WHERE singleton=1").fetchone()[0]
+            self._committed = CommittedWorld.of(json.loads(body), body.encode())
+        return self._committed
+
+    def require_committed(self, world: dict) -> None:
+        """@brief 核对调用方的世界与已提交世界的规范 JSON 逐字节相同（引擎世界等于已提交世界），不写任何东西。
+
+        @param world 调用方的世界：WorldState.model_dump(mode="json")，或存储单元测试的最小世界
+        @exception IntegrityError 字节不同（Engine world differs from the committed world）
+        """
+        committed = self._committed_world()
+        if canonical_json(world) != committed.body:
+            logging.error("Engine world differs from the committed world at version %d", committed.version)
+            raise IntegrityError("Engine world differs from the committed world")
+
+    def commit(self, base: dict, state: dict, events: list[EventDraft]) -> list[Event]:
+        """@brief 原子提交一步世界推进：base 逐字节等于已提交世界，state 恰好推进一个版本并带至少一条因果事件。
+
+        任一检查或写入失败则整个事务回滚、缓存不变；成功后缓存换成 state。
+        @param base 这一步出发时的世界（引擎当前世界的 JSON 形态）
+        @param state 已按加载口径复校的新世界（validated_payload 的结果）
+        @param events 本步的因果事件，按提交顺序
+        @return 分配了序号与前后版本的事件
+        """
+        committed = self._committed_world()
+        self.require_committed(base)
+        _validate_step(committed, state, events)
+        validate_account_transition(committed.ledger_view(), state, events, self.last_event_seq == 0)
+        records = self._build_events(committed.version, state["version"], state["current_time"], events)
+        body = canonical_json(state)
         try:
             with self.connection:
                 for record in records:
                     self._insert_event(record)
-                self.connection.execute("UPDATE world_state SET version=?,body=? WHERE singleton=1", (
-                    state["version"], canonical_json(state).decode(),
-                ))
+                self._require_stored_version(committed.version)
+                self.connection.execute("UPDATE world_state SET version=?,body=? WHERE singleton=1",
+                                        (state["version"], body.decode()))
         except Exception:
             logging.exception("Footprint transaction failed; no state or event was committed")
             raise
+        self._committed = CommittedWorld.of(state, body)
         return records
 
-    def _validate_state(self, before: dict, after: dict) -> None:
-        """@brief 同版本只能追加观察，不允许隐藏的状态修改或时钟回退。"""
-        if type(after["version"]) is not int or type(after["current_time"]) is not int:
-            raise IntegrityError("World version and current time must be integers")
-        if after["current_time"] < before["current_time"]:
-            raise IntegrityError("World time cannot move backwards")
-        delta = after["version"] - before["version"]
-        if delta not in (0, 1) or (delta == 0 and canonical_json(before) != canonical_json(after)):
-            raise IntegrityError("World state version is discontinuous")
+    def append_evidence(self, events: list[EventDraft]) -> list[Event]:
+        """@brief 同版本追加证据事件：不接收、不改写世界，事件的前后版本都是已提交版本。
 
-    def _build_events(self, before: dict, state: dict, drafts: list[EventDraft]) -> list[Event]:
-        """@brief 只给因果已存在且素材完整的事件分配严格全序。"""
+        观察、模型请求与响应、记忆更新、决策开始与行动请求、运行失败和零点计划失败证据都走这里；证据不能带资金变化，
+        初始注资只属于创建世界的那一步推进。
+        @param events 证据事件，按提交顺序，至少一条
+        @return 分配了序号的事件
+        @exception IntegrityError 没有事件、带资金变化、时刻越界、原因缺失、素材损坏，或库里的世界被别的写入者改过
+        """
+        if not events:
+            logging.error("Evidence append received no event")
+            raise IntegrityError("Evidence append requires at least one event")
+        committed = self._committed_world()
+        validate_account_transition(committed.ledger_view(), committed.ledger_view(), events, False)
+        records = self._build_events(committed.version, committed.version, committed.current_time, events)
+        try:
+            with self.connection:
+                for record in records:
+                    self._insert_event(record)
+                self._require_stored_version(committed.version)
+        except Exception:
+            logging.exception("Evidence append failed; no event was committed")
+            raise
+        return records
+
+    def _require_stored_version(self, version: int) -> None:
+        """@brief 在调用方已开始的写事务内核对库里的世界版本仍是缓存版本（按预期版本写入）；不同即拒绝，事务随之回滚。"""
+        stored = self.connection.execute("SELECT version FROM world_state WHERE singleton=1").fetchone()[0]
+        if stored != version:
+            logging.error("Stored world version %d is not the cached version %d", stored, version)
+            raise IntegrityError("World state was changed outside this store")
+
+    def _build_events(self, version_before: int, version_after: int, now: int, drafts: list[EventDraft]) -> list[Event]:
+        """@brief 只给因果已存在且素材完整的事件分配严格全序；now 是事件时刻的上界，即写入后的世界时钟。"""
         sequence = self.last_event_seq
         known = set()
         last_time = self._last_event_time()
         records = []
         for draft in drafts:
             self._validate_references(draft, known)
-            if draft.occurred_at < last_time or draft.occurred_at > state["current_time"]:
+            if draft.occurred_at < last_time or draft.occurred_at > now:
                 raise IntegrityError("Event time is out of committed world order")
-            if draft.observed_at is not None and not draft.occurred_at <= draft.observed_at <= state["current_time"]:
+            if draft.observed_at is not None and not draft.occurred_at <= draft.observed_at <= now:
                 raise IntegrityError("Observation time is outside its valid interval")
             for reference in draft.artifact_refs:
                 self.assets.read(reference)
@@ -140,7 +227,7 @@ class FootprintStore:
             records.append(Event(**draft.model_dump(), run_id=self.manifest["run_id"], event_seq=sequence,
                                  recorded_at=datetime.now(timezone.utc).isoformat(),
                                  wall_elapsed_ms=int((time.monotonic() - self._started) * 1000),
-                                 state_version_before=before["version"], state_version_after=state["version"]))
+                                 state_version_before=version_before, state_version_after=version_after))
             known.add(draft.event_id)
             last_time = draft.occurred_at
         return records
@@ -161,9 +248,10 @@ class FootprintStore:
                 raise IntegrityError("Event cause does not exist")
 
     def _last_event_time(self) -> int:
-        """@brief 查询最近事件时间；空库以初始世界时钟为界。"""
-        row = self.connection.execute("SELECT body FROM events ORDER BY event_seq DESC LIMIT 1").fetchone()
-        return json.loads(row[0])["occurred_at"] if row else self.state["current_time"]
+        """@brief 按主键取最近事件的发生时刻（只取这一个字段，不解析整条正文）；空库以已提交世界时钟为界。"""
+        row = self.connection.execute(
+            "SELECT json_extract(body,'$.occurred_at') FROM events ORDER BY event_seq DESC LIMIT 1").fetchone()
+        return row[0] if row else self._committed_world().current_time
 
     def _insert_event(self, event: Event) -> None:
         """@brief 在调用方事务内插入事件和素材索引。"""
@@ -290,28 +378,36 @@ class FootprintStore:
         return [Event.model_validate_json(row[0]) for row in rows]
 
     def checkpoint(self, state: dict, snapshots: dict[str, AssetRef]) -> Checkpoint:
-        """@brief 素材校验后以一个事务提交共同检查点及其事件。"""
-        if canonical_json(state) != canonical_json(self.state) or not snapshots:
-            raise IntegrityError("Checkpoint requires current world state and participant snapshots")
+        """@brief 调用方世界逐字节等于已提交世界、素材完整后，以一个事务提交共同检查点及其事件。
+
+        载荷只按规范 JSON 编码一次：存储正文就是这份字节，record_sha256 是它的 SHA-256（与 sha256_json(payload) 相同）。
+        """
+        self.require_committed(state)
+        if not snapshots:
+            logging.error("Checkpoint received no participant snapshot")
+            raise IntegrityError("Checkpoint requires participant snapshots")
         self._validate_participants(snapshots)
         for reference in snapshots.values():
             self.assets.read(reference)
         payload = self._checkpoint_payload(state, snapshots)
-        digest = sha256_json(payload)
+        encoded = canonical_json(payload)
+        digest = hashlib.sha256(encoded).hexdigest()
         checkpoint = Checkpoint(**payload, record_sha256=digest)
-        draft = EventDraft(event_type="checkpoint_created", occurred_at=state["current_time"],
+        committed = self._committed_world()
+        draft = EventDraft(event_type="checkpoint_created", occurred_at=committed.current_time,
                            visibility="system", data={"checkpoint_id": checkpoint.checkpoint_id})
-        records = self._build_events(state, state, [draft])
+        records = self._build_events(committed.version, committed.version, committed.current_time, [draft])
         try:
             with self.connection:
                 self.connection.execute("INSERT INTO checkpoints VALUES(?,?,?)", (
-                    checkpoint.checkpoint_id, canonical_json(payload).decode(), digest,
+                    checkpoint.checkpoint_id, encoded.decode(), digest,
                 ))
                 self._insert_event(records[0])
                 for reference in snapshots.values():
                     self.connection.execute("INSERT OR IGNORE INTO artifacts VALUES(?,?)", (
                         reference.sha256, canonical_json(reference.model_dump()).decode(),
                     ))
+                self._require_stored_version(committed.version)
         except Exception:
             logging.exception("Common checkpoint transaction failed")
             raise

@@ -341,25 +341,26 @@ def test_store_create_rolls_back_when_manifest_unserializable(tmp_path):
 
 def test_store_commit_rejects_clock_regression_and_version_jumps(tmp_path):
     store = _make_store(tmp_path)
+    base = store.state
     with pytest.raises(IntegrityError, match="backwards"):
-        store.commit({"version": 1, "current_time": 50},
+        store.commit(base, {"version": 1, "current_time": 50},
                      [EventDraft(event_type="observation", occurred_at=50)])
     with pytest.raises(IntegrityError, match="discontinuous"):
-        store.commit({"version": 2, "current_time": 100},
+        store.commit(base, {"version": 2, "current_time": 100},
                      [EventDraft(event_type="observation", occurred_at=100)])
     with pytest.raises(IntegrityError, match="discontinuous"):
-        store.commit({**store.state, "extra": 1},
+        store.commit(base, {**store.state, "extra": 1},
                      [EventDraft(event_type="observation", occurred_at=100)])
     with pytest.raises(IntegrityError, match="must be integers"):
-        store.commit({"version": "one", "current_time": 100},
+        store.commit(base, {"version": "one", "current_time": 100},
                      [EventDraft(event_type="observation", occurred_at=100)])
     store.close()
 
 
 def test_store_read_rejects_out_of_range_boundaries(tmp_path):
     store = _make_store(tmp_path)
-    store.commit(store.state, [EventDraft(event_type="observation", occurred_at=100,
-                                          agent_id=1)])
+    store.append_evidence([EventDraft(event_type="observation", occurred_at=100,
+                                      agent_id=1)])
     with pytest.raises(IntegrityError, match="boundary"):
         store.read_agent_events("observation", 1, after=5)
     with pytest.raises(IntegrityError, match="cutoff"):
@@ -370,7 +371,7 @@ def test_store_read_rejects_out_of_range_boundaries(tmp_path):
 def test_store_checkpoint_rejects_stale_state_and_empty_snapshots(tmp_path):
     store = _make_store(tmp_path)
     reference = store.assets.put_json({"snapshot": 1}, {"kind": "fixture"})
-    with pytest.raises(IntegrityError, match="current world state"):
+    with pytest.raises(IntegrityError, match="differs from the committed world"):
         store.checkpoint({"version": 9, "current_time": 100}, {"agent:1": reference, "life": reference})
     with pytest.raises(IntegrityError, match="participant snapshots"):
         store.checkpoint(store.state, {})
@@ -384,7 +385,7 @@ def _insert_checkpoint_row(store, body: dict, record_sha256: str):
 
 def test_get_checkpoint_rejects_missing_damaged_and_inconsistent_records(tmp_path):
     store = _make_store(tmp_path)
-    store.commit(store.state, [EventDraft(event_type="observation", occurred_at=100)])
+    store.append_evidence([EventDraft(event_type="observation", occurred_at=100)])
     with pytest.raises(IntegrityError, match="missing or its record is damaged"):
         store.get_checkpoint("no-such-checkpoint")
 
@@ -650,8 +651,8 @@ def test_snapshot_directory_rejects_directory_junctions(tmp_path, monkeypatch):
 
 def _store_with_checkpoint(tmp_path):
     store = _make_store(tmp_path)
-    store.commit(store.state, [EventDraft(event_type="observation", occurred_at=100,
-                                          agent_id=1)])
+    store.append_evidence([EventDraft(event_type="observation", occurred_at=100,
+                                      agent_id=1)])
     reference = store.assets.put_json({"workspace": True}, {"kind": "fixture"})
     point = store.checkpoint(store.state, {"agent:1": reference, "life": reference})
     return store, point
@@ -670,8 +671,8 @@ def test_restore_branch_rejects_destinations_inside_parent_run(tmp_path):
 def test_restore_branch_carries_event_artifacts_into_child_run(tmp_path):
     store = _make_store(tmp_path)
     reference = store.assets.put_json({"evidence": True}, {"kind": "fixture"})
-    store.commit(store.state, [EventDraft(event_type="observation", occurred_at=100,
-                                          agent_id=1, artifact_refs=[reference])])
+    store.append_evidence([EventDraft(event_type="observation", occurred_at=100,
+                                      agent_id=1, artifact_refs=[reference])])
     point = store.checkpoint(store.state, {"agent:1": reference, "life": reference})
     child = restore_branch(store, point.checkpoint_id, tmp_path / 'child')
     try:
@@ -730,12 +731,12 @@ def test_export_rejects_empty_range_existing_destination_and_nonpositive_window(
     store = _make_store(tmp_path)
     with pytest.raises(IntegrityError, match="empty event range"):
         export_run(store, 0, tmp_path / "export")
-    store.commit(store.state, [EventDraft(event_type="observation", occurred_at=100)])
+    store.append_evidence([EventDraft(event_type="observation", occurred_at=100)])
     (tmp_path / "taken").mkdir()
     with pytest.raises(IntegrityError, match="already exists"):
         export_run(store, 1, tmp_path / "taken")
     single = _make_store(tmp_path / "flat")
-    single.commit(single.state, [EventDraft(event_type="observation", occurred_at=100)])
+    single.append_evidence([EventDraft(event_type="observation", occurred_at=100)])
     with pytest.raises(IntegrityError, match="positive confirmed time window"):
         export_run(single, 1, tmp_path / "flat-export")
     store.close()
@@ -745,7 +746,7 @@ def test_export_rejects_empty_range_existing_destination_and_nonpositive_window(
 def test_export_includes_event_artifact_refs_in_asset_index(tmp_path):
     store = _make_store(tmp_path)
     reference = store.assets.put_json({"artifact": True}, {"kind": "fixture"})
-    store.commit({"version": 1, "current_time": 110}, [EventDraft(
+    store.commit(store.state, {"version": 1, "current_time": 110}, [EventDraft(
         event_type="observation", occurred_at=110, artifact_refs=[reference])])
     manifest = export_run(store, 1, tmp_path / "export")
     assert reference.sha256 in [row["sha256"] for row in

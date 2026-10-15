@@ -7,7 +7,6 @@ from worldmock.life.world_ops import _request_sha
 from worldmock.errors import ProtocolError
 from worldmock.footprints.models import EventDraft
 from worldmock.life.models import CounterfactualIntervention, CounterfactualReceipt
-from worldmock.life.models import validated_payload
 
 from worldmock.life.engine_context import EngineContext
 
@@ -54,8 +53,7 @@ class CounterfactualRuntime:
             data=data,
             resource_changes=changes,
         )
-        event = self.context.store.commit(validated_payload(staged), [draft])[0]
-        self.context.state = staged
+        event = self.context.commit_step(staged, [draft])[0]
         return CounterfactualReceipt(
             intervention_sha256=digest,
             event_id=event.event_id,

@@ -44,7 +44,6 @@ from worldmock.life.purchase_phases import foreground_events
 from worldmock.life.rhythm import consume_progress_report_opportunity, next_decision_at
 from worldmock.life.session_actions import ActionHandlers
 from worldmock.life.stay_records import stay_events
-from worldmock.life.models import validated_payload
 from worldmock.life.presentation import stage_presentation
 
 from worldmock.life.engine_context import EngineContext
@@ -130,8 +129,7 @@ class DecisionCoordinator:
                 "self_note": self._decision_self_note(call.context) if first else None,
             },
         )
-        event = self.context.store.commit(
-            validated_payload(self.context.state), [item for item in (start, draft) if item is not None])[-1]
+        event = self.context.store.append_evidence([item for item in (start, draft) if item is not None])[-1]
         pending = PendingAction(
             run_id=call.context.run_id,
             round_id=call.context.round_id,
@@ -185,8 +183,7 @@ class DecisionCoordinator:
         failed = any(draft.data.get("kind") == same_moment.BUDGET_EXHAUSTED_KIND for draft in drafts)
         if failed:
             drafts.append(_failure_draft(staged.current_time, "decision_budget_exhausted", round_id))
-        events = self.context.store.commit(validated_payload(staged), drafts)
-        self.context.state = staged
+        events = self.context.commit_step(staged, drafts)
         self.observations.pending_presentation = {}
         self.round = None
         self._ops_committed(round_id, results, events)
@@ -248,8 +245,7 @@ class DecisionCoordinator:
             )
         )
         drafts.append(_failure_draft(self.context.state.current_time, error, round_id))
-        self.context.store.commit(validated_payload(staged), drafts)
-        self.context.state = staged
+        self.context.commit_step(staged, drafts)
         self.round = None
         self.context.ops.log(
             self.context.state.current_time,

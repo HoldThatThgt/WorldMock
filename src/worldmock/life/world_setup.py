@@ -123,7 +123,8 @@ def create_world(environment: EnvironmentInputs | Path, run_dir: Path, identity:
     state.pending_events = compile_schedule(inputs)
     assets = _freeze_environment(inputs, AssetStore(Path(run_dir) / "assets"))
     manifest = _run_manifest(inputs, identity, stage_identity, options, assets)
-    store = FootprintStore.create(Path(run_dir), manifest, validated_payload(state))
+    initial = validated_payload(state)
+    store = FootprintStore.create(Path(run_dir), manifest, initial)
     injection = EventDraft(
         event_type="environment_event", occurred_at=state.current_time, visibility="evaluation",
         source_kind="scenario", data={"kind": "initial_funds_injected"},
@@ -131,7 +132,7 @@ def create_world(environment: EnvironmentInputs | Path, run_dir: Path, identity:
     )
     entered = run_start_event(state)
     state, drafts = _run_start_callbacks(state, inputs.catalog)
-    store.commit(validated_payload(state), [injection, entered, *drafts])
+    store.commit(initial, validated_payload(state), [injection, entered, *drafts])
     return inputs, store
 
 

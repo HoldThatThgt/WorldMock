@@ -16,6 +16,6 @@ def stage_moment(engine, moment=None, location=None, agent_id=1):
         if session.agent_id == agent_id and session.status == "active" and session.kind == "stay":
             session.location_id = person.location_id
     staged.version += 1
-    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
+    engine.context.store.commit(engine.context.state.model_dump(mode="json"), staged.model_dump(mode="json"), [EventDraft(
         event_type="environment_event", occurred_at=now, visibility="system", data={"kind": "test_world_staged"})])
     engine.context.state = staged

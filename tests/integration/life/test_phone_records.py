@@ -389,7 +389,7 @@ def test_phone_records_never_reach_any_prompt_layer(engine_factory, tmp_path):
     cause = phone_events(engine, "purchase_payment")[0].event_id
     shared = {"event_type": "environment_event", "occurred_at": now, "agent_id": 1, "visibility": "system",
               "caused_by": [cause]}
-    engine.context.store.commit(state.model_dump(mode="json"), [
+    engine.context.store.append_evidence([
         EventDraft(**shared, activity_id=bought.activity_id, data={
             "kind": "app_foreground", "app_id": "wechat", "step": "payment", "interval_start": now - 15,
             "interval_end": now}),

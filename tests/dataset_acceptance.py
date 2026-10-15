@@ -819,4 +819,44 @@ MUTATIONS = (
         "if (base_value, head_value) != (rule.base_value, rule.head_value):", "if False:",
         ("tests/unit/engineering/test_compare_runs.py::test_version_rule_accepts_only_the_declared_values",)),
     # ---- 证明工具（长时运行成本第八章）结束 ----
+    # ---- 存储提交路径（长时运行成本第一章）----
+    SourceMutation("version_step_skips_the_committed_world_check", "worldmock.footprints.store::FootprintStore.commit",
+        "self.require_committed(base)", "None",
+        ("tests/unit/footprints/test_store_commit_path.py"
+         "::test_version_step_refuses_a_base_that_differs_from_the_committed_world",)),
+    SourceMutation("cache_not_advanced_by_a_version_step", "worldmock.footprints.store::FootprintStore.commit",
+        "self._committed = CommittedWorld.of(state, body)", "None",
+        ("tests/unit/footprints/test_store_commit_path.py"
+         "::test_consecutive_version_steps_and_appends_follow_the_cached_world",)),
+    SourceMutation("cache_advanced_by_a_failed_version_step", "worldmock.footprints.store::FootprintStore.commit",
+        'logging.exception("Footprint transaction failed; no state or event was committed")',
+        'logging.exception("Footprint transaction failed; no state or event was committed"); '
+        "self._committed = CommittedWorld.of(state, body)",
+        ("tests/unit/footprints/test_store.py::test_sql_failure_rolls_back_money_and_all_events",)),
+    SourceMutation("evidence_append_moves_money", "worldmock.footprints.store::FootprintStore.append_evidence",
+        "validate_account_transition(committed.ledger_view(), committed.ledger_view(), events, False)", "None",
+        ("tests/unit/footprints/test_store_commit_path.py::test_evidence_append_refuses_money_and_initial_funding",)),
+    SourceMutation("evidence_append_claims_a_version_step",
+        "worldmock.footprints.store::FootprintStore.append_evidence",
+        "committed.version, committed.version, committed.current_time, events",
+        "committed.version, committed.version + 1, committed.current_time, events",
+        ("tests/unit/footprints/test_store_commit_path.py"
+         "::test_evidence_append_leaves_the_world_row_untouched_and_keeps_the_version",)),
+    SourceMutation("other_writer_not_detected", "worldmock.footprints.store::FootprintStore._require_stored_version",
+        "if stored != version:", "if False:",
+        ("tests/unit/footprints/test_store_commit_path.py"
+         "::test_a_write_after_another_connection_changed_the_world_is_refused",)),
+    SourceMutation("last_event_time_reads_the_oldest_event",
+        "worldmock.footprints.store::FootprintStore._last_event_time",
+        "ORDER BY event_seq DESC LIMIT 1", "ORDER BY event_seq LIMIT 1",
+        ("tests/unit/footprints/test_store_commit_path.py"
+         "::test_evidence_append_refuses_an_event_earlier_than_the_last_event",
+         "tests/unit/footprints/test_store_commit_path.py"
+         "::test_last_event_time_sees_events_inserted_outside_the_write_path")),
+    SourceMutation("checkpoint_skips_the_committed_world_check",
+        "worldmock.footprints.store::FootprintStore.checkpoint",
+        "self.require_committed(state)", "None",
+        ("tests/unit/footprints/test_branch_coverage.py"
+         "::test_store_checkpoint_rejects_stale_state_and_empty_snapshots",)),
+    # ---- 存储提交路径（长时运行成本第一章）结束 ----
 )

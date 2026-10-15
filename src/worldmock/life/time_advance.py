@@ -51,7 +51,6 @@ from worldmock.life.rhythm import (
     settle_engine_rhythm,
 )
 from worldmock.life.schedule import DayPlan, expired_plan_agent_ids
-from worldmock.life.models import validated_payload
 from worldmock.life.navigation_foreground import settle_navigation
 from worldmock.life.presentation import flush_presentation, stage_presentation
 from worldmock.life.purchase_phases import advance_phases, foreground_events, phase_boundaries
@@ -143,8 +142,7 @@ class TimeAdvanceCoordinator:
         drafts = [*drafts, *outcome.drafts, *navigation, *foreground_events(self.context.state, staged),
                   *stay_events(self.context.state, staged, drafts)]
         staged.version = self.context.state.version + 1
-        self.context.store.commit(validated_payload(staged), drafts)
-        self.context.state = staged
+        self.context.commit_step(staged, drafts)
         self.observations.pending_presentation = {}
 
     def _run_stop(self, state: WorldState) -> tuple[WorldState, list[EventDraft]]:
@@ -214,8 +212,7 @@ class TimeAdvanceCoordinator:
             self.context.state, agent_id, request, (sources, causes), self.context.config.timezone
         )
         staged.version = self.context.state.version + 1
-        self.context.store.commit(validated_payload(staged), [*evidence, draft])
-        self.context.state = staged
+        self.context.commit_step(staged, [*evidence, draft])
         return plan
 
     def _require_midnight_decided(self) -> None:

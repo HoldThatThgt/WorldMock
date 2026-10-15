@@ -57,7 +57,7 @@ def _store_with_responses(run, models):
                                                                  'usage': usage}})
               for model in models]
     if drafts:
-        store.commit(store.state, drafts)
+        store.append_evidence(drafts)
     store.close()
 
 

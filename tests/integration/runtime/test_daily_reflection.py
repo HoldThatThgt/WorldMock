@@ -421,7 +421,7 @@ def test_memory_layer_rejects_a_reflection_without_a_filing_date(engine_factory,
     state = engine.context.state
     snapshot = {"id": "m_1", "type": "reflection", "text": "想休息。", "epistemic_status": "subjective",
                 "source": "reflection"}
-    engine.context.store.commit(state.model_dump(mode="json"), [EventDraft(
+    engine.context.store.append_evidence([EventDraft(
         event_type="memory_updated", occurred_at=state.current_time, agent_id=1, decision_id="decision-old",
         visibility="system", source_kind="environment",
         data={"operation": "append_episodes", "episodes": [snapshot], "trigger": ["reflection"], "reflection": None})])

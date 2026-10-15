@@ -56,8 +56,8 @@ def _build_store(tmp_path, events, agent_ids=(1, 2), environment=None):
         "run_id": "run", "agent_ids": list(agent_ids), "environment_assets": assets,
         "window": {"start": DAY0, "end": DAY0 + 86400, "timezone": "Asia/Shanghai"},
     }, {"version": 0, "current_time": DAY0})
-    store.commit({"version": 1,
-                  "current_time": max((item.occurred_at for item in events), default=DAY0)}, events)
+    store.commit(store.state, {"version": 1,
+                               "current_time": max((item.occurred_at for item in events), default=DAY0)}, events)
     store.close()
     return tmp_path / "run" / "footprints.sqlite"
 

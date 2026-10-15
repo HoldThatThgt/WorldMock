@@ -123,7 +123,7 @@ async def test_multiple_receipts_keep_goods_and_their_source_references(tmp_path
         {"version": 0, "current_time": 100},
     )
     try:
-        receipts = footprint.commit(footprint.state, [EventDraft(
+        receipts = footprint.append_evidence([EventDraft(
             event_type="environment_event", occurred_at=100, agent_id=1,
             data={"kind": "goods_received", "order_id": f"order-{goods_id}",
                   "goods_id": goods_id, "category": "meal", "quantity": 1},

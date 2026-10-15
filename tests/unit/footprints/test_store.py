@@ -13,6 +13,14 @@ from worldmock.footprints.models import EventDraft, canonical_json
 from worldmock.footprints.store import FootprintStore
 
 
+def _outcome(write):
+    """执行一次写入：成功时返回事件序号，被拒时返回错误文本，两种结局都能直接比较。"""
+    try:
+        return [event.event_seq for event in write()]
+    except IntegrityError as error:
+        return str(error)
+
+
 @pytest.fixture
 def store(tmp_path):
     value = FootprintStore.create(tmp_path / 'parent',
@@ -25,19 +33,19 @@ def store(tmp_path):
 def test_state_and_events_commit_together_and_reject_same_version_mutation(store):
     event = EventDraft(event_type='action_result', occurred_at=110, data={'paid': 5})
     state = {'version': 1, 'current_time': 110, 'balance': 45}
-    saved = store.commit(state, [event])
+    saved = store.commit(store.state, state, [event])
     assert store.state == state
     assert saved[0].event_seq == 1
     assert (saved[0].state_version_before, saved[0].state_version_after) == (0, 1)
     with pytest.raises(IntegrityError):
-        store.commit({**state, 'balance': 900}, [])
+        store.commit(state, {**state, 'balance': 900}, [])
     assert store.state == state
     assert store.last_event_seq == 1
 
 
 def test_same_world_observations_share_version_and_preserve_duplicate_behavior(store):
     drafts = [EventDraft(event_type='observation', occurred_at=100, data={'title': 'same'}) for _ in range(2)]
-    result = store.commit(store.state, drafts)
+    result = store.append_evidence(drafts)
     assert [event.event_seq for event in result] == [1, 2]
     assert result[0].event_id != result[1].event_id
     assert {event.state_version_after for event in result} == {0}
@@ -47,7 +55,7 @@ def test_agent_event_queries_respect_type_person_and_exclusive_boundary(store):
     drafts = [EventDraft(event_type=kind, occurred_at=100, agent_id=agent)
               for kind, agent in [('action_result', 1), ('observation', 1), ('action_result', 2),
                                   ('model_response', 1), ('action_result', 1), ('action_result', 1)]]
-    store.commit(store.state, drafts)
+    store.append_evidence(drafts)
     boundary = store.last_agent_event_seq('observation', 1)
     assert boundary == 2
     assert store.last_agent_event_seq('observation', 2) == 0
@@ -68,12 +76,12 @@ def test_action_request_cutoff_counts_only_thinking_requests_with_the_action_too
         return EventDraft(event_type='model_request', occurred_at=100, agent_id=agent_id,
                           data={'phase': 'request', 'request': body, **data})
 
-    store.commit(store.state, [request(),
-                               request(purpose='plan_day', call_id='plan-day'),
-                               request(thinking='disabled'),
-                               request(tools=('answer_question',)),
-                               request(tools=('start_side_activity',)),
-                               request(2, tools=('observe', 'start_main_activity', 'start_side_activity'))])
+    store.append_evidence([request(),
+                           request(purpose='plan_day', call_id='plan-day'),
+                           request(thinking='disabled'),
+                           request(tools=('answer_question',)),
+                           request(tools=('start_side_activity',)),
+                           request(2, tools=('observe', 'start_main_activity', 'start_side_activity'))])
 
     assert store.last_agent_action_request_seq(1) == 1
     assert store.last_agent_action_request_seq(2) == 6
@@ -85,7 +93,7 @@ def test_last_event_seq_before_bounds_by_occurrence_time(store):
     assert store.last_event_seq_before(1000) == 0
     drafts = [EventDraft(event_type='environment_event', occurred_at=moment, data={'kind': 'probe'})
               for moment in (100, 100, 120)]
-    store.commit({'version': 1, 'current_time': 120, 'balance': 50}, drafts)
+    store.commit(store.state, {'version': 1, 'current_time': 120, 'balance': 50}, drafts)
 
     assert store.last_event_seq_before(100) == 0
     assert store.last_event_seq_before(101) == 2
@@ -93,7 +101,7 @@ def test_last_event_seq_before_bounds_by_occurrence_time(store):
     assert store.last_event_seq_before(121) == 3
     later = [EventDraft(event_type='environment_event', occurred_at=moment, data={'kind': 'probe'})
              for moment in (120, 120, 130, 130, 130, 150)]
-    store.commit({'version': 2, 'current_time': 150, 'balance': 50}, later)
+    store.commit(store.state, {'version': 2, 'current_time': 150, 'balance': 50}, later)
 
     assert [store.last_event_seq_before(moment) for moment in (100, 120, 121, 130, 131, 150, 151)] == [
         0, 2, 5, 5, 8, 8, 9]
@@ -106,7 +114,7 @@ def test_decision_observations_match_agent_decision_and_moment_exactly(store):
         return EventDraft(event_type='observation', occurred_at=moment, observed_at=moment, agent_id=agent_id,
                           decision_id=decision_id, data={})
 
-    store.commit({'version': 1, 'current_time': 120, 'balance': 50}, [
+    store.commit(store.state, {'version': 1, 'current_time': 120, 'balance': 50}, [
         observation(100, 'decision-a'), observation(110, 'decision-a'), observation(110, 'decision-b'),
         observation(110, 'decision-a', agent_id=2), observation(110, 'decision-a'), observation(120, 'decision-a'),
     ])
@@ -126,10 +134,10 @@ def test_commit_last_seq_groups_one_versioned_commit_without_later_same_version_
     """一次提交的末事件序号（docs/design/06-agent.md 第三章「归属」）：推进版本的提交的每个事件都指向该提交的末事件；
     其后同版本追加的观察与下一次提交不算在内；最后一次提交止于当前末事件；不存在的参照事件是完整性错误。"""
     probe = {'kind': 'probe'}
-    store.commit({'version': 1, 'current_time': 110, 'balance': 50},
+    store.commit(store.state, {'version': 1, 'current_time': 110, 'balance': 50},
                  [EventDraft(event_type='environment_event', occurred_at=110, data=probe) for _ in range(3)])
-    store.commit(store.state, [EventDraft(event_type='observation', occurred_at=110, data=probe)])
-    store.commit({'version': 2, 'current_time': 120, 'balance': 50},
+    store.append_evidence([EventDraft(event_type='observation', occurred_at=110, data=probe)])
+    store.commit(store.state, {'version': 2, 'current_time': 120, 'balance': 50},
                  [EventDraft(event_type='environment_event', occurred_at=120, data=probe) for _ in range(2)])
 
     assert [store.commit_last_seq(seq) for seq in (1, 2, 3)] == [3, 3, 3]
@@ -140,7 +148,7 @@ def test_commit_last_seq_groups_one_versioned_commit_without_later_same_version_
 
 def test_read_event_returns_the_event_and_rejects_an_unknown_identity(store, caplog):
     """按身份读单条事件：读到的就是写入的那一条；库里没有这个身份时写英文错误日志并抛 IntegrityError。"""
-    saved = store.commit({'version': 1, 'current_time': 110, 'balance': 50}, [
+    saved = store.commit(store.state, {'version': 1, 'current_time': 110, 'balance': 50}, [
         EventDraft(event_type='action_requested', occurred_at=110, agent_id=1, data={'tool_name': 'probe'}),
         EventDraft(event_type='action_result', occurred_at=110, agent_id=1, data={'status': 'completed'})])
     assert [store.read_event(event.event_id) for event in saved] == saved
@@ -152,7 +160,7 @@ def test_read_event_returns_the_event_and_rejects_an_unknown_identity(store, cap
 
 def test_world_change_without_any_event_cannot_be_committed(store):
     with pytest.raises(IntegrityError):
-        store.commit({'version': 1, 'current_time': 200, 'balance': 900}, [])
+        store.commit(store.state, {'version': 1, 'current_time': 200, 'balance': 900}, [])
     assert store.state == {'version': 0, 'current_time': 100, 'balance': 50}
     assert store.last_event_seq == 0
 
@@ -162,7 +170,7 @@ def test_inconsistent_activity_identity_fails_before_world_commit(store, activit
     draft = EventDraft(event_type='action_accepted', occurred_at=110, activity_id=activity_id,
                        data={'activity': {'activity_id': 'actual'}})
     with pytest.raises(IntegrityError):
-        store.commit({'version': 1, 'current_time': 110, 'balance': 45}, [draft])
+        store.commit(store.state, {'version': 1, 'current_time': 110, 'balance': 45}, [draft])
     assert store.state['version'] == 0 and store.state['balance'] == 50
     assert store.last_event_seq == 0
 
@@ -178,9 +186,13 @@ def test_sql_failure_rolls_back_money_and_all_events(store, monkeypatch):
     monkeypatch.setattr(store, '_insert_event', fail_second)
     events = [EventDraft(event_type='action_result', occurred_at=110) for _ in range(2)]
     with pytest.raises(sqlite3.OperationalError):
-        store.commit({'version': 1, 'current_time': 110, 'balance': 30}, events)
+        store.commit(store.state, {'version': 1, 'current_time': 110, 'balance': 30}, events)
     assert store.state['balance'] == 50
     assert store.last_event_seq == 0
+    assert _outcome(lambda: store.commit(store.state, {'version': 1, 'current_time': 110, 'balance': 30},
+                                         events)) == [1, 2]
+    assert store.state == {'version': 1, 'current_time': 110, 'balance': 30}
+    assert store.last_event_seq == 2
 
 
 @pytest.mark.parametrize('change', ['future', 'backwards', 'cause', 'observed_future'])
@@ -191,26 +203,26 @@ def test_invalid_time_and_causal_references_fail_without_state_change(store, cha
     if change == 'cause': fields['caused_by'] = ['absent']
     if change == 'observed_future': fields['observed_at'] = 101
     with pytest.raises(IntegrityError):
-        store.commit(store.state, [EventDraft(**fields)])
+        store.append_evidence([EventDraft(**fields)])
     assert store.last_event_seq == 0
 
 
 def test_cause_in_same_transaction_and_immutable_database(store):
     first = EventDraft(event_type='action_requested', occurred_at=100)
     second = EventDraft(event_type='action_accepted', occurred_at=100, caused_by=[first.event_id])
-    store.commit(store.state, [first, second])
+    store.append_evidence([first, second])
     assert store.read_events(2)[1].caused_by == [first.event_id]
     with pytest.raises(sqlite3.IntegrityError):
         store.connection.execute('DELETE FROM events')
     with pytest.raises(IntegrityError):
-        store.commit(store.state, [first])
+        store.append_evidence([first])
 
 
 def test_missing_or_damaged_asset_prevents_commit_and_checkpoint(store):
     reference = store.assets.put(b'evidence', {'media_type': 'text/plain', 'source': {'kind': 'fixture'}})
     (store.assets.root / reference.sha256).write_bytes(b'corrupt')
     event = EventDraft(event_type='model_response', occurred_at=100, artifact_refs=[reference])
-    with pytest.raises(IntegrityError): store.commit(store.state, [event])
+    with pytest.raises(IntegrityError): store.append_evidence([event])
     with pytest.raises(IntegrityError): store.checkpoint(store.state, {'agent:1': reference, 'life': reference})
     assert store.last_event_seq == 0
     assert store.connection.execute('SELECT COUNT(*) FROM checkpoints').fetchone()[0] == 0
@@ -223,7 +235,7 @@ def test_complete_checkpoint_branch_preserves_parent_and_exact_workspace(store, 
     reference = snapshot_directory(workspace, store.assets)
     point = store.checkpoint(store.state, {'agent:1': reference, 'life': reference})
     (workspace / 'MEMORY.md').write_text('later uncommitted memory')
-    store.commit({'version': 1, 'current_time': 200, 'balance': 10},
+    store.commit(store.state, {'version': 1, 'current_time': 200, 'balance': 10},
                  [EventDraft(event_type='action_result', occurred_at=200)])
     before = {str(p.relative_to(store.run_dir)): p.read_bytes() for p in store.run_dir.rglob('*') if p.is_file()}
     child = restore_branch(store, point.checkpoint_id, tmp_path / 'child')
@@ -310,7 +322,7 @@ def test_credentials_are_redacted_without_losing_model_task(monkeypatch):
 def test_create_rejects_non_integer_initial_clock_or_version(tmp_path, bad_state):
     """先红后绿回归（refute P0：写入路径不校验）——create 是检查点恢复分支的落盘入口。
 
-    机制论证（为什么是缺陷不是特征）：commit 的 _validate_state 已要求 version 与
+    机制论证（为什么是缺陷不是特征）：commit 的版本步核对已要求 version 与
     current_time 为整数（store.py 结构合同），而 create 对同两个字段只查 version>=0 与
     current_time 键存在，非整数初始状态被静默持久化，直到下次加载才暴露——与
     FootprintStore 合同（docs/design/09-io-formats.md「数字足迹存储接口」）的写入路径校验口径不一致。

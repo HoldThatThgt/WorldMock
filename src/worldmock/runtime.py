@@ -636,7 +636,6 @@ async def _generate_day_plan(engine: Any, caller: Any, agent_id: int) -> dict:
     """@brief 为一个人物生成并登记当日计划：请求与响应逐次留证，合法输出经引擎系统登记入口与证据一次提交。"""
     from worldmock.life import day_planning
     from worldmock.life.day_plan_inputs import plan_inputs
-    from worldmock.life.models import validated_payload
 
 
     now, timezone_name = engine.context.state.current_time, engine.context.config.timezone
@@ -657,7 +656,7 @@ async def _generate_day_plan(engine: Any, caller: Any, agent_id: int) -> dict:
         except day_planning.PlanDayOutputError as error:
             evidence.append(day_planning.response_draft(now, agent_id, link, raw, error))
             if attempt > engine.context.config.model.day_plan_validation_max_retries:
-                engine.context.store.commit(validated_payload(engine.context.state), evidence)
+                engine.context.store.append_evidence(evidence)
                 raise ProtocolError("plan_day output validation retries exhausted") from error
             attempt, previous = attempt + 1, evidence[-1].event_id
             request = day_planning.prepare_plan_day_correction(original, raw, error)
@@ -671,7 +670,6 @@ async def _generate_day_plan(engine: Any, caller: Any, agent_id: int) -> dict:
 async def _call_plan_day(engine: Any, caller: Any, request: dict, context: tuple[list, tuple, int]) -> dict:
     """@brief 发出一次零点计划请求；传输或配置失败时先提交已有尝试的证据与失败证据再抛出。"""
     from worldmock.life import day_planning
-    from worldmock.life.models import validated_payload
 
 
     evidence, link, agent_id = context
@@ -680,7 +678,7 @@ async def _call_plan_day(engine: Any, caller: Any, request: dict, context: tuple
     except BaseException as error:
         logger.error("Plan day model request failed: %s", type(error).__name__)
         evidence.append(day_planning.failure_draft(engine.context.state.current_time, agent_id, link, error))
-        engine.context.store.commit(validated_payload(engine.context.state), evidence)
+        engine.context.store.append_evidence(evidence)
         raise
 
 
