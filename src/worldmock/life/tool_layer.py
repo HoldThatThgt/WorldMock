@@ -10,11 +10,12 @@ from zoneinfo import ZoneInfo
 from worldmock.errors import BusinessRuleError
 from worldmock.life import activity_control, admission, same_moment
 from worldmock.life.action_contract import START_TOOLS, start_tool
+from worldmock.life.content_prerequisite import app_time_state
 from worldmock.life.content_select import (ContentRequest, OpeningDuration, eligible_contents, opening_duration,
                                            pinned_push_content)
 from worldmock.life.felt import sleep_debt_phrase
 from worldmock.life.guidance import Refusal
-from worldmock.life.location_activities import unit_facts
+from worldmock.life.location_activities import running_series_note, unit_facts
 from worldmock.life.models import ActivityStatus
 from worldmock.life.purchase_offers import quote_goods
 from worldmock.life.readable import duration_phrase, interval_phrases, money_phrase
@@ -122,14 +123,22 @@ def tool_layer(context: LayerContext, index: dict) -> dict:
 
 
 def _binding_target(context: LayerContext, row: dict) -> dict:
-    """@brief 公共行不带内部身份、类别推断、app 路由或支付渠道；凭状态而未开放的单元（私有绑定 locked 为真）不列出。"""
+    """@brief 公共行不带内部身份、类别推断、app 路由或支付渠道；凭状态而未开放的单元（私有绑定 locked 为真）不列出。
+
+    目标的 state：地点行写当天的营业时段（中文）；内容 app 行是 content_prerequisite.app_time_state，内容此刻全都不合格
+    时写开放时间，停留地点与本地时刻与副调用准入相同；商品行为 None。本地时刻在开头按运行时区算一次，两种行共用。
+    """
     kind = "product" if row["kind"] == "supply" else row["kind"]
+    local = datetime.fromtimestamp(context.state.current_time, ZoneInfo(context.config.timezone))
     state = None
     if row["kind"] == "location":
         location = context.catalog.locations[row["object_id"]]
-        local = datetime.fromtimestamp(context.state.current_time, ZoneInfo(context.config.timezone))
         intervals = location.opening_intervals(local.date())
         state = "全天营业" if location.opens is None else "、".join(interval_phrases(intervals)) or "今日休息"
+    elif row["kind"] == "app":
+        stay = admission.present_location(context.state, context.agent_id)
+        state = app_time_state(context.catalog, row["object_id"],
+                               None if stay is None else context.catalog.locations[stay], local)
     return {"name": row["object"], "kind": kind, "phase": None, "state": state,
             "actions": [_action_row(context, row, action) for action in row["actions"] if not action.get("locked")],
             "tools": []}
@@ -194,11 +203,15 @@ def _purchase_facts(context: LayerContext, row: dict) -> dict:
 
 
 def _activity_target(context: LayerContext, activity) -> dict:
-    """@brief 活动目标只有控制工具，客观进度使用统一短语。"""
+    """@brief 活动目标只有控制工具，客观进度使用统一短语；进行中的地点系列在客观进度前面另写第几集与供餐的说法
+    （location_activities.running_series_note），以「；」相连，其余活动的 state 就是客观进度。"""
     tools = ("report_status", "pause_activity", "conclude_activity") if activity.status == ActivityStatus.ACTIVE else (
         "conclude_activity",)
+    progress = activity_control.objective_progress(activity)
+    note = running_series_note(context.catalog, activity)
+    state = progress if note is None else f"{note}；{progress}"
     return {"name": context.names["activities"][activity.activity_id], "kind": "activity",
-            "phase": activity_control.activity_phase(activity), "state": activity_control.objective_progress(activity),
+            "phase": activity_control.activity_phase(activity), "state": state,
             "actions": [], "tools": [{"tool": tool, **availability(context, Candidate(tool,
                 activity_id=activity.activity_id))} for tool in tools]}
 

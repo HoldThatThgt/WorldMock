@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import pytest
 
+from tests.data_paths import ENVIRONMENT_ROOT
 from tests.life.conftest import MAIN_TOOL, SIDE_TOOL
 from tests.unit.test_environment_engine_admission import (
     app_call, conflict, occupied, place_call, refusal, running, sleep_call, travel_call, world,
@@ -21,15 +22,20 @@ _PLACES = {"home": "Home", "store": "Store"}
 
 
 def _ending_in(seconds: int, *, presence: bool = True, **update) -> ActivityState:
-    """一项进行中的 interact，离计划结束还有给定秒数；presence 为真是在地点做事（槽位 1），否则是用内容 app（槽位 2）。"""
+    """一项进行中的 interact，离计划结束还有给定秒数；presence 为真是在地点做事（槽位 1），否则是用内容 app（槽位 2）。
+
+    当前内容是样例环境里真实的独立内容：在地点做事是「测试休息」（c-rest），用内容 app 是 Keep 的「测试慢跑」（c-run），
+    做完都不再接续。"""
     slot = "first" if presence else "second"
-    return running("interact", ActivityKind.INTERACT, slot, presence=presence).model_copy(
-        update={"planned_end_at": 100 + seconds, "planned_duration_seconds": seconds, **update})
+    activity = running("interact", ActivityKind.INTERACT, slot, presence=presence)
+    data = {**activity.data, "content_id": "c-rest" if presence else "c-run"}
+    return activity.model_copy(
+        update={"planned_end_at": 100 + seconds, "planned_duration_seconds": seconds, "data": data, **update})
 
 
-def _control(activity: ActivityState, tool: str) -> Refusal | None:
-    """只有这一项活动的手工世界里，控制工具点名它时的准入结论；本轮活动名是 _NAME。"""
-    context = Context(occupied(activity), 1, _PLACES, {activity.activity_id: _NAME})
+def _control(activity: ActivityState, tool: str, *, inputs=None) -> Refusal | None:
+    """只有这一项活动的手工世界里，控制工具点名它时的准入结论；本轮活动名是 _NAME，inputs 是准入上下文的环境输入。"""
+    context = Context(occupied(activity), 1, _PLACES, {activity.activity_id: _NAME}, inputs)
     return activity_control.control_refusal(context, tool, activity)
 
 
@@ -72,15 +78,16 @@ def test_travel_sleep_purchase_and_query_are_never_pausable(action, kind, slot):
     assert _control(activity, "pause_activity") == refusal_for_code("ACTIVITY_PAUSE_UNAVAILABLE")
 
 
-def test_pause_refusal_names_the_activity_and_says_it_ends_in_under_three_minutes():
+def test_pause_refusal_names_the_activity_and_says_it_ends_in_under_three_minutes(frozen_inputs):
     """不足三分钟的暂停拒绝：现有的码，原因点名活动并说明不足三分钟，下一步与改法都是结束它或等它做完；恰好三分钟时
-    暂停成立。结束不受这条限制；已暂停的活动再暂停仍按请求不合约定拒绝。"""
-    refused = _control(_ending_in(179), "pause_activity")
+    暂停成立。结束不受这条限制；已暂停的活动再暂停仍按请求不合约定拒绝。当前内容是独立内容，做完不再接续。"""
+    inputs = frozen_inputs.record(ENVIRONMENT_ROOT)["inputs"]
+    refused = _control(_ending_in(179), "pause_activity", inputs=inputs)
     assert refused == Refusal("ACTIVITY_PAUSE_UNAVAILABLE",
                               f"The activity {_NAME} ends in under three minutes and cannot be paused.",
                               f"Conclude {_NAME} or let it finish.",
                               fix="Conclude this activity or let it finish instead.")
-    assert _control(_ending_in(179, presence=False), "pause_activity") is None
+    assert _control(_ending_in(179, presence=False), "pause_activity", inputs=inputs) is None
     assert _control(_ending_in(180), "pause_activity") is None
     assert _control(_ending_in(179), "conclude_activity") is None
     assert _control(_ending_in(1), "conclude_activity") is None

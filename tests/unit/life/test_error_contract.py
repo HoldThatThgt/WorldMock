@@ -81,13 +81,14 @@ PREREQUISITE_REFUSALS = [
      "Nothing in 钉钉 can start now: it is available 08:00–10:00, 17:00–20:00 today.",
      "Choose another action.", ("content_time",)),
     ((CLOCK,), (17, 9, 0), "office",
-     "Nothing in 钉钉 can start now: it is not available today.",
+     "Nothing in 钉钉 can start now: it is not available today (next available Mon 10-19 08:00–10:00, 17:00–20:00).",
      "Choose another action.", ("content_time",)),
     ((CLOCK,), (12, 12, 30), "home",
      "Nothing in 钉钉 can start here now: it requires presence at 练秋湖研发中心 during 08:00–10:00, 17:00–20:00 today.",
      GO_TO_OFFICE, ("content_location", "content_time")),
     ((CLOCK,), (17, 9, 0), "home",
-     "Nothing in 钉钉 can start here now: it requires presence at 练秋湖研发中心 and is not available today.",
+     "Nothing in 钉钉 can start here now: it requires presence at 练秋湖研发中心 and is not available today "
+     "(next available Mon 10-19 08:00–10:00, 17:00–20:00).",
      GO_TO_OFFICE, ("content_location", "content_time")),
     ((CLOCK, LUNCH), (12, 8, 10), "home",
      "Nothing in 钉钉 can start here now: it requires presence at 练秋湖研发中心; "
