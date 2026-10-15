@@ -29,18 +29,18 @@ def test_manifest_rule_version_priority_precedes_strict_shape(tmp_path, payload,
 
 
 @pytest.mark.parametrize("change,code,reason", [
-    ({"rules_version": 4}, "RULES_VERSION_MISMATCH", "The environment was published for a different rules version."),
-    ({"rules_version": 4, "format_version": 4}, "RULES_VERSION_MISMATCH",
+    ({"rules_version": 5}, "RULES_VERSION_MISMATCH", "The environment was published for a different rules version."),
+    ({"rules_version": 5, "format_version": 4}, "RULES_VERSION_MISMATCH",
      "The environment was published for a different rules version."),
-    ({"rules_version": 6}, "RULES_VERSION_MISMATCH", "The environment was published for a different rules version."),
+    ({"rules_version": 7}, "RULES_VERSION_MISMATCH", "The environment was published for a different rules version."),
     ({"format_version": 4}, "ENVIRONMENT_KIND_INVALID", "A declared kind is outside the fixed set."),
     ({"format_version": 6}, "ENVIRONMENT_KIND_INVALID", "A declared kind is outside the fixed set."),
 ])
 def test_otherwise_complete_package_with_an_old_version_number_is_refused(catalog_dir, change, code, reason):
     """@brief 其余内容全部合法的环境包，只因版本号是旧值就在加载和纯校验的第一步被拒绝。"""
-    assert RULES_VERSION == 5
+    assert RULES_VERSION == 6
     manifest = json.loads((catalog_dir / "manifest.json").read_bytes())
-    assert (manifest["rules_version"], manifest["format_version"]) == (5, 5)
+    assert (manifest["rules_version"], manifest["format_version"]) == (6, 5)
     (catalog_dir / "manifest.json").write_bytes(canonical_json({**manifest, **change}) + b"\n")
     for entry in (lambda: load_catalog(catalog_dir, 7), lambda: validate_catalog_files(catalog_dir)):
         with pytest.raises(RegistrationError) as captured:

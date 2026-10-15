@@ -81,7 +81,7 @@ def _assert_preferred_orders_and_a_self_ending_query(case: Path) -> None:
 def _assert_six_artifacts_with_phone_records(export: Path, scratch: Path) -> None:
     """活动日的导出含六份工件和各类手机记录；把任何一份带新记录的工件改写后重新签名，认证都拒绝。"""
     manifest, _ = read_export(export)
-    assert manifest["schema_version"] == 6
+    assert manifest["schema_version"] == 7
     assert set(manifest["artifacts"]) == {"events", "activities", "verified_experiences", "purchases", "app_usage",
                                           "location_stays"}
     usage, stays = artifact_rows(export, "app_usage"), artifact_rows(export, "location_stays")

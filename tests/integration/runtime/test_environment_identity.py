@@ -128,13 +128,13 @@ def _environment(root, files):
     return root
 
 
-@pytest.mark.parametrize("identity,value", [("rules_version", 4), ("rules_version", 6), ("environment_version", "3"),
+@pytest.mark.parametrize("identity,value", [("rules_version", 5), ("rules_version", 7), ("environment_version", "3"),
                                             ("catalog_content_sha256", "0" * 64), ("map_sha256", "0" * 64)])
 def test_parent_run_published_under_another_environment_identity_cannot_be_opened(engine_factory, identity, value):
     """父运行清单的五项环境身份任一不同就拒绝，规则版本是旧号的运行不能恢复。"""
     engine = engine_factory()
     manifest = copy.deepcopy(engine.context.store.manifest)
-    assert manifest["environment_identity"]["rules_version"] == 5
+    assert manifest["environment_identity"]["rules_version"] == 6
     manifest["environment_identity"][identity] = value
     with pytest.raises(IntegrityError, match="^Runtime environment identity mismatch$"):
         require_environment_identity(manifest, engine.context.inputs)

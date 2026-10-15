@@ -27,8 +27,8 @@ from worldmock.footprints.purchases import project_purchase_facts
 from worldmock.footprints.quality import build_quality_report
 from worldmock.footprints.store import FootprintStore
 
-#: 导出清单的结构号：工件是六份，含地点停留；活动种类含查询；结构号不符的导出直接拒绝，不迁移。
-EXPORT_SCHEMA_VERSION = 6
+#: 导出清单的结构号：工件是六份，含地点停留；活动种类含查询；进行中的 interact 活动行带 played_count；结构号不符的导出直接拒绝，不迁移。
+EXPORT_SCHEMA_VERSION = 7
 #: 导出清单 artifacts 的键集。
 EXPORT_ARTIFACTS = frozenset({"events", "activities", "verified_experiences", "purchases", "app_usage",
                               "location_stays"})

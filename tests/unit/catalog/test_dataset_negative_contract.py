@@ -214,7 +214,7 @@ def test_manifest_reader_rejects_noncanonical_or_nonobject_document(directory, p
 
 @pytest.mark.parametrize("change,code", [
     ({"rules_version": 0}, "RULES_VERSION_MISMATCH"),
-    ({"rules_version": 4}, "RULES_VERSION_MISMATCH"),
+    ({"rules_version": 5}, "RULES_VERSION_MISMATCH"),
     ({"files": ()}, "ENVIRONMENT_FILE_UNLISTED"),
 ])
 def test_manifest_validator_checks_version_and_complete_file_table(directory, change, code):
@@ -410,7 +410,7 @@ def test_manifest_checks_report_the_earliest_failing_step(directory, changes, co
         if "bad_shape" in changes:
             payload["format_version"] = 4
         if "old_rules" in changes:
-            payload["rules_version"] = 4
+            payload["rules_version"] = 5
 
     if "stale_entry" in changes:
         (directory / "notes.txt").write_bytes(b"")

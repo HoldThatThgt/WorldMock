@@ -4,7 +4,7 @@ from types import MappingProxyType
 
 
 
-RULES_VERSION = 5
+RULES_VERSION = 6
 #: 引擎自带的步行：保留的身份与名称，数据集的出行方式行不得使用；其余出行方式的数值都来自数据集。
 WALKING_TRAVEL_METHOD_ID = "walking"
 WALKING_TRAVEL_METHOD_NAME = "步行"
