@@ -724,6 +724,9 @@ app 的开关、订单通知和地点停留只进事件与这些工件，不进�
 其他引用列表保持原有顺序。
 
 - **身份**：事件的 `event_id`、`caused_by` 与工具里声明的引用字段，映射到所指事件的序号；检查点身份映射到它的 `checkpoint_created` 事件的序号；运行身份映射到段次序。映射是双射，引用指向别的事件仍然算不同。动作、活动、决策、订单等复合身份含运行身份，照原文比较：它们也是随机流的键，比对的两次运行必须使用同样的运行身份。人物工作区 `MEMORY.md` 已核验经历行里的「来源事件」身份同样映射到事件序号；`memory_updated` 记下的 `MEMORY.md` 摘要（`memory_sha256`、`memory_before_sha256`）随这些身份变化，按首次出现的次序成双射比较，文件内容在每个比较的工作区快照里逐行比较。
+  世界状态中的 `agents.*.errands.*.origin_event_id` 与 `pending_events[].caused_by[]` 也是事件引用，
+  在重启点、日终、全部检查点与终态比较中按所指事件的序号映射。未知事件身份报告 `REFERENCE_NOT_AN_ID`；
+  自由文本中的身份与未声明路径上的同名字段照原文比较，不按字段名或 UUID 形状统一替换。
 - **壁钟**：只有事件顶层的 `recorded_at` 与 `wall_elapsed_ms`、人物工作区 AGENT.json 的 `initialized_at`、运行清单 `lineage` 各项的 `last_recorded_at` 与 `branched_at`、质量报告 `acceleration` 下的实测墙钟项、按记录时刻定峰谷的估价项与峰时计数、`lineage` 节的停机秒数。嵌套的同名字段是模拟时间（例如记忆层 `earlier_today[].recorded_at`），照常比较。
 - **传输记录**：`model_response` 信封里的 `transport_attempts`（失败发送的壁钟毫秒数与传输错误），不进任何提示。
 - **丢弃尾段**：`lineage` 各项描述父运行越过重启点走了多远、为何停下（`last_event_seq`、`last_event_time`、`discarded_events`、`end_reason`、`end_error`）及质量报告 `lineage` 节里对应的项。重放以拒绝重启点之后的第一次调用重现重启，来源那一段可能是被杀或传输失败，所以这几项在来源与重放之间本来就不同；丢弃尾段本身不比较。

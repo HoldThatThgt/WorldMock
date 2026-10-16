@@ -911,6 +911,76 @@ def test_day_end_and_restart_states_are_compared(tmp_path):
     assert ".state.balance_fen" in _paths(report)
 
 
+def _state_event_reference(recording: Recording, kind: str, identity: str) -> None:
+    """@brief 在重启时仍有效的事务或到期事件里保存来源引用。"""
+    state = recording.states[7]
+    if kind == "errand":
+        state["agents"] = {"1": {"errands": {"shopping": {"origin_event_id": identity}}}}
+    else:
+        state["pending_events"] = [{"scheduled_id": "delivery", "caused_by": [identity]}]
+
+
+def _compare_state_reference_chains(root: Path, base: Recording, head: Recording) -> dict:
+    """@brief 通过常规运行比对入口覆盖恢复点、日终、全部检查点和终态。"""
+    base_runs, base_export = _two_segments(root / "base", base)
+    head_runs, head_export = _two_segments(root / "head", head)
+    return compare(Side(Chain.load(base_runs), base_export), Side(Chain.load(head_runs), head_export),
+                   Options(None, (), True))
+
+
+@pytest.mark.parametrize("kind", ["errand", "pending"])
+def test_state_event_references_follow_event_identity_in_every_state_layer(tmp_path, kind):
+    base, head = Recording(), Recording(prefix="b")
+    for recording in (base, head):
+        _state_event_reference(recording, kind, recording.eid(4))
+    report = _compare_state_reference_chains(tmp_path, base, head)
+    assert report["verdict"] == "equal" and report["problems"] == []
+    for name, count in (("restart_states", 1), ("day_end_states", 1), ("every_checkpoint", 2), ("final_state", 1)):
+        assert report["layers"][name]["compared"] == count
+        assert report["layers"][name]["different"] == 0
+
+
+@pytest.mark.parametrize("kind", ["errand", "pending"])
+def test_state_reference_to_another_event_differs_in_every_state_layer(tmp_path, kind):
+    base, head = Recording(), Recording(prefix="b")
+    _state_event_reference(base, kind, base.eid(4))
+    _state_event_reference(head, kind, head.eid(5))
+    report = _compare_state_reference_chains(tmp_path, base, head)
+    assert report["verdict"] == "different" and report["problems"] == []
+    for name in ("restart_states", "day_end_states", "every_checkpoint", "final_state"):
+        assert report["layers"][name]["different"] == 1
+
+
+@pytest.mark.parametrize("kind,path", [
+    ("errand", ".agents.1.errands.shopping.origin_event_id"),
+    ("pending", ".pending_events[0].caused_by[0]"),
+])
+def test_unknown_state_event_reference_is_a_problem(tmp_path, kind, path):
+    base, head = Recording(), Recording(prefix="b")
+    _state_event_reference(base, kind, base.eid(4))
+    _state_event_reference(head, kind, "f" * 32)
+    report = _compare_state_reference_chains(tmp_path, base, head)
+    assert report["verdict"] == "different"
+    assert {"kind": "REFERENCE_NOT_AN_ID", "id_kind": "event", "side": "head", "path": path,
+            "value": "f" * 32} in report["problems"]
+
+
+@pytest.mark.parametrize("location", ["free_text", "extra"])
+def test_state_text_and_undeclared_same_named_references_remain_literal(tmp_path, location):
+    base, head = Recording(), Recording(prefix="b")
+    for recording in (base, head):
+        _state_event_reference(recording, "errand", recording.eid(4))
+        _state_event_reference(recording, "pending", recording.eid(4))
+        if location == "free_text":
+            recording.states[7]["memo"] = f"来源事件 {recording.eid(4)}"
+        else:
+            recording.states[7]["extra"] = {"origin_event_id": recording.eid(4), "caused_by": [recording.eid(4)]}
+    report = _compare_state_reference_chains(tmp_path, base, head)
+    assert report["verdict"] == "different" and report["problems"] == []
+    expected = ".state.memo" if location == "free_text" else ".state.extra.origin_event_id"
+    assert expected in _paths(report)
+
+
 def test_every_checkpoint_mode_compares_intermediate_states(tmp_path):
     head = Recording()
     head.states[2]["balance_fen"] = 999

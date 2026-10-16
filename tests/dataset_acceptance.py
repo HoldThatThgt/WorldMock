@@ -802,6 +802,23 @@ MUTATIONS = (
     SourceMutation("unknown_reference_not_reported", "scripts.compare_runs::IdMaps.normalize",
         "if ordinal is None:", "if False:",
         ("tests/unit/engineering/test_compare_runs.py::test_a_reference_to_an_unknown_event_is_a_problem",)),
+    SourceMutation("state_errand_event_reference_not_mapped", "scripts.compare_runs::STATE_REFERENCES",
+        '"agents.*.errands.*.origin_event_id": "event",', "",
+        ("tests/unit/engineering/test_compare_runs.py"
+         "::test_state_event_references_follow_event_identity_in_every_state_layer[errand]",)),
+    SourceMutation("state_pending_event_reference_not_mapped", "scripts.compare_runs::STATE_REFERENCES",
+        '"pending_events[].caused_by[]": "event",', "",
+        ("tests/unit/engineering/test_compare_runs.py"
+         "::test_state_event_references_follow_event_identity_in_every_state_layer[pending]",)),
+    SourceMutation("state_event_reference_target_ignored", "scripts.compare_runs::IdMaps.normalize",
+        'return f"<{kind}:{ordinal}>"', 'return f"<{kind}:1>"',
+        ("tests/unit/engineering/test_compare_runs.py"
+         "::test_state_reference_to_another_event_differs_in_every_state_layer",)),
+    SourceMutation("state_extra_event_references_mapped", "scripts.compare_runs::STATE_REFERENCES",
+        '"pending_events[].caused_by[]": "event",',
+        '"pending_events[].caused_by[]": "event", "extra.origin_event_id": "event", "extra.caused_by[]": "event",',
+        ("tests/unit/engineering/test_compare_runs.py"
+         "::test_state_text_and_undeclared_same_named_references_remain_literal[extra]",)),
     SourceMutation("quality_reference_identity_order_not_normalized", "scripts.compare_runs::_normalize_quality",
         "_order_quality_references(mapped)", "mapped",
         ("tests/unit/engineering/test_compare_runs.py::test_quality_reference_order_follows_event_identity",)),

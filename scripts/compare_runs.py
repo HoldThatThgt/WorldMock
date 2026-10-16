@@ -94,6 +94,8 @@ MEMORY_SOURCE = re.compile(r"来源事件 ([0-9a-f]{32})")
 #: 声明的世界状态身份与引用路径：活动按对象形式（结构 14）与数组形式（结构 15，第二章）各列一次。
 STATE_REFERENCES = {
     "run_id": "run",
+    "agents.*.errands.*.origin_event_id": "event",
+    "pending_events[].caused_by[]": "event",
     "activities.*.origin_request_event_id": "event", "activities.*.data.accepted_event_id": "event",
     "activities[].origin_request_event_id": "event", "activities[].data.accepted_event_id": "event",
     "processed_actions.*.result.data.activity.origin_request_event_id": "event",
