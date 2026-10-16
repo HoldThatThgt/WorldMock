@@ -484,6 +484,18 @@ def test_checkpoint_zlib_rule_requires_the_record_hash_of_the_decoded_payload(tm
                  head_extra={"encode": lambda body: _zlib(body + b" ")})
 
 
+def test_checkpoint_rows_compressed_on_both_sides_compare_without_a_rule(tmp_path):
+    """@brief 两侧都按第二章起的形式存 zlib 流：不带规则各按自己的形式解开，结论 equal；一侧文本、一侧 zlib 流而没有
+    声明规则时拒绝比较，不把形式的变化当作相同。"""
+    base_run, base_export = _write(tmp_path / "both" / "base", Recording(), encode=_zlib)
+    head_run, head_export = _write(tmp_path / "both" / "head", Recording(), encode=_zlib)
+    report = compare(Side(Chain.load([base_run]), base_export), Side(Chain.load([head_run]), head_export),
+                     Options(None, (), False))
+    assert report["verdict"] == "equal", _paths(report)
+    with pytest.raises(ComparisonError, match="only rule checkpoint-zlib aligns them"):
+        _compare(tmp_path / "mixed", Recording(), Recording(), head_extra={"encode": _zlib})
+
+
 def _activity_array(recording: Recording, activities_of=None) -> Recording:
     """@brief 头一侧的记录形式：活动是带 activity_id 的有序数组。"""
     for state in recording.states.values():
@@ -603,6 +615,20 @@ def test_workspace_gzip_rule_compares_the_tar_inside_and_its_media_type(tmp_path
     zipped = _gzip_workspace(Recording(), "application/zip")
     report = _compare(tmp_path / "zip", Recording(), zipped, "workspace-gzip")
     assert report["verdict"] == "different"
+
+
+def test_gzip_workspace_snapshots_on_both_sides_are_compared_by_their_members_without_a_rule(tmp_path):
+    """@brief 两侧都存 application/gzip 的工作区快照：不带规则也先解压再按成员比较，AGENT.json 的壁钟照常屏蔽；
+    成员内容不同仍报为不同。"""
+    head = Recording()
+    head.workspace = _workspace(initialized_at="2026-10-16T09:30:00")
+    report = _compare(tmp_path / "masked", _gzip_workspace(Recording()), _gzip_workspace(head))
+    assert report["verdict"] == "equal", _paths(report)
+    head = Recording()
+    head.workspace = _workspace(memory=b"# memory\nchanged\n")
+    report = _compare(tmp_path / "memory", _gzip_workspace(Recording()), _gzip_workspace(head))
+    assert report["verdict"] == "different"
+    assert any(path.startswith(".snapshots.agent:1.sha256") for path in _paths(report))
 
 
 def test_transport_attempts_are_dropped_or_masked(tmp_path):

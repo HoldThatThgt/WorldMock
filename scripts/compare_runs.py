@@ -642,6 +642,8 @@ def normalize_asset(content: bytes, reference: dict, context: NormalizeContext) 
         if rule is not None and context.side == "head":
             content = _gunzip(content, reference["sha256"])
             rule.counts["applied"] += 1
+        elif reference.get("media_type") == "application/gzip":
+            content = _gunzip(content, reference["sha256"])
         return _workspace_listing(content, context)
     if kind == "life_checkpoint":
         snapshot = map_ids(json.loads(content), CHECKPOINT_REFERENCES, context)
@@ -661,7 +663,7 @@ def _config_content(content: bytes, urls: tuple[str, str]) -> bytes:
 
 
 def _gunzip(content: bytes, raw_sha: str) -> bytes:
-    """@brief 解开头一侧的 gzip 工作区快照。"""
+    """@brief 解开 gzip 工作区快照：规则 workspace-gzip 下的头一侧，或任一侧记为 application/gzip 的快照。"""
     try:
         return gzip.decompress(content)
     except (OSError, EOFError, zlib.error):
@@ -671,7 +673,7 @@ def _gunzip(content: bytes, raw_sha: str) -> bytes:
 def _workspace_listing(content: bytes, context: NormalizeContext) -> bytes:
     """@brief 归档成员按归档次序列成 name、mode、mtime 与规范化内容摘要；AGENT.json 屏蔽壁钟与地址。
 
-    不是 tar 的内容（例如没有启用 workspace-gzip 时头一侧的压缩快照）原样返回，于是作为不同的素材报出。
+    不是 tar 的内容（例如记为 application/x-tar 的压缩快照）原样返回，于是作为不同的素材报出。
     """
     rows = []
     try:
@@ -1026,8 +1028,12 @@ def compare_events(base: Side, head: Side, context: CompareContext) -> dict:
     return layer.report()
 
 
-def _checkpoint_row(chain: Chain, point: tuple, context: NormalizeContext) -> dict:
-    """@brief 从创建它的那一段库读检查点记录，按规则解码并核对 record_sha256。"""
+def _checkpoint_row(chain: Chain, point: tuple, context: NormalizeContext) -> tuple[dict, str]:
+    """@brief 从创建它的那一段库读检查点记录，按这一侧记下的形式解码并核对 record_sha256。
+
+    文本正文按 UTF-8 读，二进制正文是 zlib 流；规则 checkpoint-zlib 下头一侧一律按 zlib 流解开、基一侧按文本读。
+    @return （记录, 行的形式 text 或 zlib），两侧形式是否一致由调用方核对
+    """
     _, _, checkpoint_id, run_id = point
     segment = chain.segment_of_run(run_id)
     with _closing(chain.database(segment - 1)) as connection:
@@ -1036,17 +1042,20 @@ def _checkpoint_row(chain: Chain, point: tuple, context: NormalizeContext) -> di
     if row is None:
         _refuse(f"Checkpoint {checkpoint_id} is missing from segment {segment}")
     body, digest = row
-    raw = body.encode() if isinstance(body, str) else bytes(body)
+    form = "text" if isinstance(body, str) else "zlib"
+    raw = body.encode() if form == "text" else bytes(body)
     rule = _enabled(context.rules, "checkpoint-zlib")
-    if rule is not None and context.side == "head":
+    declared = rule is not None and context.side == "head"
+    if declared or (rule is None and form == "zlib"):
         try:
-            raw = zlib.decompress(raw)
+            raw, form = zlib.decompress(raw), "zlib"
         except zlib.error:
             _refuse(f"Checkpoint {checkpoint_id} record digest does not match its body")
-        rule.counts["applied"] += 1
+        if declared:
+            rule.counts["applied"] += 1
     if _sha(raw) != digest:
         _refuse(f"Checkpoint {checkpoint_id} record digest does not match its body")
-    return {**json.loads(raw), "record_sha256": digest}
+    return {**json.loads(raw), "record_sha256": digest}, form
 
 
 def _verified_record(record: dict) -> dict:
@@ -1099,9 +1108,12 @@ def _compare_points(layer: _Layer, sides: tuple[Side, Side], context: CompareCon
         context.ids.problems.append({"kind": "CHECKPOINT_POSITIONS", "base": [point[0] for point in points[0]],
                                      "head": [point[0] for point in points[1]]})
     for base_point, head_point in zip(*points):
-        records = (_checkpoint_row(base.chain, base_point, context.base),
-                   _checkpoint_row(head.chain, head_point, context.head))
-        _compare_records(layer, f"checkpoint {base_point[0]}", records, context)
+        base_record, base_form = _checkpoint_row(base.chain, base_point, context.base)
+        head_record, head_form = _checkpoint_row(head.chain, head_point, context.head)
+        if base_form != head_form and _enabled(context.options.rules, "checkpoint-zlib") is None:
+            _refuse(f"Checkpoint {head_point[2]} row is {base_form} on the base and {head_form} on the head; "
+                    "only rule checkpoint-zlib aligns them")
+        _compare_records(layer, f"checkpoint {base_point[0]}", (base_record, head_record), context)
 
 
 def _compare_final(base: Side, head: Side, context: CompareContext) -> dict | None:
