@@ -7,6 +7,7 @@ fail-closed 语义断言 IntegrityError。
 from __future__ import annotations
 from worldmock.footprints.checkpoint import restore_branch
 
+import gzip
 import hashlib
 import io
 import json
@@ -433,7 +434,7 @@ def test_snapshot_directory_skips_directories_and_packs_files(tmp_path):
     (workspace / "nested" / "note.txt").write_text("inner")
     (workspace / "top.txt").write_text("outer")
     reference = snapshot_directory(workspace, assets)
-    assert reference.media_type == "application/x-tar"
+    assert reference.media_type == "application/gzip"
     assert reference.size_bytes > 0
 
 
@@ -476,8 +477,8 @@ def test_restore_directory_rejects_existing_destination_and_unsafe_members(tmp_p
         member = tarfile.TarInfo("../escape.txt")
         member.size = 0
         archive.addfile(member, io.BytesIO(b""))
-    reference = assets.put(content.getvalue(), {"media_type": "application/x-tar",
-                                               "source": {"kind": "workspace"}})
+    reference = assets.put(_gzipped(content.getvalue()), {"media_type": "application/gzip",
+                                                          "source": {"kind": "workspace"}})
     destination = tmp_path / "restore"
     destination.mkdir()
     with pytest.raises(IntegrityError, match="destination already exists"):
@@ -487,8 +488,16 @@ def test_restore_directory_rejects_existing_destination_and_unsafe_members(tmp_p
         restore_directory(reference, assets, destination)
 
 
+def _gzipped(raw: bytes) -> bytes:
+    """按生产快照的同一调用（固定头部、修改时刻 0）gzip 压缩一份 tar。"""
+    compressed = io.BytesIO()
+    with gzip.GzipFile(fileobj=compressed, mode="wb", compresslevel=6, mtime=0) as stream:
+        stream.write(raw)
+    return compressed.getvalue()
+
+
 def _workspace_snapshot(assets, members):
-    """以（成员名, 成员类型）构造工作区快照素材；普通文件的内容是成员名本身。"""
+    """以（成员名, 成员类型）构造 gzip 压缩的工作区快照素材；普通文件的内容是成员名本身。"""
     content = io.BytesIO()
     with tarfile.open(fileobj=content, mode="w") as archive:
         for name, kind in members:
@@ -497,7 +506,7 @@ def _workspace_snapshot(assets, members):
             raw = name.encode("utf-8", "surrogateescape") if kind == tarfile.REGTYPE else b""
             entry.size = len(raw)
             archive.addfile(entry, io.BytesIO(raw))
-    return assets.put(content.getvalue(), {"media_type": "application/x-tar", "source": {"kind": "workspace"}})
+    return assets.put(_gzipped(content.getvalue()), {"media_type": "application/gzip", "source": {"kind": "workspace"}})
 
 
 def _forbid_restore_writes(monkeypatch):
@@ -565,18 +574,6 @@ def test_restore_directory_rejects_a_member_that_aliases_an_earlier_file(tmp_pat
     else:
         restore_directory(reference, assets, destination)
         assert (destination / "LONGFI~1.JSO").read_bytes() == b"LONGFI~1.JSO"
-
-
-@pytest.mark.parametrize("corrupt", [lambda archive: archive[:515], lambda archive: b"\x01" * 1024],
-                         ids=["truncated-member-data", "not-a-tar"])
-def test_restore_directory_reports_a_corrupt_archive_as_an_integrity_error(tmp_path, corrupt):
-    from worldmock.footprints.checkpoint import restore_directory
-
-    assets = AssetStore(tmp_path / "assets")
-    archive = assets.read(_workspace_snapshot(assets, [("AGENT.json", tarfile.REGTYPE)]))
-    reference = assets.put(corrupt(archive), {"media_type": "application/x-tar", "source": {"kind": "workspace"}})
-    with pytest.raises(IntegrityError, match="archive is invalid"):
-        restore_directory(reference, assets, tmp_path / "restore")
 
 
 def test_snapshot_and_restore_keep_every_workspace_file_byte_for_byte(tmp_path):

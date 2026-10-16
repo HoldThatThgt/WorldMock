@@ -918,5 +918,12 @@ MUTATIONS = (
         '"SELECT checkpoint_id FROM checkpoints ORDER BY rowid LIMIT 5"',
         ("tests/unit/footprints/test_status.py"
          "::test_status_lists_the_five_latest_checkpoint_ids_without_reading_their_bodies",)),
+    SourceMutation("workspace_gzip_takes_the_wall_clock", "worldmock.footprints.checkpoint::snapshot_directory",
+        "compresslevel=_WORKSPACE_GZIP_LEVEL, mtime=0)", "compresslevel=_WORKSPACE_GZIP_LEVEL)",
+        ("tests/unit/footprints/test_workspace_snapshot.py"
+         "::test_workspace_snapshot_bytes_do_not_depend_on_the_wall_clock",)),
+    SourceMutation("workspace_restore_accepts_a_plain_tar", "worldmock.footprints.checkpoint::restore_directory",
+        "archive_bytes = gzip.decompress(content)", "archive_bytes = content",
+        ("tests/unit/footprints/test_workspace_snapshot.py::test_restore_refuses_a_plain_tar_and_damaged_gzip",)),
     # ---- 世界状态与检查点存储（长时运行成本第二章）结束 ----
 )

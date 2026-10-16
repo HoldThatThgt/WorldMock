@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gzip
 import io
 import json
 import logging
@@ -10,6 +11,7 @@ import shutil
 import tarfile
 import tempfile
 import unicodedata
+import zlib
 from pathlib import Path, PurePosixPath
 from uuid import uuid4
 
@@ -19,10 +21,14 @@ from worldmock.footprints.assets import AssetStore, atomic_write
 from worldmock.footprints.models import AssetRef, EventDraft, canonical_json
 from worldmock.footprints.store import FootprintStore
 
+#: 工作区快照的 gzip 压缩级别（docs/design/05-recording-engine.md「冻结输入、检查点与分支」）。
+_WORKSPACE_GZIP_LEVEL = 6
+
 
 def snapshot_directory(directory: Path, assets: AssetStore) -> AssetRef:
     """@brief 保存目录中完整普通文件，拒绝符号链接与目录联接并固定归档元信息；
-    成员名先按恢复时的同一规则核对，恢复不了的快照不会被保存。"""
+    成员名先按恢复时的同一规则核对，恢复不了的快照不会被保存。
+    归档以固定头部 gzip 压缩（修改时刻 0），同一工作区在任何时刻得到同一素材。"""
     root = Path(directory).resolve()
     if not root.is_dir():
         raise IntegrityError("Participant workspace is missing")
@@ -37,7 +43,10 @@ def snapshot_directory(directory: Path, assets: AssetStore) -> AssetRef:
             entry.mode = 0o600
             entry.mtime = 0
             archive.addfile(entry, io.BytesIO(raw))
-    return assets.put(content.getvalue(), {"media_type": "application/x-tar", "source": {"kind": "workspace"}})
+    compressed = io.BytesIO()
+    with gzip.GzipFile(fileobj=compressed, mode="wb", compresslevel=_WORKSPACE_GZIP_LEVEL, mtime=0) as stream:
+        stream.write(content.getvalue())
+    return assets.put(compressed.getvalue(), {"media_type": "application/gzip", "source": {"kind": "workspace"}})
 
 
 def _workspace_files(root: Path) -> list[Path]:
@@ -52,13 +61,15 @@ def _workspace_files(root: Path) -> list[Path]:
 
 
 def restore_directory(reference: AssetRef, assets: AssetStore, destination: Path) -> None:
-    """@brief 全部成员核对通过后才展开普通相对文件，不覆盖已有目标目录，也不让两个成员写到同一个文件。"""
+    """@brief 完整解压 gzip 并核对全部成员后才展开普通相对文件，不覆盖已有目标目录，也不让两个成员写到同一个文件。"""
     destination = Path(destination)
     if destination.exists():
+        logging.error("Participant restore destination already exists: %s", destination)
         raise IntegrityError("Participant restore destination already exists")
     content = assets.read(reference)
     try:
-        with tarfile.open(fileobj=io.BytesIO(content), mode="r:") as archive:
+        archive_bytes = gzip.decompress(content)
+        with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode="r:") as archive:
             members = archive.getmembers()
             _check_members(members)
             destination.mkdir(parents=True)
@@ -67,9 +78,11 @@ def restore_directory(reference: AssetRef, assets: AssetStore, destination: Path
                 target = destination / member.name
                 # 目标目录是新建的：写入前已存在只能是先前成员的别名（Windows 8.3 短名、大小写或 Unicode 规范化）。
                 if os.path.lexists(target):
+                    logging.error("Workspace snapshot member %s aliases an earlier member", member.name)
                     raise IntegrityError("Workspace snapshot contains an unsafe member")
                 atomic_write(target, source.read())
-    except tarfile.TarError as exc:
+    except (gzip.BadGzipFile, EOFError, zlib.error, tarfile.TarError) as exc:
+        logging.error("Workspace snapshot %s is not a valid gzip-compressed tar: %s", reference.sha256, exc)
         raise IntegrityError("Workspace snapshot archive is invalid") from exc
 
 
