@@ -3,9 +3,9 @@
 ## 实际框架边界
 
 WorldMock 使用锁定并维护的 AgentSociety2 原生 Society、LifeAgent 与 LifeEnv。
-完整环境纯加载先核对人设、运行配置、目录与实际模型元数据；运行资产只能在这些核验通过后创建。
+完整环境纯加载先核对人设、运行配置、目录与模型元数据（新运行读实际服务，恢复与重放读父运行清单冻结的那一份）；运行资产只能在这些核验通过后创建。
 进程配置使用 config.toml 声明的服务与模型，凭据从声明的环境变量读取，不能换到另一个模型或端点。
-新建、恢复和重放都在读完完整环境之后、读取模型身份与代码身份之前配置进程：写入原生客户端需要的环境变量，并把项目根放进本进程和工作进程的导入路径。命令可以在任何目录启动，不要求预设任何 `AGENTSOCIETY_*` 变量，只需要 `model.api_key_env` 指的那个变量；恢复时父运行的数据库或检查点不存在，仍然先于进程配置报出。`validate` 不导入 `custom` 与 AgentSociety2，也不配置进程。
+新建、恢复和重放都在读完完整环境之后、读取模型身份与代码身份之前配置进程：写入原生客户端需要的环境变量，并把项目根放进本进程和工作进程的导入路径。命令可以在任何目录启动，不要求预设任何 `AGENTSOCIETY_*` 变量，只需要 `model.api_key_env` 指的那个变量；恢复先打开父运行、取到检查点并校验检查点世界，然后才加载环境、配置进程和复制任何文件；父运行的数据库、清单或检查点不对时不访问网络、不建分支目录。`validate` 不导入 `custom` 与 AgentSociety2，也不配置进程。
 
 ```mermaid
 flowchart LR
@@ -35,6 +35,30 @@ run、resume、replay 成功后写 `result.json`，其中 `token_stats` 是数�
 的模型用量合计，只读经类型索引找到的模型响应。引擎的足迹库连接遇到读者持锁时最多等 120 秒再提交，而不是 5 秒后失败；
 日志模式仍是回滚日志，运行结束后运行库是一个自足的文件。
 恢复与重放怎样复制父库见[记录引擎](05-recording-engine.md)「冻结输入、检查点与分支」。
+
+失败诊断：运行目录的 `status.json` 恰含 `status`、`phase`、`error_type` 与 `error_message`，是规范 JSON。`error_message`
+是一行可读的失败原因：异常组逐项以「 | 」连接，Ray 任务错误取其原始异常，其余为「类型名: 文本」，去掉终端颜色序列、
+连续空白折成一个空格，不截断；环境 actor 的阶段写入与成功结束时为 null。环境里的输入错误、前置条件错误与登记错误能完整
+穿过 Ray（按构造参数重建并带回实例字典），所以这里写的是原始错误，不是 `UnserializableException`。
+
+心跳：驱动进程在 run、resume、replay 运行期间先写一次、之后每 60 秒原子重写 `heartbeat.json`，是规范 JSON，恰含
+`heartbeat_at`、`pid`、`started_at`（UTC 的 ISO 8601 文本）。写失败记 `Driver heartbeat write failed` 并继续；运行结束
+文件保留。
+
+`worldmock status` 另报告：
+- `heartbeat`：心跳文件三项加距今秒数 `age_seconds`，没有文件为 null；内容不是 JSON 对象或 `heartbeat_at` 不带时区时报
+  `Run heartbeat is invalid`；
+- `liveness`：没有 `status.json` 为 null；不是 running 为 `stopped`；running 而心跳缺失或超过 180 秒为 `stale`，表示驱动
+  进程已不在，不表示世界停在哪里；最后一条事件是模型请求为 `waiting_for_model`，即停放或长思考；其余为 `running`；
+- `waiting_for_model_since`：最后一条事件是模型请求时它的落盘时刻，否则为 null；
+- `wall_time.last_event_age_seconds`：最后一条事件距今秒数。
+
+墙钟在 `running` 与 `waiting_for_model` 时止于此刻，失联时止于最后一次心跳，其余止于最后一条事件。首末事件按主键读取。
+心跳新鲜而最后一条事件很旧，表示驱动还在、环境或模型调用很慢；零点计划的请求与响应一起落盘，它的停放显示为 running。
+判断只看心跳的新旧，`pid` 只作参考：Windows 上探测进程会结束它。
+
+写文件：原子写在 Windows 上遇到拒绝访问（同步或杀毒软件短暂占用目标）按 0.05 秒起倍增的八个间隔重试，共约 13 秒，
+第九次仍被拒绝才失败（issue #7）；其他平台与其他错误立即失败。状态、心跳、检查点素材、工作区快照与导出都经它写。
 
 用户通过 `--environment` 显式指定完整环境根，删除 `--scenario` 生活运行输入和地图生成命令。
 环境验证、导出、状态查询与评估分别使用所属公开入口；评估自己的 scenario 配置文件与生活运行输入无关。

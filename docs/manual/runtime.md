@@ -18,6 +18,10 @@ worldmock status --run-dir .work/runs/my-world
 worldmock export --run-dir .work/runs/my-world --output .work/exports/my-world
 ```
 
+status 的 `liveness` 是 `stale` 时驱动进程已经不在（例如被结束），用 `recent_checkpoints` 里的检查点恢复；
+是 `waiting_for_model` 时运行正在等模型服务：断网时引擎原样重发同一请求至多十二小时，不需要人工恢复；
+运行失败时 `runtime.error_message` 写着失败的根因。
+
 完整验证先核对全部输入和实际模型元数据，失败时按所属路径与英文原因修正。
 这些命令可以在任何目录执行，不需要设置 `AGENTSOCIETY_*` 或 `PYTHONPATH`，只需要 model.api_key_env 指的那个变量。
 run 不接受 --scenario；不读取固定供应商私密文件，不使用默认模型或另一份目录路径。
@@ -83,7 +87,7 @@ worldmock resume --environment D:/datasets/my-world --parent .work/runs/my-world
 worldmock replay --environment D:/datasets/my-world --parent .work/runs/my-world --checkpoint CHECKPOINT_ID --intervention .work/intervention.json --output .work/runs/replay
 ```
 
-检查点身份从实际运行记录读取，不猜测身份。只读历史查询使用冻结事实；恢复生成调用核验完整模型身份和实际元数据。
+检查点身份从实际运行记录读取，不猜测身份。只读历史查询使用冻结事实；恢复与重放使用父运行冻结的模型元数据，不访问模型服务的 /models；检查点身份不对时在复制任何文件之前报错。
 没有旧结构迁移或失败后的替代执行。完整运行要求正常终态和成功最终检查点；失败或只到截止时间不能宣称完整。
 
 ## 验证与报告

@@ -25,6 +25,10 @@ class EnvironmentInputError(IntegrityError):
         self.path, self.code, self.reason = path, code, reason
         super().__init__(reason)
 
+    def __reduce__(self) -> tuple:
+        """@brief 按构造参数重建并带回实例字典，使异常穿过进程（Ray）后保留所属文件、错误码、原因与附加说明。"""
+        return type(self), (self.path, self.code, self.reason), self.__dict__
+
 
 class ProtocolError(WorldMockError):
     """@brief 宿主或模型调用违反已冻结的协议。"""
@@ -50,6 +54,10 @@ class PreconditionError(BusinessRuleError):
         self.unmet = unmet
         self.suggested = suggested
         self.public_reason = public_reason
+
+    def __reduce__(self) -> tuple:
+        """@brief 按构造参数重建并带回实例字典，使异常穿过进程（Ray）后保留错误码、未满足项、建议动作、公开原因与附加说明。"""
+        return type(self), (self.args[0], self.unmet, self.suggested, self.public_reason), self.__dict__
 
 
 def reject_value(message: str) -> NoReturn:

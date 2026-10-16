@@ -22,7 +22,7 @@ def test_status_reads_confirmed_state_without_modifying_any_run_file(tmp_path):
     assert before == after
     assert result['state_version'] == 0
     assert result['event_counts'] == {}
-    assert result['runtime'] == {'status': 'running', 'phase': 'deciding', 'error_type': None}
+    assert result['runtime'] == {'status': 'running', 'phase': 'deciding', 'error_type': None, 'error_message': None}
     assert result['token_stats'] is None
     assert result['people'][0]['next_decision_at'] == 100
     assert result['people'][0]['active_activities'] == []
@@ -104,7 +104,8 @@ def test_status_reads_the_three_run_files_as_utf8_without_the_default_encoding(t
     result = read_status(run)
     assert calls == []
     assert result['run_id'] == '运行一' and result['token_stats'] == receipt
-    assert result['runtime'] == {'status': 'completed', 'phase': 'stopped', 'error_type': None}
+    assert result['runtime'] == {'status': 'completed', 'phase': 'stopped', 'error_type': None,
+                                 'error_message': None}
 
 
 def test_observed_usage_rows_are_ordered_by_model_and_both_keys_are_reported(tmp_path):

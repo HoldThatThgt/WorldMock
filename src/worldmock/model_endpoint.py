@@ -6,6 +6,9 @@ import copy
 
 import logging
 import os
+import time
+from collections.abc import Callable, Mapping
+from typing import Any
 from urllib.parse import urlparse
 
 import requests
@@ -14,6 +17,10 @@ from pydantic import ValidationError
 from worldmock.input_models import ModelConfig, ModelMetadata
 
 _LOGGER = logging.getLogger(__name__)
+#: 元数据读取整次重试的等待秒数（至多五次读取）。
+_METADATA_FETCH_WAITS = (2.0, 4.0, 8.0, 16.0)
+#: 视为服务暂时不可用、整次重试的 HTTP 状态。
+_METADATA_RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
 
 
 def credential_value(config: ModelConfig) -> str:
@@ -26,21 +33,67 @@ def credential_value(config: ModelConfig) -> str:
 
 
 def load_model_metadata(config: ModelConfig) -> ModelMetadata:
-    """@brief 精确匹配实际模型服务返回的模型身份与输入输出容量。"""
+    """@brief 精确匹配实际模型服务返回的模型身份与输入输出容量；暂时性失败整次重试，至多五次。"""
     from worldmock.errors import EnvironmentInputError
 
     try:
         _require_service_urls(config)
         secret = credential_value(config)
-        response = requests.get(config.metadata_url, headers={"Authorization": f"Bearer {secret}"}, timeout=30)
-        response.raise_for_status()
-        metadata = parse_model_metadata(config, response.json())
+        payload = _fetch_metadata(config.metadata_url, secret)
+        metadata = parse_model_metadata(config, payload)
     except (requests.RequestException, ValueError, ValidationError) as error:
         reason = "model context metadata is unavailable"
         if str(error).startswith("Model context length "):
             reason = str(error)
         raise EnvironmentInputError("config.toml", "RUN_CONFIG_INVALID", reason) from error
     return metadata
+
+
+def _get_metadata(url: str, secret: str) -> object:
+    """@brief 一次读取元数据：GET、核对状态并解析 JSON，任何一步的 requests 异常原样抛出。"""
+    response = requests.get(url, headers={"Authorization": f"Bearer {secret}"}, timeout=30)
+    response.raise_for_status()
+    return response.json()
+
+
+def _fetch_metadata(url: str, secret: str) -> object:
+    """@brief 整次读取元数据（GET、状态与 JSON）；连接、超时、429 与 5xx 按固定间隔重试，至多五次；用尽或其他失败时
+    写英文错误日志并抛出最后一次错误。"""
+    for tries, wait in enumerate(_METADATA_FETCH_WAITS, start=1):
+        try:
+            return _get_metadata(url, secret)
+        except requests.RequestException as error:
+            if not _transient_metadata_error(error):
+                _LOGGER.error("Model metadata fetch failed after %d tries: %s", tries, type(error).__name__)
+                raise
+            _LOGGER.warning("Model metadata fetch failed (%s); retrying in %.0f s", type(error).__name__, wait)
+            time.sleep(wait)
+    try:
+        return _get_metadata(url, secret)
+    except requests.RequestException as error:
+        _LOGGER.error("Model metadata fetch failed after %d tries: %s", len(_METADATA_FETCH_WAITS) + 1,
+                      type(error).__name__)
+        raise
+
+
+def _transient_metadata_error(error: requests.RequestException) -> bool:
+    """@brief 连接（含 TLS 与代理）、超时、响应体中断及 429/5xx 视为暂时性失败。"""
+    if isinstance(error, (requests.ConnectionError, requests.Timeout, requests.exceptions.ChunkedEncodingError)):
+        return True
+    response = error.response if isinstance(error, requests.HTTPError) else None
+    return response is not None and response.status_code in _METADATA_RETRY_STATUSES
+
+
+def frozen_metadata_loader(source: Mapping[str, Any]) -> Callable[[ModelConfig], ModelMetadata]:
+    """@brief 恢复、重放与打开已有运行的元数据来源：读运行清单冻结的 model_metadata，不访问模型服务；键缺失或值不合法时拒绝。"""
+    from worldmock.errors import IntegrityError
+
+    try:
+        metadata = ModelMetadata.model_validate(source["model_metadata"])
+    except (KeyError, TypeError, ValidationError) as error:
+        _LOGGER.error("Frozen model metadata is missing or invalid")
+        raise IntegrityError("Frozen model metadata is missing or invalid") from error
+    return lambda _config: metadata
 
 
 def _require_service_urls(config: ModelConfig) -> None:

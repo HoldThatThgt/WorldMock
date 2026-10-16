@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from worldmock.model_endpoint import IndependentModelClient
+from worldmock.model_endpoint import IndependentModelClient, frozen_metadata_loader
 import copy
 import hashlib
 import json
 import logging
 import shutil
 import tempfile
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -16,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
 from worldmock.errors import IntegrityError, ProtocolError
+from worldmock.status import DriverHeartbeat
 
 if TYPE_CHECKING:
     from worldmock.footprints.store import FootprintStore
@@ -221,10 +223,10 @@ def _run_identity(request: RunRequest, inputs: EnvironmentInputs) -> RunIdentity
 
 def _prepare_resume(request: ResumeRequest,
                     intervention: CounterfactualIntervention | None = None) -> _PreparedRun:
-    """@brief 校验三个输入身份后原子恢复工作区与世界，人物卡片沿用工作区里冻结的那一份。
+    """@brief 先打开父运行、取到检查点并校验检查点世界，再用父清单冻结的模型元数据加载环境（不访问模型服务）、
+    配置进程、核对身份，最后原子恢复工作区与世界；父运行的库、清单或检查点不对时，不加载环境、不配置进程、不复制任何文件。
 
-    取到检查点并校验过检查点世界之后、核对运行身份之前配置进程：父库或检查点不存在仍先于进程配置报出，
-    配置失败时不建分支目录（docs/design/10-runtime.md「实际框架边界」）。
+    人物卡片沿用工作区里冻结的那一份；配置失败时不建分支目录（docs/design/10-runtime.md「实际框架边界」）。
     """
     from worldmock import run_setup
     from worldmock.environment import load_environment
@@ -236,13 +238,13 @@ def _prepare_resume(request: ResumeRequest,
     destination = Path(request.run_dir).resolve()
     _require_run_shell(destination)
     root = Path(request.environment_root).absolute()
-    inputs = load_environment(root)
     digest = _intervention_sha256(intervention) if intervention is not None else None
     metadata = {"branch_kind": "counterfactual", "intervention_sha256": digest} if digest else None
     parent = FootprintStore(Path(request.parent_run_dir))
     try:
         checkpoint = parent.get_checkpoint(request.checkpoint_id)
         WorldState.model_validate(checkpoint.state)
+        inputs = load_environment(root, metadata_loader=frozen_metadata_loader(parent.manifest))
         run_setup._configure_process(request.project_root, inputs.config.model)
         _require_runtime_identity(parent.manifest, Path(request.project_root), inputs)
         require_environment_identity(parent.manifest, inputs)
@@ -441,43 +443,44 @@ def _validate_persona_card_struct(profile: Any, persona: PersonaConfig) -> None:
 
 
 async def _execute(prepared: _PreparedRun) -> RunResult:
-    """@brief 构造原生 Ray actor、runner 与 Society 并运行到结束。"""
+    """@brief 构造原生 Ray actor、runner 与 Society 并运行到结束；运行期间驱动进程每 60 秒写一次心跳。"""
     from agentsociety2.config.llm_dispatcher import init_dispatchers
 
     import ray
 
-    owned_ray = not ray.is_initialized()
-    await init_dispatchers()
-    actor = None
-    society = None
-    failure: BaseException | None = None
-    try:
-        actor, society = await _build_society(prepared)
-        await society.init()
-        if prepared.intervention is not None:
-            if prepared.intervention_sha256 is None:
-                raise RuntimeError("Counterfactual intervention identity is unavailable")
-            await society.apply_counterfactual(
-                prepared.intervention,
-                prepared.intervention_sha256,
-            )
-        await society.run()
-        _ops_log(prepared.run_dir, prepared.inputs.config.timezone, society.current_time,
-                 {"code": "RUN_ENDED", "detail": "Run finished", "run_id": prepared.run_id,
-                  "steps": society.step_count})
-        return RunResult(prepared.run_id, prepared.run_dir, society.current_time, society.step_count)
-    except BaseException as error:
-        failure = error
-        _ops_crash_log(prepared, society, error)
-        raise
-    finally:
-        errors = await _cleanup_runtime(society, actor, owned_ray)
-        if errors:
-            if failure is not None:
-                raise BaseExceptionGroup("WorldMock run and cleanup failed", [failure, *errors])
-            if len(errors) == 1:
-                raise errors[0]
-            raise BaseExceptionGroup("WorldMock cleanup failed", errors)
+    with DriverHeartbeat(prepared.run_dir):
+        owned_ray = not ray.is_initialized()
+        await init_dispatchers()
+        actor = None
+        society = None
+        failure: BaseException | None = None
+        try:
+            actor, society = await _build_society(prepared)
+            await society.init()
+            if prepared.intervention is not None:
+                if prepared.intervention_sha256 is None:
+                    raise RuntimeError("Counterfactual intervention identity is unavailable")
+                await society.apply_counterfactual(
+                    prepared.intervention,
+                    prepared.intervention_sha256,
+                )
+            await society.run()
+            _ops_log(prepared.run_dir, prepared.inputs.config.timezone, society.current_time,
+                     {"code": "RUN_ENDED", "detail": "Run finished", "run_id": prepared.run_id,
+                      "steps": society.step_count})
+            return RunResult(prepared.run_id, prepared.run_dir, society.current_time, society.step_count)
+        except BaseException as error:
+            failure = error
+            _ops_crash_log(prepared, society, error)
+            raise
+        finally:
+            errors = await _cleanup_runtime(society, actor, owned_ray)
+            if errors:
+                if failure is not None:
+                    raise BaseExceptionGroup("WorldMock run and cleanup failed", [failure, *errors])
+                if len(errors) == 1:
+                    raise errors[0]
+                raise BaseExceptionGroup("WorldMock cleanup failed", errors)
 
 
 async def _cleanup_runtime(society: Any, actor: Any, owned_ray: bool) -> list[BaseException]:

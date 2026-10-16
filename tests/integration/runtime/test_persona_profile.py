@@ -13,7 +13,7 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from worldmock.input_models import PersonaConfig
 from tests.integration.runtime.current_contract_fixtures import inputs, profile as current_profile
-from tests.integration.runtime.test_native_dataset_lifecycle import native_runtime  # noqa: F401
+from tests.integration.runtime.native_runtime_fixtures import native_runtime  # noqa: F401
 from worldmock.run_setup import creation_inputs
 
 

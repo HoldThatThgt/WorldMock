@@ -23,7 +23,7 @@ def test_loaded_identity_matches_actual_manifest_and_map_bytes():
     assert len(identity) == 5
 
 
-@pytest.mark.parametrize("field", ["schema_version", "environment_identity", "persona_sha256", "config_sha256", "model_metadata"])
+@pytest.mark.parametrize("field", ["schema_version", "environment_identity", "persona_sha256", "config_sha256"])
 def test_each_frozen_input_identity_is_required(engine_factory, field):
     engine = engine_factory()
     manifest = copy.deepcopy(engine.context.store.manifest)

@@ -17,8 +17,9 @@ from worldmock.input_warnings import frozen_input_warnings
 from worldmock.life.models import (AgentState, RunIdentity, WorldState, RUN_MANIFEST_SCHEMA_VERSION,
                                    WORLD_SCHEMA_VERSION)
 from worldmock.life.models import validated_payload
-from worldmock.life.run_identity import open_environment_validated_store
+from worldmock.life.run_identity import require_environment_identity
 from worldmock.life.stay_records import run_start_event
+from worldmock.model_endpoint import frozen_metadata_loader
 
 
 def _initial_state(inputs: EnvironmentInputs, run_id: str) -> WorldState:
@@ -154,9 +155,18 @@ def _validate_creation_model(inputs: EnvironmentInputs, identity: RunIdentity, s
 
 
 def open_world(environment: EnvironmentInputs | Path, run_dir: Path):
-    """@brief 已有运行核对目录及两个原文字节身份，不重建初值或重复运行开始回调。"""
-    inputs = environment if isinstance(environment, EnvironmentInputs) else load_environment(environment)
-    return inputs, open_environment_validated_store(Path(run_dir), inputs)
+    """@brief 已有运行先打开存储；从目录加载环境时模型元数据取运行清单冻结的那一份，不访问模型服务；再核对目录及两个
+    原文字节身份，不重建初值或重复运行开始回调。"""
+    store = FootprintStore(Path(run_dir))
+    try:
+        inputs = (environment if isinstance(environment, EnvironmentInputs)
+                  else load_environment(environment, metadata_loader=frozen_metadata_loader(store.manifest)))
+        require_environment_identity(store.manifest, inputs)
+    except Exception:
+        logging.error("Existing run could not be opened")
+        store.close()
+        raise
+    return inputs, store
 
 
 def _run_start_callbacks(state: WorldState, catalog) -> tuple[WorldState, list[EventDraft]]:

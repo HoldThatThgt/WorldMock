@@ -55,3 +55,7 @@ class RegistrationError(IntegrityError):
         self.message = REGISTRATION_REASONS[code]
         self.detail = detail
         super().__init__(f"{code}: {self.message}" + (f" {detail}" if detail else ""))
+
+    def __reduce__(self) -> tuple:
+        """@brief 按构造参数重建并带回实例字典，使异常穿过进程（Ray）后保留登记码、详情与附加说明。"""
+        return type(self), (self.code, self.detail), self.__dict__

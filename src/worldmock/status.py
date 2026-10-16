@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import re
 import sqlite3
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import get_args
+from typing import Any, get_args
 from zoneinfo import ZoneInfo
 
 from worldmock.errors import IntegrityError
@@ -15,6 +18,13 @@ from worldmock.footprints.assets import atomic_write
 from worldmock.footprints.models import EventType, canonical_json
 
 logger = logging.getLogger(__name__)
+#: 驱动心跳文件名与写入间隔（秒）。
+HEARTBEAT_FILE = "heartbeat.json"
+HEARTBEAT_INTERVAL_SECONDS = 60
+#: status.json 仍是 running 而心跳超过这么多个间隔未更新时，status 报告驱动已失联（stale）。
+HEARTBEAT_STALE_INTERVALS = 3
+#: Ray 等写进异常文本的终端颜色序列。
+_ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
 #: 第一条与最后一条事件按主键读（不扫描事件表）；最后一条另带事件类型，供运行活性判断。
 _FIRST_EVENT_SQL = ("SELECT json_extract(body,'$.recorded_at') FROM events "
                     "WHERE event_seq=(SELECT min(event_seq) FROM events)")
@@ -35,17 +45,68 @@ _OBSERVED_USAGE_SQL = """
     """
 
 
-def write_status(run_dir: Path, status: str, phase: str, error_type: str | None = None) -> None:
-    """@brief 在明确的运行边界写单份状态，生活阶段由环境调用此入口更新。"""
+def write_status(run_dir: Path, status: str, phase: str, error_type: str | None = None,
+                 error_message: str | None = None) -> None:
+    """@brief 在明确的运行边界写单份状态，生活阶段由环境调用此入口更新；失败时另写一行可读原因 error_message。"""
     if status not in {"created", "running", "completed", "failed", "interrupted"}:
         raise IntegrityError("Unknown run status")
     if phase not in {"deciding", "resolving", "advancing", "checkpointing", "stopped"}:
         raise IntegrityError("Unknown run phase")
-    atomic_write(run_dir / "status.json", canonical_json({"status": status, "phase": phase, "error_type": error_type}))
+    atomic_write(run_dir / "status.json", canonical_json(
+        {"status": status, "phase": phase, "error_type": error_type, "error_message": error_message}))
+
+
+def failure_message(error: BaseException) -> str:
+    """@brief status.json 的 error_message：一行可读失败原因。异常组逐项以「 | 」连接；带 cause 属性且其值是另一异常的
+    （Ray 任务错误）取该异常；其余为「类型名: 文本」，去掉终端颜色序列、连续空白折成一个空格，不截断。"""
+    if isinstance(error, BaseExceptionGroup):
+        return " | ".join(failure_message(item) for item in error.exceptions)
+    cause = getattr(error, "cause", None)
+    if isinstance(cause, BaseException) and cause is not error:
+        return failure_message(cause)
+    return " ".join(_ANSI_ESCAPE.sub("", f"{type(error).__name__}: {error}").split())
+
+
+class DriverHeartbeat:
+    """@brief 驱动进程心跳：进入时立即原子写一次 heartbeat.json，之后后台守护线程每 60 秒重写；写失败记录错误并继续；
+    退出时停止线程，文件保留。"""
+
+    def __init__(self, run_dir: Path) -> None:
+        """@brief 绑定心跳文件、驱动开始时刻、停止信号与后台线程。"""
+        self._path = Path(run_dir) / HEARTBEAT_FILE
+        self._started_at = datetime.now(timezone.utc).isoformat()
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, name="worldmock-heartbeat", daemon=True)
+
+    def __enter__(self) -> "DriverHeartbeat":
+        """@brief 立即写一次心跳并启动后台线程。"""
+        self._beat()
+        self._thread.start()
+        return self
+
+    def __exit__(self, exc_type: Any, exc: Any, traceback: Any) -> None:
+        """@brief 停止后台线程，不吞掉运行中的异常；心跳文件保留。"""
+        self._stop.set()
+        self._thread.join(HEARTBEAT_INTERVAL_SECONDS)
+
+    def _run(self) -> None:
+        """@brief 每个间隔重写一次心跳，直到停止信号。"""
+        while not self._stop.wait(HEARTBEAT_INTERVAL_SECONDS):
+            self._beat()
+
+    def _beat(self) -> None:
+        """@brief 原子写一次心跳；写失败记录英文错误日志后继续，不让心跳线程退出。"""
+        record = {"heartbeat_at": datetime.now(timezone.utc).isoformat(), "pid": os.getpid(),
+                  "started_at": self._started_at}
+        try:
+            atomic_write(self._path, canonical_json(record))
+        except Exception as error:
+            logger.error("Driver heartbeat write failed: %s", error)
 
 
 def read_status(run_dir: Path) -> dict:
-    """@brief 使用 SQLite 只读连接查询提交状态，模型调用数量与行为数量分开；运行目录的 JSON 文件一律按 UTF-8 读。
+    """@brief 使用 SQLite 只读连接查询提交状态，模型调用数量与行为数量分开；运行目录的 JSON 文件一律按 UTF-8 读；
+    另报心跳、活性与等待模型的起点；首末事件按主键读取。
 
     每个读语句各自是一个短读，不开长事务，运行中可以查。
     """
@@ -70,7 +131,7 @@ def read_status(run_dir: Path) -> dict:
                                  if receipt_path.exists() else None)
         result["observed_model_usage"] = _observed_usage(connection)
         result["people"] = _people_status(connection, state)
-        result["wall_time"] = _wall_time(connection, result["runtime"])
+        result.update(_liveness_view(connection, root, result["runtime"]))
         return result
     finally:
         connection.close()
@@ -159,13 +220,59 @@ def _decision_boundary(state: dict, person: dict) -> int | None:
     return min(scheduled, state["end_time"])
 
 
-def _wall_time(connection: sqlite3.Connection, runtime: dict | None) -> dict:
-    """@brief 根据第一条与最后一条事件的落盘时刻（按主键读）计算墙钟经过时间，终止运行固定在末事件。"""
+def _liveness_view(connection: sqlite3.Connection, root: Path, runtime: dict | None) -> dict:
+    """@brief 心跳、活性、等待模型的起点与墙钟，首末事件按主键读取，不扫描事件表。"""
+    heartbeat = _heartbeat(root)
     first = connection.execute(_FIRST_EVENT_SQL).fetchone()
-    if first is None:
-        return {"started_at": None, "last_event_at": None, "elapsed_seconds": None}
-    start = datetime.fromisoformat(first[0])
-    last = datetime.fromisoformat(connection.execute(_LAST_EVENT_SQL).fetchone()[0])
-    stop = datetime.now(timezone.utc) if runtime and runtime["status"] == "running" else last
-    return {"started_at": start.isoformat(), "last_event_at": last.isoformat(),
-            "elapsed_seconds": max(0, (stop - start).total_seconds())}
+    last = connection.execute(_LAST_EVENT_SQL).fetchone()
+    last_type = last[1] if last else None
+    liveness = _liveness(runtime, heartbeat, last_type)
+    return {"heartbeat": heartbeat, "liveness": liveness,
+            "waiting_for_model_since": last[0] if last_type == "model_request" else None,
+            "wall_time": _wall_time(first[0] if first else None, last[0] if last else None, liveness, heartbeat)}
+
+
+def _heartbeat(root: Path) -> dict | None:
+    """@brief 读取驱动心跳并加上距今秒数；文件不存在为空；内容不是 JSON 对象或心跳时刻不可读时写英文错误日志并拒绝，
+    读文件的系统错误原样传播。"""
+    path = root / HEARTBEAT_FILE
+    if not path.exists():
+        return None
+    try:
+        beat = json.loads(path.read_text(encoding="utf-8"))
+        age = (datetime.now(timezone.utc) - datetime.fromisoformat(beat["heartbeat_at"])).total_seconds()
+    except (ValueError, KeyError, TypeError) as error:
+        logger.error("Run heartbeat is invalid: %s", error)
+        raise IntegrityError("Run heartbeat is invalid") from error
+    return {**beat, "age_seconds": round(max(0.0, age), 3)}
+
+
+def _liveness(runtime: dict | None, heartbeat: dict | None, last_event_type: str | None) -> str | None:
+    """@brief 运行活性：status.json 缺失为空；不是 running 为 stopped；心跳缺失或超过三个间隔为 stale（驱动进程已不在，
+    不表示世界停在哪里）；最后一条事件是模型请求为 waiting_for_model；其余为 running。"""
+    if runtime is None:
+        return None
+    if runtime["status"] != "running":
+        return "stopped"
+    if heartbeat is None or heartbeat["age_seconds"] > HEARTBEAT_STALE_INTERVALS * HEARTBEAT_INTERVAL_SECONDS:
+        return "stale"
+    if last_event_type == "model_request":
+        return "waiting_for_model"
+    return "running"
+
+
+def _wall_time(started: str | None, last: str | None, liveness: str | None, heartbeat: dict | None) -> dict:
+    """@brief 墙钟：起点为第一条事件的落盘时刻；运行中与等待模型时止于此刻，失联时止于最后一次心跳，其余止于最后一条
+    事件；另报最后一条事件距今秒数。没有事件时四项都为空。"""
+    if started is None:
+        return {"started_at": None, "last_event_at": None, "elapsed_seconds": None, "last_event_age_seconds": None}
+    start, end, now = datetime.fromisoformat(started), datetime.fromisoformat(last), datetime.now(timezone.utc)
+    if liveness in ("running", "waiting_for_model"):
+        stop = now
+    elif liveness == "stale" and heartbeat is not None:
+        stop = datetime.fromisoformat(heartbeat["heartbeat_at"])
+    else:
+        stop = end
+    return {"started_at": start.isoformat(), "last_event_at": end.isoformat(),
+            "elapsed_seconds": max(0, (stop - start).total_seconds()),
+            "last_event_age_seconds": round(max(0.0, (now - end).total_seconds()), 3)}
