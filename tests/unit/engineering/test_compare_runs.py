@@ -580,6 +580,37 @@ def test_head_activity_array_is_projected_before_ids_are_mapped(tmp_path):
     assert not report["problems"]
 
 
+def _start_results(recording: Recording) -> Recording:
+    """@brief 已处理动作保存开始动作自己的受理结果（start_group 的 data.activities 快照数组），不是终态覆盖。"""
+    for state in recording.states.values():
+        for entry in state["processed_actions"].values():
+            entry["result"]["data"] = {"activities": [entry["result"]["data"].pop("activity")]}
+    return recording
+
+
+def test_start_results_kept_in_processed_actions_map_their_event_references(tmp_path):
+    """@brief 第二章起活动终结不再覆盖开始动作的结果：已处理动作里开始结果的活动快照数组同样映射引用的事件，
+    事件身份不同的两侧结论 equal。"""
+    report = _compare(tmp_path, _start_results(Recording()), _start_results(Recording(prefix="b")))
+    assert report["verdict"] == "equal", _paths(report)
+    assert not report["problems"]
+
+
+def test_activity_arrays_on_both_sides_map_their_event_references_without_a_rule(tmp_path):
+    """@brief 两侧都按结构 15 把活动存成数组、事件身份不同：不带规则也在数组项上映射活动引用的事件，结论 equal；
+    引用指向别的事件仍报为不同。"""
+    report = _compare(tmp_path / "same", _activity_array(Recording()), _activity_array(Recording(prefix="b")))
+    assert report["verdict"] == "equal", _paths(report)
+    assert not report["problems"]
+    head = _activity_array(Recording(prefix="b"))
+    for state in head.states.values():
+        for activity in state["activities"]:
+            activity["data"]["accepted_event_id"] = head.eid(4)
+    report = _compare(tmp_path / "other", _activity_array(Recording()), head)
+    assert report["verdict"] == "different"
+    assert any(".activities[0].data.accepted_event_id" in path for path in _paths(report))
+
+
 def _version_seven(recording: Recording) -> Recording:
     """@brief 头一侧的运行清单：结构号 7 并带 lineage。"""
     recording.manifest.update(schema_version=7, lineage=[{"run_id": recording.run_id, "segment_count": 1}])

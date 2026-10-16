@@ -91,12 +91,15 @@ EVENT_REFERENCES = {
 FIRST_SEEN_KINDS = frozenset({"memory-digest"})
 #: MEMORY.md 里已核验经历行的来源事件身份。
 MEMORY_SOURCE = re.compile(r"来源事件 ([0-9a-f]{32})")
-#: 声明的世界状态身份与引用路径（基一侧的记录形式）。
+#: 声明的世界状态身份与引用路径：活动按对象形式（结构 14）与数组形式（结构 15，第二章）各列一次。
 STATE_REFERENCES = {
     "run_id": "run",
     "activities.*.origin_request_event_id": "event", "activities.*.data.accepted_event_id": "event",
+    "activities[].origin_request_event_id": "event", "activities[].data.accepted_event_id": "event",
     "processed_actions.*.result.data.activity.origin_request_event_id": "event",
     "processed_actions.*.result.data.activity.data.accepted_event_id": "event",
+    "processed_actions.*.result.data.activities[].origin_request_event_id": "event",
+    "processed_actions.*.result.data.activities[].data.accepted_event_id": "event",
     "processed_actions.*.result.data.memory_sources[].verified_event_ids[]": "event",
 }
 #: 检查点记录与 life 快照的身份路径。
