@@ -895,8 +895,8 @@ def _rehash_checkpoint(manifest: dict) -> None:
     "mutate, match",
     [
         (lambda m: m.update(committed=False), "manifest is not committed"),
-        (lambda m: m.update(schema_version=1), "schema_version must be 7"),
-        (lambda m: m.update(schema_version=6), "schema_version must be 7"),
+        (lambda m: m.update(schema_version=1), "schema_version must be 8"),
+        (lambda m: m.update(schema_version=7), "schema_version must be 8"),
         (lambda m: m["artifacts"].pop("location_stays"), "delivery artifact set is invalid"),
         (lambda m: m.update(experiment_completed=False), "experiment_completed"),
         (lambda m: m.update(checkpoint="x"), "checkpoint is missing"),

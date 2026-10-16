@@ -144,8 +144,7 @@ def _populate_branch(store: FootprintStore, checkpoint, events, stage: Path, met
                 "media_type": reference.media_type, "source": reference.source,
             })
         with child.connection:
-            for event in events:
-                child._insert_event(event)
+            child.copy_history(store, events)
         state = dict(checkpoint.state)
         state.update(run_id=manifest["run_id"], version=state["version"] + 1)
         child.commit(checkpoint.state, state, [EventDraft(

@@ -28,7 +28,7 @@ def real_export(engine_factory, tmp_path):
 
 def test_actual_purchase_content_and_current_artifacts_are_authenticated(real_export):
     manifest, events, activities = validate_export(real_export)
-    assert manifest["schema_version"] == 7
+    assert manifest["schema_version"] == 8
     assert manifest["checkpoint"]["state"]["schema_version"] == 15
     assert {name: row["path"] for name, row in manifest["artifacts"].items()} == {
         "events": "events.jsonl", "activities": "activities.jsonl",
@@ -79,11 +79,11 @@ def test_actual_purchase_content_and_current_artifacts_are_authenticated(real_ex
     ("extra_artifact", "Export artifact set is invalid"),
 ])
 def test_retired_schema_is_rejected_before_consumption(real_export, version, reason):
-    """上一版导出清单（6）、上一版世界状态结构（13）、上一版运行清单（5），以及没有地点停留的五份工件集合，各自在读取前
+    """上一版导出清单（7）、上一版世界状态结构（13）、上一版运行清单（5），以及没有地点停留的五份工件集合，各自在读取前
     被拒绝，原因各是各的。"""
     manifest, _ = read_export(real_export)
     if version == "export":
-        manifest["schema_version"] = 6
+        manifest["schema_version"] = 7
     elif version == "world":
         manifest["checkpoint"]["state"]["schema_version"] = 13
     elif version == "five_artifacts":

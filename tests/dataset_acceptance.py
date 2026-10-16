@@ -296,8 +296,8 @@ MUTATIONS = (
         "WORLD_SCHEMA_VERSION = 15", "WORLD_SCHEMA_VERSION = 14",
         ("tests/integration/life/test_state_serialization.py"
          "::test_world_state_schema_is_fifteen_and_the_previous_version_is_refused",)),
-    SourceMutation("export_schema_version_still_six", "worldmock.footprints.export::EXPORT_SCHEMA_VERSION",
-        "EXPORT_SCHEMA_VERSION = 7", "EXPORT_SCHEMA_VERSION = 6",
+    SourceMutation("export_schema_version_still_seven", "worldmock.footprints.export::EXPORT_SCHEMA_VERSION",
+        "EXPORT_SCHEMA_VERSION = 8", "EXPORT_SCHEMA_VERSION = 7",
         ("tests/integration/footprints/test_acs_export.py"
          "::test_actual_purchase_content_and_current_artifacts_are_authenticated",)),
     SourceMutation("result_details_schema_refuses_query", "worldmock.life.prompt_schemas::_RESULT_DETAILS",
@@ -926,4 +926,89 @@ MUTATIONS = (
         "archive_bytes = gzip.decompress(content)", "archive_bytes = content",
         ("tests/unit/footprints/test_workspace_snapshot.py::test_restore_refuses_a_plain_tar_and_damaged_gzip",)),
     # ---- 世界状态与检查点存储（长时运行成本第二章）结束 ----
+    # ---- 记录的证据只存一次（长时运行成本第三章） ----
+    SourceMutation("model_response_keeps_request_copy",
+        "worldmock.life.model_evidence::ModelEvidenceRecorder.record_model_exchange",
+        '"request": exchange.request if exchange.phase == "request" else None,', '"request": exchange.request,',
+        ("tests/unit/life/test_model_evidence_pairing.py"
+         "::test_response_and_failure_carry_no_request_and_link_to_it[response]",
+         "tests/unit/life/test_model_evidence_pairing.py"
+         "::test_response_and_failure_carry_no_request_and_link_to_it[failure]",
+         "tests/unit/life/test_current_lifecycle_coverage.py"
+         "::test_model_response_requires_one_request_and_keeps_its_actual_cause")),
+    SourceMutation("changed_model_request_accepted",
+        "worldmock.life.model_evidence::ModelEvidenceRecorder._request_cause",
+        "if digest != recorded:", "if False:",
+        ("tests/unit/life/test_model_evidence_pairing.py"
+         "::test_response_or_failure_with_a_changed_request_is_refused[response]",
+         "tests/unit/life/test_model_evidence_pairing.py"
+         "::test_response_or_failure_with_a_changed_request_is_refused[failure]")),
+    SourceMutation("observation_read_skips_rehydration", "worldmock.footprints.store::FootprintStore._decode",
+        'if event.event_type != "observation":', "if True:",
+        ("tests/unit/footprints/test_observation_parts.py::test_every_read_method_returns_the_complete_observation",
+         "tests/unit/footprints/test_observation_parts.py::test_append_and_read_round_trip_the_observation_bytes",
+         "tests/integration/life/test_observation_parts.py"
+         "::test_a_past_day_part_follows_the_activity_phase_after_midnight")),
+    SourceMutation("observation_parts_outside_the_observation_transaction",
+        "worldmock.footprints.store::FootprintStore.append_observation",
+        "with self.connection:", "if True:",
+        ("tests/unit/footprints/test_observation_parts.py"
+         "::test_parts_and_their_observation_share_one_transaction[refused-before-the-write]",)),
+    SourceMutation("day_parts_keyed_by_observation_time",
+        "worldmock.life.observe::ObservationBuilder.stored_observation",
+        'local_date(activities[row["activity_id"]].started_at, zone)',
+        "local_date(self.context.state.current_time, zone)",
+        ("tests/integration/life/test_observation_parts.py"
+         "::test_a_past_day_part_follows_the_activity_phase_after_midnight",)),
+    SourceMutation("observation_part_digest_unchecked_on_read",
+        "worldmock.footprints.observation_parts::_part_value",
+        "if hashlib.sha256(row[0].encode()).hexdigest() != ref:", "if False:",
+        ("tests/unit/footprints/test_observation_parts.py"
+         "::test_damaged_missing_or_malformed_parts_fail_loudly[damaged]",)),
+    SourceMutation("observation_part_digest_unchecked_on_write",
+        "worldmock.footprints.observation_parts::insert_parts",
+        "if hashlib.sha256(body.encode()).hexdigest() != digest:", "if False:",
+        ("tests/unit/footprints/test_observation_parts.py"
+         "::test_a_part_whose_body_does_not_match_its_key_is_refused",)),
+    SourceMutation("unstored_observation_part_accepted",
+        "worldmock.footprints.observation_parts::require_parts",
+        'if connection.execute("SELECT 1 FROM parts WHERE sha256=?", (ref,)).fetchone() is None:', "if False:",
+        ("tests/unit/footprints/test_observation_parts.py"
+         "::test_an_observation_whose_part_is_not_stored_is_refused",)),
+    SourceMutation("split_writes_refs_into_its_input",
+        "worldmock.footprints.observation_parts::split_observation",
+        "return {**data, DAY_PART_KEY: day_refs, **whole}, parts",
+        "data.update({DAY_PART_KEY: day_refs, **whole})\n    return data, parts",
+        ("tests/unit/footprints/test_observation_parts.py::test_split_leaves_the_observation_untouched",)),
+    SourceMutation("activity_bindings_stored_as_one_part",
+        "worldmock.footprints.observation_parts::split_observation",
+        "key=operator.itemgetter(0)", "key=lambda pair: 0",
+        ("tests/unit/footprints/test_observation_parts.py"
+         "::test_split_groups_bindings_by_start_date_and_stores_six_tables_once",)),
+    SourceMutation("day_parts_rehydrated_out_of_order",
+        "worldmock.footprints.observation_parts::rehydrate_observation",
+        "for ref in _day_refs(data)", "for ref in reversed(_day_refs(data))",
+        ("tests/unit/footprints/test_observation_parts.py::test_append_and_read_round_trip_the_observation_bytes",)),
+    SourceMutation("memory_layer_stored_inline",
+        "worldmock.footprints.observation_parts::WHOLE_PART_KEYS",
+        '"memory_layer", "persona_views")', '"persona_views")',
+        ("tests/unit/footprints/test_observation_parts.py"
+         "::test_split_groups_bindings_by_start_date_and_stores_six_tables_once",)),
+    SourceMutation("host_only_keys_stored",
+        "worldmock.life.observe::ObservationBuilder.stored_observation",
+        "if key not in _HOST_ONLY_KEYS}", "}",
+        ("tests/integration/life/test_observation_parts.py"
+         "::test_observe_returns_what_it_built_and_the_store_reads_it_back",)),
+    SourceMutation("branch_skips_parts", "worldmock.footprints.store::FootprintStore.copy_history",
+        "copy_parts(parent.connection, self.connection)", "pass",
+        ("tests/unit/footprints/test_observation_parts.py::test_branch_copies_the_parts_and_the_stored_rows",)),
+    SourceMutation("branch_rewrites_observations_in_full", "worldmock.footprints.store::FootprintStore.copy_history",
+        "(event.event_seq, event.event_id, row[0])",
+        "(event.event_seq, event.event_id, canonical_json(event.model_dump()).decode())",
+        ("tests/unit/footprints/test_observation_parts.py::test_branch_copies_the_parts_and_the_stored_rows",)),
+    SourceMutation("inspect_prints_stored_observation", "scripts.inspect_run::_rehydrated",
+        'if row["event_type"] != "observation":', "if True:",
+        ("tests/integration/footprints/test_inspect_observation_parts.py"
+         "::test_event_and_events_print_the_complete_observation",)),
+    # ---- 记录的证据只存一次（长时运行成本第三章）结束 ----
 )

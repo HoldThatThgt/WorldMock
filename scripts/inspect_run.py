@@ -19,6 +19,7 @@ continuation 只读给出 docs/design/05-recording-engine.md的逐决策指标�
 两份清单（同一提交、同一环境输入、同一模型身份），不可比即拒绝比较。
 workday 只读打印 docs/design/05-recording-engine.md 的 {run_id, workload, routine_deviation, notes}（JSON，只报告）：
 班次、住处、播报间隔与下班、到家窗口都取自 --environment 完整输入（原文字节身份须等于运行清单，否则拒绝、不打印）。
+event 与 events 打印的观察已把观察分件换回原表（docs/design/05-recording-engine.md「检查工具」）。
 """
 from __future__ import annotations
 
@@ -39,6 +40,7 @@ from worldmock.footprints.display_wording import (  # noqa: E402
     DisplayNames, activity_phrase, event_content_id, phone_phrase,
 )
 from worldmock.footprints.frozen_environment import frozen_display_names  # noqa: E402
+from worldmock.footprints.observation_parts import rehydrate_observation  # noqa: E402
 from worldmock.footprints.purchases import orders_by_id  # noqa: E402
 from worldmock.life.felt import APETITE_BASE_LEVEL, APPETITE_BANDS, APPETITE_STARVING_LEVEL  # noqa: E402
 
@@ -81,6 +83,13 @@ def _rows(conn: sqlite3.Connection, where: str = "", args: tuple = ()) -> list[d
         sql += f" WHERE {where}"
     sql += " ORDER BY event_seq"
     return [dict(json.loads(b), seq=s) for s, b in conn.execute(sql, args)]
+
+
+def _rehydrated(conn: sqlite3.Connection, row: dict) -> dict:
+    """@brief 观察行的分件引用换回原表（与存储层解码相同），其余事件原样；event 与 events 打印的都是完整事件。"""
+    if row["event_type"] != "observation":
+        return row
+    return {**row, "data": rehydrate_observation(row["data"], conn)}
 
 
 def _t(epoch: int, zone: ZoneInfo) -> str:
@@ -129,7 +138,7 @@ def cmd_events(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
     rows = _rows(conn, " AND ".join(where), tuple(args))
     if a.tail:
         rows = rows[-a.tail:]
-    for r in rows:
+    for r in (_rehydrated(conn, row) for row in rows):
         agent = f"a{r['agent_id']}" if r.get("agent_id") else "  "
         if a.full:
             print(json.dumps(r, ensure_ascii=False, indent=1))
@@ -183,7 +192,7 @@ def _environment_brief(d: dict, display: Display) -> str:
 
 def cmd_event(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
     """@brief 打印单个事件全文。"""
-    rows = _rows(conn, "event_seq=?", (a.seq,))
+    rows = [_rehydrated(conn, row) for row in _rows(conn, "event_seq=?", (a.seq,))]
     print(json.dumps(rows[0], ensure_ascii=False, indent=1) if rows else f"seq {a.seq} 不存在")
 
 

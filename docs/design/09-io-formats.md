@@ -81,6 +81,7 @@ AgentSociety2 包；引擎包里没有 Python 源码以外的规则文件，`src
 ## 事件与检查点
 
 事件编码为确定性 UTF-8 JSON，资金只在信封 resource_changes 中记录。运行目录里的 `manifest.json`、`status.json`、`result.json` 和反事实干预文件一律按 UTF-8 读写，不依赖系统默认编码。
+运行库的观察分件表 `parts` 与观察的存储形式归[记录引擎](05-recording-engine.md)「事件与来源」，编码同样是确定性 UTF-8 JSON。
 回调、时间、天气、提醒和两种停留事件使用当前闭合模型，写入和读取时都校验，旧事件种类立即拒绝。
 预排事件的种类闭集含发货通知排程 `order_shipped`，它与到达排程一样保存在世界状态的调度边界里。
 检查点与导出字段及认证规则统一归[记录引擎](05-recording-engine.md)，不在状态层维护第二份事件合同。

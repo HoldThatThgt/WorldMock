@@ -4,6 +4,7 @@ from copy import deepcopy
 from dataclasses import replace
 
 from worldmock.footprints.experiences import recent_verified_experiences
+from worldmock.footprints.observation_parts import split_observation
 from worldmock.life import activity_control, admission, callable_index, discovery, errands, felt, memory_layer
 from worldmock.life import progress_layer, projection, rotation, sessions
 from worldmock.life.action_contract import ACTIVITY_ACTIONS, binding_action
@@ -11,9 +12,13 @@ from worldmock.life.location_activities import location_units, unit_binding, uni
 from worldmock.life.presentation import subtype_of, tiebreak_digest
 from worldmock.life.environment_layer import environment_layer
 from worldmock.life.models import ActivityStatus, SameMomentPresentation
+from worldmock.life.readable import local_date
 from worldmock.life.todo_layer import todo_layer, visible_goals
 from worldmock.life.tool_layer import LayerContext, annotated_bindings, tool_layer, with_bindings
 from worldmock.life.travel_methods import travel_methods
+
+#: 只给宿主生成提示、不写入观察事件的观察键（docs/design/05-recording-engine.md「事件与来源」）。
+_HOST_ONLY_KEYS = frozenset({"progress_layer", "progress_meta"})
 
 
 class ObservationBuilder:
@@ -50,6 +55,15 @@ class ObservationBuilder:
                 "progress_layer": view.layer, "progress_meta": view.meta,
                 "progress_event_ids": view.event_ids, "known_activity_actions": list(ACTIVITY_ACTIONS),
                 **self._name_bindings(agent, layer.names, memory.note_labels), **self._evidence(agent)}
+
+    def stored_observation(self, data: dict) -> tuple[dict, dict[str, str]]:
+        """@brief 观察的存储形式与它的观察分件：去掉只给宿主的键，activity_bindings 按所指活动开始时刻（started_at）的
+        场景本地日期分段；data 不变，宿主照旧用它生成提示。"""
+        kept = {key: value for key, value in data.items() if key not in _HOST_ONLY_KEYS}
+        activities, zone = self.context.state.activities, self.context.config.timezone
+        dates = [local_date(activities[row["activity_id"]].started_at, zone)
+                 for row in data["activity_bindings"]]
+        return split_observation(kept, dates)
 
     def _location_count(self) -> int:
         """@brief 地点行完整呈现，不参加商品窗口轮转。"""

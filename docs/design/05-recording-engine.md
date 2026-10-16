@@ -123,6 +123,55 @@ callback_effect、callback_reminder、time_trigger、weather 使用闭合字段�
 停留就是地点停留会话，`session_id` 是会话身份。路上不是停留，不写这两种事件；
 到达时刻恰好等于运行截止时照常写 `location_entered`，截止时人物还在的那段停留没有离开事件。
 
+模型请求与观察里的大表各只存一次，读出的证据与写入前相同：
+
+- **模型证据**：模型调用逐次留证。
+  - 请求事件 `model_request` 的 `data.request` 是实际发出的完整请求，消息、工具与参数原样。
+  - 同一调用的响应或失败事件 `model_response` 的 `data.request` 恒为 null（键照常出现），`caused_by` 恰一项，指向它的请求事件。请求只存一次；零点计划的证据本就如此。其余键照旧：`phase`、`call_id`、`attempt`、`response`、`error`，响应带 `protocol_feedback` 时也照旧。
+  - 环境登记请求时记下请求规范 JSON 的 sha256；登记响应或失败时，核对它带来的请求与之相同。比较按规范内容，内容相同、只是重新构造（例如跨进程传送后键的插入次序不同）的请求照常接受。
+  - 不同说明请求在调用途中被改动：先写英文错误日志 `Model <phase> for call <call_id> carries a request that differs from its recorded request`，再抛 `ProtocolError("Model exchange request differs from its recorded request")`。这条响应不写入，运行按故障停下。
+- **观察分件**：观察里七张随时间增长或几乎不变的表按内容单独存放一次，观察事件的正文只带它们的 sha256。存储形式如下表。
+
+| 键 | 存储形式 |
+| --- | --- |
+| `activity_bindings` | 按行序，把所指活动开始时刻 `started_at` 的场景本地日期相同的相邻行归为一段，每段一个观察分件；正文存这些分件 sha256 的列表，次序即行序，没有行时是空列表 |
+| `catalog_bindings`、`errand_item_bindings`、`known_activity_actions`、`locations`、`memory_layer`、`persona_views` | 整表一个观察分件，正文存一个 sha256 |
+| 其余键（含 `todo_layer`、`goal_bindings`） | 照旧内联 |
+
+- **观察分件的写入**：
+  - 观察分件的正文是那张表或那一段行的规范 JSON 文本，sha256 按它的 UTF-8 字节计算；引用是 64 个小写十六进制字符的裸字符串，不是带标记的对象。
+  - 观察分件存在运行库的 `parts` 表（`sha256` 主键、`body` 正文），只能新增，不能修改或删除；同一内容只存一次。
+  - 观察与它的全部观察分件在同一事务写入：先登记分件（已有的同一分件不重写），再写观察；观察引用的每个分件都必须已在表中，否则整笔回滚。登记时正文的 sha256 与键不符报 `Observation part content does not match its sha256`，引用的分件不在表中报 `Observation part is missing`。
+  - 每次观察都把全部分件重新编码、求摘要，不按日期缓存：过去某天的一段会因活动阶段变化、改称「（第二次）」或记忆层标注变化而改变。
+  - 拆分不改动 `observe` 交给宿主的观察及其中任何容器；只给宿主的 `progress_layer`、`progress_meta` 不写入观察事件。要写入的观察缺少这七张表之一，报 `Observation lacks a table stored as a part`。
+- **读取**：存储层读取任何事件都经同一个解码。
+  - 观察的引用换回原表；换回前核对分件存在、正文的 sha256 与引用相同。
+  - 不成立先写英文错误日志，再以 `IntegrityError` 拒绝，原因是 `Observation part is missing`、`Observation part content does not match its sha256` 或 `Stored observation part reference is invalid`。
+  - 冻结观察、回看、名称解析与结算读到的观察，与写入前逐字节相同，键序也相同。
+  - 没经过这个解码的读取拿到的是裸 sha256 字符串，按行取字段立即失败，不会静默读到别的内容。
+  - 任何 SQL 条件只读信封字段和内联键，不读这七个键的内部。
+  - 宿主照旧用 `observe` 返回的内存观察生成提示，存储形式不进入任何提示。
+- **观察分件不是素材**：
+  - 素材按 `AssetRef`（带模态与来源）引用，逐个文件落盘刷盘，在事务之外先发布，每次提交与恢复都重读复核，导出时逐个复制。
+  - 观察分件是运行库里与观察同一事务的行，按裸 sha256 引用；导出时换回原表，不另成工件。
+  - 两者不共用名称。
+
+```mermaid
+flowchart LR
+  O[observe] --> M[内存观察]
+  M --> H[宿主提示]
+  M --> S[拆分]
+  subgraph T[同一事务]
+    P[parts 表]
+    E[带引用的观察事件]
+  end
+  S --> P
+  S --> E
+  R[读取] --> D[唯一解码]
+  D --> F[完整观察]
+  F --> X[冻结观察、导出与检查工具]
+```
+
 ## 数字足迹
 
 `app-usage.jsonl` 的事实共八种，共同字段是 `fact_kind`、`agent_id`、`activity_id`、`app_id`、`source_event_id`。
@@ -395,6 +444,10 @@ Python 一侧取不到名称时：`render_day.py` 的命令行不写出时间线
 | `continuation [--topic] [--baseline <运行目录>]` | 逐决策的续接指标与合计（JSON）；`--baseline` 先核对两份清单，不可比即拒绝比较 |
 | `workday --environment <环境目录>` | 工作量与作息偏离（JSON）；班次、住处、播报间隔与下班、到家时段取自完整环境输入，原文字节身份须等于运行清单 |
 
+`event` 与 `events`（含 `--full` 和一行摘要）读到的观察先把观察分件换回原表（见「事件与来源」），与存储层解码的结果相同，打印的与写入时的观察一致。
+分件缺失或摘要不符时以 `IntegrityError` 退出；观察里在分件键上带整表的旧运行库同样以 `Stored observation part reference is invalid` 退出，不为旧库留读取分支。
+其余子命令不读观察分件。
+
 时刻一律按运行清单的 `window.timezone` 显示，格式是 `%m-%d %H:%M:%S`，与运行这条命令的电脑的时区无关；`events` 里前台区间的起止用同一个时区。
 
 `events` 每行的前半段是「`[序号] 时刻 a人物 事件类型`」，后半段是摘要；「活动短语」是上文的写法，出行和睡眠写活动名：
@@ -442,11 +495,13 @@ gzip 头部固定为 `1f 8b 08 00 00 00 00 00 00 ff`：修改时刻为 0、不�
 分支复制全部冻结环境素材和所需快照，
 恢复前认证归档成员，拒绝绝对路径、符号链接、别名与覆盖已有目标文件。
 人物工作区恢复后核验结构化卡片与用冻结的 persona.toml 重新构造出的卡片逐值相等，并核验模型身份，不接受旧结构或参数漂移。
+分支在建子库的同一事务里，原样复制父库的整张 `parts` 表与截止序号之前的事件存储原文（观察仍带引用）；
+复制之前照旧逐条解码父库事件复核，观察分件在解码时一并核对。
 
 ## 完整导出认证
 
 导出固定事件截止、摘要素材、活动、app 使用、购买、已核验经历、地点停留、日时间线及质量报告。
-导出清单的结构号是 7。`artifacts` 的键恰为 `events`、`activities`、`verified_experiences`、`purchases`、`app_usage`、`location_stays`，
+导出清单的结构号是 8。`artifacts` 的键恰为 `events`、`activities`、`verified_experiences`、`purchases`、`app_usage`、`location_stays`，
 每个值是 `{path, rows, sha256}`，`location_stays` 的 `path` 是 `location-stays.jsonl`；
 结构号不符报 `Export manifest is not a committed supported version`，键集不符报 `Export artifact set is invalid`。
 app 的开关、订单通知和地点停留只进事件与这些工件，不进质量报告。
@@ -458,7 +513,9 @@ app 的开关、订单通知和地点停留只进事件与这些工件，不进�
 活动保留全部实际来源，来源身份去重；活动时长来自正秒结算，暂停不计入。
 `activities.jsonl` 每行是这项活动在截止范围里的最后一份快照，加上执行区间与来源。interact 活动的最后一份快照来自活动进度事件时，这一行带 `data.played_count`，
 例如导出截止在运行中途、截止前最后一条带它快照的是进度事件；其余 interact 行带 `data.played`：终结的活动最后一份快照是终态结果或生命周期事件，
-运行截止时还在进行或暂停的活动另有截断快照，所以完整运行导出的 interact 行都带 `data.played`。行可以带 `played_count` 是导出清单结构号升到 7 的原因。
+运行截止时还在进行或暂停的活动另有截断快照，所以完整运行导出的 interact 行都带 `data.played`。模型响应与失败事件的 `data.request` 为 null（见「事件与来源」）是结构号升到 8 的原因。
+导出经存储层的同一解码读取事件，`events.jsonl` 里的观察是换回原表的完整观察，每行自足；
+`parts` 表不进导出，下游读者（含 LabelKit 与数据集工具）不解析引用。
 
 认证重算投影与摘要、核对实际源事件、资金历史和最终余额、冻结原字节及目录摘要，
 并验证当前活动槽位、本人收货与内容区间。重新计算摘要不能为伪造事实提供可信来源。

@@ -160,6 +160,8 @@ def test_model_response_requires_one_request_and_keeps_its_actual_cause(engine_f
     [stored_response] = events(engine, "model_response")
     assert stored_response.caused_by == [stored_request.event_id]
     assert stored_response.data["protocol_feedback"] == {"code": "invalid"}
+    assert stored_request.data["request"] == {"messages": []}
+    assert stored_response.data["request"] is None
     assert not engine.evidence.request_events
     assert not engine.context.state.activities
 

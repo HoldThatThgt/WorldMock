@@ -72,10 +72,10 @@ class LifeEngine:
         return cls(*open_world(environment, run_dir))
 
     def observe(self, context: "DecisionContext") -> dict:
-        """@brief 提交一次真实观察并附当前同秒续接。"""
+        """@brief 提交一次真实观察并附当前同秒续接；返回的观察与存储层解码后的观察（去掉只给宿主的键）逐字节相同。"""
         self.decisions.validate_context(context)
         data = self.observations._observation_data(self.context.state.agents[context.agent_id])
-        stored = {key: value for key, value in data.items() if key not in {"progress_layer", "progress_meta"}}
+        stored, parts = self.observations.stored_observation(data)
         draft = EventDraft(
             event_type="observation",
             occurred_at=self.context.state.current_time,
@@ -85,7 +85,7 @@ class LifeEngine:
             data=stored,
         )
         self.context.store.require_committed(self.context.state.model_dump(mode="json"))
-        data["observation_event_id"] = self.context.store.append_evidence([draft])[0].event_id
+        data["observation_event_id"] = self.context.store.append_observation(draft, parts)
         data[CONTINUATION_KEY] = same_second_chain(
             self.context.store, self.context.state, self.observations, context.agent_id, data["observation_event_id"]
         )

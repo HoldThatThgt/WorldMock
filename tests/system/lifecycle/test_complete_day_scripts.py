@@ -10,7 +10,10 @@ import pytest
 from tests.footprints.recording import artifact_rows, read_export, write_manifest, write_rows
 from tests.life.conftest import action_identity
 from tests.life.day_baseline_runtime import record_complete_day
+from tests.life.observation_record import assert_observations_round_trip, record_observations
 from worldmock.errors import IntegrityError
+from worldmock.footprints.models import canonical_json
+from worldmock.footprints.store import FootprintStore
 from worldmock.footprints.validation import validate_export
 
 PROJECT = Path(__file__).resolve().parents[3]
@@ -40,7 +43,9 @@ def test_activity_day_names_units_buys_portions_and_sleeps_at_the_office(monkeyp
     做完不收尾；同一轮驾车去公司并打开哔哩哔哩，在午睡之前明确收尾这次使用；在公司点名「季度销售数据整理」并做完；
     在公司睡 60 分钟；之后步行回家、夜里睡 450 分钟直到截止。运行到达截止、无失败事件、导出通过认证（由录制入口断言）。"""
     case = tmp_path / "activity"
+    observations = record_observations(monkeypatch)
     recorded = record_complete_day(monkeypatch, case, PROJECT, "activity")
+    _assert_every_observation_round_trips(case, observations)
     assert set(recorded) == {"persona_sha256", "config_sha256", "environment_identity", "seed", "summary"}
     assert recorded["seed"] == 20260105
     starts = _requests(case)
@@ -62,6 +67,22 @@ def test_activity_day_names_units_buys_portions_and_sleeps_at_the_office(monkeyp
     _assert_preferred_orders_and_a_self_ending_query(case)
     _assert_the_media_use_is_concluded_before_the_nap(case)
     _assert_six_artifacts_with_phone_records(case / "export", tmp_path)
+
+
+def _assert_every_observation_round_trips(case: Path, observations: list[tuple[str, dict]]) -> None:
+    """整天的每条观察：存储层解码读回的与 observe() 构建的逐字节相同，observe() 的返回没有被改动，分件按活动开始的
+    场景本地日期（这一天从本地零点、即 UTC 前一天 16:00 开始）；导出 events.jsonl 的每条观察与解码读回的相同。"""
+    started = {row["activity_id"]: row["started_at"] for row in artifact_rows(case / "export", "activities")}
+    store = FootprintStore(case / "run")
+    try:
+        assert_observations_round_trip(store, observations, started, store.manifest["window"]["timezone"])
+        lines = (case / "export" / "events.jsonl").read_text(encoding="utf-8").splitlines()
+        exported = [row for row in map(json.loads, lines) if row["event_type"] == "observation"]
+        assert [row["event_id"] for row in exported] == [identity for identity, _ in observations]
+        for row in exported:
+            assert canonical_json(row["data"]) == canonical_json(store.read_event(row["event_id"]).data)
+    finally:
+        store.close()
 
 
 def _assert_the_media_use_is_concluded_before_the_nap(case: Path) -> None:
@@ -102,7 +123,7 @@ def _assert_preferred_orders_and_a_self_ending_query(case: Path) -> None:
 def _assert_six_artifacts_with_phone_records(export: Path, scratch: Path) -> None:
     """活动日的导出含六份工件和各类手机记录；把任何一份带新记录的工件改写后重新签名，认证都拒绝。"""
     manifest, _ = read_export(export)
-    assert manifest["schema_version"] == 7
+    assert manifest["schema_version"] == 8
     assert set(manifest["artifacts"]) == {"events", "activities", "verified_experiences", "purchases", "app_usage",
                                           "location_stays"}
     usage, stays = artifact_rows(export, "app_usage"), artifact_rows(export, "location_stays")

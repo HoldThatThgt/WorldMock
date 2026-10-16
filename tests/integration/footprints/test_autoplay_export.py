@@ -38,7 +38,7 @@ def test_app_use_running_at_the_cutoff_exports_its_played_count(engine_factory, 
     assert (carrying[-1].event_type, carrying[-1].occurred_at) == ("activity_progress", report_at)
     store = engine.context.store
     manifest = export_run(store, store.last_event_seq, tmp_path / "running")
-    assert manifest["schema_version"] == 7 and manifest["experiment_completed"] is False
+    assert manifest["schema_version"] == 8 and manifest["experiment_completed"] is False
     running = _row(tmp_path / "running", opened.activity_id)
     played = engine.context.state.activities[opened.activity_id].data["played"]
     assert running["status"] == "active" and "played" not in running["data"]

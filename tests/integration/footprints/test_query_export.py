@@ -125,7 +125,7 @@ def test_query_is_exported_as_the_fifth_activity_type(query_export):
     assert segment["ended_at"] - segment["started_at"] == row["elapsed_seconds"] > 0
     assert row["data"]["action"] == "query" and row["data"]["answer"]["rows"]
     assert (rows[ids["rest"]]["activity_type"], rows[ids["rest"]]["resource_claims"]) == ("interact", ["first"])
-    assert query_export["manifest"]["schema_version"] == 7
+    assert query_export["manifest"]["schema_version"] == 8
     assert sum(item["activity_type"] == "query" for item in rows.values()) == 4
 
 

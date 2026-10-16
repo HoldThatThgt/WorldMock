@@ -18,6 +18,7 @@ from worldmock.errors import IntegrityError
 from worldmock.footprints.assets import AssetStore, atomic_write
 from worldmock.footprints.ledger import validate_account_transition
 from worldmock.footprints.models import AssetRef, Checkpoint, Event, EventDraft, EventType, canonical_json
+from worldmock.footprints.observation_parts import copy_parts, insert_parts, rehydrate_observation, require_parts
 
 SCHEMA = """
 PRAGMA foreign_keys=ON;
@@ -27,6 +28,7 @@ CREATE INDEX events_agent_type ON events(json_extract(body,'$.agent_id'),json_ex
 CREATE TABLE world_state(singleton INTEGER PRIMARY KEY CHECK(singleton=1),
 version INTEGER NOT NULL, body TEXT NOT NULL);
 CREATE TABLE artifacts(sha256 TEXT PRIMARY KEY, body TEXT NOT NULL);
+CREATE TABLE parts(sha256 TEXT PRIMARY KEY, body TEXT NOT NULL);
 CREATE TABLE checkpoints(checkpoint_id TEXT PRIMARY KEY, body BLOB NOT NULL, record_sha256 TEXT NOT NULL);
 CREATE TRIGGER events_append_only BEFORE INSERT ON events
 WHEN NEW.event_seq != (SELECT COALESCE(MAX(event_seq),0)+1 FROM events)
@@ -37,6 +39,8 @@ CREATE TRIGGER checkpoints_no_update BEFORE UPDATE ON checkpoints BEGIN
 SELECT RAISE(ABORT,'Checkpoints are immutable'); END;
 CREATE TRIGGER checkpoints_no_delete BEFORE DELETE ON checkpoints BEGIN
 SELECT RAISE(ABORT,'Checkpoints are immutable'); END;
+CREATE TRIGGER parts_no_update BEFORE UPDATE ON parts BEGIN SELECT RAISE(ABORT,'Observation parts are immutable'); END;
+CREATE TRIGGER parts_no_delete BEFORE DELETE ON parts BEGIN SELECT RAISE(ABORT,'Observation parts are immutable'); END;
 """
 
 #: 检查点行正文的 zlib 压缩级别（docs/design/05-recording-engine.md「冻结输入、检查点与分支」）。
@@ -206,6 +210,40 @@ class FootprintStore:
             raise
         return records
 
+    def append_observation(self, draft: EventDraft, parts: dict[str, str]) -> str:
+        """@brief 同版本写入一条存储形式的观察，并在同一事务登记它的观察分件（已有的同一分件不重写），返回观察的事件身份。
+
+        外层事务先登记分件，再经 append_evidence 写观察：append_evidence 的事务提交时分件与观察一起提交；它在写入之前或
+        写入之中拒绝时分件随之回滚，库里不留下没有观察引用的新分件（docs/design/05-recording-engine.md「事件与来源」）。
+        @param draft data 为 split_observation 给出的存储形式的观察
+        @param parts 观察分件 sha256 → 规范 JSON 正文（split_observation 的第二个返回值）
+        @return 观察的事件身份
+        @exception IntegrityError 不是观察事件、分件正文与摘要不符，或 append_evidence 的任一拒绝
+        """
+        if draft.event_type != "observation":
+            logging.error("Observation append received a %s event", draft.event_type)
+            raise IntegrityError("Observation append requires an observation event")
+        try:
+            with self.connection:
+                insert_parts(self.connection, parts)
+                return self.append_evidence([draft])[0].event_id
+        except Exception:
+            logging.exception("Observation append failed; no observation or new part was committed")
+            raise
+
+    def copy_history(self, parent: FootprintStore, events: list[Event]) -> None:
+        """@brief 分支：在调用方事务内原样复制父库整张观察分件表，再按父库存储原文写入已解码复核的事件前缀（观察仍带引用）
+        并登记素材索引。
+
+        @param parent 父运行的存储
+        @param events 父库截止序号之前、已经 read_events 解码复核的事件
+        """
+        copy_parts(parent.connection, self.connection)
+        for event in events:
+            row = parent.connection.execute("SELECT body FROM events WHERE event_seq=?", (event.event_seq,)).fetchone()
+            self._index_artifacts(event)
+            self.connection.execute("INSERT INTO events VALUES(?,?,?)", (event.event_seq, event.event_id, row[0]))
+
     def _require_stored_version(self, version: int) -> None:
         """@brief 在调用方已开始的写事务内核对库里的世界版本仍是缓存版本（按预期版本写入）；不同即拒绝，事务随之回滚。"""
         stored = self.connection.execute("SELECT version FROM world_state WHERE singleton=1").fetchone()[0]
@@ -258,14 +296,28 @@ class FootprintStore:
         return row[0] if row else self._committed_world().current_time
 
     def _insert_event(self, event: Event) -> None:
-        """@brief 在调用方事务内插入事件和素材索引。"""
+        """@brief 在调用方事务内插入事件和素材索引；观察引用的每个观察分件须已在 parts 表。"""
+        self._index_artifacts(event)
+        if event.event_type == "observation":
+            require_parts(self.connection, event.data)
+        self.connection.execute("INSERT INTO events VALUES(?,?,?)", (
+            event.event_seq, event.event_id, canonical_json(event.model_dump()).decode(),
+        ))
+
+    def _index_artifacts(self, event: Event) -> None:
+        """@brief 在调用方事务内登记事件引用的素材索引。"""
         for reference in event.artifact_refs:
             self.connection.execute("INSERT OR IGNORE INTO artifacts VALUES(?,?)", (
                 reference.sha256, canonical_json(reference.model_dump()).decode(),
             ))
-        self.connection.execute("INSERT INTO events VALUES(?,?,?)", (
-            event.event_seq, event.event_id, canonical_json(event.model_dump()).decode(),
-        ))
+
+    def _decode(self, body: str) -> Event:
+        """@brief 事件行的唯一解码，每个读取方法都经过它：校验事件；观察把分件引用换回原表，读者拿到写入前的完整观察；
+        不缓存。"""
+        event = Event.model_validate_json(body)
+        if event.event_type != "observation":
+            return event
+        return event.model_copy(update={"data": rehydrate_observation(event.data, self.connection)})
 
     def last_agent_event_seq(self, event_type: EventType, agent_id: int) -> int:
         """@brief 使用人物和类型索引查询最后事件序号，不加载全历史正文。"""
@@ -335,7 +387,7 @@ class FootprintStore:
         if row is None:
             logging.error("Event %s does not exist", event_id)
             raise IntegrityError("Event does not exist")
-        return Event.model_validate_json(row[0])
+        return self._decode(row[0])
 
     def read_agent_events(self, event_type: EventType, agent_id: int, after: int = 0) -> list[Event]:
         """@brief 只读取指定人物在已知边界之后的同类事件，避免反复解码原始模型调用。"""
@@ -345,7 +397,7 @@ class FootprintStore:
             SELECT body FROM events WHERE json_extract(body,'$.agent_id')=?
             AND json_extract(body,'$.event_type')=? AND event_seq>? ORDER BY event_seq
         """, (agent_id, event_type, after))
-        return [Event.model_validate_json(row[0]) for row in rows]
+        return [self._decode(row[0]) for row in rows]
 
     def read_decision_observations(self, agent_id: int, decision_id: str, observed_at: int) -> list[Event]:
         """@brief 只解码人物、决策和发生时刻精确匹配的观察，保留全部匹配记录供唯一性复核。
@@ -357,7 +409,7 @@ class FootprintStore:
             AND json_extract(body,'$.event_type')='observation' AND event_seq>?
             AND json_extract(body,'$.decision_id')=? AND json_extract(body,'$.occurred_at')=? ORDER BY event_seq
         """, (agent_id, self.last_event_seq_before(observed_at), decision_id, observed_at))
-        return [Event.model_validate_json(row[0]) for row in rows]
+        return [self._decode(row[0]) for row in rows]
 
     def read_recent_experience_sources(self, agent_id: int, before_seq: int, limit: int) -> list[Event]:
         """@brief 按倒序有限读取本人活动进度与收货候选事件。"""
@@ -372,14 +424,14 @@ class FootprintStore:
                      AND json_extract(body,'$.data.kind')='goods_received'))
             AND event_seq<? ORDER BY event_seq DESC LIMIT ?
         """, (agent_id, before_seq, limit))
-        return [Event.model_validate_json(row[0]) for row in rows]
+        return [self._decode(row[0]) for row in rows]
 
     def read_events(self, cutoff: int) -> list[Event]:
         """@brief 固定截止序号读取原始顺序，拒绝不存在的截止位置。"""
         if cutoff < 0 or cutoff > self.last_event_seq:
             raise IntegrityError("Event cutoff is outside the committed sequence")
         rows = self.connection.execute("SELECT body FROM events WHERE event_seq<=? ORDER BY event_seq", (cutoff,))
-        return [Event.model_validate_json(row[0]) for row in rows]
+        return [self._decode(row[0]) for row in rows]
 
     def checkpoint(self, state: dict, snapshots: dict[str, AssetRef]) -> Checkpoint:
         """@brief 调用方世界逐字节等于已提交世界、素材完整后，以一个事务提交共同检查点及其事件。
@@ -449,7 +501,7 @@ class FootprintStore:
                                         (checkpoint.last_event_seq,)).fetchone()
         if event is None:
             raise IntegrityError("Checkpoint event is missing")
-        saved = Event.model_validate_json(event[0])
+        saved = self._decode(event[0])
         if (saved.event_type != "checkpoint_created" or saved.data.get("checkpoint_id") != checkpoint_id
                 or saved.run_id != checkpoint.run_id or saved.occurred_at != checkpoint.current_time
                 or saved.state_version_before != checkpoint.state_version

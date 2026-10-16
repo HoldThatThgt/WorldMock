@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 import logging
 from typing import Any
 from worldmock.errors import IntegrityError, ProtocolError
-from worldmock.footprints.models import EventDraft
+from worldmock.footprints.models import EventDraft, sha256_json
 from worldmock.life.memory_evidence import _memory_evidence_data, due_reflection, memory_write_points
 from worldmock.life.decision_start import maybe_action_request_start
 
@@ -23,13 +23,16 @@ class ModelEvidenceRecorder:
     def __init__(self, context: EngineContext, decisions: DecisionCoordinator):
         """@brief 绑定决策开始簿记并独立保存模型请求索引。"""
         self.context, self.decisions = context, decisions
-        self.request_events: dict[tuple[str, str], str] = {}
+        #: (决策身份, 调用身份) → (请求事件身份, 请求规范 JSON 的 sha256)；响应或失败登记后移除。
+        self.request_events: dict[tuple[str, str], tuple[str, str]] = {}
 
     def record_model_exchange(self, exchange: Any) -> None:
         """@brief 保存实际模型请求、响应或失败，并保持生活状态不变。
 
         本次决策的首个行动请求与其 decision_started 同批提交，decision_started 在前
         （docs/design/06-agent.md「宿主模型协议」）。
+        请求只存在请求事件里；响应与失败事件的 request 为 null，经 caused_by 指向请求事件，并须带来与登记时摘要相同的请求
+        （docs/design/05-recording-engine.md「事件与来源」）。
         """
         context = exchange.context
         self.decisions.validate_context(context)
@@ -41,16 +44,12 @@ class ModelEvidenceRecorder:
         ):
             raise ProtocolError("Model exchange phase or attempt is invalid")
         key = (context.decision_id, exchange.call_id)
-        cause = []
-        if exchange.phase == "request" and key in self.request_events:
-            raise ProtocolError("Model request call was recorded twice")
-        if exchange.phase != "request":
-            if key not in self.request_events:
-                raise ProtocolError("Model response has no recorded request")
-            cause = [self.request_events[key]]
+        digest = sha256_json(exchange.request)
+        cause = self._request_cause(key, exchange, digest)
         data = {
             "phase": exchange.phase, "call_id": exchange.call_id, "attempt": exchange.attempt,
-            "request": exchange.request, "response": exchange.response, "error": exchange.error,
+            "request": exchange.request if exchange.phase == "request" else None,
+            "response": exchange.response, "error": exchange.error,
         }
         if isinstance(exchange.response, dict) and "protocol_feedback" in exchange.response:
             data["protocol_feedback"] = exchange.response["protocol_feedback"]
@@ -69,10 +68,26 @@ class ModelEvidenceRecorder:
         )
         event = self.context.store.append_evidence([item for item in (start, draft) if item is not None])[-1]
         if exchange.phase == "request":
-            self.request_events[key] = event.event_id
+            self.request_events[key] = (event.event_id, digest)
         else:
             self.request_events.pop(key)
         self._ops_exchange(context, exchange)
+
+    def _request_cause(self, key: tuple[str, str], exchange: Any, digest: str) -> list[str]:
+        """@brief 请求阶段不得重复登记，原因为空；响应与失败须有本进程登记的请求，且带来的请求摘要与登记时相同，
+        原因是那条请求事件。"""
+        if exchange.phase == "request":
+            if key in self.request_events:
+                raise ProtocolError("Model request call was recorded twice")
+            return []
+        if key not in self.request_events:
+            raise ProtocolError("Model response has no recorded request")
+        event_id, recorded = self.request_events[key]
+        if digest != recorded:
+            logging.error("Model %s for call %s carries a request that differs from its recorded request",
+                          exchange.phase, exchange.call_id)
+            raise ProtocolError("Model exchange request differs from its recorded request")
+        return [event_id]
 
     def _ops_exchange(self, context: "DecisionContext", exchange: Any) -> None:
         """@brief 写模型交换操作日志，带响应中可用的模型名与 token 用量。"""
