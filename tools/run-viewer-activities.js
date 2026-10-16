@@ -37,6 +37,7 @@ const ActivityCalendar = {};
 
   /** @brief 换日期或人物时清空选择、搜索和缩放，并令旧读取过期。 */
   function clearSelection(){
+    AT.page = 0;
     state.selected = null;
     state.span = 0;
     state.offset = 0;
@@ -86,6 +87,12 @@ const ActivityCalendar = {};
     const span = state.span || last-first;
     state.offset = Math.max(0,Math.min(state.offset,last-first-span));
     return {first,last,start:first+state.offset,end:Math.min(last,first+state.offset+span)};
+  }
+
+  /** @brief 活动页各表共享所选自然日，不随时间图缩放缩短。 */
+  function selectedDay(){
+    const {first,last} = bounds();
+    return {date:state.day,start:first,end:last};
   }
 
   /** @brief 按开始时刻摆放真实区间，已结束的行立即复用，标签尺寸不参与分行。 */
@@ -219,9 +226,10 @@ const ActivityCalendar = {};
     const members = row.activities.map(activity=>`<li>${esc(actTargetText(activity))} · ` +
       `${esc(fmtT(activity.start))}–${esc(fmtT(activity.end))} · 已结算 ${fmtDur(activity.actualSeconds)}</li>`).join('');
     $('#activity-detail').innerHTML = `<div class="card calendar-detail"><h3>${esc(row.label)}</h3>` +
-      `<p>${esc(agentName(row.agent))} · ${esc(timing(row))}</p><ul>${members}</ul>` +
+      `<p>${esc(agentName(row.agent))} · ${esc(timing(row))}</p>` +
+      `<details><summary>完整活动与来源（可跨日）</summary><ul>${members}</ul>` +
       `<h4>相关事件 · 活动全部来源</h4><div class="calendar-sources">${sources||'没有记录来源事件'}</div>` +
-      '<pre id="calendar-event-body">选择事件查看记录原文</pre></div>';
+      '<pre id="calendar-event-body">选择事件查看记录原文</pre></details></div>';
   }
 
   /** @brief 原文按字节范围读取，过期结果和错误不覆盖新选择。 */
@@ -238,7 +246,7 @@ const ActivityCalendar = {};
     }
   }
 
-  /** @brief 换日重置选择与缩放，不改变完整表格排序。 */
+  /** @brief 换日重置选择、缩放与页码，不改变表格排序。 */
   function changeDay(day){
     if (!day || day<dateKey(S.t0) || day>dateKey(S.t1)) return;
     state.day = day;
@@ -294,5 +302,5 @@ const ActivityCalendar = {};
     bindPicker();
   }
 
-  Object.assign(ActivityCalendar,{render,bind,reset,select,readEvent});
+  Object.assign(ActivityCalendar,{render,bind,reset,select,readEvent,selectedDay});
 }

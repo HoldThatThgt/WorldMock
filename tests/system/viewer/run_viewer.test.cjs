@@ -988,7 +988,11 @@ async function sessionsOf(t, session, activities) {
     },
   };
   const view = await viewer([activity('action_accepted', 'act-sleep', {kind: 'sleep'}),
-    activity('action_accepted', 'act-wait-2', {kind: 'interact'}, {agent_id: 2})], {world});
+    activity('action_accepted', 'act-wait-2', {kind: 'interact'}, {agent_id: 2}),
+    ...['act-walk','act-podcast'].map(id=>activity('action_accepted',id,
+      {kind:'sleep',started_at:epoch+5400},{occurred_at:epoch+5400})),
+    activity('action_accepted','act-gone',{kind:'sleep',started_at:epoch+6000},{occurred_at:epoch+6000}),
+  ], {world});
   t.after(() => view.close());
   const rows = tableRows(view.activities(), 'session-table');
   assert.deepEqual(rows.map(cells => [cells[2], cells[3], cells[5], cells[6]]), [
@@ -1828,14 +1832,15 @@ test('the activity table keeps one row per activity and marks its place in the c
   const markup = view.activities();
   const rows = tableRows(markup, 'act-table');
   assert.equal(rows.length, 12);
-  // 表头最后一格是「连续使用」，不能点、不带排序标记。
-  assert.ok(markup.includes('<th>目标</th><th>结束</th><th class="num">实际时长</th><th>连续使用</th></tr></thead>'));
+  // 当天时间列与完整连续使用标记明确区分，标记不能点、不带排序属性。
+  assert.ok(markup.includes('<th>目标</th><th>当天结束</th><th class="num">当天已结算</th>' +
+    '<th>连续使用（完整记录）</th></tr></thead>'));
   assert.deepEqual(rows.map(cells => cells.at(-1)), NIGHT_MARKS);
   // 第四格仍是每次使用自己的写法。
   assert.deepEqual(rows.map(cells => cells[3]), NIGHT.map(([, app, content]) =>
     `使用${NIGHT_CATALOG.apps.find(row => row.app_id === app).name}` +
     `《${NIGHT_CATALOG.contents.find(row => row.content_id === content).title}》`));
-  assert.ok(markup.includes('共 12 段活动 · 点击表头排序'));
+  assert.ok(markup.includes('当天共 12 项活动 · 点击表头排序'));
   assert.ok(view.overview().includes('<span class="k">接受</span><span class="v" style="color:var(--ok)">12</span>'));
 });
 
@@ -1939,7 +1944,10 @@ test('midnight, time zone, paging, sorting and timeline filters never cut a cont
   const pair = [1, 2].map(index => `09/28 23:58–09/29 00:03 · 第 ${index} 段，共 2 段`);
   const markup = view.activities();
   assert.deepEqual(activityGroups(markup).map(lane => lane.bars.length), [1]);
-  assert.deepEqual(marks(markup), pair);
+  assert.deepEqual(marks(markup), [pair[0]]);
+  // 换到次日：两项活动均有当天执行，完整连续使用的标记仍包含前一天。
+  view.get('#calendar-date').onchange({target:{value:'2026-09-29'}});
+  assert.deepEqual(marks(view.get('#act-body').innerHTML),pair);
   // 每页一行：两页各一行，标记不变。
   view.run('AT.pageSize = 1');
   assert.deepEqual(marks(view.activities()), [pair[0]]);

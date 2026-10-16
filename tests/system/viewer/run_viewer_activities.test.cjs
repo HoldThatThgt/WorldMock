@@ -19,7 +19,7 @@ function activity(id, start, intervals, options={}){
     {...envelope,occurred_at:to}))];
 }
 
-/** @brief 日历主体不含保持完整数据的折叠表格。 */
+/** @brief 日历主体不含当天活动的折叠表格。 */
 const calendar = view => view.get('#act-body').innerHTML.split('<details class="calendar-table"')[0];
 const date = view => /id="calendar-date"[^>]*value="([^"]+)"/.exec(calendar(view))[1];
 const bars = view => [...calendar(view).matchAll(/class="act-lane-bar" style="left:([^%]+)%;width:([^%]+)%/g)]
@@ -31,28 +31,42 @@ const zoom = (view,span) => view.get('#calendar-zoom').onchange({target:{value:S
 const detail = view => view.get('#activity-detail').innerHTML;
 const laneCount = view => Number(/data-lanes="(\d+)"/.exec(calendar(view))[1]);
 
-test('calendar clips cross-day intervals, keeps empty days and retains the full activity table', async t=>{
+test('calendar and activity table share the selected day and clip cross-day intervals without changing sources', async t=>{
   const start = at('2026-01-05T23:50:00+08:00'), end = at('2026-01-06T00:20:00+08:00');
   const later = at('2026-01-08T08:00:00+08:00');
   const view = await viewer([...activity('night',start,[[start,end]]),...activity('later',later,[[later,later+600]])]);
   t.after(()=>view.close());
+  const original=JSON.stringify(view.state.acts);
   view.activities();
   assert.equal(date(view),'2026-01-05');
   assert.deepEqual(bars(view),[{left:85800/86400*100,width:600/86400*100}]);
+  let rows=tableRows(view.get('#act-body').innerHTML,'act-table');
+  assert.equal(rows.length,1);
+  assert.deepEqual([rows[0][0],rows[0][4],rows[0][5]],['01/05 23:50','01/06 00:00','10分']);
   select(view,0);
   assert.match(detail(view),/23:50:00–次日 00:00:00 · 当天已结算 10分/);
   view.get('#calendar-next').onclick();
   assert.equal(date(view),'2026-01-06');
   assert.deepEqual(bars(view),[{left:0,width:1200/86400*100}]);
+  rows=tableRows(view.get('#act-body').innerHTML,'act-table');
+  assert.equal(rows.length,1);
+  assert.deepEqual([rows[0][0],rows[0][4],rows[0][5]],['01/06 00:00','01/06 00:20','20分']);
   select(view,0);
   assert.match(detail(view),/00:00:00–00:20:00 · 当天已结算 20分/);
   view.get('#calendar-next').onclick();
   assert.equal(date(view),'2026-01-07');
   assert.match(calendar(view),/当天没有活动记录/);
-  assert.equal(tableRows(view.get('#act-body').innerHTML,'act-table').length,2);
+  assert.equal(tableRows(view.get('#act-body').innerHTML,'act-table').length,0);
+  assert.match(view.get('#act-body').innerHTML,/当天共 0 项活动/);
+  assert.doesNotMatch(view.get('#act-body').innerHTML,/<span class="sw"/);
+  choose(view,'2026-01-08');
+  assert.equal(tableRows(view.get('#act-body').innerHTML,'act-table').length,1);
+  assert.match(view.get('#act-body').innerHTML,/当天活动表 · 2026-01-08/);
+  choose(view,'2026-01-07');
   view.get('#calendar-prev').onclick();
   assert.equal(date(view),'2026-01-06');
   assert.match(calendar(view),/Asia\/Shanghai/);
+  assert.equal(JSON.stringify(view.state.acts),original);
 });
 
 test('calendar aligns hourly grid lines and ticks on narrow and wide 23-hour, 24-hour and 25-hour days', async t=>{
@@ -127,6 +141,9 @@ test('calendar preserves overlapping intervals, pause gaps and readable five-sec
   assert.equal(bars(view).length,4);
   assert.deepEqual(bars(view).map(bar=>bar.width),[300,60,300,5].map(seconds=>seconds/86400*100));
   assert.equal(laneCount(view),2);
+  const rows=tableRows(view.get('#act-body').innerHTML,'act-table');
+  assert.equal(rows[0][5],'10分');
+  assert.deepEqual([rows[3][0],rows[3][4],rows[3][5]],['01/05 08:40','—','—']);
   select(view,0);
   assert.match(detail(view),/08:00:00–08:05:00、08:20:00–08:25:00/);
   assert.equal(view.get('calendar-bar:0').attributes['aria-pressed'],'true');
@@ -141,6 +158,7 @@ test('calendar preserves overlapping intervals, pause gaps and readable five-sec
     return selector==='[data-calendar-row]' ? {dataset:{calendarRow:'0',calendarCenter:String(start+1350)}} : null;
   }}});
   zoom(view,3600);
+  assert.equal(tableRows(view.get('#act-body').innerHTML,'act-table').length,4);
   assert.match(calendar(view),/07:52:30–GMT\+8 08:52:30/);
   assert.match(detail(view),/08:00:00–08:05:00、08:20:00–08:25:00/);
   assert.equal(view.get('calendar-bar:0').attributes['aria-pressed'],'true');
@@ -172,6 +190,61 @@ test('person changes and new exports reset the date while table sorting preserve
   assert.match(calendar(view),/Asia\/Tokyo/);
 });
 
+test('daily table paging resets on date changes while zoom preserves all activities of the day', async t=>{
+  const first=at('2026-01-05T08:00:00+08:00'),second=first+86400;
+  const records=Array.from({length:55},(_,index)=>activity(`a-${index}`,first+index*600,
+    [[first+index*600,first+index*600+60]])).flat();
+  const view=await viewer([...records,...activity('next',second,[[second,second+60]],
+    {app:'bilibili',content:'c-article'})]);
+  t.after(()=>view.close());
+  view.activities();
+  assert.equal(tableRows(view.get('#act-body').innerHTML,'act-table').length,50);
+  assert.match(view.get('#act-body').innerHTML,/当天共 55 项活动/);
+  view.get('#at-next').onclick();
+  assert.equal(tableRows(view.get('#act-body').innerHTML,'act-table').length,5);
+  select(view,0);
+  zoom(view,3600);
+  assert.equal(view.run('AT.page'),1);
+  assert.match(view.get('#act-body').innerHTML,/当天共 55 项活动/);
+  choose(view,'2026-01-06');
+  assert.equal(view.run('AT.page'),0);
+  assert.equal(tableRows(view.get('#act-body').innerHTML,'act-table').length,1);
+  assert.match(view.get('#act-body').innerHTML,/当天共 1 项活动/);
+  const legend=view.get('#act-body').innerHTML.split('<div class="legend"')[1].split('</div>')[0];
+  assert.doesNotMatch(legend,/睡眠/);
+  choose(view,'2026-01-05');
+  assert.equal(tableRows(view.get('#act-body').innerHTML,'act-table').length,50);
+});
+
+test('sessions clip to the selected day and list only activities executed or accepted that day', async t=>{
+  const first=at('2026-01-05T23:50:00+08:00'),midnight=first+600,last=midnight+86400;
+  const session=(name,start,end,ids,agent=1)=>({name,started_at:start,ended_at:end,activity_ids:ids,
+    agent_id:agent,kind:'stay',status:end===null?'active':'ended'});
+  const world={activities:[{activity_id:'before',name:'前一天活动'},{activity_id:'after',name:'当天活动'}],
+    sessions:{past:session('昨天结束',first,midnight,['before']),
+      crossing:session('跨日停留',first,last,['before','after']),
+      ongoing:session('尚未结束',midnight+1200,null,['after']),
+      point:session('当天开始并结束',midnight+1800,midnight+1800,[]),
+      future:session('明天开始',last,last+60,[]),
+      other:session('其他人物',midnight,midnight+600,[],2)}};
+  const view=await viewer([...activity('before',first,[[first,midnight]]),
+    ...activity('after',midnight,[[midnight,midnight+600]]),event('run_ended',{}, {occurred_at:last+60})],{world});
+  t.after(()=>view.close());
+  view.activities();
+  choose(view,'2026-01-06');
+  const rows=tableRows(view.get('#act-body').innerHTML,'session-table');
+  assert.deepEqual(rows.map(row=>row[2]),['跨日停留','其他人物','尚未结束','当天开始并结束']);
+  assert.deepEqual([rows[0][0].trim(),rows[0][4].trim(),rows[0][6]],
+    ['01/06 00:00','01/07 00:00','当天活动']);
+  assert.equal(rows[2][4].trim(),'01/07 00:00');
+  assert.equal(rows[3][0].trim(),rows[3][4].trim());
+  assert.match(view.get('#act-body').innerHTML,/<th>会话最终状态<\/th>/);
+  view.get('#agent-filter').value='1';
+  view.activities();
+  choose(view,'2026-01-06');
+  assert.equal(tableRows(view.get('#act-body').innerHTML,'session-table').length,3);
+});
+
 test('cross-midnight continuous uses keep all members and link only to their own recorded events', async t=>{
   const start=at('2026-01-05T23:50:00+08:00'),midnight=at('2026-01-06T00:00:00+08:00');
   const view=await viewer(ordered([
@@ -184,10 +257,15 @@ test('cross-midnight continuous uses keep all members and link only to their own
   choose(view,'2026-01-06');
   assert.equal(bars(view).length,1);
   assert.match(calendar(view),/使用哔哩哔哩《测试文章》《测试图文》/);
+  const rows=tableRows(view.get('#act-body').innerHTML,'act-table');
+  assert.equal(rows.length,1);
+  assert.equal(rows[0][3],'使用哔哩哔哩《测试图文》');
+  assert.match(rows[0][6],/第 2 段，共 2 段/);
   view.run('ActivityCalendar.select(0)');
   const detail=view.get('#activity-detail').innerHTML;
   const sources=[...detail.matchAll(/data-calendar-event="(\d+)"/g)].map(match=>Number(match[1]));
   assert.deepEqual(sources,[1,3,4,5]);
+  assert.match(detail,/<details><summary>完整活动与来源（可跨日）<\/summary>/);
   assert.match(detail,/2026\/01\/05 23:50:00/);
   assert.match(detail,/2026\/01\/06 00:10:00/);
   await view.run('ActivityCalendar.readEvent(5)');

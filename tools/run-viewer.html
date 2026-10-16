@@ -1128,7 +1128,7 @@ async function toggleDetail(row, seq){
   }
 }
 
-/* ---------- 按天活动日历与完整活动表 ---------- */
+/* ---------- 共用所选日期的活动日历、活动表与地点会话 ---------- */
 const AT = { sortKey:'start', sortDir:1, page:0, pageSize:50, filtered:[], tableOpen:false };
 /** @brief 活动表「目标」：互动、购买与查询是这项活动全部受理与进度事件（按序号）的统一写法；出行写出行方式名称、
  *  目的地与路径；其余种类（睡眠和没有专门写法的种类）显示「—」。 */
@@ -1142,36 +1142,55 @@ function actTargetText(a){
   }
   return [methodLabel(a.method), route].filter(Boolean).join(' · ') || '—';
 }
-/** @brief 地点会话（一段停留或一段路）只存于世界状态，按开始时刻列出其名称、种类与所含活动；活动名按条目的 activity_id 查。 */
-function renderSessions(agent){
+/** @brief 地点会话取与当天重叠或当天开始的记录，时间与活动成员限于当天，状态标明是最终记录。 */
+function renderSessions(agent, day){
   const acts = new Map(Object.values(S.world?.activities||{}).map(activity=>[activity.activity_id, activity]));
+  const activityIds = new Set(AT.filtered.map(activity=>activity.aid));
   const rows = Object.values(S.world?.sessions||{})
     .filter(s=>SESSION_KIND_LABELS[s.kind] && (!agent || String(s.agent_id)===agent))
+    .filter(s=>(s.started_at<day.end && (s.ended_at??S.t1)>day.start) ||
+      (s.started_at>=day.start && s.started_at<day.end))
     .sort((x,y)=>x.started_at-y.started_at);
   if (!rows.length) return '';
-  const members = s => (s.activity_ids||[]).map(id=>acts.get(id)?.name).filter(Boolean).join('、')
-    || `${(s.activity_ids||[]).length} 项活动`;
-  return `<h3>地点会话</h3><div class="card" style="padding:0">
+  const members = s => {
+    const ids = (s.activity_ids||[]).filter(id=>activityIds.has(id));
+    return ids.map(id=>acts.get(id)?.name).filter(Boolean).join('、') || `${ids.length} 项活动`;
+  };
+  return `<h3>当天地点会话</h3><div class="card" style="padding:0">
     <table class="session-table">
-      <thead><tr><th>开始</th><th>人物</th><th>会话</th><th>种类</th><th>结束</th><th>状态</th><th>活动</th></tr></thead>
+      <thead><tr><th>当天开始</th><th>人物</th><th>会话</th><th>种类</th><th>当天结束</th>
+        <th>会话最终状态</th><th>当天活动</th></tr></thead>
       <tbody>${rows.map(s=>`<tr>
-        <td style="white-space:nowrap;font-family:var(--mono);font-size:12px">${fmtHM(s.started_at)}</td>
+        <td style="white-space:nowrap;font-family:var(--mono);font-size:12px">
+          ${fmtHM(Math.max(s.started_at,day.start))}</td>
         <td style="white-space:nowrap"><span class="tl-agent ${agentCls(s.agent_id)}">${esc(agentName(s.agent_id))}</span></td>
         <td>${esc(s.name||'')}</td><td>${SESSION_KIND_LABELS[s.kind]}</td>
-        <td style="white-space:nowrap;font-family:var(--mono);font-size:12px">${fmtHM(s.ended_at)}</td>
+        <td style="white-space:nowrap;font-family:var(--mono);font-size:12px">
+          ${fmtHM(Math.min(s.ended_at??S.t1,day.end))}</td>
         <td>${SESSION_STATUS_LABELS[s.status]||esc(s.status)}</td><td>${esc(members(s))}</td></tr>`).join('')}
       </tbody>
     </table></div>`;
 }
-/** @brief 活动表的一行：开始、人物、活动类型、目标、结束、实际时长和末尾的「连续使用」标记栏。 */
+/** @brief 当天有执行或受理记录才入表，时间与时长从实际区间裁切，保留原始活动字段。 */
+function activityOnDay(activity, day){
+  const intervals = activity.intervals.filter(([start,end])=>start<day.end && end>day.start)
+    .map(([start,end])=>[Math.max(start,day.start),Math.min(end,day.end)]);
+  const accepted = activity.start>=day.start && activity.start<day.end;
+  if (!intervals.length && !accepted) return null;
+  return {...activity,
+    dayStart:Math.min(...intervals.map(([start])=>start),...(accepted?[activity.start]:[])),
+    dayEnd:intervals.length ? Math.max(...intervals.map(([,end])=>end)) : null,
+    daySeconds:intervals.reduce((sum,[start,end])=>sum+end-start,0)};
+}
+/** @brief 活动表显示当天起止与结算时长，连续使用标记保留明确标注的完整记录。 */
 function activityRow(a){
   const mono = 'white-space:nowrap;font-family:var(--mono);font-size:12px', color = kindColor(a.kind);
   const kind = esc(actTypeLabel(a.kind,a.tg));
-  return `<tr><td style="${mono}">${fmtHM(a.start)}</td>
+  return `<tr><td style="${mono}">${fmtHM(a.dayStart)}</td>
     <td style="white-space:nowrap"><span class="tl-agent ${agentCls(a.agent)}">${esc(agentName(a.agent))}</span></td>
     <td><span class="act-kind" style="background:${color}33;color:${color}">${kind}</span></td>
-    <td>${esc(actTargetText(a))}</td><td style="${mono}">${fmtHM(a.end)}</td>
-    <td class="num">${a.actualSeconds?fmtDur(a.actualSeconds):'—'}</td>
+    <td>${esc(actTargetText(a))}</td><td style="${mono}">${fmtHM(a.dayEnd)}</td>
+    <td class="num">${a.daySeconds?fmtDur(a.daySeconds):'—'}</td>
     <td>${esc(ViewerWording.continuousUseMark(a, S.uses, fmtHM))}</td></tr>`;
 }
 /** @brief 活动表的表头排序与翻页按钮：点了之后重画整张表。 */
@@ -1188,17 +1207,19 @@ function bindActivityTable(pages){
   $('#at-prev').onclick = ()=>{ if (AT.page>0){ AT.page--; renderActivities(); } };
   $('#at-next').onclick = ()=>{ if (AT.page<pages-1){ AT.page++; renderActivities(); } };
 }
-/** @brief 按天日历与全日期活动表共享人物筛选，表格排序、翻页和展开状态独立保留。 */
+/** @brief 日历先用完整记录构组，活动表、计数与地点会话再共用所选日期。 */
 function renderActivities(){
   const el = $('#act-body');
   const agent = agentFilterVal();
-  AT.filtered = S.acts.filter(a=>!agent || String(a.agent)===agent);
+  const activities = S.acts.filter(a=>!agent || String(a.agent)===agent);
+  const calendar = ActivityCalendar.render(activities), day = ActivityCalendar.selectedDay();
+  AT.filtered = activities.map(activity=>activityOnDay(activity,day)).filter(Boolean);
   if (AT.page >= Math.ceil(AT.filtered.length/AT.pageSize)) AT.page = 0;
   const kinds = [...new Set(AT.filtered.map(a=>a.kind))];
   const sorters = {
-    start: (x,y)=> x.start-y.start,
-    agent: (x,y)=> x.agent-y.agent || x.start-y.start,
-    kind:  (x,y)=> actTypeLabel(x.kind,x.tg).localeCompare(actTypeLabel(y.kind,y.tg),'zh') || x.start-y.start,
+    start: (x,y)=> x.dayStart-y.dayStart,
+    agent: (x,y)=> x.agent-y.agent || x.dayStart-y.dayStart,
+    kind:  (x,y)=> actTypeLabel(x.kind,x.tg).localeCompare(actTypeLabel(y.kind,y.tg),'zh') || x.dayStart-y.dayStart,
   };
   AT.filtered.sort(sorters[AT.sortKey]||sorters.start);
   if (AT.sortDir<0) AT.filtered.reverse();
@@ -1208,16 +1229,16 @@ function renderActivities(){
   const th = (k,label,extra) =>
     `<th data-sk="${k}" class="${extra||''}">${label}${arrow(k)}</th>`;
   el.innerHTML = `
-  ${ActivityCalendar.render(AT.filtered)}
+  ${calendar}
   <details class="calendar-table" id="activity-table" ${AT.tableOpen?'open':''}>
-    <summary>完整活动表 · 全部日期</summary>
+    <summary>当天活动表 · ${day.date}</summary>
   <div class="legend" style="margin-bottom:10px">${kinds.map(k=>
     `<span><span class="sw" style="background:${kindColor(k)}"></span>${esc(actTypeLabel(k,null))}</span>`).join('')}
-    <span style="margin-left:auto;color:var(--fg-faint)">共 ${AT.filtered.length} 段活动 · 点击表头排序</span></div>
+    <span style="margin-left:auto;color:var(--fg-faint)">当天共 ${AT.filtered.length} 项活动 · 点击表头排序</span></div>
   <div class="card" style="padding:0 0 0 0">
     <table class="act-table">
-      <thead><tr>${th('start','开始')}${th('agent','人物')}${th('kind','活动类型')}
-        <th>目标</th><th>结束</th><th class="num">实际时长</th><th>连续使用</th></tr></thead>
+      <thead><tr>${th('start','当天开始')}${th('agent','人物')}${th('kind','活动类型')}
+        <th>目标</th><th>当天结束</th><th class="num">当天已结算</th><th>连续使用（完整记录）</th></tr></thead>
       <tbody>${view.map(activityRow).join('')}</tbody>
     </table>
     <div class="pager">
@@ -1226,7 +1247,7 @@ function renderActivities(){
       <button id="at-next" ${AT.page>=pages-1?'disabled':''}>下一页</button>
     </div>
   </div>
-  ${renderSessions(agent)}</details>`;
+  ${renderSessions(agent,day)}</details>`;
   bindActivityTable(pages);
   $('#activity-table').ontoggle = event=>{ AT.tableOpen=event.target.open; };
   ActivityCalendar.bind();
