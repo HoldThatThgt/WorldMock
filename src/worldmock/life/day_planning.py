@@ -21,13 +21,12 @@ from worldmock.input_models import ModelMetadata
 
 from worldmock.errors import ProtocolError
 from worldmock.footprints.models import EventDraft
+from worldmock.life.decision_start import PLAN_DAY_PURPOSE
 from worldmock.life.models import PlanDayRequest, WorldState, deepseek_strict_schema
 from worldmock.life.prompt_capacity import CONTEXT_THRESHOLD, model_context_length, request_token_count
 from worldmock.life.schedule import (DayPlan, RemindTimeInvalid, day_end_seconds, initial_day_plan,
                                      registered_goals)
 
-#: 零点计划请求与响应的用途标记；交付窗口、决策 token 统计与行为指标的决策请求按它排除。
-PLAN_DAY_PURPOSE = "plan_day"
 #: 零点计划的生成上限（docs/design/06-agent.md「宿主模型协议」）。
 PLAN_DAY_MAX_TOKENS = 8000
 #: 提交当日目标清单的唯一工具名。

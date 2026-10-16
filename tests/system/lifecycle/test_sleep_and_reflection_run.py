@@ -184,6 +184,14 @@ async def test_run_with_naps_exports_clean_memory_sources_and_a_resume_at_wake_u
     events = artifact_rows(tmp_path / "export", "events")
     assert manifest["experiment_completed"] is True
     quality = json.loads((tmp_path / "export" / "quality.json").read_text(encoding="utf-8"))
+    rows = {row["call_class"]: row for row in quality["model_usage"]["by_call_class"]}
+    assert "unrecognized" not in rows
+    assert rows["reflection"]["request_events"] == len(run.model.of("reflection"))
+    assert rows["consolidation"]["request_events"] == len(run.model.of("consolidation"))
+    assert sum(rows[name]["request_events"] for name in (
+        "fresh_decision_turn", "turn_with_history", "truncation_retry")) == len(run.model.of("action"))
+    plans = sum(row["event_type"] == "model_request" and row["data"].get("purpose") == "plan_day" for row in events)
+    assert rows["plan_day"]["request_events"] == plans and plans > 0
     memory_references = quality["memory_references"]
     assert memory_references["problems"] == [] and memory_references["problem_count"] == 0
     assert memory_references["write_points_checked"] >= 4

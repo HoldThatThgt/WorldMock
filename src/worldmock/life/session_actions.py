@@ -94,7 +94,7 @@ class ActionHandlers:
         if not all((activity_control.concludable(item) for item in selected)):
             _LOGGER.error("Concluded activity is not active, paused or awaiting conclusion")
             raise BusinessRuleError("ACTION_REQUEST_INVALID")
-        waiting = activity_control.pending_conclusions(state, pending.agent_id)
+        waiting = activity_control.pending_conclusions(activity_control.open_activities(state, pending.agent_id))
         if waiting and (not {item.activity_id for item in waiting} & {item.activity_id for item in selected}):
             raise activity_control.conclusion_required(waiting, self._control_names(pending))
         (changed, departed) = (state, False)
@@ -413,8 +413,9 @@ class ActionHandlers:
         return drained
 
     def _admission_context(self, state: WorldState, agent_id: int, names: dict | None = None) -> admission.Context:
-        """@brief 观察与受理共用固定槽位和在场判定。"""
-        return admission.Context(state, agent_id, place_names(self.context.catalog), names or {}, self.context.inputs)
+        """@brief 观察与受理共用固定槽位和在场判定；本人的未了活动从所受理的这份世界算。"""
+        return admission.Context(state, agent_id, activity_control.open_activities(state, agent_id),
+                                 place_names(self.context.catalog), names or {}, self.context.inputs)
 
     def _change(self, state: WorldState, pending: PendingAction,
                 request: ChangeActivityRequest) -> tuple[WorldState, ActionResult]:
@@ -458,7 +459,7 @@ class ActionHandlers:
             _LOGGER.error("Tool request validation rejected: %s", pending.tool_name)
             report = argument_report(pending.tool_name, error, model, pending.request, "ACTION_REQUEST_INVALID")
             raise Refusal("ACTION_REQUEST_INVALID", report.reason, fix=report.fix or "", items=report.items).error()
-        waiting = activity_control.pending_conclusions(changed, pending.agent_id)
+        waiting = activity_control.pending_conclusions(activity_control.open_activities(changed, pending.agent_id))
         if waiting and pending.tool_name != "conclude_activity":
             raise activity_control.conclusion_required(waiting, self._control_names(pending))
         named = (self._activities_for_names(changed, pending, [item.activity_name for item in request.items])

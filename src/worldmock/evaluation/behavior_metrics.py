@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+from worldmock.life.decision_start import request_tool_names
 from worldmock.footprints.intervals import valid_interval, body_settlements
 from worldmock.footprints.purchases import project_purchase_facts
 from worldmock.footprints.timeline_labels import local_day_bounds, window_days
@@ -140,13 +141,6 @@ def _gate(value: Any, comparison: str, threshold: Any, note: str | None = None) 
     return entry
 
 
-def _request_tool_names(request: Any) -> list[str]:
-    """@brief 一次模型请求实际开放的工具名；没有工具或形状不符时为空列表。"""
-    tools = request.get("tools") if isinstance(request, Mapping) else None
-    return [item["function"].get("name") for item in tools if isinstance(item, Mapping)
-            and isinstance(item.get("function"), Mapping)] if isinstance(tools, list) else []
-
-
 def _decision_model_requests(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """@brief 取人物决策的模型请求事件：排除任一带 purpose 的系统请求（工作验收、零点计划 plan_day）；带工具的请求
     只在工具中有 start_main_activity 时计入，所以只带 submit_reflection 的就寝反思及其校验重试不计，不带工具的记忆巩固
@@ -156,7 +150,7 @@ def _decision_model_requests(events: list[dict[str, Any]]) -> list[dict[str, Any
         data = event.get("data", {})
         if event.get("event_type") != "model_request" or data.get("phase") != "request":
             continue
-        names = _request_tool_names(data.get("request"))
+        names = request_tool_names(data.get("request"))
         if not event.get("data", {}).get("purpose") and (not names or _ACTION_TOOL in names):
             selected.append(event)
     return selected

@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from worldmock.life.activity_control import open_activities
 from worldmock.catalog.models import Goods, Location, OpeningHours
 from worldmock.environment import load_environment
 from worldmock.errors import BusinessRuleError, IntegrityError, PreconditionError
@@ -201,7 +202,7 @@ def _basket_refusal(environment, state, goods):
     names = {key: row.display_name for key, row in environment.catalog.locations.items()}
     rows = tuple({"object": environment.catalog.goods[key].name, "kind": "supply", "object_id": key,
                   "selected_action": binding_action("purchase")} for key in goods)
-    return group_refusal(Context(state, 1, names, {}, environment), [Call("start_side_activity", "purchase", rows)])
+    return group_refusal(Context(state, 1, open_activities(state, 1), names, {}, environment), [Call("start_side_activity", "purchase", rows)])
 
 
 def test_basket_precheck_merges_delivery_fee_once(environment):

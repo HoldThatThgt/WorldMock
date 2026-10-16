@@ -7,7 +7,7 @@ from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import (
     MAIN_TOOL, SIDE_TOOL, action_identity, advance_until_ready, conclude_request, context, do_at, pause_request,
-    purchase, report_request, sleep, travel, use_app,
+    purchase, report_request, sleep, stage_day_plan, travel, use_app,
 )
 from tests.life.environment_runtime import act, act_group, action_result, events
 from worldmock.errors import ProtocolError
@@ -439,3 +439,27 @@ def test_rejected_start_group_is_remembered_once_and_corrected_only_on_its_own_t
     later = engine.observe(context(engine, "later"))["progress_layer"]["rejected_today"]
     corrected = {str(row["written"]): (row["times"], row["accepted_as"]) for row in later}
     assert corrected == {"60": (1, None), str(["哔哩哔哩"]): (1, ["抖音"])}
+
+
+
+def test_resuming_two_paused_activities_checks_the_second_against_the_first_resumed(engine_factory):
+    engine = engine_factory(mutate=_attentive())
+    stage_day_plan(engine)
+    _, bilibili = act(engine, "bilibili", use_app("哔哩哔哩"))
+    assert advance_until_ready(engine)
+    bilibili_name = engine.context.state.activities[bilibili.activity_id].name
+    _, paused = act(engine, "pause-bilibili", pause_request(bilibili_name), "pause_activity")
+    assert paused.status == "completed"
+    _, rest = act(engine, "rest", do_at("家", "测试休息"))
+    assert advance_until_ready(engine)
+    rest_name = engine.context.state.activities[rest.activity_id].name
+    _, paused = act(engine, "pause-rest", pause_request(rest_name), "pause_activity")
+    assert paused.status == "completed"
+    _, douyin = act(engine, "douyin", use_app("抖音"))
+    assert advance_until_ready(engine)
+    douyin_name = engine.context.state.activities[douyin.activity_id].name
+    _, refused = act(engine, "resume-both", report_request(rest_name, bilibili_name), "report_status")
+    assert refused.status == "rejected"
+    assert refused.error_code == "SESSION_LIMIT_EXCEEDED"
+    assert rest_name in refused.message and douyin_name in refused.message
+    assert engine.context.state.activities[rest.activity_id].status == "paused"

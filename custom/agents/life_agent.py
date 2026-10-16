@@ -58,7 +58,7 @@ from worldmock.life.models import (ActionReceipt, ConcludeActivityRequest, REQUE
                                    purpose_only_schema)
 from worldmock.life.name_resolution import name_book, near_names, resolve_start
 from worldmock.life.object_labels import resolve_name
-from worldmock.life.prompt_capacity import ProgressBudget, compare_usage, fit_request
+from worldmock.life.prompt_capacity import FittedRequest, ProgressBudget, compare_usage, fit_request
 
 
 #: 行动阶段思考开关与工具选择（思考模式拒收 required，真实探针见规格）。
@@ -188,6 +188,9 @@ def life_action_tool_names() -> frozenset[str]:
 class LifeAgent(PersonAgent):
     """@brief 保留 PersonAgent 记忆与 ReAct 循环的生活人物实现。"""
 
+    #: 最近一次容量预检结果；响应留证核对请求对象身份后复用 token 数。
+    _life_fitted: FittedRequest | None = None
+
     @classmethod
     def description(cls) -> str:
         """@brief 返回注册中心使用的准确职责。"""
@@ -207,7 +210,17 @@ class LifeAgent(PersonAgent):
             feedback = _stage_feedback("EVIDENCE_WRITE_FAILED", ("tool_calls",))
             raise RuntimeError(feedback) from error
         if evidence.phase == "response":
-            compare_usage(evidence.request, evidence.response)
+            compare_usage(self._usage_estimate(evidence.request), evidence.response)
+
+    def _usage_estimate(self, request: dict[str, Any]) -> int:
+        """@brief 这条响应所配请求在发送前的输入 token 计量：取本人物最近一次容量预检的结果 _life_fitted
+        （_model_request 与 _dispatch_memory_llm 写入），它必须是为同一个请求对象算的；对不上是宿主编排错误，记错误日志
+        并失败，不重数，也不记别的请求的数。"""
+        fitted = self._life_fitted
+        if fitted is None or fitted.request is not request:
+            logging.error("Model prompt token estimate does not belong to the recorded request")
+            raise RuntimeError("model prompt token estimate does not belong to the recorded request")
+        return fitted.prompt_tokens
 
     @staticmethod
     def _validate_react_tool_names(decisions: list[ReactDecision], tools: list[dict[str, Any]]) -> str:
@@ -333,6 +346,7 @@ class LifeAgent(PersonAgent):
         tools: list[dict[str, Any]],
     ) -> dict[str, Any]:
         """@brief 注入行动阶段生成参数，并在发送前按完整上下文计量与浓缩进度层。
+        容量预检结果另存为 _life_fitted，响应留证后的用量日志复用它的 token 数。
 
         DeepSeek thinking 模式拒绝 tool_choice=required（真实探针 400："Thinking mode does not support this
         tool_choice"），因此与思考开启同时把 tool_choice 放宽为 auto；模型不产出工具调用时由 ReAct 协议纠错回合
@@ -352,9 +366,10 @@ class LifeAgent(PersonAgent):
         request["extra_body"] = dict(RETRY_THINKING if retry else ACTION_THINKING)
         self._life_budget = send_check(messages, self._life_budget)
         fitted = fit_request(request, identity["model_metadata"], self._life_budget)
-        if len(fitted["messages"]) < len(messages):
+        if len(fitted.request["messages"]) < len(messages):
             self._life_budget = end_continuation(messages, self._life_budget)
-        return fitted
+        self._life_fitted = fitted
+        return fitted.request
 
     def _remaining_turns(self) -> int:
         """@brief 本决策含当前请求在内的剩余模型回合；不足一个时明确终止，不发注定失败的请求。"""
@@ -386,7 +401,8 @@ class LifeAgent(PersonAgent):
                    "transport_max_retries": identity["transport_max_retries"],
                    "max_tokens": min(ACTION_MAX_TOKENS, identity["model_metadata"]["max_output_tokens"]),
                    "extra_body": {"thinking": {"type": "disabled"}}}
-        request = fit_request(request, identity["model_metadata"])
+        self._life_fitted = fit_request(request, identity["model_metadata"])
+        request = self._life_fitted.request
         context = getattr(self, "_decision_context", None)
         call_id = self._memory_call_id()
         await self._record_model_evidence(ModelCallEvidence(context, call_id, "request", 1, request))

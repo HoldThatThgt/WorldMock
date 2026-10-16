@@ -14,6 +14,7 @@ from __future__ import annotations
 from tests.integration.runtime.current_contract_fixtures import inputs as current_inputs, profile as current_profile
 
 from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT, ENVIRONMENT_ROOT
+from worldmock.life.activity_control import open_activities
 from worldmock.footprints.checkpoint import restore_branch
 
 import copy
@@ -587,7 +588,7 @@ async def test_a_carried_record_is_not_repeated_in_the_continuation(_engine_fact
     (request,) = [event for event in events(engine, "action_requested") if event.decision_id == "decision-refused-1"]
     (previous,) = [event for event in events(engine, "observation") if event.decision_id == "decision-refused-1"]
     names = {"activities": {key: row.name for key, row in engine.context.state.activities.items()}, "sessions": {}}
-    after = records_after(LayerContext(engine.context, 1, names, []), engine.context.store, previous.event_seq)
+    after = records_after(LayerContext(engine.context, 1, names, [], open_activities(engine.context.state, 1)), engine.context.store, previous.event_seq)
     calls = [sources for record, sources in after if record["type"] == "tool_call"]
     assert len(calls) == 1 and calls[0][0] == request.event_id
     carried = engine.context.state.activities[keep.activity_id].origin_request_event_id
@@ -900,11 +901,13 @@ def test_budget_step_zero_ends_the_continuation_before_any_condensation(monkeypa
     assert noteless_size + 3 < fresh_size < prompt_capacity.request_token_count(request)
     monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model, metadata: _window_above(fresh_size))
     fitted = fit_request(request, current_inputs().model_metadata, budget)
-    assert fitted["messages"] == list(budget.fresh_messages)
+    assert fitted.request["messages"] == list(budget.fresh_messages)
     assert len(request["messages"]) == 4
     monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model, metadata: _window_above(noteless_size))
+    assert fitted.prompt_tokens == prompt_capacity.prompt_token_count(fitted.request)
     condensed = fit_request(request, current_inputs().model_metadata, budget)
-    assert condensed["messages"] == noteless["messages"]
+    assert condensed.prompt_tokens == prompt_capacity.prompt_token_count(condensed.request)
+    assert condensed.request["messages"] == noteless["messages"]
 
 
 @pytest.mark.asyncio

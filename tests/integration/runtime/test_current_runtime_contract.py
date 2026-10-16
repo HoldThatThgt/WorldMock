@@ -140,6 +140,7 @@ async def test_dataset_travel_method_name_is_the_one_wording_from_the_prompt_to_
     名称就是活动名、环境层路上的位置和到达句里的那个名称。"""
     from tests.life.conftest import context
     from tests.life.environment_runtime import finish_activity
+    from worldmock.life.activity_control import open_activities
     from worldmock.footprints.experiences import recent_verified_experiences
     from worldmock.life.prompt_schemas import validate_layer
     from worldmock.life.settled_text import experience_sentence
@@ -169,7 +170,7 @@ async def test_dataset_travel_method_name_is_the_one_wording_from_the_prompt_to_
     names = {"activities": {key: row.name for key, row in engine.context.state.activities.items()}, "sessions": {}}
     arrivals = [fact for fact in recent_verified_experiences(engine.context.store, 1, engine.context.store.last_event_seq)
                 if fact["kind"] == "arrived"]
-    assert [experience_sentence(LayerContext(engine.context, 1, names, []), fact)[6:] for fact in arrivals] == [
+    assert [experience_sentence(LayerContext(engine.context, 1, names, [], open_activities(engine.context.state, 1)), fact)[6:] for fact in arrivals] == [
         "电动车到了公司"]
 
 

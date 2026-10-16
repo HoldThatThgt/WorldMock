@@ -517,6 +517,7 @@ def test_unknown_dynamic_import_targets_or_object_proxies_fail_closed(tmp_path, 
                            "validate_manifest_stage_identity"}),
     ("worldmock.validation", {"build_coverage_targets", "validate_manifest_stage_identity"}),
     ("worldmock.footprints.export", {"_load_render_day"}),
+    ("worldmock.evaluation.behavior_metrics", {"_request_tool_names"}),
 ])
 def test_moved_declarations_have_no_same_name_binding_at_old_modules(module, retired):
     tree = ast.parse(modules(ROOT)[module].read_text(encoding="utf-8"))

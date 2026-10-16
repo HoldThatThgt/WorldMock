@@ -168,12 +168,13 @@ def test_request_outline_keeps_every_call_class(request_body):
     for event_type in ("model_request", "model_response"):
         outline = _reduced(event_type, {"phase": "request", "request": request_body})["request"]
         assert decision_start.is_action_request(outline) == decision_start.is_action_request(request_body)
-        assert behavior_metrics._request_tool_names(outline) == behavior_metrics._request_tool_names(request_body)
+        assert decision_start.request_tool_names(outline) == decision_start.request_tool_names(request_body)
         assert _roles(outline) == _roles(request_body)
+        assert quality._call_class({"request": outline}) == quality._call_class({"request": request_body})
         if isinstance(request_body, dict):
             assert {key: value for key, value in outline.items() if key not in {"messages", "tools"}} == {
                 key: value for key, value in request_body.items() if key not in {"messages", "tools"}}
-    assert behavior_metrics._request_tool_names(_request()) == ["start_main_activity", "start_side_activity"]
+    assert decision_start.request_tool_names(_request()) == ["start_main_activity", "start_side_activity"]
 
 
 def _roles(request):
@@ -200,8 +201,8 @@ def test_finish_reason_usage_and_model_survive_the_response_reduction(response):
     assert quality._finish_reason(reduced) == quality._finish_reason(response)
     for path in (("completion_tokens",), ("completion_tokens_details", "reasoning_tokens"), ("prompt_tokens",)):
         assert quality._usage_count(reduced, path) == quality._usage_count(response, path)
-    assert quality._usage_entry(view, "2026-09-15T07:00:00+00:00") == quality._usage_entry(
-        full, "2026-09-15T07:00:00+00:00")
+    assert quality._usage_entry(view, "2026-09-15T07:00:00+00:00", "reflection") == quality._usage_entry(
+        full, "2026-09-15T07:00:00+00:00", "reflection")
     assert not any(isinstance(choice, dict) and "message" in choice for choice in reduced.get("choices") or [])
 
 

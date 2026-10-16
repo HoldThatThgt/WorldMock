@@ -16,7 +16,7 @@ from worldmock.life.content_select import (ContentRequest, OpeningDuration, elig
 from worldmock.life.felt import sleep_debt_phrase
 from worldmock.life.guidance import Refusal
 from worldmock.life.location_activities import running_series_note, unit_facts
-from worldmock.life.models import ActivityStatus
+from worldmock.life.models import ActivityState, ActivityStatus
 from worldmock.life.purchase_offers import quote_goods
 from worldmock.life.readable import duration_phrase, interval_phrases, money_phrase
 from worldmock.life.travel_methods import travel_method
@@ -29,6 +29,8 @@ class LayerContext:
     agent_id: int
     names: dict
     bindings: list[dict]
+    #: 本次观察算一次的本人未了活动；准入、待收尾、槽位与睡着判定共用。
+    open_activities: tuple[ActivityState, ...]
 
     @property
     def state(self):
@@ -73,7 +75,8 @@ class Candidate:
 def _admission_context(context: LayerContext) -> admission.Context:
     """@brief 工具与受理使用同一槽位与对象条件上下文。"""
     places = {key: item.display_name for key, item in context.catalog.locations.items()}
-    return admission.Context(context.state, context.agent_id, places, context.names["activities"], context.inputs)
+    return admission.Context(context.state, context.agent_id, context.open_activities, places,
+                             context.names["activities"], context.inputs)
 
 
 def availability(context: LayerContext, candidate: Candidate) -> dict:
@@ -84,7 +87,7 @@ def availability(context: LayerContext, candidate: Candidate) -> dict:
 
 def refusal_for(context: LayerContext, candidate: Candidate) -> Refusal | None:
     """@brief 待收尾、同刻阶段与真实目标条件按受理顺序判定；开始动作行按只含这一行的一组求值。"""
-    waiting = activity_control.pending_conclusions(context.state, context.agent_id)
+    waiting = activity_control.pending_conclusions(context.open_activities)
     activity = None if candidate.activity_id is None else context.state.activities[candidate.activity_id]
     if waiting and candidate.tool != "conclude_activity":
         return activity_control.conclusion_refusal(waiting, context.names["activities"])
@@ -107,14 +110,14 @@ def _start_candidate(row: dict, action: dict) -> Candidate:
 
 
 def annotated_bindings(context: LayerContext) -> list[dict]:
-    """@brief 私有绑定仅附同源资格原因。"""
+    """@brief 每条动作（含 locked）的 note 是这一行唯一的一次可用性求值，工具层的动作行直接取它。"""
     return [{**row, "actions": [{**action, "note": availability(context, _start_candidate(row, action))["reason"]}
                                 for action in row["actions"]]}
             for row in context.bindings]
 
 
 def tool_layer(context: LayerContext, index: dict) -> dict:
-    """@brief 目标顺序保持地点、商品、内容 app、活动。"""
+    """@brief 目标顺序保持地点、商品、内容 app、活动；context.bindings 必须是 annotated_bindings 的结果。"""
     targets = [_binding_target(context, row) for row in context.bindings]
     targets.extend(_activity_target(context, item) for item in context.state.activities.values()
                    if item.agent_id == context.agent_id and (item.status == ActivityStatus.ACTIVE
@@ -145,7 +148,8 @@ def _binding_target(context: LayerContext, row: dict) -> dict:
 
 
 def _action_row(context: LayerContext, row: dict, action: dict) -> dict:
-    """@brief 八个字段的公开动作行只表达调用里要写的名称、真实价格、时长和可用性。"""
+    """@brief 公开动作行表达名称、真实价格、时长和可用性；可用性取 annotated_bindings 已写下的 note，
+    原因为空即可用，不再求值第二次。"""
     facts = {"price": None, "duration": None, "quantity": None, "note": None}
     name, agent = action["action"], context.state.agents[context.agent_id]
     if name == "travel":
@@ -158,8 +162,8 @@ def _action_row(context: LayerContext, row: dict, action: dict) -> dict:
         facts.update(unit_facts([context.catalog.contents[key] for key in action["content_ids"]], agent))
     else:
         facts.update(_app_facts(context, row))
-    return {"action": name, "detail": action["detail"], **availability(context, _start_candidate(row, action)),
-            **facts}
+    return {"action": name, "detail": action["detail"], "available": action["note"] is None,
+            "reason": action["note"], **facts}
 
 
 def _app_facts(context: LayerContext, row: dict) -> dict:

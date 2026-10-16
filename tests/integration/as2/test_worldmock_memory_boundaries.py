@@ -160,3 +160,49 @@ def test_shared_snapshot_validator_guards_the_host_write_boundary():
     assert _episode_snapshot(valid) == valid
     with pytest.raises(RuntimeError, match="snapshot is invalid"):
         _episode_snapshot({**valid, "type": "event"})
+
+
+
+def _populated_cache(tmp_path):
+    store = WorldMockMemoryStore(tmp_path, agent_id=1)
+    store.append_episodes([_memory(), _memory("我想沿着河岸散步", "reflection")], tick=60, t=_TIME, step_count=1)
+    store.append_episodes([_memory(), _memory("下周给妈妈打电话", "plan")],
+                          tick=120, t=_TIME + timedelta(hours=1), step_count=2)
+    store.append_episodes([_memory("今天的鱼汤很好喝", "observation")],
+                          tick=180, t=_TIME + timedelta(hours=2), step_count=3)
+    return store
+
+
+def test_cache_reads_equal_the_copying_reads_at_every_cursor(tmp_path):
+    store = _populated_cache(tmp_path)
+    assert len(store.iter_episodes()) == 4
+    assert store.episode_ids() == {str(item["id"]) for item in store.iter_episodes()}
+    assert store.unconsolidated_view() == store.unconsolidated()
+    store.mark_subjective_consolidated("记住了", step_count=3, tick=180)
+    assert store.unconsolidated_view() == store.unconsolidated() == []
+    written = store.append_episodes([_memory("我喜欢木吉他", "preference"), _memory("明天整理电脑桌", "plan")],
+                                    tick=240, t=_TIME + timedelta(days=2), step_count=4)
+    assert store.episode_ids() == {str(item["id"]) for item in store.iter_episodes()}
+    assert store.unconsolidated_view() == store.unconsolidated() == written
+
+
+def test_a_dangling_consolidation_cursor_is_refused(tmp_path, caplog):
+    store = _populated_cache(tmp_path)
+    state = store.read_state()
+    state["last_consolidated_episode_id"] = "missing"
+    store.write_state(state)
+    with pytest.raises(ValueError, match="Last consolidated memory episode does not exist"):
+        store.unconsolidated_view()
+    assert "Last consolidated memory episode does not exist" in caplog.text
+
+
+def test_cache_reads_return_the_cached_records_without_copying(tmp_path):
+    store = _populated_cache(tmp_path)
+    cached = store._load_episodes_cache()
+    viewed = store.unconsolidated_view()
+    assert viewed is not cached
+    assert all(left is right for left, right in zip(viewed, cached, strict=True))
+    state = store.read_state()
+    state["last_consolidated_episode_id"] = cached[1]["id"]
+    store.write_state(state)
+    assert store.unconsolidated_view()[0] is cached[2]

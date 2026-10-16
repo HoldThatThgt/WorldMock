@@ -1180,4 +1180,66 @@ MUTATIONS = (
         ("tests/integration/runtime/test_llm_client_close.py"
          "::test_life_env_close_closes_cached_clients_in_its_own_loop",)),
     # ---- 网络故障、重启与运行状态（长时运行成本第五章）结束 ----
+    # ---- 每次决策的宿主成本与模型成本分列 ----
+    SourceMutation("open_activities_omit_pending_conclusions", "worldmock.life.activity_control::open_activities",
+        "if item.agent_id == agent_id and concludable(item))",
+        "if item.agent_id == agent_id and item.status in {ActivityStatus.ACTIVE, ActivityStatus.PAUSED})",
+        ("tests/unit/life/test_open_activities.py::test_open_activities_are_the_concludable_ones_in_world_order",
+         "tests/integration/runtime/test_query_prompt_contract.py"
+         "::test_real_full_slots_and_pending_conclusion_use_the_same_tool_refusal")),
+    SourceMutation("asleep_check_reads_no_activity", "worldmock.life.admission::_sleep_refusal",
+        "for activity in context.open_activities)", "for activity in ())",
+        ("tests/unit/test_environment_engine_admission.py::test_sleep_blocks_second_slot_start_until_its_own_end",)),
+    SourceMutation("tool_layer_admission_without_open_activities", "worldmock.life.tool_layer::_admission_context",
+        "context.open_activities, places,", "(), places,",
+        ("tests/integration/runtime/test_query_prompt_contract.py"
+         "::test_real_full_slots_and_pending_conclusion_use_the_same_tool_refusal",)),
+    SourceMutation("tool_row_ignores_the_binding_note", "worldmock.life.tool_layer::_action_row",
+        '"available": action["note"] is None,', '"available": True,',
+        ("tests/integration/runtime/test_query_prompt_contract.py"
+         "::test_real_full_slots_and_pending_conclusion_use_the_same_tool_refusal",
+         "tests/unit/life/test_shared_observation_contract.py"
+         "::test_tool_layer_rows_take_availability_from_the_private_binding_note")),
+    SourceMutation("unconsolidated_view_keeps_the_cursor_episode",
+        "worldmock.agents.life_memory_store::WorldMockMemoryStore.unconsolidated_view",
+        "return records[index + 1:]", "return records[index:]",
+        ("tests/integration/as2/test_worldmock_memory_boundaries.py"
+         "::test_cache_reads_equal_the_copying_reads_at_every_cursor",)),
+    SourceMutation("step_end_copies_every_memory_again",
+        "worldmock.agents.life_memory::WorldMockMemoryRuntime.after_step",
+        "known = store.episode_ids()", 'known = {str(item["id"]) for item in store.iter_episodes()}',
+        ("tests/integration/as2/test_worldmock_life_hooks.py"
+         "::test_step_end_below_the_threshold_reads_memory_without_copying_it",)),
+    SourceMutation("fitted_count_includes_the_output_reserve", "worldmock.life.prompt_capacity::fit_request",
+        "return FittedRequest(request, measured - reserve)\n    if budget",
+        "return FittedRequest(request, measured)\n    if budget",
+        ("tests/unit/life/test_native_environment_contract.py"
+         "::test_capacity_uses_verified_actual_context_and_enforces_verified_output_limit",)),
+    SourceMutation("usage_estimate_of_another_request_accepted", "custom.agents.life_agent::LifeAgent._usage_estimate",
+        "if fitted is None or fitted.request is not request:", "if fitted is None:",
+        ("tests/integration/runtime/test_life_agent_protocol.py"
+         "::test_usage_check_refuses_a_count_taken_for_another_request",)),
+    SourceMutation("history_turn_counted_as_fresh", "worldmock.footprints.quality::_call_class",
+        'if _message_roles(request) == ["system", "user"] else', "if len(_message_roles(request)) >= 2 else",
+        ("tests/unit/footprints/test_quality.py"
+         "::test_model_usage_lists_every_call_class_from_the_recorded_request_shape",)),
+    SourceMutation("truncation_retry_not_recognized", "worldmock.footprints.quality::_call_class",
+        'if START_TOOLS[0] in names and request.get("extra_body") == RETRY_THINKING:', "if False:",
+        ("tests/unit/footprints/test_quality.py"
+         "::test_model_usage_lists_every_call_class_from_the_recorded_request_shape",)),
+    SourceMutation("truncation_retry_matched_without_its_switch", "worldmock.footprints.quality::_call_class",
+        'if START_TOOLS[0] in names and request.get("extra_body") == RETRY_THINKING:',
+        "if START_TOOLS[0] in names:",
+        ("tests/unit/footprints/test_quality.py"
+         "::test_a_start_tool_request_without_the_retry_switch_is_unrecognized",)),
+    SourceMutation("report_status_reads_the_open_activities_of_the_committed_world",
+        "worldmock.life.session_actions::ActionHandlers._admission_context",
+        "activity_control.open_activities(state, agent_id)",
+        "activity_control.open_activities(self.context.state, agent_id)",
+        ("tests/integration/start_interfaces/test_start_group.py"
+         "::test_resuming_two_paused_activities_checks_the_second_against_the_first_resumed",)),
+    SourceMutation("peak_share_ignores_the_price_band", "worldmock.footprints.quality::_call_class_usage",
+        'peak = sum(item["price_band"] == "peak" for item in priced)', "peak = 0",
+        ("tests/unit/footprints/test_quality.py"
+         "::test_model_usage_lists_every_call_class_from_the_recorded_request_shape",)),
 )

@@ -490,12 +490,13 @@ class DecisionCoordinator:
             """@brief 节律候选以本次决策时刻为上次决策时刻（规则 7）；无候选取结算间隔。"""
             return next_decision_at(self.context, state, agent.model_copy(update={"last_decision_time": now}))
 
+        current = activity_control.open_activities(state, agent.agent_id)
         outcome = same_moment.RoundOutcome(
             now=now,
             agent=agent,
             active=bool(active_activities(state, agent.agent_id)),
             rejected=rejection is not None,
-            pending=bool(activity_control.pending_conclusions(state, agent.agent_id)),
+            pending=bool(activity_control.pending_conclusions(current)),
         )
         if same_moment.budget_exhausted(outcome):
             code = (None if free else rejection) or same_moment.latest_rejection_code(state, agent.agent_id)

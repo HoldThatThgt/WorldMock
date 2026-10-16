@@ -533,6 +533,30 @@ app 的开关、订单通知和地点停留只进事件与这些工件，不进�
 的原因。冻结清单的 `lineage` 不是数组时报 `Quality report manifest has no lineage`。它不计入
 `transport_or_terminal_failures`，后者仍只数导出事件里失败阶段的模型证据。导出认证按已认证的事件重算整份质量报告并逐值比较，
 结构号或任何一个键与当前代码算出的不同，都报 `Export quality report disagrees with authoritative events`。
+
+质量报告的 `model_usage.by_call_class` 按调用类分列模型用量。一次调用的类只凭它的 `model_request` 事件判定，
+不读响应事件里的请求副本；读的是事件的 `purpose` 与 `call_id`，以及请求里的 `purpose`、`extra_body`、各工具的
+`function.name` 与各消息的 `role`：
+
+| 类 | 请求形状 |
+| --- | --- |
+| `fresh_decision_turn` | 没有 purpose 的行动请求（工具含 `start_main_activity`、思考开启），消息恰为 system、user 两条 |
+| `turn_with_history` | 同样的行动请求，消息角色序列不是恰好 system、user 两条；正常运行包括本次决策的后续回合及同一秒续接链 |
+| `truncation_retry` | 没有 purpose，工具含 `start_main_activity`，`extra_body` 恰为关闭思考 `{"thinking": {"type": "disabled"}}`：截断之后的那一次重试 |
+| `consolidation` | 没有 purpose，不带工具：记忆巩固，含反思阶段的那一次 |
+| `reflection` | 没有 purpose，工具恰为 `submit_reflection`：就寝反思及其校验重试 |
+| `plan_day` | purpose 为 `plan_day`：零点计划及其校验重试 |
+
+六类按上表次序总是列出；请求形状不属于任何一类、或终态响应没有对应请求事件的调用归入 `unrecognized`，这一行只在出现时
+列在最后。每行给出请求事件数、提供商响应数、已知 token（与 `model_usage.token_usage` 同一口径）、可计价响应数、
+可计价响应的缓存命中输入、未命中输入与输出 token 合计、峰时响应数、峰时占比（峰时响应数除以可计价响应数，保留六位小数）
+与估算成本；没有可计价响应时，按计价拆开的 token、峰时占比和估算成本为 null，峰时响应数为零。
+各行请求事件数与提供商响应数之和等于 `model_usage` 顶层的同名计数。
+这一节只读已认证事件，不改变任何事件或请求。
+
+计价时段按 `pricing_snapshot.peak_utc`：UTC 周一至周五 01:00–04:00 与 06:00–10:00，按请求事件的 `recorded_at` 判定。
+供应商在中国法定节假日不按峰时计价，质量报告不读节假日：落在工作日节假日的调用按峰时估价，估算成本偏高。
+
 完整运行要求正常运行终态和成功最终共同检查点；时钟到达终点不能单独宣称完整。
 活动保留全部实际来源，来源身份去重；活动时长来自正秒结算，暂停不计入。
 `activities.jsonl` 每行是这项活动在截止范围里的最后一份快照，加上执行区间与来源。interact 活动的最后一份快照来自活动进度事件时，这一行带 `data.played_count`，

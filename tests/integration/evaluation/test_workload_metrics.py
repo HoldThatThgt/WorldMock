@@ -14,6 +14,7 @@ from tests.engine_fixture import engine_factory  # noqa: F401
 from tests.life.conftest import (activity_name, advance_next, conclude_request, context,
                                  MAIN_TOOL, SIDE_TOOL, report_request, travel, use_app)
 from agentsociety2.society import DirectToolCall
+from worldmock.life.activity_control import open_activities
 from worldmock.life.models import ActivityStatus, active_activities
 from worldmock.life.activity_control import pending_conclusions
 STANDARD_SHIFT = {"starts": 540, "ends": 1080, "breaks": [[720, 810]]}
@@ -376,7 +377,7 @@ def _drive(engine, name, done):
         if done():
             return
         if engine.scheduling_state().ready_agent_ids:
-            pending = pending_conclusions(engine.context.state, 1)
+            pending = pending_conclusions(open_activities(engine.context.state, 1))
             running = active_activities(engine.context.state, 1)
             if pending:
                 tool, request = "conclude_activity", conclude_request(

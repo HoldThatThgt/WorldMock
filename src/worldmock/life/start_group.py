@@ -115,14 +115,16 @@ class StartGroups:
         requests = self._requests(group)
         observation = frozen_observation(self.context, group[0])
         names = {row["activity_id"]: row["name"] for row in observation.get("activity_bindings", [])}
-        waiting = activity_control.pending_conclusions(state, agent_id)
+        open_activities = activity_control.open_activities(state, agent_id)
+        waiting = activity_control.pending_conclusions(open_activities)
         if waiting:
             raise _Refused(activity_control.conclusion_refusal(waiting, names), everyone)
         started = [self._named_goods(item) for item in self._resolved(group, requests, observation)]
         stage = same_moment.stage_refusal(state.agents[agent_id].same_moment_stage, "start")
         if stage is not None:
             raise _Refused(stage, everyone)
-        context = admission.Context(state, agent_id, place_names(self.context.catalog), names, self.context.inputs)
+        context = admission.Context(state, agent_id, open_activities, place_names(self.context.catalog),
+                                    names, self.context.inputs)
         blocked = admission.group_refusal(context, [item.call for item in started])
         if blocked is not None:
             raise _Refused(blocked.refusal, [item.index for item in started if item.call.tool in blocked.tools])
@@ -256,7 +258,9 @@ class StartGroups:
         """@brief 受理行程冻结出行方式、天气、路线和车费，出发时只付款一次；活动名用出行方式的名称。"""
         method = travel_method(self.context.catalog, row["selected_action"]["travel_method_id"])
         places = place_names(self.context.catalog)
-        trip = admission.planned_trip(admission.Context(state, pending.agent_id, places, {}, self.context.inputs), row)
+        current = activity_control.open_activities(state, pending.agent_id)
+        context = admission.Context(state, pending.agent_id, current, places, {}, self.context.inputs)
+        trip = admission.planned_trip(context, row)
         changed, receipt = pay_travel_fare(state, pending.agent_id, trip)
         data = travel_activity_data(trip, method, current_weather_factor(state))
         params = ActivityStartParams("travel", trip.duration_seconds, row["object_id"], method.travel_method_id, data)

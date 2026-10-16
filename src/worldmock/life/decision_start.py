@@ -8,10 +8,14 @@ decision_started 事件不可变（events_no_update 触发器），决策轮开�
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 from worldmock.footprints.models import WAKE_REASONS_FIELD, EventDraft, validate_decision_rhythm
 from worldmock.life.action_contract import START_TOOLS
+
+#: 零点计划请求与响应的用途标记；交付窗口、决策统计、行为指标与质量报告按它区分。
+PLAN_DAY_PURPOSE = "plan_day"
 
 #: 行动请求才开放的世界请求工具（start_main_activity）；只读问答、记忆巩固与反思的请求都不带它。
 _ACTION_TOOL = START_TOOLS[0]
@@ -93,3 +97,10 @@ def response_self_note(response: Any) -> str | None:
     content = message.get("content") if isinstance(message, dict) else None
     text = content.strip() if isinstance(content, str) else ""
     return text or None
+
+
+def request_tool_names(request: Any) -> list[str]:
+    """@brief 一次模型请求实际开放的工具名；没有工具或形状不符时为空列表（行为指标与质量报告的调用类共用）。"""
+    tools = request.get("tools") if isinstance(request, Mapping) else None
+    return [item["function"].get("name") for item in tools if isinstance(item, Mapping)
+            and isinstance(item.get("function"), Mapping)] if isinstance(tools, list) else []

@@ -12,6 +12,7 @@ import pytest
 from tests.frozen_inputs import fixture_metadata
 from tests.life.environment_inputs import meal_environment
 from tests.unit.test_environment_engine_admission import occupied, running
+from worldmock.life.activity_control import open_activities
 from worldmock.environment import load_environment
 from worldmock.life import activity_control
 from worldmock.life.admission import Context
@@ -46,7 +47,7 @@ def _pause_refusal(inputs, content_id: str, rounds: dict[str, int]):
                 for key, value in rounds.items()}
     state.agents[1] = state.agents[1].model_copy(update={"content_progress": progress}, deep=True)
     assert not activity_control.pausable(state, activity)
-    context = Context(state, 1, {"home": "Home"}, {activity.activity_id: _NAME}, inputs)
+    context = Context(state, 1, open_activities(state, 1), {"home": "Home"}, {activity.activity_id: _NAME}, inputs)
     return activity_control.control_refusal(context, "pause_activity", activity)
 
 

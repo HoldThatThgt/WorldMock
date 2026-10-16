@@ -67,7 +67,7 @@ def test_output_reserve_must_fit_the_actual_service_capacity(reserve):
         prompt_capacity.fit_request(request, inputs().model_metadata)
 
 
-def test_actual_usage_is_checked_against_the_sent_prompt_estimate(monkeypatch, caplog):
+def test_actual_usage_is_checked_against_the_count_taken_before_sending(monkeypatch, caplog):
     measured = []
 
     def count(**arguments):
@@ -80,11 +80,11 @@ def test_actual_usage_is_checked_against_the_sent_prompt_estimate(monkeypatch, c
     assert prompt_capacity.request_token_count(request) == 140
     measured.clear()
     for response in (None, {}, {"usage": {}}, {"usage": {"prompt_tokens": "101"}}):
-        prompt_capacity.compare_usage(request, response)
+        prompt_capacity.compare_usage(100, response)
     assert measured == []
     with caplog.at_level("INFO"):
-        prompt_capacity.compare_usage(request, {"usage": {"prompt_tokens": 101}})
-    assert measured == [{"model": "test-model", "messages": request["messages"], "tools": []}]
+        prompt_capacity.compare_usage(100, {"usage": {"prompt_tokens": 101}})
+    assert measured == []
     assert "estimated=100 actual=101 difference=1" in caplog.text
 
 

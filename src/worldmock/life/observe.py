@@ -118,11 +118,12 @@ class ObservationBuilder:
         return [by_id[key] for key in selected]
 
     def _layer_context(self, agent, bindings: list[dict]) -> LayerContext:
-        """@brief 活动与目标名称来自同一世界，不再绑定社交或消息对象。"""
+        """@brief 活动与目标名称来自同一世界；本人的未了活动在这里算一次，整次观察共用。"""
         goals = [goal.goal for goal in visible_goals(self.context.state, agent.agent_id) or ()]
         taken = [*goals, *(row["object"] for row in bindings)]
         names = activity_control.visible_names(self.context.state, agent.agent_id, taken)
-        return LayerContext(self.context, agent.agent_id, names, bindings)
+        current = activity_control.open_activities(self.context.state, agent.agent_id)
+        return LayerContext(self.context, agent.agent_id, names, bindings, current)
 
     def _name_bindings(self, agent, names: dict, labels: dict) -> dict:
         """@brief 私有活动、目标与个人事务绑定供本地和环境共同校验。"""

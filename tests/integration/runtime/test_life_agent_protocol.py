@@ -1828,3 +1828,48 @@ def test_retired_submit_tool_is_absent_while_actions_and_activity_recall_remain(
     assert agent.validate_react_decisions([ReactDecision("", SIDE_TOOL, _WORK_CHOICE, "")], False) == ""
     assert agent.validate_react_decisions([ReactDecision("", "recall_task_summary",
         {"task_name": _WORK}, "")], False) == ""
+
+
+
+@pytest.mark.asyncio
+async def test_usage_check_reuses_the_count_taken_before_sending(monkeypatch, caplog):
+    from worldmock.life import prompt_capacity
+
+    class UsageResponse(_ModelResponse):
+        def model_dump(self, *args, **kwargs):
+            return {**super().model_dump(*args, **kwargs),
+                    "usage": {"prompt_tokens": 1000, "completion_tokens": 1, "total_tokens": 1001}}
+
+    counts = []
+
+    def count(**kwargs):
+        counts.append(kwargs)
+        return 1000
+
+    monkeypatch.setattr(prompt_capacity, "token_counter", count)
+    dispatcher = _GroundedCorrectionDispatcher(responses=[
+        UsageResponse("call-memory-1", "memory_recent", '{"limit":1}'),
+        UsageResponse("call-memory-2", "memory_recent", '{"limit":1}'),
+        UsageResponse("call-memory-3", "memory_recent", '{"limit":1}'),
+        UsageResponse("call-action", MAIN_TOOL, json.dumps(_WAIT_CHOICE, ensure_ascii=False))])
+    agent = LifeAgent()
+    agent._profile = _frozen_profile()
+    _wire_agent(agent, _Environment(), dispatcher, 4)
+    with caplog.at_level("INFO"):
+        await agent.run_react_loop(ReactLoopRequest(0, _context().observed_at, _observations()))
+    assert len(counts) == len(dispatcher.requests) == 4
+    assert caplog.text.count("estimated=1000 actual=1000 difference=0") == 4
+
+
+@pytest.mark.asyncio
+async def test_usage_check_refuses_a_count_taken_for_another_request(caplog):
+    from agentsociety2.agent.base import ModelCallEvidence
+    from worldmock.life.prompt_capacity import FittedRequest
+
+    for fitted in (None, FittedRequest({"messages": []}, 5)):
+        agent = _prepared()
+        agent._life_fitted = fitted
+        with pytest.raises(RuntimeError, match="does not belong to the recorded request"):
+            await agent._record_model_evidence(ModelCallEvidence(None, "call", "response", 1, {"messages": []},
+                response={"usage": {"prompt_tokens": 5}}))
+    assert caplog.text.count("Model prompt token estimate does not belong to the recorded request") == 2

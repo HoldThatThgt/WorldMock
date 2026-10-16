@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from worldmock.life.activity_control import open_activities
 from worldmock.footprints.export import export_run
 from worldmock.footprints.models import Event, EventDraft, canonical_json
 from tests.data_paths import ENVIRONMENT_ROOT
@@ -322,7 +323,7 @@ def _engine_decision(engine, count, activity_type):
     context = DecisionContext(state.run_id, f"round-{count}", f"decision-{count}", agent_id, at, state.version)
     engine.begin_decision_round([context])
     engine.observe(context)
-    pending = pending_conclusions(state, agent_id)
+    pending = pending_conclusions(open_activities(state, agent_id))
     active = active_activities(state, agent_id)
     if pending:
         tool = "conclude_activity"
