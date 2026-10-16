@@ -20,6 +20,9 @@ flowchart LR
 模型服务的 metadata_url 必须与实际 base_url 属于同一服务，模型唯一匹配且容量满足声明。
 模型、预算、实际元数据、阶段参数与框架源码身份共同冻结；恢复逐项核对，不用静态容量估计。
 生成请求与后台日计划、反思共用相同 dispatcher 和冻结身份，输出纠错是独立逻辑请求。
+停放与单次发送整次期限的规则归[配置](08-configuration.md)。
+AgentSociety2 worker 任务在自己的事件循环结束之前，关闭并移出本循环在 LiteLLM 客户端缓存里的异步客户端；环境 actor 在 LifeEnv
+关闭时做同样的事，在 Ray 结束 actor 之前完成。
 两种服务失败预算的详细合同归[配置](08-configuration.md)。
 
 ## 运行与恢复
@@ -59,6 +62,10 @@ run、resume、replay 成功后写 `result.json`，其中 `token_stats` 是数�
 
 写文件：原子写在 Windows 上遇到拒绝访问（同步或杀毒软件短暂占用目标）按 0.05 秒起倍增的八个间隔重试，共约 13 秒，
 第九次仍被拒绝才失败（issue #7）；其他平台与其他错误立即失败。状态、心跳、检查点素材、工作区快照与导出都经它写。
+
+运维日志：`logs/ops-*.jsonl` 只用于定位长运行问题，不参与审计：模型往来记录 `MODEL_EXCHANGE` 带证据写入耗时 `commit_ms`；
+另有传输等待 `MODEL_TRANSPORT_WAIT`（失败发送数、累计等待毫秒数与最后的错误链）、协议拒绝 `MODEL_PROTOCOL_REJECTED`（响应
+阶段带协议纠错时的错误码）与零点计划调用耗时 `PLAN_DAY_CALL`。
 
 用户通过 `--environment` 显式指定完整环境根，删除 `--scenario` 生活运行输入和地图生成命令。
 环境验证、导出、状态查询与评估分别使用所属公开入口；评估自己的 scenario 配置文件与生活运行输入无关。

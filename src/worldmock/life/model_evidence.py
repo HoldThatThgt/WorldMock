@@ -8,13 +8,35 @@ if TYPE_CHECKING:
     from agentsociety2.society import DecisionContext
 
 import logging
+import time
 from typing import Any
 from worldmock.errors import IntegrityError, ProtocolError
+from worldmock.opslog import transport_wait_record
 from worldmock.footprints.models import EventDraft, sha256_json
 from worldmock.life.memory_evidence import _memory_evidence_data, due_reflection, memory_write_points
 from worldmock.life.decision_start import maybe_action_request_start
 
 from worldmock.life.engine_context import EngineContext
+
+#: 失败发送记录的字段闭集。
+_ATTEMPT_FIELDS = frozenset({"attempt", "error", "failed_after_ms", "wait_ms"})
+
+
+def _attempt_fields(exchange: Any) -> dict:
+    """@brief 核对证据带来的失败发送并给出写入信封的字段：请求证据不得带，返回空；响应与失败证据每项恰含四个字段、
+    序号从 1 起连续，返回 transport_attempts 的副本。"""
+    attempts = exchange.transport_attempts
+    if exchange.phase == "request" and attempts:
+        logging.error("Model request evidence must not carry transport attempts: %s", exchange.call_id)
+        raise ProtocolError("Model request evidence must not carry transport attempts")
+    valid = isinstance(attempts, tuple) and all(
+        isinstance(item, dict) and set(item) == _ATTEMPT_FIELDS for item in attempts)
+    if not valid or [item["attempt"] for item in attempts] != list(range(1, len(attempts) + 1)):
+        logging.error("Model exchange transport attempts are invalid: %s", exchange.call_id)
+        raise ProtocolError("Model exchange transport attempts are invalid")
+    if exchange.phase == "request":
+        return {}
+    return {"transport_attempts": [dict(item) for item in attempts]}
 
 
 class ModelEvidenceRecorder:
@@ -32,7 +54,7 @@ class ModelEvidenceRecorder:
         本次决策的首个行动请求与其 decision_started 同批提交，decision_started 在前
         （docs/design/06-agent.md「宿主模型协议」）。
         请求只存在请求事件里；响应与失败事件的 request 为 null，经 caused_by 指向请求事件，并须带来与登记时摘要相同的请求
-        （docs/design/05-recording-engine.md「事件与来源」）。
+        （docs/design/05-recording-engine.md「事件与来源」）。响应与失败证据在信封顶层带 transport_attempts，不进 response。
         """
         context = exchange.context
         self.decisions.validate_context(context)
@@ -53,6 +75,7 @@ class ModelEvidenceRecorder:
         }
         if isinstance(exchange.response, dict) and "protocol_feedback" in exchange.response:
             data["protocol_feedback"] = exchange.response["protocol_feedback"]
+        data.update(_attempt_fields(exchange))
         draft = EventDraft(
             event_type="model_request" if exchange.phase == "request" else "model_response",
             occurred_at=self.context.state.current_time,
@@ -66,12 +89,14 @@ class ModelEvidenceRecorder:
         start = maybe_action_request_start(
             self.decisions.pending_decision_starts, context.agent_id, self.context.state.current_time, exchange
         )
+        started = time.perf_counter()
         event = self.context.store.append_evidence([item for item in (start, draft) if item is not None])[-1]
+        commit_ms = round((time.perf_counter() - started) * 1000, 1)
         if exchange.phase == "request":
             self.request_events[key] = (event.event_id, digest)
         else:
             self.request_events.pop(key)
-        self._ops_exchange(context, exchange)
+        self._ops_exchange(context, exchange, commit_ms)
 
     def _request_cause(self, key: tuple[str, str], exchange: Any, digest: str) -> list[str]:
         """@brief 请求阶段不得重复登记，原因为空；响应与失败须有本进程登记的请求，且带来的请求摘要与登记时相同，
@@ -89,22 +114,25 @@ class ModelEvidenceRecorder:
             raise ProtocolError("Model exchange request differs from its recorded request")
         return [event_id]
 
-    def _ops_exchange(self, context: "DecisionContext", exchange: Any) -> None:
-        """@brief 写模型交换操作日志，带响应中可用的模型名与 token 用量。"""
+    def _ops_exchange(self, context: "DecisionContext", exchange: Any, commit_ms: float) -> None:
+        """@brief 写模型交换运维日志（模型名、用量与这次证据写入耗时）；有失败发送时写传输等待，响应带协议纠错时写协议拒绝。"""
         response = exchange.response if isinstance(exchange.response, dict) else {}
         usage = response.get("usage") or {}
-        self.context.ops.log(
-            self.context.state.current_time,
-            "agent_runtime",
-            "error" if exchange.phase == "failure" else "info",
-            {"code": "MODEL_EXCHANGE",
-            "detail": f"Model {exchange.phase} recorded for call {exchange.call_id}",
-            "agent_id": context.agent_id,
-            "decision_id": context.decision_id,
-            "model": response.get("model"),
-            "tokens_in": usage.get("prompt_tokens"),
-            "tokens_out": usage.get("completion_tokens")},
-        )
+        ids = {"agent_id": context.agent_id, "decision_id": context.decision_id}
+        ops, now = self.context.ops, self.context.state.current_time
+        ops.log(now, "agent_runtime", "error" if exchange.phase == "failure" else "info",
+                {"code": "MODEL_EXCHANGE", "detail": f"Model {exchange.phase} recorded for call {exchange.call_id}",
+                 **ids, "model": response.get("model"), "tokens_in": usage.get("prompt_tokens"),
+                 "tokens_out": usage.get("completion_tokens"), "commit_ms": commit_ms})
+        if exchange.transport_attempts:
+            ops.log(now, "agent_runtime", "warn", {**transport_wait_record(exchange.call_id,
+                                                                            exchange.transport_attempts), **ids})
+        feedback = response.get("protocol_feedback")
+        if exchange.phase == "response" and isinstance(feedback, dict):
+            ops.log(now, "agent_runtime", "warn",
+                    {"code": "MODEL_PROTOCOL_REJECTED", **ids, "call_id": exchange.call_id,
+                     "detail": f"Model response for call {exchange.call_id} was rejected: {feedback['error_code']}",
+                     "error_code": feedback["error_code"]})
 
     def record_memory_update(self, evidence: Any) -> None:
         """@brief 保存人物已落盘记忆的枚举操作、内容身份、写入点（trigger）与就寝反思的归属（reflection）。

@@ -35,6 +35,7 @@ from agentsociety2.agent.base import (
     ReactToolResult,
 )
 from agentsociety2.agent.memory_runtime import MemoryStepOutcome
+from agentsociety2.config.llm_dispatcher import collect_transport_attempts
 from agentsociety2.society import DirectToolCall
 from worldmock.agents.life_context import persona_card_text
 from worldmock.agents.life_continuation import continuation_messages, end_continuation, send_check
@@ -379,7 +380,7 @@ class LifeAgent(PersonAgent):
         return persona_card_text(self.get_profile(), self.name)
 
     async def _dispatch_memory_llm(self, **request: Any) -> Any:
-        """@brief 记忆调用使用同一冻结服务能力和独立重试预算，完整保留模型证据。"""
+        """@brief 记忆调用使用同一冻结服务能力和独立重试预算，完整保留模型证据；失败发送随证据登记。"""
         identity = self.get_profile()["model_identity"]
         request = {**request, "max_retries": identity["max_retries"],
                    "transport_max_retries": identity["transport_max_retries"],
@@ -389,15 +390,17 @@ class LifeAgent(PersonAgent):
         context = getattr(self, "_decision_context", None)
         call_id = self._memory_call_id()
         await self._record_model_evidence(ModelCallEvidence(context, call_id, "request", 1, request))
-        try:
-            response = await self._dispatcher.call(**request)
-        except Exception as error:
-            logging.exception("LifeAgent memory model dispatch failed")
-            await self._record_model_evidence(ModelCallEvidence(
-                context, call_id, "failure", 1, request, error=repr(error)))
-            raise
+        with collect_transport_attempts() as attempts:
+            try:
+                response = await self._dispatcher.call(**request)
+            except Exception as error:
+                logging.exception("LifeAgent memory model dispatch failed")
+                await self._record_model_evidence(ModelCallEvidence(
+                    context, call_id, "failure", 1, request, error=repr(error), transport_attempts=tuple(attempts)))
+                raise
         await self._record_model_evidence(ModelCallEvidence(
-            context, call_id, "response", 1, request, response=self._serialize_model_response(response)))
+            context, call_id, "response", 1, request, response=self._serialize_model_response(response),
+            transport_attempts=tuple(attempts)))
         return response
 
     @staticmethod

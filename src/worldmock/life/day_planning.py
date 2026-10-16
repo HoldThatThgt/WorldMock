@@ -175,22 +175,23 @@ def request_draft(now: int, agent_id: int, link: tuple[str, int, str | None],
                       source_kind="model", data=data)
 
 
-def response_draft(now: int, agent_id: int, link: tuple[str, int, str],
+def response_draft(now: int, agent_id: int, link: tuple[str, int, str, tuple[dict, ...]],
                    raw: dict[str, Any], error: BaseException | None) -> EventDraft:
-    """@brief 一次零点计划模型响应的证据：原始响应、用量与本地校验错误（合法时为空）。"""
-    call_id, attempt, request_event_id = link
+    """@brief 一次零点计划模型响应的证据：原始响应、用量与本地校验错误（合法时为空）及这次调用的失败发送。"""
+    call_id, attempt, request_event_id, transport_attempts = link
     data = {"phase": "response", "purpose": PLAN_DAY_PURPOSE, "call_id": call_id, "attempt": attempt,
             "request": None, "response": raw, "usage": raw.get("usage"),
-            "error": str(error) if error is not None else None}
+            "error": str(error) if error is not None else None, "transport_attempts": list(transport_attempts)}
     return EventDraft(event_type="model_response", occurred_at=now, agent_id=agent_id,
                       caused_by=[request_event_id], visibility="system", source_kind="model", data=data)
 
 
-def failure_draft(now: int, agent_id: int, link: tuple[str, int, str], error: BaseException) -> EventDraft:
-    """@brief 零点计划的传输或配置失败证据（运行故障前先保存）。"""
-    call_id, attempt, request_event_id = link
+def failure_draft(now: int, agent_id: int, link: tuple[str, int, str, tuple[dict, ...]],
+                  error: BaseException) -> EventDraft:
+    """@brief 零点计划的传输或配置失败证据（运行故障前先保存）及这次调用的失败发送。"""
+    call_id, attempt, request_event_id, transport_attempts = link
     data = {"phase": "failure", "purpose": PLAN_DAY_PURPOSE, "call_id": call_id, "attempt": attempt,
-            "request": None, "response": None, "error": repr(error)}
+            "request": None, "response": None, "error": repr(error), "transport_attempts": list(transport_attempts)}
     return EventDraft(event_type="model_response", occurred_at=now, agent_id=agent_id,
                       caused_by=[request_event_id], visibility="system", source_kind="model", data=data)
 

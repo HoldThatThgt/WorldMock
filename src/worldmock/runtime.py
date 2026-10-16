@@ -653,36 +653,57 @@ async def _generate_day_plan(engine: Any, caller: Any, agent_id: int) -> dict:
         call_id = f"plan-day:{agent_id}:{date}:attempt:{attempt}"
         evidence.append(day_planning.request_draft(now, agent_id, (call_id, attempt, previous), request))
         link = (call_id, attempt, evidence[-1].event_id)
-        raw = await _call_plan_day(engine, caller, request, (evidence, link, agent_id))
+        raw, attempts = await _call_plan_day(engine, caller, request, (evidence, link, agent_id))
         try:
             parsed = day_planning.parse_plan_day(raw, now, timezone_name)
         except day_planning.PlanDayOutputError as error:
-            evidence.append(day_planning.response_draft(now, agent_id, link, raw, error))
+            evidence.append(day_planning.response_draft(now, agent_id, (*link, attempts), raw, error))
             if attempt > engine.context.config.model.day_plan_validation_max_retries:
                 engine.context.store.append_evidence(evidence)
                 raise ProtocolError("plan_day output validation retries exhausted") from error
             attempt, previous = attempt + 1, evidence[-1].event_id
             request = day_planning.prepare_plan_day_correction(original, raw, error)
             continue
-        evidence.append(day_planning.response_draft(now, agent_id, link, raw, None))
+        evidence.append(day_planning.response_draft(now, agent_id, (*link, attempts), raw, None))
         break
     plan = engine.register_day_plan(agent_id, parsed, sources, evidence)
     return {"agent_id": agent_id, "date": date, "goals": len(plan.goals)}
 
 
-async def _call_plan_day(engine: Any, caller: Any, request: dict, context: tuple[list, tuple, int]) -> dict:
-    """@brief 发出一次零点计划请求；传输或配置失败时先提交已有尝试的证据与失败证据再抛出。"""
+async def _call_plan_day(engine: Any, caller: Any, request: dict,
+                         context: tuple[list, tuple, int]) -> tuple[dict, tuple[dict, ...]]:
+    """@brief 发出一次零点计划请求，返回原始响应与这次调用的失败发送，并写调用耗时运维日志；失败时先提交已有尝试的证据与带失败发送的
+    失败证据再抛出。"""
+    from agentsociety2.config.llm_dispatcher import collect_transport_attempts
     from worldmock.life import day_planning
 
-
     evidence, link, agent_id = context
-    try:
-        return await caller.call(request)
-    except BaseException as error:
-        logger.error("Plan day model request failed: %s", type(error).__name__)
-        evidence.append(day_planning.failure_draft(engine.context.state.current_time, agent_id, link, error))
-        engine.context.store.append_evidence(evidence)
-        raise
+    now, started = engine.context.state.current_time, time.perf_counter()
+    with collect_transport_attempts() as collected:
+        try:
+            raw = await caller.call(request)
+        except BaseException as error:
+            logger.error("Plan day model request failed: %s", type(error).__name__)
+            _log_plan_day_call(engine, (link[0], agent_id), started, tuple(collected), "failure")
+            evidence.append(day_planning.failure_draft(now, agent_id, (*link, tuple(collected)), error))
+            engine.context.store.append_evidence(evidence)
+            raise
+    _log_plan_day_call(engine, (link[0], agent_id), started, tuple(collected), "response")
+    return raw, tuple(collected)
+
+
+def _log_plan_day_call(engine: Any, ids: tuple[str, int], started: float, attempts: tuple, outcome: str) -> None:
+    """@brief 零点计划调用的运维日志：调用耗时毫秒数与结果；有失败发送时另写一条传输等待记录。"""
+    from worldmock.opslog import transport_wait_record
+
+    call_id, agent_id = ids
+    ops, now = engine.context.ops, engine.context.state.current_time
+    ops.log(now, "agent_runtime", "error" if outcome == "failure" else "info",
+            {"code": "PLAN_DAY_CALL", "detail": f"Plan day call {call_id} ended with {outcome}",
+             "agent_id": agent_id, "call_id": call_id, "outcome": outcome,
+             "call_ms": round((time.perf_counter() - started) * 1000, 1)})
+    if attempts:
+        ops.log(now, "agent_runtime", "warn", {**transport_wait_record(call_id, attempts), "agent_id": agent_id})
 
 
 def _require_custom_modules(project_root: Path) -> None:

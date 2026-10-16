@@ -44,6 +44,53 @@ class CurrentDecisionModel:
 MODEL_FACTORY = CurrentDecisionModel
 
 
+class _ScriptedSemaphore:
+    """脚本化发送用的许可，保留真实调度器的领取、释放和耗时调用边界。"""
+
+    def __init__(self):
+        self.acquired = 0
+
+    async def acquire(self):
+        """登记领取；重试等待时必须已经归还。"""
+        self.acquired += 1
+
+    async def release(self, *, overloaded):
+        """归还这次发送的许可。"""
+        self.acquired -= 1
+
+    def record_latency(self, *arguments, **options):
+        """接收真实调度器的耗时记录，不更改脚本。"""
+
+
+class _ScriptedRouter:
+    """先按逻辑调用注入连接失败，再交给同一个确定性模型作答；失败发送不推进回答编号。"""
+
+    def __init__(self, env, failures):
+        self.model, self.failures, self.requests = CurrentDecisionModel(env), dict(failures), []
+
+    async def acompletion(self, **request):
+        """保留每次线路请求，指定调用的失败次数用完后才产生回答。"""
+        from litellm.exceptions import APIConnectionError
+
+        self.requests.append(copy.deepcopy(request))
+        call = len(self.model.requests) + 1
+        if self.failures.get(call, 0):
+            self.failures[call] -= 1
+            raise APIConnectionError(message="scripted connection failure", llm_provider="openai", model="test-model")
+        return await self.model.call(**request)
+
+
+def scripted_dispatcher(env, failures):
+    """真实 LLMClient 配离线 Router：failures 的键是回答调用编号，值是该调用成功前的失败发送次数。"""
+    from agentsociety2.config.llm_dispatcher import LLMClient
+
+    client = LLMClient("test-model", "https://model.example.invalid/v1", "offline")
+    client._ensure_runtime = lambda: None
+    client._sem = _ScriptedSemaphore()
+    client._router = _ScriptedRouter(env, failures)
+    return client
+
+
 @pytest.fixture
 def native_runtime(tmp_path, monkeypatch):
     """一小时的真实原生运行环境：返回环境根、冻结输入与每次构造出的模型列表。"""

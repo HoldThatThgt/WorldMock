@@ -149,7 +149,7 @@ def test_model_response_requires_one_request_and_keeps_its_actual_cause(engine_f
     engine.begin_decision_round([frozen])
     engine.observe(frozen)
     request = ModelCallEvidence(frozen, "call", "request", 1, {"messages": []})
-    response = replace(request, phase="response", response={"protocol_feedback": {"code": "invalid"}})
+    response = replace(request, phase="response", response={"protocol_feedback": {"error_code": "TOOL_CALL_REQUIRED"}})
     with pytest.raises(ProtocolError, match="no recorded request"):
         engine.record_model_exchange(response)
     engine.record_model_exchange(request)
@@ -159,7 +159,7 @@ def test_model_response_requires_one_request_and_keeps_its_actual_cause(engine_f
     [stored_request] = events(engine, "model_request")
     [stored_response] = events(engine, "model_response")
     assert stored_response.caused_by == [stored_request.event_id]
-    assert stored_response.data["protocol_feedback"] == {"code": "invalid"}
+    assert stored_response.data["protocol_feedback"] == {"error_code": "TOOL_CALL_REQUIRED"}
     assert stored_request.data["request"] == {"messages": []}
     assert stored_response.data["request"] is None
     assert not engine.evidence.request_events

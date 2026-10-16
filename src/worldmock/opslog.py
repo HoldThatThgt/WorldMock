@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, TextIO
@@ -13,6 +14,15 @@ from zoneinfo import ZoneInfo
 OPS_COMPONENTS = frozenset(
     {"engine", "agent_runtime", "memory", "commerce", "travel", "checkpoint", "runtime", "push"})
 OPS_LEVELS = frozenset({"info", "warn", "error"})
+
+
+def transport_wait_record(call_id: str, attempts: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """@brief 一次模型往来在结果之前失败发送的运维记录正文：失败次数、累计等待毫秒数与最后一次的错误链。"""
+    waited = sum(item["wait_ms"] for item in attempts if item["wait_ms"] is not None)
+    return {"code": "MODEL_TRANSPORT_WAIT",
+            "detail": f"Model call {call_id} failed {len(attempts)} sends and waited {waited} ms",
+            "call_id": call_id, "failed_sends": len(attempts), "waited_ms": waited,
+            "last_error": attempts[-1]["error"]}
 
 
 class OpsLogger:

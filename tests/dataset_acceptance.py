@@ -1168,5 +1168,16 @@ MUTATIONS = (
     SourceMutation("replace_retried_off_windows", "worldmock.footprints.assets::_replace",
         'if os.name != "nt":', "if False:",
         ("tests/unit/footprints/test_atomic_replace_retry.py::test_permission_error_off_windows_is_raised_at_once",)),
+    SourceMutation("transport_attempts_dropped", "worldmock.life.model_evidence::_attempt_fields",
+        'return {"transport_attempts": [dict(item) for item in attempts]}', 'return {"transport_attempts": []}',
+        ("tests/integration/runtime/test_model_exchange_attempts.py"
+         "::test_response_and_failure_events_carry_transport_attempts_in_the_envelope",)),
+    SourceMutation("request_attempts_accepted", "worldmock.life.model_evidence::_attempt_fields",
+        'if exchange.phase == "request" and attempts:', "if False:",
+        ("tests/integration/runtime/test_model_exchange_attempts.py::test_request_evidence_with_attempts_is_rejected",)),
+    SourceMutation("env_close_leaves_cached_clients", "custom.envs.life_env::LifeEnv.close",
+        "await close_cached_async_clients()", "pass",
+        ("tests/integration/runtime/test_llm_client_close.py"
+         "::test_life_env_close_closes_cached_clients_in_its_own_loop",)),
     # ---- 网络故障、重启与运行状态（长时运行成本第五章）结束 ----
 )
