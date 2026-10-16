@@ -13,6 +13,7 @@ import json
 import os
 import sqlite3
 import tarfile
+import zlib
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -380,7 +381,7 @@ def test_store_checkpoint_rejects_stale_state_and_empty_snapshots(tmp_path):
 
 def _insert_checkpoint_row(store, body: dict, record_sha256: str):
     store.connection.execute("INSERT INTO checkpoints VALUES(?,?,?)", (
-        body["checkpoint_id"], canonical_json(body).decode(), record_sha256))
+        body["checkpoint_id"], zlib.compress(canonical_json(body)), record_sha256))
 
 
 def test_get_checkpoint_rejects_missing_damaged_and_inconsistent_records(tmp_path):

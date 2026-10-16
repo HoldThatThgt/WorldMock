@@ -2,6 +2,7 @@ from worldmock.footprints.checkpoint import restore_branch
 import json
 import hashlib
 import sqlite3
+import zlib
 from pathlib import Path
 
 import pytest
@@ -282,8 +283,8 @@ def test_rehashed_checkpoint_with_inconsistent_world_is_rejected(store, tmp_path
     store.connection.execute('DROP TRIGGER checkpoints_no_update')
     with store.connection:
         store.connection.execute('UPDATE checkpoints SET body=?,record_sha256=?',
-                                 (raw.decode(), hashlib.sha256(raw).hexdigest()))
-    with pytest.raises(IntegrityError):
+                                 (zlib.compress(raw), hashlib.sha256(raw).hexdigest()))
+    with pytest.raises(IntegrityError, match="disagrees with its world snapshot"):
         restore_branch(store, point.checkpoint_id, tmp_path / 'child')
     assert not (tmp_path / 'child').exists()
 

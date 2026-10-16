@@ -8,6 +8,7 @@ import itertools
 import json
 import sqlite3
 import tarfile
+import zlib
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -151,8 +152,9 @@ class DayBaseline:
         checkpoints = []
         with sqlite3.connect(self.case / "run/footprints.sqlite") as connection:
             for body, raw_sha in connection.execute("SELECT body, record_sha256 FROM checkpoints ORDER BY rowid"):
-                assert _sha(body.encode()) == raw_sha, "baseline checkpoint digest does not match its bytes"
-                normalized = self.normalize(json.loads(body))
+                raw = zlib.decompress(body)
+                assert _sha(raw) == raw_sha, "baseline checkpoint digest does not match its bytes"
+                normalized = self.normalize(json.loads(raw))
                 self.hashes[raw_sha] = _sha(_json(normalized))
                 checkpoints.append(normalized)
         return checkpoints

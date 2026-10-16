@@ -906,5 +906,17 @@ MUTATIONS = (
         "if identity in mapping:", "if False:",
         ("tests/integration/life/test_state_serialization.py"
          "::test_repeated_or_malformed_activity_arrays_are_refused",)),
+    SourceMutation("checkpoint_row_stored_uncompressed", "worldmock.footprints.store::FootprintStore.checkpoint",
+        "zlib.compress(encoded, _CHECKPOINT_ZLIB_LEVEL)", "encoded",
+        ("tests/unit/footprints/test_checkpoint_storage.py"
+         "::test_checkpoint_row_is_the_zlib_stream_of_the_canonical_payload",)),
+    SourceMutation("checkpoint_record_hash_unchecked", "worldmock.footprints.store::_decompressed_record",
+        "if hashlib.sha256(payload).hexdigest() != digest:", "if False:",
+        ("tests/unit/footprints/test_checkpoint_storage.py::test_damaged_checkpoint_rows_are_refused",)),
+    SourceMutation("status_lists_the_oldest_checkpoints", "worldmock.status::read_status",
+        '"SELECT checkpoint_id FROM checkpoints ORDER BY rowid DESC LIMIT 5"',
+        '"SELECT checkpoint_id FROM checkpoints ORDER BY rowid LIMIT 5"',
+        ("tests/unit/footprints/test_status.py"
+         "::test_status_lists_the_five_latest_checkpoint_ids_without_reading_their_bodies",)),
     # ---- 世界状态与检查点存储（长时运行成本第二章）结束 ----
 )

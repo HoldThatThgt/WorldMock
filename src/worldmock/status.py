@@ -36,8 +36,8 @@ def read_status(run_dir: Path) -> dict:
         state = json.loads(connection.execute("SELECT body FROM world_state WHERE singleton=1").fetchone()[0])
         counts = dict(connection.execute(
             "SELECT json_extract(body,'$.event_type'),count(*) FROM events GROUP BY json_extract(body,'$.event_type')"))
-        points = [json.loads(row[0])["checkpoint_id"] for row in connection.execute(
-            "SELECT body FROM checkpoints ORDER BY rowid DESC LIMIT 5")]
+        points = [row[0] for row in connection.execute(
+            "SELECT checkpoint_id FROM checkpoints ORDER BY rowid DESC LIMIT 5")]
         active = [activity for activity in _world_activities(state) if activity["status"] in ("active", "paused")]
         result = {"run_id": manifest["run_id"], "state_version": state["version"],
                   "current_time": datetime.fromtimestamp(state["current_time"],

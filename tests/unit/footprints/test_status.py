@@ -61,6 +61,21 @@ def test_status_refuses_a_run_directory_whose_world_activities_are_not_an_array(
     assert message in caplog.text
 
 
+def test_status_lists_the_five_latest_checkpoint_ids_without_reading_their_bodies(tmp_path):
+    """recent_checkpoints 是最近五行检查点的身份，按写入先后倒排，直接取主键列：六行正文都不是 zlib 流、摘要全零，
+    解析或解压正文的读取方会在这些行上失败。"""
+    run = tmp_path / 'run'
+    store = FootprintStore.create(run, {'run_id': 'run', 'agent_ids': [1], 'window': {'timezone': 'UTC'}},
+                                  {'version': 0, 'current_time': 100, 'end_time': 200, 'activities': [],
+                                   'agents': {'1': {'agent_id': 1, 'location_id': 'home',
+                                                    'next_decision_at': 100}}})
+    with store.connection:
+        for index in range(1, 7):
+            store.connection.execute('INSERT INTO checkpoints VALUES(?,?,?)', (f'cp-{index}', b'not zlib', '0' * 64))
+    store.close()
+    assert read_status(run)['recent_checkpoints'] == ['cp-6', 'cp-5', 'cp-4', 'cp-3', 'cp-2']
+
+
 def _store_with_responses(run, models):
     """建一个最小运行库，按给定模型名各落一条带用量的模型响应（None 表示响应不带模型名）。"""
     from worldmock.footprints.models import EventDraft

@@ -8,6 +8,7 @@ import json
 import logging
 import sqlite3
 import time
+import zlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,7 +27,7 @@ CREATE INDEX events_agent_type ON events(json_extract(body,'$.agent_id'),json_ex
 CREATE TABLE world_state(singleton INTEGER PRIMARY KEY CHECK(singleton=1),
 version INTEGER NOT NULL, body TEXT NOT NULL);
 CREATE TABLE artifacts(sha256 TEXT PRIMARY KEY, body TEXT NOT NULL);
-CREATE TABLE checkpoints(checkpoint_id TEXT PRIMARY KEY, body TEXT NOT NULL, record_sha256 TEXT NOT NULL);
+CREATE TABLE checkpoints(checkpoint_id TEXT PRIMARY KEY, body BLOB NOT NULL, record_sha256 TEXT NOT NULL);
 CREATE TRIGGER events_append_only BEFORE INSERT ON events
 WHEN NEW.event_seq != (SELECT COALESCE(MAX(event_seq),0)+1 FROM events)
 BEGIN SELECT RAISE(ABORT,'Event sequence must append exactly one record'); END;
@@ -37,6 +38,9 @@ SELECT RAISE(ABORT,'Checkpoints are immutable'); END;
 CREATE TRIGGER checkpoints_no_delete BEFORE DELETE ON checkpoints BEGIN
 SELECT RAISE(ABORT,'Checkpoints are immutable'); END;
 """
+
+#: 检查点行正文的 zlib 压缩级别（docs/design/05-recording-engine.md「冻结输入、检查点与分支」）。
+_CHECKPOINT_ZLIB_LEVEL = 1
 
 
 @dataclass(frozen=True)
@@ -380,7 +384,8 @@ class FootprintStore:
     def checkpoint(self, state: dict, snapshots: dict[str, AssetRef]) -> Checkpoint:
         """@brief 调用方世界逐字节等于已提交世界、素材完整后，以一个事务提交共同检查点及其事件。
 
-        载荷只按规范 JSON 编码一次：存储正文就是这份字节，record_sha256 是它的 SHA-256（与 sha256_json(payload) 相同）。
+        载荷只按规范 JSON 编码一次：行正文是这份字节的 zlib 流（级别 1），record_sha256 是未压缩字节的 SHA-256
+        （与 sha256_json(payload) 相同）。
         """
         self.require_committed(state)
         if not snapshots:
@@ -400,7 +405,7 @@ class FootprintStore:
         try:
             with self.connection:
                 self.connection.execute("INSERT INTO checkpoints VALUES(?,?,?)", (
-                    checkpoint.checkpoint_id, encoded.decode(), digest,
+                    checkpoint.checkpoint_id, zlib.compress(encoded, _CHECKPOINT_ZLIB_LEVEL), digest,
                 ))
                 self._insert_event(records[0])
                 for reference in snapshots.values():
@@ -428,12 +433,11 @@ class FootprintStore:
                 "manifest_sha256": sha256_json(self.manifest)}
 
     def get_checkpoint(self, checkpoint_id: str) -> Checkpoint:
-        """@brief 校验数据库提交记录与每个素材，不读取松散 JSON 收据。"""
+        """@brief 解压并按未压缩载荷核对记录摘要，再校验运行身份、事件与每个素材，不读取松散 JSON 收据。"""
         row = self.connection.execute("SELECT body,record_sha256 FROM checkpoints WHERE checkpoint_id=?",
                                       (checkpoint_id,)).fetchone()
-        if row is None or hashlib.sha256(row[0].encode()).hexdigest() != row[1]:
-            raise IntegrityError("Checkpoint is missing or its record is damaged")
-        checkpoint = Checkpoint(**json.loads(row[0]), record_sha256=row[1])
+        payload = _decompressed_record(checkpoint_id, row)
+        checkpoint = Checkpoint(**json.loads(payload), record_sha256=row[1])
         if (checkpoint.run_id != self.manifest["run_id"]
                 or checkpoint.current_time != checkpoint.state["current_time"]
                 or checkpoint.state_version != checkpoint.state["version"]):
@@ -459,3 +463,29 @@ class FootprintStore:
     def close(self) -> None:
         """@brief 关闭单写入连接，不改变运行或事件状态。"""
         self.connection.close()
+
+
+def _decompressed_record(checkpoint_id: str, row: tuple | None) -> bytes:
+    """@brief 解压检查点行正文并核对 record_sha256 是未压缩规范载荷的摘要。
+
+    @param checkpoint_id 检查点身份，只用于错误日志
+    @param row 查询得到的 (body, record_sha256)；不存在时为 None
+    @return 未压缩的规范载荷字节
+    @exception IntegrityError 行不存在、正文不是 zlib 流或摘要不符（Checkpoint is missing or its record is damaged）
+    """
+    if row is None:
+        logging.error("Checkpoint %s does not exist", checkpoint_id)
+        raise IntegrityError("Checkpoint is missing or its record is damaged")
+    body, digest = row
+    if not isinstance(body, bytes):
+        logging.error("Checkpoint %s body is not a compressed record", checkpoint_id)
+        raise IntegrityError("Checkpoint is missing or its record is damaged")
+    try:
+        payload = zlib.decompress(body)
+    except zlib.error as error:
+        logging.error("Checkpoint %s body does not decompress: %s", checkpoint_id, error)
+        raise IntegrityError("Checkpoint is missing or its record is damaged") from error
+    if hashlib.sha256(payload).hexdigest() != digest:
+        logging.error("Checkpoint %s record hash does not match its payload", checkpoint_id)
+        raise IntegrityError("Checkpoint is missing or its record is damaged")
+    return payload

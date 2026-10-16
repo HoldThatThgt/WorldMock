@@ -3,6 +3,7 @@
 import hashlib
 import json
 import sqlite3
+import zlib
 from pathlib import Path
 
 import pytest
@@ -44,8 +45,8 @@ def _case(root: Path, code: str = CODE, commit: str = "f" * 40, model: dict | No
     (root / "run/manifest.json").write_bytes(manifest)
     body = _bytes({"manifest_sha256": _digest(manifest), "state": {"balance": 10}, "snapshots": {}})
     with sqlite3.connect(root / "run/footprints.sqlite") as connection:
-        connection.execute("CREATE TABLE checkpoints (body TEXT, record_sha256 TEXT)")
-        connection.execute("INSERT INTO checkpoints VALUES (?,?)", (body.decode(), _digest(body)))
+        connection.execute("CREATE TABLE checkpoints (body BLOB, record_sha256 TEXT)")
+        connection.execute("INSERT INTO checkpoints VALUES (?,?)", (zlib.compress(body), _digest(body)))
     events = _bytes({"event_id": "fact", "caused_by": [], "amount": amount}) + b"\n"
     (root / "export/events.jsonl").write_bytes(events)
     quality = _bytes({"schema_version": 8, "day_plan_metrics": {code: {"block_count": 0}}})

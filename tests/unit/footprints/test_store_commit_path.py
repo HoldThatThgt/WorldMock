@@ -1,6 +1,7 @@
 """存储提交路径：一步世界推进、证据追加、检查点与已提交世界缓存（docs/design/05-recording-engine.md「权威事实与投影」）。"""
 
 import hashlib
+import zlib
 from types import SimpleNamespace
 
 import pytest
@@ -30,9 +31,9 @@ def _row(store: FootprintStore) -> tuple:
 
 
 def _stored_body(store: FootprintStore, checkpoint_id: str) -> bytes:
-    """检查点行存储的正文字节。"""
+    """检查点行存储的正文解压后的字节。"""
     row = store.connection.execute("SELECT body FROM checkpoints WHERE checkpoint_id=?", (checkpoint_id,)).fetchone()
-    return row[0].encode()
+    return zlib.decompress(row[0])
 
 
 def _observation(moment: int) -> EventDraft:
