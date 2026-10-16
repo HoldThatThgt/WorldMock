@@ -2,7 +2,7 @@
 
 ## 单一状态归属
 
-完整环境由不可变输入对象承载，世界由唯一已提交 WorldState 承载。运行状态结构版本为 14，运行清单结构版本为 6；
+完整环境由不可变输入对象承载，世界由唯一已提交 WorldState 承载。运行状态结构版本为 15，运行清单结构版本为 6；
 `persona.toml` 与 `config.toml` 各自的 `schema_version` 写在[配置](08-configuration.md)「人物声明」与「运行配置」的字段表里。
 不接受旧结构、兼容字段、迁移和 fallback；所有当前模型拒绝未知字段，原始 JSONL/TOML 输入规则归
 [配置](08-configuration.md)与[资源引擎](03-resource-engine.md)。
@@ -22,7 +22,7 @@ flowchart LR
 ## 世界、人物与活动
 
 世界保存完整环境身份、persona_sha256、config_sha256、唯一种子与随机根、天气日期事实、
-共同时钟、人物、两个资金账户、活动、订单、调度边界和已提交呈现留痕。
+共同时钟、人物、两个资金账户、活动、订单、调度边界、已处理动作和已提交呈现留痕。
 人物保存实际地点、身体、当前槽位活动、内容共享进度、个人事务、日计划、回调状态与每日幂等标记。
 人物状态的 `navigation_foreground` 记录导航 app 此刻是否在前台：null 表示不在前台；非空时是
 `{activity_id, app_id, opened_at}`，分别是所属的出行活动、这趟出行选定的导航 app 和这一段回到前台的时刻。
@@ -51,6 +51,16 @@ flowchart LR
 `activities` 与 `processed_actions` 的条目是不可变值：活动或已处理动作的任何变化（包括 `data`、`result`、`receipt`、
 `session_ids`、`note_history`、`resource_claims` 等嵌套字段）都换成一个新条目，不原地修改已有条目；同一个条目对象可以
 同时属于已提交世界和候选世界。同一个对象不同时挂在条目与世界的其他字段下。
+
+世界状态的 `activities` 在 JSON 里是数组，按活动加入世界的先后排列，每项是一个完整活动对象；读回时按数组先后还原为以
+`activity_id` 为键的映射。规范 JSON 只给对象的键排序、不改变数组次序，所以从检查点恢复的世界与不中断的运行有相同的
+活动先后，人物在恢复后看到的工具层与进行中活动也是同样的先后。这个字段只接受数组：不是活动对象的数组、或有一项缺少
+字符串 `activity_id`，报 `world activities must be an array of activity objects`；两项的 `activity_id` 相同，报
+`world activities repeat an activity identity`；写入与加载都拒绝。`worldmock status` 只读已存世界、不复校它，
+遇到 `activities` 不是数组的运行目录（由更早的引擎写下）报
+`Run directory was written by an older engine: world activities are not an array`。
+世界状态里其余以身份为键的集合仍是 JSON 对象。
+`processed_actions` 以动作身份为键，保留哪些条目见[模拟引擎](04-simulation-engine.md)「原子性与恢复」。
 
 ## 输入与模型身份
 
