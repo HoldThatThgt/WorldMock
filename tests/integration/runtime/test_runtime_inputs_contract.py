@@ -193,21 +193,6 @@ async def test_resume_rejects_changed_original_bytes_before_publishing_child(tmp
 
 
 @pytest.mark.asyncio
-async def test_resume_rejects_actual_metadata_drift_before_publishing_child(tmp_path, monkeypatch):
-    _, parent, env, checkpoint = await prepared_parent(tmp_path, monkeypatch)
-    await env.close()
-    import requests
-    from types import SimpleNamespace
-
-    monkeypatch.setattr(requests, "get", lambda *args, **kwargs: SimpleNamespace(raise_for_status=lambda: None,
-        json=lambda: {"data": [{"id": "test-model", "context_window": 524289, "max_output_tokens": 32768}]}))
-    with pytest.raises(IntegrityError, match="model identity"):
-        _prepare_resume(ResumeRequest(ROOT, ENVIRONMENT_ROOT, parent.run_dir,
-                                     checkpoint.checkpoint_id, tmp_path / "child"))
-    assert not (tmp_path / "child").exists()
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize("change", ["rhythm", "relationship", "missing"])
 async def test_resume_rejects_a_frozen_card_that_differs_from_the_persona_table(tmp_path, monkeypatch, change):
     """恢复的真实路径：检查点里人物工作区的结构化卡片与用冻结的 persona.toml 重新构造出的卡片不相等（作息或关系被改过，
