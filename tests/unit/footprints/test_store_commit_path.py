@@ -184,6 +184,7 @@ def counted(tmp_path, monkeypatch):
     """一份填充到 20 万字符以上的世界：新建后关闭，装上整份世界解析与编码的计数器，再重新打开。
 
     返回（存储，计数，创建时的世界，下一步的新世界）；计数只记整份世界大小的 json.loads 与 canonical_json 调用。
+    存储里的 sha256_json 也经过同一个编码计数器，按载荷再算一次摘要（重新编码整份世界）同样计入。
     """
     initial = {**INITIAL, "filler": "x" * WORLD_SIZED}
     FootprintStore.create(tmp_path / "padded", MANIFEST, initial).close()
@@ -201,6 +202,7 @@ def counted(tmp_path, monkeypatch):
 
     monkeypatch.setattr(store_module, "json", SimpleNamespace(loads=counting_loads))
     monkeypatch.setattr(store_module, "canonical_json", counting_encode)
+    monkeypatch.setattr(store_module, "sha256_json", lambda value: hashlib.sha256(counting_encode(value)).hexdigest())
     value = FootprintStore(tmp_path / "padded")
     yield value, counts, initial, {**initial, "version": 1, "current_time": 110}
     value.close()
