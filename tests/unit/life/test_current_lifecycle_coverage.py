@@ -1,5 +1,6 @@
 """真实单人生命周期的严格拒绝、只读回看与因果证据。"""
 
+import logging
 from dataclasses import replace
 from datetime import timedelta
 from types import SimpleNamespace
@@ -96,7 +97,8 @@ def test_removed_query_world_cannot_be_registered_as_a_world_action(engine_facto
     assert not engine.decisions.round.pending_actions
 
 
-def test_duplicate_submission_reuses_receipt_and_commits_one_actual_activity(engine_factory):
+def test_duplicate_submission_reuses_receipt_and_commits_one_actual_activity(engine_factory, caplog):
+    """同一开放轮里重复登记同一动作返回第一次的回执；同一身份换了参数是协议故障并写英文错误日志；只结算一项活动。"""
     engine = engine_factory()
     frozen = context(engine, "duplicate")
     request = do_at("家", "测试休息")
@@ -109,8 +111,10 @@ def test_duplicate_submission_reuses_receipt_and_commits_one_actual_activity(eng
     first = engine.submit_action(call)
     assert engine.submit_action(call) == first
     assert len(engine.decisions.round.pending_actions) == 1
+    caplog.set_level(logging.ERROR)
     with pytest.raises(ProtocolError, match="different parameters"):
         engine.submit_action(DirectToolCall(frozen, same, MAIN_TOOL, do_at("家", "测试闲聊")))
+    assert f"Action identity {same} was reused with different parameters" in caplog.text
     with pytest.raises(ProtocolError, match="different parameters"):
         engine.submit_action(DirectToolCall(frozen, same, SIDE_TOOL, use_app("哔哩哔哩")))
     with pytest.raises(ProtocolError, match="already submitted"):
