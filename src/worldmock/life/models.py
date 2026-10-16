@@ -542,7 +542,6 @@ class PendingAction(StrictModel):
     request: dict[str, Any]
     request_sha256: str = Field(min_length=64, max_length=64)
     requested_event_id: str = Field(min_length=1)
-    reused: bool = False
 
 
 class DecisionRoundState(StrictModel):

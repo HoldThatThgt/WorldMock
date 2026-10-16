@@ -72,14 +72,11 @@ class _Log:
                         agent_id=agent_id, decision_id=decision_id)
 
     def bought(self, when: str, product_id: str, **fields) -> dict:
-        """一次购买的结果事件：顶层订单一个（status 缺省 delivered，收货人缺省本人）；event_type 缺省 action_result，
-        reused 为真时是重放。"""
+        """一次购买的结果事件：顶层订单一个（status 缺省 delivered，收货人缺省本人）；event_type 缺省 action_result。"""
         agent_id, status = fields.get("agent_id", 1), fields.get("status", "delivered")
         order = {"order_id": f"order-{len(self.events) + 1}", "agent_id": agent_id, "goods_id": product_id,
                  "quantity": 1, "status": status, "recipient_id": fields.get("recipient", f"agent:{agent_id}")}
         data = {"status": "completed", "data": {"orders": [order]}}
-        if fields.get("reused"):
-            data["reused"] = True
         return self.add(fields.get("event_type", "action_result"), when, data, agent_id=agent_id,
                         action_id=f"action-{len(self.events) + 1}")
 
@@ -239,7 +236,6 @@ def test_acted_after_reminder_needs_an_accepted_request_for_the_same_product() -
     log.bought("2026-01-05 12:30", KIT)
     log.add("action_rejected", "2026-01-05 12:30", {"error_code": "SUPPLY_NOT_FOUND",
         "data": {"orders": [_accepted_order(KIT)]}}, action_id="rejected")
-    log.bought("2026-01-05 12:40", KIT, event_type="action_accepted", reused=True)
     log.errand(REMINDED_KIND, "2026-01-05 23:50", snapshots["e5"])
     log.bought("2026-01-06 00:10", ICED, event_type="action_accepted")
     log.bought("2026-01-06 00:20", "goods-9", event_type="action_accepted")
@@ -272,18 +268,16 @@ def test_a_completion_without_checkable_evidence_is_counted() -> None:
 
 def test_no_errand_or_no_conclusion_memory_gives_null() -> None:
     """导出里没有任何 errand_registered（只有一条记下不在导出里的事务的提醒）时 errand_metrics 为 null；收尾请求只写看法
-    与偏好、重放的收尾与播报都不算收尾记忆时 conclusion_memories 为 null，报告里两组都是 null。有一条记下的事务而别无
+    与偏好、播报也不算收尾记忆时 conclusion_memories 为 null，报告里两组都是 null。有一条记下的事务而别无
     命中时各计数为 0、不为 null。"""
     log = _Log()
     log.observation("2026-01-05 10:00", ("买牛奶",), decision_id="decision-1")
     log.errand(REMINDED_KIND, "2026-01-05 10:05", _snapshot("a", "买牛奶", MILK, "2026-01-04 10:00"))
     view = {"type": "relationship", "about": "王磊", "text": "王磊做事总拖。", "importance": 0.5, "keywords": ["同事"]}
-    memory = {"type": "routine", "text": "每晚十点前到家。", "importance": 0.3, "keywords": ["回家"]}
-    for reused, memories in ((False, []), (True, [memory])):
-        request = {"items": [{"activity_name": "等待", "summary": "等完了。", "memories": memories, "views": [view]}],
-                   "errands": []}
-        data = {"tool_name": "conclude_activity", "reused": reused, "request": request}
-        log.add("action_requested", "2026-01-05 10:10", data, decision_id="decision-1", action_id="conclude")
+    request = {"items": [{"activity_name": "等待", "summary": "等完了。", "memories": [], "views": [view]}],
+               "errands": []}
+    data = {"tool_name": "conclude_activity", "reused": False, "request": request}
+    log.add("action_requested", "2026-01-05 10:10", data, decision_id="decision-1", action_id="conclude")
     log.add("action_requested", "2026-01-05 10:20", {"tool_name": "report_status", "request": {
         "items": [{"activity_name": "等待", "summary": "还在等。"}], "errands": []}}, decision_id="decision-2")
 
@@ -296,7 +290,7 @@ def test_no_errand_or_no_conclusion_memory_gives_null() -> None:
 
 
 def test_conclusion_memories_count_routine_and_errand_overlap() -> None:
-    """收尾记忆是非重放 conclude_activity 请求里 items[].memories 的条目（不论之后是否被受理），看法与偏好不计：六条里作息
+    """收尾记忆是 conclude_activity 请求里 items[].memories 的条目（不论之后是否被受理），看法与偏好不计：六条里作息
     两条；文字包含同一决策观察里未完成事务的名称（待办层）或其商品名称（私有绑定）的两条——商品名只认未完成事务的商品，
     同一观察里别的商品名不算，另一决策的观察里没有事务、没有观察的决策也都不算重合。"""
     log = _Log()
@@ -312,18 +306,17 @@ def test_conclusion_memories_count_routine_and_errand_overlap() -> None:
         """一条收尾记忆（请求形状）。"""
         return {"type": kind, "text": text, "importance": 0.4, "keywords": ["生活"]}
 
-    def concluded(decision_id: str, *groups: list[dict], reused: bool = False) -> dict:
+    def concluded(decision_id: str, *groups: list[dict]) -> dict:
         """一次收尾请求：每组记忆对应一项活动，每项另有一条提到事务名的看法。"""
         view = {"type": "preference", "about": "超市", "text": "补一份食材包还是去超市好。", "importance": 0.5,
                 "keywords": ["超市"]}
         request = {"items": [{"activity_name": f"等待{index}", "summary": "收尾。", "memories": list(group),
                               "views": [view]} for index, group in enumerate(groups)], "errands": []}
-        return log.add("action_requested", "2026-01-05 21:05", {"tool_name": "conclude_activity", "reused": reused,
+        return log.add("action_requested", "2026-01-05 21:05", {"tool_name": "conclude_activity", "reused": False,
                                                                 "request": request}, decision_id=decision_id)
 
     concluded("decision-1", [memo("routine", "每晚十点前到家。"), memo("reflection", "家里的素炒什锦食材包又见底了。"),
                              memo("goal", "周末记得买冰红茶。")], [memo("routine", "喝纯牛奶前先热一下。")])
-    concluded("decision-1", [memo("goal", "补一份食材包。")], reused=True)
     concluded("decision-2", [memo("goal", "明天也记得买冰红茶。")])
     log.add("action_rejected", "2026-01-05 21:05", {"error_code": "ACTIVITY_CONCLUSION_REQUIRED"},
             decision_id="decision-2")

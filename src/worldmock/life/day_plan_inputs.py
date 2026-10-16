@@ -149,7 +149,7 @@ def _experience_sentences(
 
 def _result_sentences(context: Any, observations: Any, agent_id: int, window: _Window) -> tuple[list[str], list[str]]:
     """@brief 本人已结算的公开动作结果与送达，写成 settled 句（与记忆层同一共享句式，不含身份）：下单、
-    送达，以及在回顾时段内结束的活动（按结束事件，起止含已恢复的暂停区间）；失败、重放的请求与其余工具不写。"""
+    送达，以及在回顾时段内结束的活动（按结束事件，起止含已恢复的暂停区间）；失败的请求与其余工具不写。"""
     store = context.store
     context = observations._layer_context(context.state.agents[agent_id], [])
     outcomes = store.read_agent_events("action_result", agent_id)
@@ -193,19 +193,18 @@ def _conclusion_records(context: Any, agent_id: int, window: _Window) -> tuple[l
     """@brief 回顾时段里已受理的 conclude_activity 请求逐项记下的 summary 与记忆原文（人物自述，未经核验；经 control_items
     读出，每项先普通记忆、后看法与偏好）。
 
-    只取结果为 completed 的首次请求：被拒的请求与重放（reused）的请求不列，与动作结果的口径一致。
+    只取结果为 completed 的首次请求：被拒的请求不列，与动作结果的口径一致。
     """
     store = context.store
     completed = {
         event.action_id
         for event in store.read_agent_events("action_result", agent_id)
-        if event.data.get("status") == "completed" and not event.data.get("reused")
+        if event.data.get("status") == "completed"
     }
     records, sources = [], []
     for event in store.read_agent_events("action_requested", agent_id):
         if (
             event.data.get("tool_name") != "conclude_activity"
-            or event.data.get("reused")
             or event.action_id not in completed
             or not window.covers(event.occurred_at)
         ):

@@ -264,27 +264,6 @@ def test_observation_carries_no_world_query_keys(engine_factory):
     validate_layer(observed["tool_layer"])
 
 
-def test_action_id_replay_is_idempotent_and_parameter_conflict_is_protocol_error(engine_factory):
-    engine = engine_factory()
-    request = use_app("Keep")
-    _, result = act(engine, "stable", request)
-    reach(engine, engine.context.state.activities[result.activity_id].planned_end_at)
-    original = engine.context.state.model_dump(mode="json")
-    decision = context(engine, "replay")
-    engine.begin_decision_round([decision])
-    engine.observe(decision)
-    engine.submit_action(DirectToolCall(decision, action_identity("stable"), tool_of(request), request))
-    replay = engine.commit_decision_round("replay")[0]
-    assert replay.status == "completed"
-    assert len(engine.context.state.activities) == len(original["activities"]) == 1
-    decision = context(engine, "conflict")
-    engine.begin_decision_round([decision])
-    engine.observe(decision)
-    with pytest.raises(ProtocolError, match="different parameters"):
-        engine.submit_action(DirectToolCall(decision, action_identity("stable"), tool_of(request), use_app("哔哩哔哩")))
-    engine.abort_decision_round("conflict", "expected conflict")
-
-
 def test_same_second_six_rejections_stop_without_advancing_clock(engine_factory):
     engine = engine_factory()
     now = engine.context.state.current_time

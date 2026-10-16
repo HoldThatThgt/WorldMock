@@ -319,10 +319,10 @@ def rejected_today(context: LayerContext, store: FootprintStore) -> list[dict]:
     rows: dict[tuple, dict] = {}
     rejected: set[str] = set()
     for event in events:
-        if event.event_type == "action_accepted" and not event.data.get("reused"):
+        if event.event_type == "action_accepted":
             _memo_accept(rows, event, next((item for item in requests if item.action_id == event.action_id), None))
             continue
-        if event.event_type not in {"model_response", "action_rejected"} or event.data.get("reused"):
+        if event.event_type not in {"model_response", "action_rejected"}:
             continue
         registered = []
         if event.event_type == "action_rejected":

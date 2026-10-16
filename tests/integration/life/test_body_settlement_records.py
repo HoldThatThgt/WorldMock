@@ -178,17 +178,3 @@ def test_a_rejection_without_a_pulse_writes_no_flows(engine_factory):
     for action_id in (action_identity("second", 1), action_identity("second", 2)):
         assert "resource_flows" not in rejection_events(engine, action_id)[1].data
     assert engine.context.state.agents[1].body.relaxation_need == before
-
-
-def test_replaying_a_rejected_request_applies_no_pulse_and_writes_no_flows(engine_factory):
-    engine = engine_factory()
-    act(engine, "home-again", travel("家"))
-    seen = engine.context.store.last_event_seq
-    before = engine.context.state.agents[1].body.relaxation_need
-    _, replayed = act(engine, "replay", travel("家"), action_id=action_identity("home-again"))
-    assert replayed.status == "rejected"
-    written = [row for row in events(engine) if row.event_seq > seen]
-    assert any(row.data.get("reused") for row in written)
-    assert not [row for row in written if "resource_flows" in row.data]
-    assert engine.context.state.agents[1].body.relaxation_need == before
-    assert last_flows() == ()

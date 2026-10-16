@@ -6,7 +6,7 @@
 - errand_metrics：事务身份取事务快照 data.errand.errand_id，所有人取事件的人物字段；分母是有 errand_registered 的不同
   事务（不是当日目标数，键名也不借用当日目标指标），终态是同一事务的 errand_completed 或 errand_cancelled，截止是导出
   的末一个事件。没有任何新增事件时整组为 None，有事务时各计数没有命中记 0；办成、取消与截止时未完成三者之和恒等于分母。
-- conclusion_memories：非重放的 conclude_activity 请求（不论之后是否被受理：记忆在登记时写入）里经 control_items 读出的
+- conclusion_memories：conclude_activity 请求（不论之后是否被受理：记忆在登记时写入）里经 control_items 读出的
   items[].memories（收尾记忆；views 是看法与偏好，不计）；errand_overlap_count 按文字包含同一决策观察里某条未完成事务的
   名称（待办层）或其商品名称（私有绑定）计，不做相似度。没有收尾记忆时整组为 None。
 """
@@ -69,7 +69,7 @@ def errand_metrics(events: Sequence[Mapping[str, Any]], timezone: str) -> dict[s
     - visible_observation_count、expected_observation_count：未完成期间（记下事件之后、终态事件之前，没有终态到截止）
       本人各次观察中待办层含该事务的次数与同期观察数，二者应相等；
     - reminded_errand_count、acted_after_reminder_count：至少被提醒过一次的事务数；其中提醒后到下一个本地零点或终态
-      之前，本人有被受理（action_accepted，重放的不算）且指向同一商品的购买请求的事务数；
+      之前，本人有被受理（action_accepted）且指向同一商品的购买请求的事务数；
     - completed_without_evidence_count：办成事件缺证据引用或证据不可复核的条数（完整性计数，应恒为 0）。
 
     :param events: 已认证、按事件序号排列的事件字典。
@@ -104,7 +104,7 @@ def conclusion_memories(events: Sequence[Mapping[str, Any]]) -> dict[str, int] |
     ：对自述文字本身的
     计数，只报告。
 
-    收尾记忆是非重放的 conclude_activity 请求（不论之后是否被受理）经 control_items 读出的 items[].memories；看法与偏好
+    收尾记忆是 conclude_activity 请求（不论之后是否被受理）经 control_items 读出的 items[].memories；看法与偏好
     （views）不计。routine_count 是类型为 routine 的条数；errand_overlap_count 是文字包含同一决策观察里某条未完成事务的
     名称（待办层）或其商品名称（同一观察的私有绑定）的条数，纯子串判定。
 
@@ -189,10 +189,10 @@ def _observation_counts(events: Sequence[Mapping[str, Any]], lives: Mapping[str,
 
 
 def _accepted_products(events: Sequence[Mapping[str, Any]]) -> dict[int, list[tuple[int, int, frozenset[str]]]]:
-    """@brief 各人物被受理的请求（action_accepted，重放的不算；不读之后才写的动作结果）：（事件序号，时刻，指向的商品）。"""
+    """@brief 各人物被受理的请求（action_accepted；不读之后才写的动作结果）：（事件序号，时刻，指向的商品）。"""
     accepted: dict[int, list[tuple[int, int, frozenset[str]]]] = defaultdict(list)
     for event in events:
-        if event["event_type"] == "action_accepted" and not event["data"].get("reused"):
+        if event["event_type"] == "action_accepted":
             accepted[event["agent_id"]].append((event["event_seq"], event["occurred_at"], _referred(event["data"])))
     return accepted
 
@@ -236,10 +236,9 @@ def _evidenced(completed: Mapping[str, Any], indexed: Mapping[str, Mapping[str, 
 
 
 def _conclusion(event: Mapping[str, Any]) -> bool:
-    """@brief 非重放的 conclude_activity 请求事件（action_requested）。"""
+    """@brief conclude_activity 请求事件（action_requested）。"""
     data = event["data"]
-    return (event["event_type"] == "action_requested" and data.get("tool_name") == "conclude_activity"
-            and not data.get("reused"))
+    return event["event_type"] == "action_requested" and data.get("tool_name") == "conclude_activity"
 
 
 def _errand_texts(observation: Mapping[str, Any]) -> tuple[str, ...]:

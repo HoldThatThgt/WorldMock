@@ -111,7 +111,7 @@ def test_swapping_the_two_calls_gives_the_same_world(engine_factory):
 
 
 def test_commit_returns_one_result_per_decision_and_persists_both(engine_factory):
-    """环境向框架只返回该决策第一条动作的结果，两条结果都已落库并可按动作身份重放。"""
+    """环境向框架只返回该决策第一条动作的结果，两条结果都已落库。"""
     engine = engine_factory()
     decision = context(engine, "single")
     engine.begin_decision_round([decision])
@@ -305,34 +305,18 @@ def test_unknown_goods_name_is_refused_as_supply_not_found(engine_factory):
     assert result.status == "in_progress" and [order["goods_id"] for order in result.data["orders"]] == ["online-notebook"]
 
 
-def test_group_counts_one_same_moment_round_when_accepted_rejected_or_replayed(engine_factory):
-    """同刻预算按组计：一个开始组受理、整组被拒、重放都只加一轮。"""
+def test_group_counts_one_same_moment_round_when_accepted_or_rejected(engine_factory):
+    """同刻预算按组计：一个开始组受理或整组被拒都只加一轮。"""
     engine = engine_factory()
     act_group(engine, "sleepy", sleep(60), use_app("哔哩哔哩"))
     assert engine.context.state.agents[1].same_moment_rounds == 1
     _, started = act_group(engine, "pair", do_at("家", "测试休息"), use_app("哔哩哔哩"))
     assert [item.status for item in started] == ["in_progress", "in_progress"]
     assert engine.context.state.agents[1].same_moment_rounds == 2
-    replayed = engine_factory()
-    decision = context(replayed, "first")
-    replayed.begin_decision_round([decision])
-    replayed.observe(decision)
-    calls = [DirectToolCall(decision, action_identity("first", 1), MAIN_TOOL, sleep(60)),
-             DirectToolCall(decision, action_identity("first", 2), SIDE_TOOL, use_app("哔哩哔哩"))]
-    for call in calls:
-        replayed.submit_action(call)
-    replayed.commit_decision_round("first")
-    assert replayed.context.state.agents[1].same_moment_rounds == 1
-    again = context(replayed, "again")
-    replayed.begin_decision_round([again])
-    replayed.observe(again)
-    for call in calls:
-        replayed.submit_action(DirectToolCall(again, call.action_id, call.tool_name, call.request))
-    returned = replayed.commit_decision_round("again")
-    assert [result.action_id for result in returned] == [calls[0].action_id] and returned[0].status == "rejected"
-    assert replayed.context.state.agents[1].same_moment_rounds == 2
-    reused = [row for row in events(replayed, "action_rejected") if row.data.get("reused")]
-    assert [row.action_id for row in reused] == [call.action_id for call in calls]
+    refused = engine_factory()
+    _, results = act_group(refused, "refused", sleep(60), use_app("哔哩哔哩"))
+    assert [item.status for item in results] == ["rejected", "rejected"]
+    assert refused.context.state.agents[1].same_moment_rounds == 1
 
 
 def test_name_class_rejections_are_free_per_group(engine_factory):
@@ -345,23 +329,6 @@ def test_name_class_rejections_are_free_per_group(engine_factory):
     act_group(engine, "three", do_at("家", "测试休息"), purchase("不存在的商品"))
     assert engine.context.state.agents[1].same_moment_rounds == 1
     assert engine.context.state.agents[1].body.relaxation_need == pytest.approx(0.25)
-
-
-def test_inconsistent_group_replay_is_a_protocol_fault(engine_factory):
-    """一组的两条动作一条有存档结果一条没有：协议故障，运行停止。"""
-    engine = engine_factory()
-    _, first = act(engine, "solo", sleep(60))
-    assert first.status == "in_progress"
-    while engine.context.state.activities[first.activity_id].status == "active":
-        from tests.life.conftest import advance_next
-        advance_next(engine)
-    decision = context(engine, "mixed")
-    engine.begin_decision_round([decision])
-    engine.observe(decision)
-    engine.submit_action(DirectToolCall(decision, action_identity("solo"), MAIN_TOOL, sleep(60)))
-    engine.submit_action(DirectToolCall(decision, action_identity("mixed", 2), SIDE_TOOL, use_app("哔哩哔哩")))
-    with pytest.raises(ProtocolError, match="Start group replay is inconsistent"):
-        engine.commit_decision_round("mixed")
 
 
 def test_control_tool_cannot_resume_through_a_start_tool_and_slot_blocks_resume(engine_factory):

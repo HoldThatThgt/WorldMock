@@ -373,15 +373,13 @@ def test_a_conclusion_that_only_changes_errands_is_no_memory_write_point():
     assert memory["problems"] == [{"code": "conclusion_without_memory_update", "event_id": "event-2", "agent_id": 1}]
 
 
-def test_a_replayed_conclusion_recorded_without_errands_is_an_integrity_fault():
+def test_a_conclusion_recorded_without_errands_is_an_integrity_fault():
     """质量报告经 control_items 读每一条 conclude_activity 请求（docs/design/04-simulation-engine.md、2.3）：带 items 而缺
-    请求级 errands 的旧形状记录是完整性故障，重放（reused）的请求也不例外——收尾记忆的计数不读重放的请求，拒绝它的是记忆
-    核对这一处读取。同一条重放请求带着 errands（空列表）时报告照常生成、没有记忆问题。引擎只在原请求之后才写重放，这样
-    单独一条重放只能以已认证事件的形状构造。"""
+    请求级 errands 的旧形状记录是完整性故障。同一条请求带着 errands（空列表）时报告照常生成、没有记忆问题。"""
     def report(request: dict) -> dict:
-        """只有这一条重放的收尾请求与运行终点的事件集的质量报告。"""
+        """只有这一条收尾请求与运行终点的事件集的质量报告。"""
         events = [_event(1, "action_requested", agent_id=1, decision_id="decision", action_id="action",
-                         data={"tool_name": "conclude_activity", "reused": True, "request": request}),
+                         data={"tool_name": "conclude_activity", "request": request}),
                   _event(2, "run_ended", occurred_at=200)]
         return build_quality_report(events, [], _manifest(end=200), sample_display_names())
 
@@ -981,17 +979,17 @@ def _protocol_error(sequence, call_id, code, purpose=None):
     return _event(sequence, "model_response", agent_id=1, decision_id=f"decision-{call_id}", data=response)
 
 
-def _rejected(sequence, code, occurred_at, reused=False):
-    """一条业务拒绝事件（action_rejected，重放带 reused）。"""
-    data = {"error_code": code, **({"reused": True} if reused else {})}
+def _rejected(sequence, code, occurred_at):
+    """一条业务拒绝事件（action_rejected）。"""
+    data = {"error_code": code}
     return _event(sequence, "action_rejected", occurred_at=occurred_at, agent_id=1, action_id=f"action-{sequence}",
                   data=data)
 
 
 def test_name_rejections_are_counted_apart_from_other_protocol_errors():
     """名称类拒绝一节（docs/design/03-resource-engine.md、第九章）：宿主的名称类纠错按 protocol_feedback 的码逐码计数，
-    其余协议错误（非法 JSON、没有工具调用、参数形状）另计，工作验收等有 purpose 的调用不算；环境的名称类拒绝按码计数（不含
-    重放），同一人物同一秒的前两次记为免计；名称类以外的拒绝码不进这一节。"""
+    其余协议错误（非法 JSON、没有工具调用、参数形状）另计，工作验收等有 purpose 的调用不算；环境的名称类拒绝按码计数，
+    同一人物同一秒的前两次记为免计；名称类以外的拒绝码不进这一节。"""
     events = [
         _protocol_error(1, "c1", "NAME_NOT_FOUND"),
         _protocol_error(2, "c2", "ACTION_NOT_OFFERED"),
@@ -1002,7 +1000,7 @@ def test_name_rejections_are_counted_apart_from_other_protocol_errors():
         _protocol_error(7, "c7", "NAME_NOT_FOUND", purpose="plan_day"),
         _rejected(8, "SUPPLY_NOT_FOUND", 500), _rejected(9, "SUPPLY_NOT_FOUND", 500),
         _rejected(10, "ACTION_REQUEST_INVALID", 500), _rejected(11, "TASK_NOT_FOUND", 500),
-        _rejected(12, "SUPPLY_NOT_FOUND", 600), _rejected(13, "SUPPLY_NOT_FOUND", 600, reused=True),
+        _rejected(12, "SUPPLY_NOT_FOUND", 600),
     ]
     report = build_quality_report(events, [], _manifest(end=1100), sample_display_names())["name_rejections"]
     assert (report["host_protocol_errors"], report["other_protocol_errors"]) == (3, 3)

@@ -199,9 +199,9 @@ def _slice(cached: _AgentEvents, name: str, bounds: tuple[int, int | None]) -> l
 
 def _successful(cached: _AgentEvents, results: dict[str, Event], tool: str,
                 bounds: tuple[int, int | None]) -> list[Event]:
-    """@brief 区间内指定工具的成功请求（即时结果 completed，不是重放）。"""
+    """@brief 区间内指定工具的成功请求（即时结果 completed）。"""
     return [event for event in _slice(cached, "action_requested", bounds)
-            if event.data.get("tool_name") == tool and not event.data.get("reused")
+            if event.data.get("tool_name") == tool
             and event.action_id in results and results[event.action_id].data.get("status") == "completed"]
 
 
@@ -253,8 +253,7 @@ def _request_lines(build: _Build, request: Event, result: Event) -> list[_Line]:
     """@brief 一个世界请求的 settled 句；下单逐订单一句，订单仍 pending 时标未了结。"""
     context, key = build.context, (request.occurred_at, request.event_seq)
     orders = (result.data.get("data") or {}).get("orders", [])
-    if (request.data["tool_name"] in START_TOOLS and orders and result.data.get("status") == "completed"
-            and not request.data.get("reused")):
+    if request.data["tool_name"] in START_TOOLS and orders and result.data.get("status") == "completed":
         deliveries = context.state.deliveries
         data = result.data.get("data") or {}
         return [_Line(purchase_sentence(context, order), key,

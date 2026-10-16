@@ -16,7 +16,7 @@ from tests.life.conftest import (
     purchase, query, travel,
 )
 from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
-from tests.life.environment_runtime import act, act_group, settle_decision
+from tests.life.environment_runtime import act, act_group, events, settle_decision
 from worldmock.life.randomness import random_stream
 
 ZONE = ZoneInfo("Asia/Shanghai")
@@ -278,17 +278,15 @@ def test_answer_is_stored_in_machine_form(engine_factory):
     assert not any("一" <= char <= "鿿" for char in str(answer))
 
 
-def test_answer_is_the_second_result_and_replaying_the_action_returns_it(engine_factory):
-    """做完后这条请求的 result.status 是 completed，details.query.rows 非空；用同一个 action_id 再提交一次，返回的是存档的
-    第二条结果，没有新活动。"""
+def test_answer_is_the_second_result(engine_factory):
+    """做完后这条请求的 result.status 是 completed，details.query.rows 非空；这条动作最后一条 action_result 事件就是
+    第二条结果，带着做完时的答案。"""
     engine = engine_factory()
     done, answer = _asked(engine, "tea", "柠檬茶")
     assert answer["rows"]
-    stored = engine.context.state.processed_actions[action_identity("tea")].result
-    _, replayed = act(engine, "again", query("柠檬茶"), action_id=action_identity("tea"))
-    assert replayed.model_dump(mode="json") == stored
-    assert replayed.status == "completed" and replayed.data["activity"]["data"]["answer"] == done.data["answer"]
-    assert list(engine.context.state.activities) == [done.activity_id]
+    last = [row for row in events(engine, "action_result") if row.action_id == action_identity("tea")][-1]
+    assert last.data["status"] == "completed"
+    assert last.data["activity"]["data"]["answer"] == done.data["answer"]
 
 
 def test_answer_stays_for_the_stay_and_leaves_a_settled_line_after_departure(engine_factory):

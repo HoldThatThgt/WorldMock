@@ -768,8 +768,8 @@ def _name_rejection_quality(events: list[Event]) -> dict:
     """@brief 名称类拒绝与其余协议错误分开计数（docs/design/05-recording-engine.md）。
 
     宿主一侧取人物决策（没有 purpose 的模型调用，按调用身份去重后的终态响应）的 protocol_feedback 错误码：
-    名称类纠错码（error_contract.HOST_NAME_CODES）逐码计数，其余协议错误另计；环境一侧取 action_rejected（不含
-    重放）按名称类拒绝码（ENVIRONMENT_NAME_CODES）逐码计数，并按同一人物同一模拟秒的结算先后用同刻规则分出免计（不计同刻
+    名称类纠错码（error_contract.HOST_NAME_CODES）逐码计数，其余协议错误另计；环境一侧取 action_rejected
+    按名称类拒绝码（ENVIRONMENT_NAME_CODES）逐码计数，并按同一人物同一模拟秒的结算先后用同刻规则分出免计（不计同刻
     轮数、不施加脉冲）的次数。只报告，不放行。
     """
     from worldmock.life.same_moment import free_rejection_flags
@@ -780,8 +780,7 @@ def _name_rejection_quality(events: list[Event]) -> dict:
         if isinstance(report, dict) and not event.data.get("purpose"):
             code = report["error_code"]
             (host if code in HOST_NAME_CODES else other)[code] += 1
-    rejected = [event for event in events
-                if event.event_type == "action_rejected" and event.data.get("reused") is not True]
+    rejected = [event for event in events if event.event_type == "action_rejected"]
     codes = Counter(event.data.get("error_code") for event in rejected)
     moments: dict[tuple, list] = defaultdict(list)
     for event in rejected:

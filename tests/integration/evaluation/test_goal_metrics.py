@@ -153,16 +153,6 @@ def test_empty_samples_are_explicit_and_shared_behavior_entrypoint_matches():
 
 
 
-def test_terminal_action_replay_does_not_turn_cancelled_activity_into_rejection():
-    terminal = event(1, "action_result", clock(), {"status": "cancelled"}, action_id="cancelled")
-    replay = event(2, "action_rejected", clock(), {"status": "cancelled", "reused": True}, action_id="cancelled")
-    metrics = report([terminal, replay])
-    assert metrics["external_constraints"]["terminal_action_count"] == 1
-    assert metrics["external_constraints"]["observed_action_acceptance_rate"] == 1
-    assert metrics["external_constraints"]["evidence_complete"] is True
-    assert metrics["external_constraints"]["other_rejections"]["count"] == 0
-
-
 @pytest.mark.parametrize("code", [
     "LOCATION_CLOSED", "INSUFFICIENT_FUNDS", "INSUFFICIENT_TRAVEL_FUNDS",
     "DELIVERY_NOT_DUE", "PARCEL_NOT_READY", "CONTENT_PREREQUISITE_UNMET",
@@ -170,8 +160,7 @@ def test_terminal_action_replay_does_not_turn_cancelled_activity_into_rejection(
 def test_actual_world_constraint_is_counted_once_and_fails_the_block_gate(code):
     events = [event(1, "action_rejected", clock(), {"error_code": code}, action_id="blocked"),
               event(2, "action_result", clock(), {"status": "rejected", "error_code": code},
-                    action_id="blocked"),
-              event(3, "action_rejected", clock(), {"error_code": code, "reused": True}, action_id="blocked")]
+                    action_id="blocked")]
     metrics = report(events)
     external = metrics["external_constraints"]
     assert external["block_count"] == 1 and external["by_error_code"] == {code: 1}
@@ -239,7 +228,6 @@ def test_guided_rejections_count_as_other_rejections_not_external_constraints():
             event(3 * index + 1, "action_rejected", clock(), {"error_code": code}, action_id=action),
             event(3 * index + 2, "action_result", clock(), {"status": "rejected", "error_code": code},
                   action_id=action),
-            event(3 * index + 3, "action_rejected", clock(), {"error_code": code, "reused": True}, action_id=action),
         ]
     metrics = report(events)
     external = metrics["external_constraints"]

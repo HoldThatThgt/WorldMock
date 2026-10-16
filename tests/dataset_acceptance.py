@@ -626,7 +626,7 @@ MUTATIONS = (
     SourceMutation("terminal_result_without_query_details", "worldmock.life.result_projection::_details",
         'if snapshot is not None and snapshot["kind"] == "query":', "if False:",
         ("tests/integration/life/test_query_answer.py"
-         "::test_answer_is_the_second_result_and_replaying_the_action_returns_it",
+         "::test_answer_is_the_second_result",
          "tests/integration/life/test_query_answer.py"
          "::test_answer_stays_for_the_stay_and_leaves_a_settled_line_after_departure")),
     # ---- 自动接续轨道（A）：「内容 app 自动接续」「自动接续的显示与记录」 ----
@@ -878,4 +878,12 @@ MUTATIONS = (
         "copy.deepcopy(value, memo)", "value",
         ("tests/unit/life/test_world_state_copy.py::test_every_other_field_is_a_full_deep_copy",)),
     # ---- 存储提交路径（长时运行成本第一章）结束 ----
+    # ---- 世界状态与检查点存储（长时运行成本第二章）----
+    SourceMutation("action_identity_form_unchecked", "worldmock.life.decision_coordinator::_formed_action_identity",
+        "return number != action_id and len(number) == 4 and number.isascii() and number.isdigit()", "return True",
+        ("tests/integration/life/test_action_identity.py"
+         "::test_an_action_identity_not_formed_from_its_decision_is_refused_before_any_event",
+         "tests/integration/life/test_action_identity.py"
+         "::test_a_settled_action_identity_cannot_be_submitted_in_a_later_round")),
+    # ---- 世界状态与检查点存储（长时运行成本第二章）结束 ----
 )
