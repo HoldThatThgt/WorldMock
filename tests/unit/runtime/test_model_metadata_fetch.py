@@ -24,6 +24,14 @@ def _http_error(status):
     return requests.HTTPError(f"HTTP {status}", response=SimpleNamespace(status_code=status))
 
 
+def _outcome(config):
+    """读取一次元数据：成功为元数据，失败时返回输入错误，交给断言报告。"""
+    try:
+        return load_model_metadata(config)
+    except EnvironmentInputError as error:
+        return error
+
+
 def _service(monkeypatch, frozen, script):
     """按脚本逐次回答 GET：异常从 GET 抛出，("status", n) 由 raise_for_status 抛出，("json", e) 由 json() 抛出，
     "ok" 返回合法元数据；返回 GET 记录与等待记录。"""
@@ -61,7 +69,7 @@ def test_transient_failures_are_retried_whole_with_fixed_waits(monkeypatch, fail
     """连接、TLS、超时、响应体中断与 429/5xx 各失败两次后成功：整次读取三次，等待 2、4 秒，元数据等于成功的那一份。"""
     frozen = inputs()
     calls, waits = _service(monkeypatch, frozen, [failure, failure, "ok"])
-    assert load_model_metadata(frozen.config.model) == frozen.model_metadata
+    assert _outcome(frozen.config.model) == frozen.model_metadata
     assert len(calls) == 3
     assert waits == [2.0, 4.0]
 

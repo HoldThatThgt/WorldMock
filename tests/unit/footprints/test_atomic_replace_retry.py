@@ -42,13 +42,23 @@ def _patch(monkeypatch, name: str, failures: int, error: OSError):
     return proxy, sleeps
 
 
+def _outcome(path, content: bytes) -> OSError | None:
+    """原子写一次：成功为空，被拒绝时返回那次系统错误，交给断言报告。"""
+    try:
+        atomic_write(path, content)
+    except OSError as error:
+        return error
+    return None
+
+
 def test_windows_permission_error_is_retried_then_published(tmp_path, monkeypatch, caplog):
     """Windows 上前三次替换被拒绝：按 0.05、0.1、0.2 秒重试后发布新字节，每次重试一条警告。"""
     path = tmp_path / "status.json"
     path.write_bytes(b"old")
     proxy, sleeps = _patch(monkeypatch, "nt", 3, PermissionError("locked"))
     with caplog.at_level(logging.WARNING):
-        atomic_write(path, b"new")
+        failure = _outcome(path, b"new")
+    assert failure is None
     assert path.read_bytes() == b"new"
     assert sleeps == [0.05, 0.1, 0.2] and proxy.replaces == 4
     assert caplog.text.count("Atomic replace denied, retrying in") == 3

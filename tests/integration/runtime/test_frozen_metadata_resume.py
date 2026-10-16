@@ -23,12 +23,12 @@ def sleeps(monkeypatch):
 
 
 def _offline(monkeypatch):
-    """把元数据服务换成一律 TLS 失败的记录器，返回调用记录。"""
+    """把元数据服务换成记录调用并以断言失败的替身（不被元数据读取的 requests 异常处理吞掉），返回调用记录。"""
     calls = []
 
     def get(url, **arguments):
         calls.append(url)
-        raise requests.exceptions.SSLError("metadata service must not be read")
+        raise AssertionError("metadata service must not be read")
 
     monkeypatch.setattr(requests, "get", get)
     return calls
@@ -55,7 +55,7 @@ def _manifest(run_dir):
 
 @pytest.mark.asyncio
 async def test_resume_and_replay_make_no_metadata_request(tmp_path, native_runtime, monkeypatch, sleeps):
-    """父运行之后元数据服务一律失败：恢复与重放照常跑完，没有一次读取，子运行清单的模型元数据等于父运行的。"""
+    """父运行之后元数据服务不可读：恢复与重放照常跑完，没有一次读取，子运行清单的模型元数据等于父运行的。"""
     root, _, _ = native_runtime
     parent, checkpoint, observation = await _parent(tmp_path, root)
     calls = _offline(monkeypatch)
@@ -144,7 +144,7 @@ async def test_parent_with_an_edited_manifest_fails_before_environment_load_or_c
 
 @pytest.mark.asyncio
 async def test_engine_open_reads_the_store_manifest_metadata(tmp_path, native_runtime, monkeypatch, sleeps):
-    """从环境目录打开已有运行：元数据服务一律失败也能打开，输入里的模型元数据就是清单冻结的那一份。"""
+    """从环境目录打开已有运行：元数据服务不可读也能打开，输入里的模型元数据就是清单冻结的那一份。"""
     from worldmock.life.engine import LifeEngine
 
     root, _, _ = native_runtime

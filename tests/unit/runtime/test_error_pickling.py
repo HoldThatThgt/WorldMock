@@ -61,6 +61,14 @@ def _same(left: BaseException, right: BaseException) -> bool:
     return type(left) is type(right) and left.args == right.args and vars(left) == vars(right)
 
 
+def _round_trip(module, error: BaseException) -> BaseException:
+    """经给定序列化模块往返一次；重建失败时返回那次失败，交给断言报告。"""
+    try:
+        return module.loads(module.dumps(error))
+    except Exception as failure:
+        return failure
+
+
 def test_every_worldmock_error_survives_pickle_and_ray_transport():
     """每个故障类经 pickle 与 ray.cloudpickle 往返后类型、args 与 vars() 不变，带 add_note 附加说明的实例也一样；
     子类清单由运行时与源码两边核对，新增故障类必须登记到 SAMPLES。"""
@@ -72,9 +80,9 @@ def test_every_worldmock_error_survives_pickle_and_ray_transport():
         noted.add_note("context")
         for error in (plain, noted):
             for module in (pickle, cloudpickle):
-                restored = module.loads(module.dumps(error))
-                assert _same(restored, error), (kind.__name__, module.__name__)
-        assert pickle.loads(pickle.dumps(noted)).__notes__ == ["context"]
+                restored = _round_trip(module, error)
+                assert _same(restored, error), (kind.__name__, module.__name__, restored)
+        assert getattr(_round_trip(pickle, noted), "__notes__", None) == ["context"]
 
 
 def test_actor_error_reaches_the_driver_as_its_own_type():
