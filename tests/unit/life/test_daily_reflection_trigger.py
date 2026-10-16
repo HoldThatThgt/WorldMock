@@ -45,7 +45,7 @@ def _world(now: int, sleeps, last_decision_time: int | None = None, timezone: st
         schema_version=WORLD_SCHEMA_VERSION, version=0, current_time=now, end_time=now + 30 * 86400, run_id="run",
         timezone=timezone, persona_sha256="a" * 64, config_sha256="b" * 64, agents={1: person},
         accounts={"agent:1": 100, "external:scenario": -100},
-        activities={item.activity_id: item for item in sleeps}, random_seed=7, random_state="frozen"))
+        activities=list(sleeps), random_seed=7, random_state="frozen"))
 
 
 def _woke(day: int, start: str, end: str, identity: str = "night", start_day: int | None = None, **options):

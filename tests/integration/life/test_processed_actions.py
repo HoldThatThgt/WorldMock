@@ -47,8 +47,8 @@ def _remove_origin(engine, activity_id: str) -> str:
 
 
 def _stored_activity(engine, activity_id: str) -> dict:
-    """已提交世界里这项活动的 JSON。"""
-    return engine.context.store.state["activities"][activity_id]
+    """已提交世界里这项活动的 JSON（活动数组里按身份找）。"""
+    return next(row for row in engine.context.store.state["activities"] if row["activity_id"] == activity_id)
 
 
 def test_processed_actions_keep_only_this_second_and_unfinished_origins(tmp_path, monkeypatch):

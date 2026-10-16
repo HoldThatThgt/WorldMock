@@ -27,7 +27,7 @@ from worldmock.life.schedule import MAX_PLAN_GOALS, PLAN_GOAL_MAX_CHARS, DayPlan
 from worldmock.scheduling.events import ScheduledEvent
 
 #: 世界状态结构版本：版本不符的检查点与导出直接拒绝，不迁移。
-WORLD_SCHEMA_VERSION = 14
+WORLD_SCHEMA_VERSION = 15
 #: 运行清单结构版本：顶层字段集合或 stage_model_identity 的键集变了才升；版本不符的运行不能打开、恢复或重放，
 #: 导出认证同样拒绝，不迁移。
 RUN_MANIFEST_SCHEMA_VERSION = 6
@@ -582,6 +582,7 @@ class WorldState(StrictModel):
     config_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     agents: dict[int, AgentState]
     accounts: dict[str, int]
+    #: 活动按加入世界的先后保存；JSON 里是按这个先后排列的数组（docs/design/09-io-formats.md「世界、人物与活动」）。
     activities: dict[str, ActivityState] = Field(default_factory=dict)
     sessions: dict[str, SessionState] = Field(default_factory=dict)
     deliveries: dict[str, DeliveryState] = Field(default_factory=dict)
@@ -614,6 +615,31 @@ class WorldState(StrictModel):
         for name, value in self.__dict__.items():
             copied.__dict__[name] = dict(value) if name in _SHARED_ENTRY_FIELDS else copy.deepcopy(value, memo)
         return copied
+
+    @field_serializer("activities", when_used="json")
+    def serialize_activities(self, value: dict[str, ActivityState]) -> list[ActivityState]:
+        """@brief 活动按加入世界的先后写成数组：规范 JSON 只给对象的键排序，恢复后的先后与不中断的运行相同。"""
+        return list(value.values())
+
+    @field_validator("activities", mode="before")
+    @classmethod
+    def activities_from_array(cls, value: Any) -> dict[str, Any]:
+        """@brief 数组按先后还原为以 activity_id 为键的映射；不是活动对象数组或身份重复即拒绝，不接受映射写法。"""
+        if not isinstance(value, list):
+            _LOGGER.error("World activities are not an array of activity objects")
+            raise ValueError("world activities must be an array of activity objects")
+        mapping: dict[str, Any] = {}
+        for item in value:
+            identity = item.activity_id if isinstance(item, ActivityState) else (
+                item.get("activity_id") if isinstance(item, dict) else None)
+            if not isinstance(identity, str):
+                _LOGGER.error("World activities are not an array of activity objects")
+                raise ValueError("world activities must be an array of activity objects")
+            if identity in mapping:
+                _LOGGER.error("World activities repeat the activity identity %s", identity)
+                raise ValueError("world activities repeat an activity identity")
+            mapping[identity] = item
+        return mapping
 
     @model_validator(mode="after")
     def validate_world(self) -> "WorldState":

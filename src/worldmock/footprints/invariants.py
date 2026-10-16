@@ -310,7 +310,7 @@ def _payment_invariants(events: list[dict], state: dict, sources: dict[str, dict
 
 def _purchase_activities(state: dict) -> dict[str, str]:
     """@brief 商品履约记录所属的购买活动，只取最终检查点里购买活动列出的记录身份。"""
-    return {identity: activity["activity_id"] for activity in state.get("activities", {}).values()
+    return {identity: activity["activity_id"] for activity in state.get("activities", [])
             if activity["kind"] == "purchase" for identity in activity["data"]["order_ids"]}
 
 

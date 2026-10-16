@@ -11,7 +11,7 @@ from worldmock.status import observed_model_usage, read_status, write_status
 def test_status_reads_confirmed_state_without_modifying_any_run_file(tmp_path):
     run = tmp_path / 'run'
     store = FootprintStore.create(run, {'run_id': 'run', 'agent_ids': [1], 'window': {'timezone': 'UTC'}},
-                                  {'version': 0, 'current_time': 100, 'end_time': 200, 'activities': {},
+                                  {'version': 0, 'current_time': 100, 'end_time': 200, 'activities': [],
                                    'agents': {'1': {'agent_id': 1, 'location_id': 'home',
                                                     'next_decision_at': 100}}})
     store.close()
@@ -33,9 +33,9 @@ def test_status_preserves_earlier_body_decision_time_instead_of_activity_end(tmp
     run = tmp_path / 'run'
     store = FootprintStore.create(run, {'run_id': 'run', 'agent_ids': [1], 'window': {'timezone': 'UTC'}},
                                   {'version': 0, 'current_time': 100, 'end_time': 2000,
-                                   'activities': {'watch': {'status': 'active', 'planned_end_at': 1900,
-                                                            'activity_id': 'watch', 'agent_id': 1, 'started_at': 100,
-                                                            'next_interaction_at': 1000}},
+                                   'activities': [{'status': 'active', 'planned_end_at': 1900,
+                                                   'activity_id': 'watch', 'agent_id': 1, 'started_at': 100,
+                                                   'next_interaction_at': 1000}],
                                    'agents': {'1': {'agent_id': 1, 'location_id': 'home',
                                                     'next_decision_at': 143}}})
     store.close()
@@ -44,12 +44,29 @@ def test_status_preserves_earlier_body_decision_time_instead_of_activity_end(tmp
     assert (run / 'footprints.sqlite').read_bytes() == before
 
 
+def test_status_refuses_a_run_directory_whose_world_activities_are_not_an_array(tmp_path, caplog):
+    """更早的引擎写下的运行目录（活动是以身份为键的映射）：状态查询写英文错误日志，以可读的 ValueError 拒绝，不读它。"""
+    import logging
+
+    run = tmp_path / 'run'
+    store = FootprintStore.create(run, {'run_id': 'run', 'agent_ids': [1], 'window': {'timezone': 'UTC'}},
+                                  {'version': 0, 'current_time': 100, 'end_time': 200, 'activities': {},
+                                   'agents': {'1': {'agent_id': 1, 'location_id': 'home',
+                                                    'next_decision_at': 100}}})
+    store.close()
+    message = 'Run directory was written by an older engine: world activities are not an array'
+    caplog.set_level(logging.ERROR)
+    with pytest.raises(ValueError, match=f'^{message}$'):
+        read_status(run)
+    assert message in caplog.text
+
+
 def _store_with_responses(run, models):
     """建一个最小运行库，按给定模型名各落一条带用量的模型响应（None 表示响应不带模型名）。"""
     from worldmock.footprints.models import EventDraft
 
     store = FootprintStore.create(run, {'run_id': '运行一', 'agent_ids': [1], 'window': {'timezone': 'UTC'}},
-                                  {'version': 0, 'current_time': 100, 'end_time': 200, 'activities': {},
+                                  {'version': 0, 'current_time': 100, 'end_time': 200, 'activities': [],
                                    'agents': {}})
     usage = {'prompt_tokens': 3, 'completion_tokens': 2, 'total_tokens': 5}
     drafts = [EventDraft(event_type='model_response', occurred_at=100, source_kind='model', visibility='system',

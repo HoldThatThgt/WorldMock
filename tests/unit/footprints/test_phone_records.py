@@ -576,8 +576,8 @@ def order_world(last=4000):
     orders = {"o1": trip_order("o1", "delivery", "delivered", 900),
               "o2": trip_order("o2", "station_pickup", "pending", 20200, group_key="parcel"),
               "o3": trip_order("o3", "pickup", "delivered", 200, app_id=None, group_key="store")}
-    state = {"deliveries": orders, "activities": {"buy": {"activity_id": "buy", "kind": "purchase",
-                                                          "data": {"order_ids": ["o1", "o2", "o3"]}}}}
+    state = {"deliveries": orders, "activities": [{"activity_id": "buy", "kind": "purchase",
+                                                   "data": {"order_ids": ["o1", "o2", "o3"]}}]}
     paid = system(1, {"kind": "purchase_payment", "activity_id": "buy", "order_ids": ["o1", "o2"],
                       "amount_fen": 100}, at=START + 200)
     arrival = system(4, {"kind": "delivery_arrival", "scheduled_id": "delivery-o1", "orders": [

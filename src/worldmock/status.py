@@ -38,7 +38,7 @@ def read_status(run_dir: Path) -> dict:
             "SELECT json_extract(body,'$.event_type'),count(*) FROM events GROUP BY json_extract(body,'$.event_type')"))
         points = [json.loads(row[0])["checkpoint_id"] for row in connection.execute(
             "SELECT body FROM checkpoints ORDER BY rowid DESC LIMIT 5")]
-        active = [activity for activity in state["activities"].values() if activity["status"] in ("active", "paused")]
+        active = [activity for activity in _world_activities(state) if activity["status"] in ("active", "paused")]
         result = {"run_id": manifest["run_id"], "state_version": state["version"],
                   "current_time": datetime.fromtimestamp(state["current_time"],
                                                          ZoneInfo(manifest["window"]["timezone"])).isoformat(),
@@ -69,6 +69,15 @@ def observed_model_usage(run_dir: Path) -> list[dict]:
         return _observed_usage(connection)
     finally:
         connection.close()
+
+
+def _world_activities(state: dict) -> list[dict]:
+    """@brief 已存世界的活动数组；不是数组的世界由更早的引擎写下，状态查询不读它，写英文错误日志并拒绝。"""
+    activities = state["activities"]
+    if not isinstance(activities, list):
+        logger.error("Run directory was written by an older engine: world activities are not an array")
+        raise ValueError("Run directory was written by an older engine: world activities are not an array")
+    return activities
 
 
 def _run_database(root: Path) -> Path:
@@ -103,7 +112,7 @@ def _people_status(connection: sqlite3.Connection, state: dict) -> list[dict]:
     people = []
     for person in state["agents"].values():
         identity = person["agent_id"]
-        activities = sorted((item for item in state["activities"].values()
+        activities = sorted((item for item in state["activities"]
                              if item["agent_id"] == identity and item["status"] == "active"),
                             key=lambda item: (item["started_at"], item["activity_id"]))
         rows = connection.execute("""

@@ -48,7 +48,7 @@ def _checkpoint_states(case: Path) -> dict[str, dict]:
 
 def _ledger_is_readable(state: dict) -> None:
     """每个条目要么是本秒结算的结果，要么是世界里某项活动的开始动作；进行中或暂停活动的开始动作都在。"""
-    activities = state["activities"].values()
+    activities = state["activities"]
     origins = {activity["origin_action_id"] for activity in activities}
     live = {activity["origin_action_id"] for activity in activities if activity["status"] in {"active", "paused"}}
     for key, stored in state["processed_actions"].items():

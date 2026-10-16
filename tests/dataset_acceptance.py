@@ -292,10 +292,10 @@ MUTATIONS = (
         "format_version: Literal[5]", "format_version: Literal[4]",
         ("tests/unit/catalog/test_manifest_version.py"
          "::test_otherwise_complete_package_with_an_old_version_number_is_refused",)),
-    SourceMutation("world_schema_version_still_thirteen", "worldmock.life.models::WORLD_SCHEMA_VERSION",
-        "WORLD_SCHEMA_VERSION = 14", "WORLD_SCHEMA_VERSION = 13",
+    SourceMutation("world_schema_version_still_fourteen", "worldmock.life.models::WORLD_SCHEMA_VERSION",
+        "WORLD_SCHEMA_VERSION = 15", "WORLD_SCHEMA_VERSION = 14",
         ("tests/integration/life/test_state_serialization.py"
-         "::test_world_state_schema_is_fourteen_and_the_previous_version_is_refused",)),
+         "::test_world_state_schema_is_fifteen_and_the_previous_version_is_refused",)),
     SourceMutation("export_schema_version_still_six", "worldmock.footprints.export::EXPORT_SCHEMA_VERSION",
         "EXPORT_SCHEMA_VERSION = 7", "EXPORT_SCHEMA_VERSION = 6",
         ("tests/integration/footprints/test_acs_export.py"
@@ -898,5 +898,13 @@ MUTATIONS = (
         "if activity.origin_action_id not in state.processed_actions:", "if False:",
         ("tests/integration/life/test_processed_actions.py"
          "::test_an_activity_whose_origin_action_is_missing_cannot_end",)),
+    SourceMutation("activities_stored_in_identity_order", "worldmock.life.models::WorldState.serialize_activities",
+        "return list(value.values())", "return sorted(value.values(), key=lambda activity: activity.activity_id)",
+        ("tests/integration/life/test_state_serialization.py::test_activities_are_an_array_in_insertion_order",
+         "tests/integration/life/test_state_serialization.py::test_restored_world_keeps_the_live_activity_order")),
+    SourceMutation("repeated_activity_identity_accepted", "worldmock.life.models::WorldState.activities_from_array",
+        "if identity in mapping:", "if False:",
+        ("tests/integration/life/test_state_serialization.py"
+         "::test_repeated_or_malformed_activity_arrays_are_refused",)),
     # ---- 世界状态与检查点存储（长时运行成本第二章）结束 ----
 )
