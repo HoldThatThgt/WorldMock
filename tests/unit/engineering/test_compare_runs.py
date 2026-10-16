@@ -555,6 +555,108 @@ def test_processed_actions_rule_accepts_only_terminal_overwrites(tmp_path):
     assert report["verdict"] == "different"
 
 
+def _terminal_pair() -> tuple[Recording, Recording]:
+    """@brief 两侧保留同一开始动作；旧记录被终态覆盖，新记录保留含数组快照的开始结果。"""
+    base, head = Recording(), Recording(prefix="b")
+    for recording in (base, head):
+        _start_results(recording)
+    head.states[7]["processed_actions"][head.action]["result"].update(status="in_progress", occurred_at=T0)
+    return base, head
+
+
+def _compare_terminal_chains(root: Path, base: Recording, head: Recording) -> dict:
+    """@brief 两段链与导出内嵌恢复点覆盖所有状态入口，启用终态覆盖投影。"""
+    sides = []
+    for name, recording in (("base", base), ("head", head)):
+        runs, export = _two_segments(root / name, recording)
+        manifest_path = export / "manifest.json"
+        manifest = json.loads(manifest_path.read_bytes())
+        manifest["checkpoint"] = recording.record(7)
+        manifest_path.write_bytes(_bytes(manifest))
+        sides.append(Side(Chain.load(runs), export))
+    return compare(*sides, Options(None, parse_rules(["processed-actions-pruned"]), True))
+
+
+def test_terminal_overwrites_keep_each_sides_identity_context_in_every_state_layer(tmp_path):
+    base, head = _terminal_pair()
+    report = _compare_terminal_chains(tmp_path, base, head)
+    assert report["verdict"] == "equal" and report["problems"] == []
+    for name, count in (("restart_states", 1), ("day_end_states", 1), ("every_checkpoint", 2), ("final_state", 1)):
+        assert report["layers"][name]["compared"] == count
+        assert report["layers"][name]["different"] == 0
+    assert report["layers"]["export"]["manifest.json"]["compared"] == 1
+    assert report["layers"]["export"]["manifest.json"]["different"] == 0
+    assert report["rules"]["processed-actions-pruned"]["terminal_overwrites"] == 5
+
+
+@pytest.mark.parametrize("changed", [False, True])
+def test_terminal_overwrites_compare_the_embedded_export_checkpoint(tmp_path, changed):
+    """@brief 单段导出保留真实最终检查点，规范化结果相等，覆盖范围外的引用变化仍在清单中报出。"""
+    base, head = _terminal_pair()
+    if changed:
+        head.states[7]["activities"][head.activity]["origin_request_event_id"] = head.eid(5)
+    report = _compare(tmp_path, base, head, "processed-actions-pruned")
+    assert report["verdict"] == ("different" if changed else "equal") and report["problems"] == []
+    manifest = report["layers"]["export"]["manifest.json"]
+    assert manifest["compared"] == 1 and manifest["different"] == int(changed)
+    if changed:
+        assert any(path["path"].endswith(".origin_request_event_id")
+                   for item in manifest["first"] for path in item["paths"])
+
+
+@pytest.mark.parametrize("side,identity", [("base", "f" * 32), ("head", "f" * 32), ("head", "<event:4>")])
+def test_terminal_overwrites_reject_invalid_raw_references_before_alignment(tmp_path, side, identity):
+    base, head = _terminal_pair()
+    recording = base if side == "base" else head
+    result = recording.states[7]["processed_actions"][recording.action]["result"]
+    result["data"]["activities"][0]["origin_request_event_id"] = identity
+    report = _compare_terminal_chains(tmp_path, base, head)
+    assert report["verdict"] == "different"
+    path = f".processed_actions.{recording.action}.result.data.activities[0].origin_request_event_id"
+    assert {"kind": "REFERENCE_NOT_AN_ID", "id_kind": "event", "side": side, "path": path,
+            "value": identity} in report["problems"]
+
+
+@pytest.mark.parametrize("change", ["active", "request", "missing", "extra", "activity_reference"])
+def test_terminal_overwrites_preserve_projection_boundaries(tmp_path, change):
+    base, head = _terminal_pair()
+    if change == "active":
+        for recording in (base, head):
+            recording.states[7]["activities"][recording.activity]["status"] = "active"
+    elif change == "request":
+        head.states[7]["processed_actions"][head.action]["request_sha256"] = "0" * 64
+    elif change == "missing":
+        head.states[7]["processed_actions"].clear()
+    elif change == "extra":
+        head.states[7]["processed_actions"]["unneeded"] = copy.deepcopy(head.processed("completed")[head.action])
+    else:
+        head.states[7]["activities"][head.activity]["origin_request_event_id"] = head.eid(5)
+    report = _compare_terminal_chains(tmp_path, base, head)
+    assert report["verdict"] == "different" and report["problems"] == []
+    for name in ("restart_states", "day_end_states", "every_checkpoint", "final_state"):
+        assert report["layers"][name]["different"] == 1
+    assert report["layers"]["export"]["manifest.json"]["different"] == 1
+
+
+def test_known_reference_change_in_terminal_result_remains_the_declared_exception(tmp_path):
+    """@brief 已允许覆盖的整个结果沿用既定投影范围，不能把新增的引用校验变成隐含事实比较。"""
+    base, head = _terminal_pair()
+    head.states[7]["processed_actions"][head.action]["result"]["data"]["activities"][0].update(
+        origin_request_event_id=head.eid(5))
+    report = _compare_terminal_chains(tmp_path, base, head)
+    assert report["verdict"] == "equal" and report["problems"] == []
+
+
+def test_pruned_history_is_removed_before_identity_normalization(tmp_path):
+    """@brief 历史记录既不在可读键集合内，也不能进入身份规范化或额外的引用问题统计。"""
+    base, head = _terminal_pair()
+    stale = copy.deepcopy(base.processed("completed", moment=T0)[base.action])
+    stale["result"]["data"]["activity"]["origin_request_event_id"] = "discarded-history"
+    base.states[7]["processed_actions"]["old-action"] = stale
+    report = _compare_terminal_chains(tmp_path, base, head)
+    assert report["verdict"] == "equal" and report["problems"] == []
+
+
 def test_processed_actions_rule_requires_every_readable_entry(tmp_path):
     action = Recording().action
     paused = _with_actions(Recording(), Recording().processed("completed", moment=T0), activity_status="paused")

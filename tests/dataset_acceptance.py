@@ -842,6 +842,26 @@ MUTATIONS = (
     SourceMutation("pruned_actions_required_keys_unchecked", "scripts.compare_runs::project_processed_actions",
         "missing = sorted(key for key in required if key not in head_actions)", "missing = []",
         ("tests/unit/engineering/test_compare_runs.py::test_processed_actions_rule_requires_every_readable_entry",)),
+    SourceMutation("terminal_result_uses_base_identity_context", "scripts.compare_runs::normalize_state_pair",
+        "normalize_state(head, context.head)", "normalize_state(head, context.base)",
+        ("tests/unit/engineering/test_compare_runs.py"
+         "::test_terminal_overwrites_keep_each_sides_identity_context_in_every_state_layer",)),
+    SourceMutation("terminal_result_skips_base_reference_validation", "scripts.compare_runs::normalize_state_pair",
+        "normalize_state(base, context.base)", "base",
+        ("tests/unit/engineering/test_compare_runs.py"
+         "::test_terminal_overwrites_reject_invalid_raw_references_before_alignment",)),
+    SourceMutation("terminal_result_ignores_activity_status", "scripts.compare_runs::_terminal_overwrite",
+        'activity.get("status") in _ENDED_ACTIVITY', "True",
+        ("tests/unit/engineering/test_compare_runs.py"
+         "::test_terminal_overwrites_preserve_projection_boundaries[active]",)),
+    SourceMutation("terminal_result_accepts_normalized_identity_as_raw", "scripts.compare_runs::IdMaps.normalize",
+        "if value is None:", 'if value is None or value == "<event:4>":',
+        ("tests/unit/engineering/test_compare_runs.py"
+         "::test_terminal_overwrites_reject_invalid_raw_references_before_alignment",)),
+    SourceMutation("pruned_action_history_kept_for_normalization", "scripts.compare_runs::align_states",
+        'base["processed_actions"] = projected', 'base["processed_actions"] = dict(base["processed_actions"])',
+        ("tests/unit/engineering/test_compare_runs.py"
+         "::test_pruned_history_is_removed_before_identity_normalization",)),
     SourceMutation("version_rule_accepts_any_value", "scripts.compare_runs::apply_value_rule",
         "if (base_value, head_value) != (rule.base_value, rule.head_value):", "if False:",
         ("tests/unit/engineering/test_compare_runs.py::test_version_rule_accepts_only_the_declared_values",)),

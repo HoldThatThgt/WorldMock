@@ -844,20 +844,17 @@ def _terminal_overwrite(key: str, base_entry: dict, head_entry: dict, activities
             and head_result.get("activity_id") == base_result.get("activity_id"))
 
 
-def project_processed_actions(base_state: dict, head_actions: dict) -> tuple[dict, list[str], int]:
-    """@brief 基一侧只保留头一侧仍有的已处理动作，对齐终态覆盖，列出头一侧缺少或多留的条目。
+def project_processed_actions(base_state: dict, head_actions: dict) -> tuple[dict, list[str], list[str]]:
+    """@brief 基一侧只保留头一侧仍有的已处理动作，记录终态覆盖键，列出头一侧缺少或多留的条目。
 
     @return 投影后的基一侧映射（缺少的键保留基一侧条目、多留的键不在其中，使普通比较报出差异）、
-            差异路径 .processed_actions.<key> 列表、终态覆盖的次数。
+            差异路径 .processed_actions.<key> 列表、保留条目中允许终态覆盖的键。
     """
     base_actions = base_state["processed_actions"]
     projected = {key: base_actions[key] for key in head_actions if key in base_actions}
     activities = {item["activity_id"]: item for item in _activity_values(base_state)}
-    overwrites = 0
-    for key, entry in projected.items():
-        if _terminal_overwrite(key, entry, head_actions[key], activities):
-            projected[key] = {**entry, "result": head_actions[key]["result"]}
-            overwrites += 1
+    overwrites = [key for key, entry in projected.items()
+                  if _terminal_overwrite(key, entry, head_actions[key], activities)]
     required = {key for key, entry in base_actions.items()
                 if (entry.get("result") or {}).get("occurred_at") == base_state["current_time"]}
     required |= {item["origin_action_id"] for item in activities.values() if item.get("status") in ("active", "paused")}
@@ -868,12 +865,13 @@ def project_processed_actions(base_state: dict, head_actions: dict) -> tuple[dic
             projected[key] = base_actions[key]
     for key in extra:
         projected.pop(key, None)
-    return projected, [f".processed_actions.{key}" for key in (*missing, *extra)], overwrites
+    return (projected, [f".processed_actions.{key}" for key in (*missing, *extra)],
+            [key for key in overwrites if key in projected])
 
 
-def align_states(base: dict, head: dict, rules: tuple[AppliedRule, ...]) -> tuple[dict, dict]:
+def align_states(base: dict, head: dict, rules: tuple[AppliedRule, ...]) -> tuple[dict, dict, list[str]]:
     """@brief 两侧规范化之前按启用的规则对齐记录形式：活动数组还原、已处理动作投影、结构号；读原始身份。"""
-    base, head = dict(base), dict(head)
+    base, head, overwrites = dict(base), dict(head), []
     array = _enabled(rules, "activities-array")
     if array is not None and isinstance(head.get("activities"), list):
         head["activities"] = project_activities(head["activities"])
@@ -883,15 +881,25 @@ def align_states(base: dict, head: dict, rules: tuple[AppliedRule, ...]) -> tupl
         projected, paths, overwrites = project_processed_actions(base, head.get("processed_actions") or {})
         base["processed_actions"] = projected
         pruned.counts["applied"] += 1
-        pruned.counts["terminal_overwrites"] += overwrites
+        pruned.counts["terminal_overwrites"] += len(overwrites)
         pruned.counts["difference_paths"] += len(paths)
     head = _value_rule(base, head, _enabled(rules, "world-schema-version"), "schema_version")
-    return base, head
+    return base, head, overwrites
 
 
 def normalize_state(state: dict, context: NormalizeContext) -> dict:
     """@brief 一侧世界状态的身份映射与摘要映射。"""
     return _map_digests(map_ids(state, STATE_REFERENCES, context), context)
+
+
+def normalize_state_pair(base: dict, head: dict, context: CompareContext) -> tuple[dict, dict]:
+    """@brief 原始状态先按规则投影，各按本侧身份规范化，再对齐允许覆盖的终态结果。"""
+    base, head, overwrites = align_states(base, head, context.options.rules)
+    base, head = normalize_state(base, context.base), normalize_state(head, context.head)
+    for key in overwrites:
+        base["processed_actions"][key] = {**base["processed_actions"][key],
+                                          "result": head["processed_actions"][key]["result"]}
+    return base, head
 
 
 def normalize_checkpoint(record: dict, context: NormalizeContext) -> dict:
@@ -905,6 +913,16 @@ def normalize_checkpoint(record: dict, context: NormalizeContext) -> dict:
     if state is not None:
         result["state"] = state
     return result
+
+
+def normalize_checkpoint_pair(records: tuple[dict, dict], context: CompareContext) -> tuple[dict, dict]:
+    """@brief 检查点状态成对投影和规范化，其他元数据各按本侧规范化，状态不会重复映射。"""
+    states = normalize_state_pair(records[0]["state"], records[1]["state"], context)
+    values = []
+    for record, state, side in zip(records, states, (context.base, context.head)):
+        metadata = {key: value for key, value in record.items() if key != "state"}
+        values.append({**normalize_checkpoint(metadata, side), "state": state})
+    return tuple(values)
 
 
 def normalize_manifest(manifest: dict, scope: str, context: NormalizeContext) -> dict:
@@ -1074,10 +1092,7 @@ def _verified_record(record: dict) -> dict:
 
 def _compare_records(layer: _Layer, key: str, records: tuple[dict, dict], context: CompareContext) -> None:
     """@brief 一对检查点记录：先按规则对齐状态，再各自规范化后比较。"""
-    base, head = records
-    base_state, head_state = align_states(base["state"], head["state"], context.options.rules)
-    layer.add(key, normalize_checkpoint({**base, "state": base_state}, context.base),
-              normalize_checkpoint({**head, "state": head_state}, context.head))
+    layer.add(key, *normalize_checkpoint_pair(records, context))
 
 
 def _day_end_points(points: list[tuple], timezone: str) -> list[tuple]:
@@ -1130,9 +1145,8 @@ def _compare_final(base: Side, head: Side, context: CompareContext) -> dict | No
     for side in (base, head):
         with _closing(side.chain.database()) as connection:
             states.append(json.loads(connection.execute("SELECT body FROM world_state").fetchone()[0]))
-    base_state, head_state = align_states(states[0], states[1], context.options.rules)
     layer = _Layer()
-    layer.add("final", normalize_state(base_state, context.base), normalize_state(head_state, context.head))
+    layer.add("final", *normalize_state_pair(states[0], states[1], context))
     return layer.report()
 
 
@@ -1297,15 +1311,14 @@ def _compare_export_manifest(manifests: list[dict], context: CompareContext) -> 
         if "checkpoint" in manifest:
             _verified_record(manifest["checkpoint"])
     base, head = align_manifests(manifests[0], manifests[1], "export-manifest", context.options.rules)
-    if "checkpoint" in base and "checkpoint" in head:
-        states = align_states(base["checkpoint"]["state"], head["checkpoint"]["state"], context.options.rules)
-        base = {**base, "checkpoint": {**base["checkpoint"], "state": states[0]}}
-        head = {**head, "checkpoint": {**head["checkpoint"], "state": states[1]}}
+    checkpoints = (normalize_checkpoint_pair((base["checkpoint"], head["checkpoint"]), context)
+                   if "checkpoint" in base and "checkpoint" in head else None)
     values = []
     for manifest, ctx in ((base, context.base), (head, context.head)):
         value = normalize_manifest(manifest, "export-manifest", ctx)
         if "checkpoint" in manifest:
-            value["checkpoint"] = normalize_checkpoint(manifest["checkpoint"], ctx)
+            value["checkpoint"] = (checkpoints[len(values)] if checkpoints is not None
+                                   else normalize_checkpoint(manifest["checkpoint"], ctx))
         values.append(value)
     layer = _Layer()
     layer.add("manifest.json", *values)
