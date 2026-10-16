@@ -135,7 +135,7 @@ class DayBaseline:
 
         manifest_raw = (self.case / "run/manifest.json").read_bytes()
         manifest = json.loads(manifest_raw)
-        assert manifest["schema_version"] == 6, "baseline run manifest is not the current format"
+        assert manifest["schema_version"] == 7, "baseline run manifest is not the current format"
         assert "scenario_sha256" not in manifest, "baseline run manifest contains a retired input identity"
         self.code_sha256 = manifest.get("code_sha256")
         validate_frozen_environment(self.case / "run", manifest, [], [])

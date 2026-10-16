@@ -30,7 +30,7 @@ from worldmock.scheduling.events import ScheduledEvent
 WORLD_SCHEMA_VERSION = 15
 #: 运行清单结构版本：顶层字段集合或 stage_model_identity 的键集变了才升；版本不符的运行不能打开、恢复或重放，
 #: 导出认证同样拒绝，不迁移。
-RUN_MANIFEST_SCHEMA_VERSION = 6
+RUN_MANIFEST_SCHEMA_VERSION = 7
 
 _LOGGER = logging.getLogger(__name__)
 

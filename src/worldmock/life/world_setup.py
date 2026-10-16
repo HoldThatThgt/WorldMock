@@ -83,7 +83,7 @@ def _freeze_environment(inputs: EnvironmentInputs, assets: AssetStore) -> dict[s
 
 def _run_manifest(inputs: EnvironmentInputs, identity: RunIdentity, stages: dict,
                   options: dict, assets: dict[str, dict]) -> dict:
-    """@brief 目录、人物与配置各自保持身份，清单不再含场景文档身份。"""
+    """@brief 目录、人物与配置各自保持身份，清单不再含场景文档身份；新建运行的 lineage 为空。"""
     return {
         "schema_version": RUN_MANIFEST_SCHEMA_VERSION, "run_id": identity.run_id,
         "source_group_id": identity.source_group_id,
@@ -97,6 +97,7 @@ def _run_manifest(inputs: EnvironmentInputs, identity: RunIdentity, stages: dict
         "persona_habit_responses": options.get("persona_habit_responses"),
         "window": {"start": int(inputs.config.start_time.timestamp()),
                    "end": int(inputs.config.stop_time.timestamp()), "timezone": inputs.config.timezone},
+        "lineage": [],
     }
 
 

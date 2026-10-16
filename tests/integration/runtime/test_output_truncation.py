@@ -373,7 +373,7 @@ async def test_the_exported_quality_report_counts_the_truncations_the_run_record
         "responses_missing_output_tokens": 0, "responses_missing_reasoning_tokens": 0,
         "method": quality["truncations"]["method"]}
     assert quality["truncations"]["wasted_output_tokens"] == 24001 == quality["truncations"]["reasoning_tokens"]
-    assert quality["schema_version"] == 8
+    assert quality["schema_version"] == 9
 
 
 def _exported_files(directory) -> dict:

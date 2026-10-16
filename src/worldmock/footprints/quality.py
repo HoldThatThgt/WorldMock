@@ -56,8 +56,8 @@ _PRICING = {
 def build_quality_report(events: list[Event], activities: list[dict], manifest: dict, names: DisplayNames) -> dict:
     """@brief 汇总完成、异常、内容、效率、记忆、模型用量、实测加速比、当日目标、个人事务与收尾记忆、运行输入警告与输出截断。
 
-    报告结构 8（docs/design/05-recording-engine.md「完整导出认证」）：input_warnings.code_counts 的键恰为运行输入警告码
-    闭集的两个值。两个只报告分组 errand_metrics、conclusion_memories 紧随 day_plan_metrics；三者读同一份事件字典，
+    报告结构 9（docs/design/05-recording-engine.md「完整导出认证」）：input_warnings.code_counts 的键恰为运行输入警告码
+    闭集的两个值；lineage 节报告父运行各段的结束原因与停机秒数。两个只报告分组 errand_metrics、conclusion_memories 紧随 day_plan_metrics；三者读同一份事件字典，
     按事件模型的 JSON 形状只构造一次。
 
     @param events 已经认证且按 event_seq 排序的完整事件。
@@ -70,7 +70,7 @@ def build_quality_report(events: list[Event], activities: list[dict], manifest: 
     _validate_inputs(events, activities, manifest)
     rows = [{**event.model_dump(mode="json"), "code_sha256": manifest.get("code_sha256")} for event in events]
     return {
-        "schema_version": 8,
+        "schema_version": 9,
         "run_id": manifest["run_id"],
         "source_group_id": manifest["source_group_id"],
         "event_range": {
@@ -88,6 +88,7 @@ def build_quality_report(events: list[Event], activities: list[dict], manifest: 
         "memory_references": _memory_quality(events, manifest["window"]["timezone"]),
         "model_usage": _model_quality(events),
         "acceleration": _acceleration(events, manifest),
+        "lineage": _lineage_quality(manifest),
         "day_plan_metrics": day_plan_metrics(rows, manifest["window"]["timezone"]),
         "errand_metrics": errand_metrics(rows, manifest["window"]["timezone"]),
         "conclusion_memories": conclusion_memories(rows),
@@ -112,6 +113,8 @@ def _validate_inputs(events: list[Event], activities: list[dict], manifest: dict
     start, end = window.get("start"), window.get("end")
     if not _is_int(start) or not _is_int(end) or end <= start:
         raise IntegrityError("Quality report run window is invalid")
+    if not isinstance(manifest.get("lineage"), list):
+        raise IntegrityError("Quality report manifest has no lineage")
     sequences = [event.event_seq for event in events]
     if sequences != sorted(sequences) or len(set(sequences)) != len(sequences):
         raise IntegrityError("Quality report events are not in a strict sequence")
@@ -122,6 +125,24 @@ def _validate_inputs(events: list[Event], activities: list[dict], manifest: dict
         raise IntegrityError("Quality report activity identity is invalid")
     if len(set(identities)) != len(identities):
         raise IntegrityError("Quality report activity identity is duplicated")
+
+
+def _lineage_quality(manifest: dict) -> dict:
+    """@brief 父运行各段的结束原因、丢弃事件数与停机秒数（分出时刻减父运行最后一条事件的落盘时刻），只读冻结清单的
+    lineage，不计入 transport_or_terminal_failures。"""
+    parents = []
+    for entry in manifest["lineage"]:
+        downtime = (datetime.fromisoformat(entry["branched_at"])
+                    - datetime.fromisoformat(entry["last_recorded_at"])).total_seconds()
+        parents.append({"run_id": entry["run_id"], "checkpoint_id": entry["checkpoint_id"],
+                        "end_reason": entry["end_reason"], "end_error": entry["end_error"],
+                        "discarded_events": entry["discarded_events"], "downtime_seconds": round(downtime, 3)})
+    reasons = Counter(row["end_reason"] for row in parents)
+    return {"segment_count": len(parents) + 1, "parents": parents,
+            "end_reason_counts": {reason: reasons[reason] for reason in sorted(reasons)},
+            "downtime_seconds": round(sum((row["downtime_seconds"] for row in parents), 0.0), 3),
+            "method": "Parent segments read from the frozen run manifest lineage; downtime is branched_at minus "
+                      "the parent's last recorded event"}
 
 
 def _run_outcome(events: list[Event]) -> dict:

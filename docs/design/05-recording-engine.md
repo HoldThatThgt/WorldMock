@@ -508,6 +508,16 @@ gzip 头部固定为 `1f 8b 08 00 00 00 00 00 00 ff`：修改时刻为 0、不�
 `Branch event copy disagrees with the parent prefix`，分支不发布。父库只被读取，不被改写。子库的事件行就是父运行当时
 写下并读过的字节。
 
+分支清单带 `lineage`：父运行清单的 `lineage` 加一项，描述父运行这一段，按段先后排列；新建运行的 `lineage` 为空数组。
+该项依次记：父运行身份 `run_id`；这一段的模拟起点 `simulated_from`（前一项的 `checkpoint_time`，父运行自己的 `lineage`
+为空时是运行窗口起点）；分出所用检查点 `checkpoint_id`、`checkpoint_event_seq`、`checkpoint_time`；父运行在分出时的最后
+事件 `last_event_seq`、`last_event_time`、`last_recorded_at`；丢弃的事件数 `discarded_events`（最后事件序号减检查点事件
+序号）；结束原因 `end_reason` 与 `end_error`；分出时刻 `branched_at`（UTC 墙钟）。
+结束原因取父运行这一段自己的（前一项检查点事件之后的）最后一条 `run_failed` 或 `run_ended`，`run_failed` 时 `end_error`
+是它的 `data.error`，否则为 null；都没有（被结束进程或仍在运行）为 `no terminal event`。查询只走主键和人物类型索引；
+父运行没有任何事件时报 `Run has no committed event`。
+`source_run_ids` 仍是排好序的来源集合，顺序只由 `lineage` 表示。
+
 ## 完整导出认证
 
 导出固定事件截止、摘要素材、活动、app 使用、购买、已核验经历、地点停留、日时间线及质量报告。
@@ -515,15 +525,20 @@ gzip 头部固定为 `1f 8b 08 00 00 00 00 00 00 ff`：修改时刻为 0、不�
 每个值是 `{path, rows, sha256}`，`location_stays` 的 `path` 是 `location-stays.jsonl`；
 结构号不符报 `Export manifest is not a committed supported version`，键集不符报 `Export artifact set is invalid`。
 app 的开关、订单通知和地点停留只进事件与这些工件，不进质量报告。
-质量报告 `quality.json` 的结构号是 8。它的 `input_warnings.code_counts` 的键恰为运行输入警告码闭集的两个值
+质量报告 `quality.json` 的结构号是 9。它的 `input_warnings.code_counts` 的键恰为运行输入警告码闭集的两个值
 `CONTENT_EMPTY_WITH_MEDIA_TASTES` 与 `LOCATION_NAME_SUSPICIOUS`（见[配置](08-configuration.md)「校验与输入冻结」），
-闭集之外的码只计入 `unrecognized_code_counts`。导出认证按已认证的事件重算整份质量报告并逐值比较，
+闭集之外的码只计入 `unrecognized_code_counts`。
+质量报告的 `lineage` 节只读冻结清单：父运行各段 `parents`（身份、检查点、结束原因、错误、丢弃事件数、停机秒数 =
+分出时刻减父运行最后一条事件的落盘时刻）、按结束原因的计数、停机总秒数与段数 `segment_count`；这一节是结构号升到 9
+的原因。冻结清单的 `lineage` 不是数组时报 `Quality report manifest has no lineage`。它不计入
+`transport_or_terminal_failures`，后者仍只数导出事件里失败阶段的模型证据。导出认证按已认证的事件重算整份质量报告并逐值比较，
 结构号或任何一个键与当前代码算出的不同，都报 `Export quality report disagrees with authoritative events`。
 完整运行要求正常运行终态和成功最终共同检查点；时钟到达终点不能单独宣称完整。
 活动保留全部实际来源，来源身份去重；活动时长来自正秒结算，暂停不计入。
 `activities.jsonl` 每行是这项活动在截止范围里的最后一份快照，加上执行区间与来源。interact 活动的最后一份快照来自活动进度事件时，这一行带 `data.played_count`，
 例如导出截止在运行中途、截止前最后一条带它快照的是进度事件；其余 interact 行带 `data.played`：终结的活动最后一份快照是终态结果或生命周期事件，
-运行截止时还在进行或暂停的活动另有截断快照，所以完整运行导出的 interact 行都带 `data.played`。模型响应与失败事件的 `data.request` 为 null（见「事件与来源」）是结构号升到 8 的原因。
+运行截止时还在进行或暂停的活动另有截断快照，所以完整运行导出的 interact 行都带 `data.played`。模型响应与失败事件的 `data.request` 为 null（见「事件与来源」）是结构号升到 8 的原因；导出清单顶层带 `lineage`（与冻结运行清单的 `lineage` 相等）也是升到 8 的原因。
+`lineage` 不是数组或与冻结运行清单不同时报 `Export lineage disagrees with the frozen run manifest`。
 导出经存储层的同一解码读取事件，`events.jsonl` 里的观察是换回原表的完整观察，每行自足；
 `parts` 表不进导出，下游读者（含 LabelKit 与数据集工具）不解析引用。
 

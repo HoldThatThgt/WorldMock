@@ -57,7 +57,7 @@ def _event(sequence, event_type, *, occurred_at=None, run_id="run", wall_ms=None
 
 def _manifest(start=100, end=1100, **extra):
     payload = {"run_id": "run", "source_group_id": "group", "work_content_ids": {"1": []},
-               "window": {"start": start, "end": end, "timezone": "Asia/Shanghai"}}
+               "window": {"start": start, "end": end, "timezone": "Asia/Shanghai"}, "lineage": []}
     payload.update(extra)
     return payload
 
@@ -101,7 +101,7 @@ def _make_store(tmp_path, agent_ids=(1,)):
     """一个只有冻结样例环境素材的运行目录：导出写时间线与质量报告时从这些素材取名称。"""
     manifest = {"run_id": "run", "source_group_id": "run", "agent_ids": list(agent_ids),
                 "environment_assets": freeze_environment(tmp_path / "run"),
-                "window": {"start": 100, "end": 300, "timezone": "UTC"}}
+                "window": {"start": 100, "end": 300, "timezone": "UTC"}, "lineage": []}
     return FootprintStore.create(tmp_path / "run", manifest,
                                  {"version": 0, "current_time": 100})
 

@@ -38,7 +38,7 @@ def _case(root: Path, code: str = CODE, commit: str = "f" * 40, model: dict | No
     frozen = inputs()
     assets = _freeze_environment(frozen, AssetStore(root / "run/assets"))
     identity = model or {"prompt_sha256": PROMPT, "tool_schema_sha256": TOOLS}
-    manifest = _bytes({"schema_version": 6, "persona_sha256": frozen.persona_sha256,
+    manifest = _bytes({"schema_version": 7, "persona_sha256": frozen.persona_sha256,
                        "config_sha256": frozen.config_sha256, "environment_identity": environment_identity(frozen),
                        "environment_assets": assets, "run_id": "day-test", "code_sha256": code,
                        "git_commit": commit, "git_dirty": False, "model_identity": identity})

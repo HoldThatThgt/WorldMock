@@ -32,7 +32,7 @@ async def test_native_environment_manifest_contains_full_declared_service_identi
     await env.init(frozen.config.start_time)
     try:
         manifest = env.engine.context.store.manifest
-        assert manifest["schema_version"] == 6
+        assert manifest["schema_version"] == 7
         listed = [entry.path for entry in frozen.catalog.manifest.files]
         assert listed == ["app-catalog.jsonl", "content-catalog.jsonl", "location.jsonl", "merchant-catalog.jsonl",
                           "travel-method.jsonl"]

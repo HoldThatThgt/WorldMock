@@ -140,7 +140,7 @@ async def test_new_run_freezes_complete_inputs_and_the_card_built_from_the_perso
     frozen, prepared, env, _ = await prepared_parent(tmp_path, monkeypatch)
     try:
         manifest = env.engine.context.store.manifest
-        assert manifest["schema_version"] == 6
+        assert manifest["schema_version"] == 7
         assert manifest["persona_sha256"] == frozen.persona_sha256
         assert manifest["config_sha256"] == frozen.config_sha256
         assert manifest["model_metadata"] == frozen.model_metadata.model_dump(mode="json")

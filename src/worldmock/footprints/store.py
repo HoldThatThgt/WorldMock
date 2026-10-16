@@ -381,6 +381,23 @@ class FootprintStore:
             raise IntegrityError("Event does not exist")
         return event
 
+    def read_last_event(self) -> Event:
+        """@brief 按主键读取最后一条已提交事件；空库没有最后事件，写英文错误日志并拒绝。"""
+        row = self.connection.execute("SELECT body FROM events ORDER BY event_seq DESC LIMIT 1").fetchone()
+        if row is None:
+            logging.error("Run has no committed event")
+            raise IntegrityError("Run has no committed event")
+        return self._decode(row[0])
+
+    def read_terminal_event(self, after: int) -> Event | None:
+        """@brief 经人物与类型索引读取序号大于 after 的最后一条 run_failed 或 run_ended（两者都没有人物）；没有时为空。"""
+        row = self.connection.execute("""
+            SELECT body FROM events WHERE json_extract(body,'$.agent_id') IS NULL
+            AND json_extract(body,'$.event_type') IN ('run_failed','run_ended') AND event_seq>?
+            ORDER BY event_seq DESC LIMIT 1
+        """, (after,)).fetchone()
+        return self._decode(row[0]) if row else None
+
     def read_agent_events(self, event_type: EventType, agent_id: int, after: int = 0) -> list[Event]:
         """@brief 只读取指定人物在已知边界之后的同类事件，避免反复解码原始模型调用。"""
         if after < 0 or after > self.last_event_seq:

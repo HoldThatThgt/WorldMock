@@ -103,7 +103,7 @@ MUTATIONS = (
         ("tests/unit/test_environment_inputs.py"
          "::test_config_schema_version_other_than_two_is_rejected_without_an_old_format_reader",)),
     SourceMutation("previous_run_manifest_version_accepted", "worldmock.life.run_identity::require_environment_identity",
-        'manifest.get("schema_version") == RUN_MANIFEST_SCHEMA_VERSION', 'manifest.get("schema_version") in (5, 6)',
+        'manifest.get("schema_version") == RUN_MANIFEST_SCHEMA_VERSION', 'manifest.get("schema_version") in (6, 7)',
         ("tests/integration/runtime/test_environment_identity.py"
          "::test_run_whose_stored_manifest_carries_the_previous_structure_number_cannot_be_opened",)),
     SourceMutation("clock_text_without_day_wrap", "worldmock.profile.textgen::hour_text",
@@ -1105,4 +1105,23 @@ MUTATIONS = (
         "event_rows = [parse_world_event(row) for row in iter_jsonl(delivery.event_path)]",
         ("tests/integration/evaluation/test_world_adapter_stream.py::test_world_adapter_keeps_only_post_run_views",)),
     # ---- 整段历史读取与运行中可查（长时运行成本第四章）结束 ----
+    # ---- 网络故障、重启与运行状态（长时运行成本第五章） ----
+    SourceMutation("lineage_forgets_ancestors", "worldmock.footprints.checkpoint::branch_lineage",
+        '[*store.manifest["lineage"], lineage_entry(store, checkpoint)]', "[lineage_entry(store, checkpoint)]",
+        ("tests/integration/footprints/test_branch_lineage.py"
+         "::test_lineage_chains_parents_in_order_with_their_end_reasons",)),
+    SourceMutation("killed_parent_reported_failed", "worldmock.footprints.checkpoint::lineage_entry",
+        'reason, error = "no terminal event", None', 'reason, error = "run_failed", None',
+        ("tests/integration/footprints/test_branch_lineage.py"
+         "::test_lineage_chains_parents_in_order_with_their_end_reasons",)),
+    SourceMutation("terminal_lookup_reads_ancestors", "worldmock.footprints.checkpoint::lineage_entry",
+        'store.read_terminal_event(earlier[-1]["checkpoint_event_seq"] if earlier else 0)',
+        "store.read_terminal_event(0)",
+        ("tests/integration/footprints/test_branch_lineage.py"
+         "::test_terminal_lookup_ignores_ancestor_events_and_takes_the_last",)),
+    SourceMutation("export_lineage_unchecked", "worldmock.footprints.validation::_validate_identity",
+        'manifest.get("lineage") != frozen["lineage"]', "False",
+        ("tests/integration/footprints/test_branch_lineage.py"
+         "::test_export_lineage_must_equal_the_frozen_run_manifest",)),
+    # ---- 网络故障、重启与运行状态（长时运行成本第五章）结束 ----
 )

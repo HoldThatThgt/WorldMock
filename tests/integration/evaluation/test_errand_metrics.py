@@ -114,7 +114,7 @@ def _report(log: _Log) -> dict:
     """同一批事件经 build_quality_report 得到的报告（运行窗口覆盖全部事件）。"""
     events = [Event.model_validate(row) for row in log.events]
     window = {"start": events[0].occurred_at - 60, "end": events[-1].occurred_at + 60, "timezone": _ZONE}
-    manifest = {"run_id": "run", "source_group_id": "run", "work_content_ids": {}, "window": window}
+    manifest = {"run_id": "run", "source_group_id": "run", "work_content_ids": {}, "window": window, "lineage": []}
     return build_quality_report(events, [], manifest, sample_display_names())
 
 

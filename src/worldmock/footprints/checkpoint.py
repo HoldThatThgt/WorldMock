@@ -14,13 +14,14 @@ import unicodedata
 import zlib
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from uuid import uuid4
 
 from worldmock.corpora.manifest import relative_declaration
 from worldmock.errors import IntegrityError
 from worldmock.footprints.assets import AssetStore, atomic_write
-from worldmock.footprints.models import AssetRef, EventDraft, canonical_json
+from worldmock.footprints.models import AssetRef, Checkpoint, EventDraft, canonical_json
 from worldmock.footprints.store import FootprintStore
 
 #: 工作区快照的 gzip 压缩级别（docs/design/05-recording-engine.md「冻结输入、检查点与分支」）。
@@ -154,7 +155,8 @@ def _populate_branch(store: FootprintStore, checkpoint, prefix: _ParentPrefix, s
     manifest.update(metadata)
     manifest.update(run_id=uuid4().hex, parent_run_id=store.manifest["run_id"],
                     parent_checkpoint_id=checkpoint.checkpoint_id,
-                    source_group_id=store.manifest.get("source_group_id", store.manifest["run_id"]))
+                    source_group_id=store.manifest.get("source_group_id", store.manifest["run_id"]),
+                    lineage=branch_lineage(store, checkpoint))
     manifest["source_run_ids"] = sorted(prefix.run_ids | {manifest["run_id"]})
     child = FootprintStore.create(stage, manifest, checkpoint.state)
     try:
@@ -172,6 +174,32 @@ def _populate_branch(store: FootprintStore, checkpoint, prefix: _ParentPrefix, s
         atomic_write(stage / "restored-checkpoint.json", canonical_json(checkpoint.model_dump()))
     finally:
         child.close()
+
+
+def branch_lineage(store: FootprintStore, checkpoint: Checkpoint) -> list[dict]:
+    """@brief 子分支的 lineage：父运行的 lineage 加一项描述父运行这一段的条目，按段先后。"""
+    return [*store.manifest["lineage"], lineage_entry(store, checkpoint)]
+
+
+def lineage_entry(store: FootprintStore, checkpoint: Checkpoint) -> dict:
+    """@brief 父运行这一段的 lineage 条目：从哪一模拟时刻开始、在哪个检查点分出、走到哪里、为什么结束、丢弃多少事件、
+    子分支何时分出；只做主键与人物类型索引上的有界查询。"""
+    earlier = store.manifest["lineage"]
+    last = store.read_last_event()
+    terminal = store.read_terminal_event(earlier[-1]["checkpoint_event_seq"] if earlier else 0)
+    if terminal is None:
+        reason, error = "no terminal event", None
+    else:
+        reason = terminal.event_type
+        error = terminal.data["error"] if reason == "run_failed" else None
+    return {"run_id": store.manifest["run_id"],
+            "simulated_from": earlier[-1]["checkpoint_time"] if earlier else store.manifest["window"]["start"],
+            "checkpoint_id": checkpoint.checkpoint_id, "checkpoint_event_seq": checkpoint.last_event_seq,
+            "checkpoint_time": checkpoint.current_time, "last_event_seq": last.event_seq,
+            "last_event_time": last.occurred_at, "last_recorded_at": last.recorded_at,
+            "discarded_events": last.event_seq - checkpoint.last_event_seq,
+            "end_reason": reason, "end_error": error,
+            "branched_at": datetime.now(timezone.utc).isoformat()}
 
 
 def _branch_asset_references(store: FootprintStore, checkpoint, references: Sequence[AssetRef]) -> dict[str, AssetRef]:

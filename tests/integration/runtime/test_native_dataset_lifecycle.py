@@ -109,7 +109,7 @@ async def test_native_dataset_run_resume_and_replay_finish_with_real_frozen_work
         checkpoint = next(event.data["checkpoint_id"] for event in events
                           if event.event_type == "checkpoint_created" and event.event_seq > observed.event_seq)
         manifest = store.manifest
-        assert manifest["schema_version"] == 6
+        assert manifest["schema_version"] == 7
         assert set(manifest["environment_assets"]) == {
             "persona.toml", "config.toml", "map.json", "catalog/manifest.json",
             *(f"catalog/{entry.path}" for entry in frozen.catalog.manifest.files)}

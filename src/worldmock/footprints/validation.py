@@ -93,6 +93,9 @@ def _validate_identity(manifest: dict) -> None:
         raise IntegrityError("Production delivery requires a completed experiment")
     frozen = manifest["frozen_run_manifest"]
     _validate_run_identity(frozen)
+    if not isinstance(frozen.get("lineage"), list) or manifest.get("lineage") != frozen["lineage"]:
+        logging.error("Export lineage disagrees with the frozen run manifest")
+        raise IntegrityError("Export lineage disagrees with the frozen run manifest")
     if manifest.get("checkpoint", {}).get("state", {}).get("schema_version") != WORLD_SCHEMA_VERSION:
         logging.error("Export checkpoint world schema does not match the current code")
         raise IntegrityError("Export checkpoint world schema does not match the current code")

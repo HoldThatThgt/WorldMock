@@ -25,7 +25,8 @@ def _outcome(write):
 @pytest.fixture
 def store(tmp_path):
     value = FootprintStore.create(tmp_path / 'parent',
-                                  {'run_id': 'parent', 'agent_ids': [1], 'code': 'frozen', 'environment_assets': {}},
+                                  {'run_id': 'parent', 'agent_ids': [1], 'code': 'frozen', 'environment_assets': {},
+                                   'lineage': [], 'window': {'start': 100, 'end': 1000, 'timezone': 'UTC'}},
                                   {'version': 0, 'current_time': 100, 'balance': 50})
     yield value
     value.close()

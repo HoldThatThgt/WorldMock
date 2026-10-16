@@ -92,7 +92,7 @@ def test_retired_schema_is_rejected_before_consumption(real_export, version, rea
     elif version == "extra_artifact":
         manifest["artifacts"]["navigation"] = dict(manifest["artifacts"]["location_stays"])
     else:
-        assert manifest["frozen_run_manifest"]["schema_version"] == 6
+        assert manifest["frozen_run_manifest"]["schema_version"] == 7
         manifest["frozen_run_manifest"]["schema_version"] = 5
     (real_export / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     with pytest.raises(IntegrityError, match=f"^{reason}$"):
@@ -100,15 +100,15 @@ def test_retired_schema_is_rejected_before_consumption(real_export, version, rea
 
 
 def test_quality_report_carrying_the_previous_structure_number_is_rejected(real_export):
-    """质量报告的结构号是 8：把导出里的报告改回上一版的 7，并把清单里它的长度与摘要重写成与新字节一致，
+    """质量报告的结构号是 9：把导出里的报告改回上一版的 8，并把清单里它的长度与摘要重写成与新字节一致，
     认证按事件重算整份报告后仍然拒绝；只改报告不改清单时先被字节摘要拦下。"""
     from worldmock.footprints.models import canonical_json
 
     manifest, _ = read_export(real_export)
     path = real_export / "quality.json"
     quality = json.loads(path.read_bytes())
-    assert quality["schema_version"] == 8
-    retired = canonical_json({**quality, "schema_version": 7})
+    assert quality["schema_version"] == 9
+    retired = canonical_json({**quality, "schema_version": 8})
     path.write_bytes(retired)
     with pytest.raises(IntegrityError, match="^Export quality report bytes do not match its manifest$"):
         validate_export(real_export)

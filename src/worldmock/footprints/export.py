@@ -31,7 +31,7 @@ from worldmock.footprints.quality import build_quality_report
 from worldmock.footprints.store import FootprintStore
 
 #: 导出清单的结构号：工件是六份，含地点停留；活动种类含查询；进行中的 interact 活动行带 played_count；
-#: 模型响应与失败事件的 request 为 null（请求只在请求事件存一次）；结构号不符的导出直接拒绝，不迁移。
+#: 模型响应与失败事件的 request 为 null（请求只在请求事件存一次）；顶层带 lineage；结构号不符的导出直接拒绝，不迁移。
 EXPORT_SCHEMA_VERSION = 8
 #: 导出清单 artifacts 的键集。
 EXPORT_ARTIFACTS = frozenset({"events", "activities", "verified_experiences", "purchases", "app_usage",
@@ -163,7 +163,7 @@ def _write_timeline_projections(store: FootprintStore, events: list[Event], stag
 
 
 def _export_identity(run: dict, events: list[Event]) -> dict:
-    """@brief 根据实际截止时间声明覆盖范围，保留未完成实验的明确状态。"""
+    """@brief 根据实际截止时间声明覆盖范围，保留未完成实验的明确状态，并带运行清单的 lineage。"""
     zone = ZoneInfo(run["window"]["timezone"])
     start = datetime.fromtimestamp(run["window"]["start"], zone)
     end = datetime.fromtimestamp(events[-1].occurred_at, zone)
@@ -180,7 +180,7 @@ def _export_identity(run: dict, events: list[Event]) -> dict:
             "source_run_ids": sorted({event.run_id for event in events}),
             "cutoff_event_seq": events[-1].event_seq, "experiment_completed": complete,
             "window": {"start": start.isoformat(), "end": end.isoformat(), "timezone": zone.key},
-            "daily_coverage": days}
+            "daily_coverage": days, "lineage": run["lineage"]}
 
 
 def reconstruct_activities(events: list[Event]) -> list[dict]:

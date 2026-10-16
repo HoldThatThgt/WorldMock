@@ -33,7 +33,7 @@ def _event(sequence, event_type, *, occurred_at=None, run_id="run", wall_ms=None
 
 def _manifest(start=100, end=1100):
     return {"run_id": "run", "source_group_id": "group", "work_content_ids": {"1": []},
-            "window": {"start": start, "end": end, "timezone": "Asia/Shanghai"}}
+            "window": {"start": start, "end": end, "timezone": "Asia/Shanghai"}, "lineage": []}
 
 
 def _memory(text="我以为自己已经吃过一顿饭。"):
@@ -615,7 +615,7 @@ def test_decision_rhythm_counts_silent_boundaries_and_wake_reasons():
     report = build_quality_report(events, [], _manifest(), sample_display_names())
     rhythm = report["decision_rhythm"]
 
-    assert report["schema_version"] == 8
+    assert report["schema_version"] == 9
     assert "decision_budget_exhausted_events" not in rhythm
     assert rhythm["body_settlement_events"] == 4
     assert rhythm["boundaries_with_decision_field"] == 3
@@ -631,21 +631,22 @@ def test_decision_rhythm_counts_silent_boundaries_and_wake_reasons():
 
 
 def test_report_sections_are_the_documented_grouping_without_a_language_count():
-    """报告的分组恰是记录引擎设计「质量报告」登记的十八组（docs/design/05-recording-engine.md），顺序相同，另有版本与
-    运行身份；报告结构为 8：个人事务与工作安排规格的两个新组 errand_metrics、conclusion_memories
+    """报告的分组恰是记录引擎设计「质量报告」登记的十九组（docs/design/05-recording-engine.md），顺序相同，另有版本与
+    运行身份；报告结构为 9：父运行各段的 lineage 紧随 acceleration；个人事务与工作安排规格的两个新组
+    errand_metrics、conclusion_memories
     在报告与登记句里都紧随 day_plan_metrics（docs/design/01-architecture.md），没有任何事务事件与收尾记忆时两组
     都为 null。其中没有语言计数：一日运行保真裁决 D18 不作语言要求，人物写的正文、总结与记忆用中文还是英文不在报告里
     计数（docs/design/06-agent.md），一日运行保真新增的五节是输入警告、时间线标签、联系人回复守卫、名称类
     拒绝与截断。"""
     report = build_quality_report([_event(1, "run_ended", occurred_at=200)], [], _manifest(end=200), sample_display_names())
-    documented = ['event_range', 'run_outcome', 'actions', 'activities', 'content_contact', 'app_pushes', 'conversion_efficiency', 'decision_rhythm', 'memory_references', 'model_usage', 'acceleration', 'day_plan_metrics', 'errand_metrics', 'conclusion_memories', 'input_warnings', 'timeline_labels', 'name_rejections', 'truncations']
-    assert len(documented) == len(set(documented)) == 18
+    documented = ['event_range', 'run_outcome', 'actions', 'activities', 'content_contact', 'app_pushes', 'conversion_efficiency', 'decision_rhythm', 'memory_references', 'model_usage', 'acceleration', 'lineage', 'day_plan_metrics', 'errand_metrics', 'conclusion_memories', 'input_warnings', 'timeline_labels', 'name_rejections', 'truncations']
+    assert len(documented) == len(set(documented)) == 19
     assert documented[-4:] == ["input_warnings", "timeline_labels", "name_rejections", "truncations"]
     plan = documented.index("day_plan_metrics")
     assert documented[plan:plan + 3] == ["day_plan_metrics", "errand_metrics", "conclusion_memories"]
     assert list(report)[3:] == documented
     assert set(report) == {"schema_version", "run_id", "source_group_id", *documented}
-    assert report["schema_version"] == 8
+    assert report["schema_version"] == 9
     assert (report["errand_metrics"], report["conclusion_memories"]) == (None, None)
     assert [key for key in report if any(word in key for word in ("language", "english", "chinese"))] == []
 
@@ -867,7 +868,8 @@ def test_truncations_match_the_recorded_day_runs(label, count, tokens):
     run = _TRUNCATION_RUNS[label]
     events = [Event.model_validate(row) for row in run["events"]]
 
-    section = build_quality_report(events, [], {"run_id": run["run_id"], "source_group_id": run["run_id"], "work_content_ids": {}, "window": run["window"]}, sample_display_names())["truncations"]
+    section = build_quality_report(events, [], {"run_id": run["run_id"], "source_group_id": run["run_id"], "work_content_ids": {}, "window": run["window"],
+                                            "lineage": []}, sample_display_names())["truncations"]
 
     assert section["truncated_responses"] == run["summary"]["truncated_responses"] == count < len(events)
     assert section["purpose_counts"] == {"decision": count}
