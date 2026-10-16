@@ -1,0 +1,30 @@
+/* 按天活动：名称固定在左侧，时间轴按小时横向展开。 */
+.calendar-toolbar{position:sticky;top:-16px;z-index:5}
+.calendar-toolbar span{color:var(--fg-dim)}
+.calendar-scroll{overflow:auto;border:1px solid var(--line);border-radius:8px;margin-bottom:16px;background:var(--bg2)}
+.calendar-grid{width:calc(280px + var(--calendar-hours));min-width:100%}
+.calendar-axis{position:relative;height:34px;margin-left:280px;background:var(--bg3);font:11px var(--mono)}
+.calendar-axis span{position:absolute;top:9px;color:var(--fg-dim);padding-left:4px;white-space:nowrap}
+.calendar-axis .calendar-axis-end{transform:translateX(-100%);padding-right:4px}
+.calendar-activity{border-top:1px solid var(--line)}
+.act-lane{display:flex;align-items:stretch;min-height:48px}
+.act-lane-label{position:sticky;left:0;width:280px;flex:none;padding:12px;background:var(--bg2);z-index:2;
+  white-space:normal;overflow-wrap:anywhere;font-weight:600;border-right:1px solid var(--line)}
+.act-lane-track{position:relative;flex:1;min-height:48px;background:repeating-linear-gradient(to right,
+  transparent 0,transparent 63px,var(--line) 63px,var(--line) 64px)}
+.act-lane-bar{position:absolute;top:15px;height:18px;border-radius:3px}
+.calendar-meta{position:sticky;left:0;display:flex;align-items:center;gap:12px;justify-content:space-between;
+  width:min(800px,100%);padding:0 12px 10px;color:var(--fg-dim);font-size:12px;background:var(--bg2)}
+.calendar-meta span{overflow-wrap:anywhere}
+.calendar-meta button{flex:none}
+.calendar-detail h3{margin-top:0;color:var(--fg);font-size:15px}
+.calendar-detail ul{padding-left:20px;margin:10px 0;color:var(--fg-dim)}
+.calendar-detail h4{margin:14px 0 6px}
+.calendar-sources{display:flex;gap:6px;flex-wrap:wrap}
+.calendar-detail pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:400px;overflow:auto;margin-top:12px;
+  padding:12px;background:var(--bg);font:12px/1.6 var(--mono);color:#a8d4ff}
+.calendar-table summary{cursor:pointer;padding:12px 0;font-size:14px;font-weight:600}
+@media(max-width:700px){
+  .calendar-toolbar{top:-12px}
+  .calendar-meta{width:min(520px,100%)}
+}

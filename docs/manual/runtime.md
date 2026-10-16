@@ -77,6 +77,7 @@ start_side_activity  {"action": "interact", "target": ["哔哩哔哩"], "prefer"
 --cutoff 导出到某个事件），再把导出目录拖进去；查看器在页面里从 events.jsonl 建索引，拖放区显示读取进度。对象名称取自
 导出冻结的环境目录；人物的 MEMORY.md 总结要同时拖入运行目录。SQL 控制台查的是这个索引，三类大事件的正文已裁剪，完整的行用
 sqlite3 或 scripts/inspect_run.py 读。分发查看器时带上同目录的全部 run-viewer 脚本和样式文件。
+活动日历按运行当地日期切换，点「查看活动与事件」可读相关记录；展开「完整活动表」可查看全部日期的活动。
 人物可见范围见[人物设计](../design/06-agent.md)。
 
 <a name="runtime-长时间运行的启动时刻"></a>

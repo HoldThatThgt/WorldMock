@@ -1735,8 +1735,7 @@ test('touching uses of one app are drawn as one lane block labelled with every i
     '使用哔哩哔哩《冰美式制作小记》《桌面物品拍摄》《自然风光长视频》', '使用微信《亲子阅读角》《旅行行李清单》',
     '使用哔哩哔哩《骑行头盔检查》']);
   assert.deepEqual(drawn.map(lane => lane.bars.length), [1, 1, 1, 1, 1, 1, 1]);
-  const {t0, t1} = view.state;
-  const span = Math.max(1, t1 - t0);
+  const t0 = at('00:00:00'), span = 86400;
   const [puzzle] = drawn[2].bars;
   assert.equal(puzzle.left, String((at('20:19:33') - t0) / span * 100));
   assert.equal(puzzle.width, String((at('20:43:33') - at('20:19:33')) / span * 100));
@@ -1746,8 +1745,8 @@ test('touching uses of one app are drawn as one lane block labelled with every i
     '使用哔哩哔哩《冰美式制作小记》《桌面物品拍摄》《自然风光长视频》 · 连续使用，共 3 段');
   assert.equal(drawn[5].bars[0].title, '2026/09/28 21:58:03–2026/09/28 22:01:03 · ' +
     '使用微信《亲子阅读角》《旅行行李清单》 · 连续使用，共 2 段');
-  assert.ok(markup.includes('<div class="hint">同一时间轴上的条块表示实际执行区间；空白表示尚无结算记录。' +
-    '同一个 app 首尾相接的几次使用画在同一行，连成一个条块。</div>'));
+  assert.ok(markup.includes('同一时间轴上的条块表示实际执行区间；空白表示尚无结算记录。' +
+    '同一个 app 首尾相接的几次使用画在同一行，连成一个条块。'));
   assert.deepEqual(view.errors, []);
 });
 

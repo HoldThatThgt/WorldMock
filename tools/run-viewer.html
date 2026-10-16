@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>WorldMock 运行数据查看器</title>
 <link rel="stylesheet" href="run-viewer-context.css">
+<link rel="stylesheet" href="run-viewer-activities.css">
 <style>
 :root{
   --bg:#0f1115; --bg2:#161a22; --bg3:#1d232e; --line:#2a3140;
@@ -105,14 +106,6 @@ td.num,th.num{text-align:right;font-family:var(--mono)}
 .act-table th:hover{color:var(--fg)}
 .act-table th .arrow{font-size:10px;margin-left:3px;color:var(--accent)}
 .act-kind{display:inline-block;padding:1px 8px;border-radius:3px;font-size:11px}
-.act-lanes{overflow:auto;margin-bottom:14px}
-.act-lanes-inner{min-width:900px}
-.act-lane{display:flex;align-items:center;min-height:30px;border-top:1px solid var(--line)}
-.act-lane-label{width:240px;flex:none;padding:4px 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.act-lane-track{position:relative;flex:1;height:28px;background:repeating-linear-gradient(to right,
-  transparent 0,transparent calc(25% - 1px),var(--line) calc(25% - 1px),var(--line) 25%)}
-.act-lane-bar{position:absolute;top:6px;height:16px;min-width:2px;border-radius:3px}
-.act-lane-axis{display:flex;margin-left:240px;justify-content:space-between;color:var(--fg-dim);font:11px var(--mono)}
 .memory-entry{border-left:3px solid var(--accent);padding:8px 12px;margin:8px 0;background:var(--bg3);border-radius:3px}
 .memory-entry .meta{color:var(--fg-dim);font-size:11px;margin-bottom:4px}
 .memory-entry .text{white-space:pre-wrap;overflow-wrap:anywhere}
@@ -192,7 +185,7 @@ td.num,th.num{text-align:right;font-family:var(--mono)}
       <section class="view" data-view="overview"><h2>总览</h2><div id="ov-body"></div></section>
       <section class="view" data-view="timeline"><h2>时间线</h2><div id="tl-body"></div></section>
       <section class="view" data-view="day"><h2>一天</h2><div id="day-body"></div></section>
-      <section class="view" data-view="activities"><h2>活动泳道</h2><div id="act-body"></div></section>
+      <section class="view" data-view="activities"><h2>活动日历</h2><div id="act-body"></div></section>
       <section class="view" data-view="body"><h2>身体曲线</h2><div id="bd-body"></div></section>
       <section class="view" data-view="economy"><h2>经济流水</h2><div id="eco-body"></div></section>
       <section class="view" data-view="memory"><h2>记忆</h2><div id="mem-body"></div></section>
@@ -207,6 +200,7 @@ td.num,th.num{text-align:right;font-family:var(--mono)}
 <script src="run-viewer-wording.js"></script>
 <script src="run-viewer-context-view.js"></script>
 <script src="run-viewer-index.js"></script>
+<script src="run-viewer-activities.js"></script>
 <script>
 'use strict';
 /* ================================================================
@@ -843,7 +837,7 @@ const VIEWS = [
   {id:'overview', name:'总览'},
   {id:'timeline', name:'时间线'},
   {id:'day', name:'一天'},
-  {id:'activities', name:'活动泳道'},
+  {id:'activities', name:'活动日历'},
   {id:'body', name:'身体曲线'},
   {id:'economy', name:'经济流水'},
   {id:'memory', name:'记忆'},
@@ -1134,8 +1128,8 @@ async function toggleDetail(row, seq){
   }
 }
 
-/* ---------- 活动表格（替代甘特图） ---------- */
-const AT = { sortKey:'start', sortDir:1, page:0, pageSize:50, filtered:[] };
+/* ---------- 按天活动日历与完整活动表 ---------- */
+const AT = { sortKey:'start', sortDir:1, page:0, pageSize:50, filtered:[], tableOpen:false };
 /** @brief 活动表「目标」：互动、购买与查询是这项活动全部受理与进度事件（按序号）的统一写法；出行写出行方式名称、
  *  目的地与路径；其余种类（睡眠和没有专门写法的种类）显示「—」。 */
 function actTargetText(a){
@@ -1147,34 +1141,6 @@ function actTargetText(a){
     route = `${locLabel(a.origin)} → ${locLabel(a.dest)} · 路径：${a.path.map(locLabel).join(' → ')}`;
   }
   return [methodLabel(a.method), route].filter(Boolean).join(' · ') || '—';
-}
-/** @brief 泳道的一个条块，从 start 画到 end，悬停文字是「<起>–<止> · <说明>」。 */
-function laneBar(start, end, kind, text){
-  const span = Math.max(1,S.t1-S.t0), left = (start-S.t0)/span*100, width = (end-start)/span*100;
-  return `<span class="act-lane-bar" style="left:${left}%;width:${width}%;background:${kindColor(kind)}"
-          title="${esc(fmtT(start)+'–'+fmtT(end)+' · '+text)}"></span>`;
-}
-/** @brief 泳道的一行：独自一行的活动每个执行段一个条块，标签是写法（出行、睡眠照原格式「种类 目标」）；同一个 app
- *  首尾相接的几次使用并成的一行，标签与各条块由 ViewerWording.useLaneRows 给出。 */
-function laneRow(row){
-  const one = row.activities[0];
-  const label = row.joined ? row.label : ViewerWording.targetPhrase(one, one.contents, S.orders)
-    ?? `${actTypeLabel(one.kind,one.tg)} ${actTargetText(one)}`.trim();
-  const bars = row.joined ? row.bars.map(bar=>laneBar(bar.start, bar.end, 'interact', bar.text))
-    : one.intervals.map(([start,end])=>laneBar(start, end, one.kind, label));
-  return `<div class="act-lane"><div class="act-lane-label" title="${esc(label)}">${esc(label)}</div>
-        <div class="act-lane-track">${bars.join('')}</div></div>`;
-}
-/** @brief 按同一时间轴绘制人物的活动泳道，条块只取已结算区间；行按最早开始时刻排。 */
-function renderActivityLanes(activities){
-  const span = Math.max(1,S.t1-S.t0);
-  const ticks = [0,.25,.5,.75,1].map(f=>`<span>${fmtHM(S.t0+span*f)}</span>`).join('');
-  const agents = [...new Set(activities.map(a=>a.agent))];
-  const groups = agents.map(agent=>`<h3>${esc(agentName(agent))}</h3>` +
-    ViewerWording.useLaneRows(activities.filter(a=>a.agent===agent), S.uses).map(laneRow).join('')).join('');
-  return `<div class="card act-lanes"><div class="act-lanes-inner">
-    <div class="hint">同一时间轴上的条块表示实际执行区间；空白表示尚无结算记录。同一个 app 首尾相接的几次使用画在同一行，连成一个条块。</div>
-    <div class="act-lane-axis">${ticks}</div>${groups}</div></div>`;
 }
 /** @brief 地点会话（一段停留或一段路）只存于世界状态，按开始时刻列出其名称、种类与所含活动；活动名按条目的 activity_id 查。 */
 function renderSessions(agent){
@@ -1222,11 +1188,11 @@ function bindActivityTable(pages){
   $('#at-prev').onclick = ()=>{ if (AT.page>0){ AT.page--; renderActivities(); } };
   $('#at-next').onclick = ()=>{ if (AT.page<pages-1){ AT.page++; renderActivities(); } };
 }
+/** @brief 按天日历与全日期活动表共享人物筛选，表格排序、翻页和展开状态独立保留。 */
 function renderActivities(){
   const el = $('#act-body');
   const agent = agentFilterVal();
   AT.filtered = S.acts.filter(a=>!agent || String(a.agent)===agent);
-  if (!AT.filtered.length){ el.innerHTML='<div class="empty">无活动数据</div>'; return; }
   if (AT.page >= Math.ceil(AT.filtered.length/AT.pageSize)) AT.page = 0;
   const kinds = [...new Set(AT.filtered.map(a=>a.kind))];
   const sorters = {
@@ -1236,14 +1202,17 @@ function renderActivities(){
   };
   AT.filtered.sort(sorters[AT.sortKey]||sorters.start);
   if (AT.sortDir<0) AT.filtered.reverse();
-  const pages = Math.ceil(AT.filtered.length/AT.pageSize);
+  const pages = Math.max(1,Math.ceil(AT.filtered.length/AT.pageSize));
   const view = AT.filtered.slice(AT.page*AT.pageSize, (AT.page+1)*AT.pageSize);
   const arrow = k => AT.sortKey===k? `<span class="arrow">${AT.sortDir>0?'▲':'▼'}</span>`:'';
   const th = (k,label,extra) =>
     `<th data-sk="${k}" class="${extra||''}">${label}${arrow(k)}</th>`;
   el.innerHTML = `
-  ${renderActivityLanes(AT.filtered)}
-  <div class="legend" style="margin-bottom:10px">${kinds.map(k=>`<span><span class="sw" style="background:${kindColor(k)}"></span>${esc(actTypeLabel(k,null))}</span>`).join('')}
+  ${ActivityCalendar.render(AT.filtered)}
+  <details class="calendar-table" id="activity-table" ${AT.tableOpen?'open':''}>
+    <summary>完整活动表 · 全部日期</summary>
+  <div class="legend" style="margin-bottom:10px">${kinds.map(k=>
+    `<span><span class="sw" style="background:${kindColor(k)}"></span>${esc(actTypeLabel(k,null))}</span>`).join('')}
     <span style="margin-left:auto;color:var(--fg-faint)">共 ${AT.filtered.length} 段活动 · 点击表头排序</span></div>
   <div class="card" style="padding:0 0 0 0">
     <table class="act-table">
@@ -1257,8 +1226,10 @@ function renderActivities(){
       <button id="at-next" ${AT.page>=pages-1?'disabled':''}>下一页</button>
     </div>
   </div>
-  ${renderSessions(agent)}`;
+  ${renderSessions(agent)}</details>`;
   bindActivityTable(pages);
+  $('#activity-table').ontoggle = event=>{ AT.tableOpen=event.target.open; };
+  ActivityCalendar.bind();
 }
 
 /* ---------- 折线图（Canvas 手绘 + 悬停读数） ---------- */
@@ -1821,10 +1792,11 @@ function resetRun(){
   S.memFiles={}; S.bodyCache=new Map(); S.world=null; S.runId=''; S.tz=''; S.agents={}; S.agentIds=[];
   S.runManifest=null; S.orders=new Map(); S.uses=null; S.catalogMissing=[];
   ViewerWording.reset(); S.missingNames=new Set(); S.reminded=new Map(); S.day=null;
-  AT.page=0; AT.sortKey='start'; AT.sortDir=1;
+  AT.page=0; AT.sortKey='start'; AT.sortDir=1; AT.tableOpen=false;
   TL.inited=false; TL.types=new Set(); TL.kw=''; TL.rendered=0;
   RS.loaded=false; RS.items=[]; RS.kw='';
   ContextView.reset();
+  ActivityCalendar.reset();
   const sqlBody = $('#sql-body'); sqlBody.dataset.inited=''; sqlBody.innerHTML='';
 }
 

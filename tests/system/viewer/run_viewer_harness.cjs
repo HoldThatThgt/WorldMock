@@ -47,7 +47,7 @@ function element() {
     addEventListener(type, callback) { listeners.set(type, callback); },
     dispatch(type, event) { return listeners.get(type)(event); },
     appendChild(child) { this.children.push(child); },
-    querySelector() { return element(); }, click() {},
+    querySelector() { return element(); }, click() {}, scrollIntoView() {},
     after(child) { this.nextElementSibling = child; },
   };
 }
