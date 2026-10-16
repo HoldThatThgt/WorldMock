@@ -1639,6 +1639,7 @@ async function handleFiles(fileList, droppedItems){
     errEl.textContent = text;
     return;
   }
+  const started = performance.now();
   S.loading = true;
   logEl.style.display='block'; logEl.textContent=''; errEl.style.display='none';
   const log = m => { logEl.textContent += m+'\n'; logEl.scrollTop = logEl.scrollHeight; };
@@ -1660,6 +1661,7 @@ async function handleFiles(fileList, droppedItems){
     $('#drop-zone').classList.add('hidden');
     $('#app').classList.add('on');
     switchView('overview');
+    $('#run-meta').textContent += ` · 载入 ${((performance.now()-started)/1000).toFixed(1)} 秒`;
   }catch(e){
     console.error('Run viewer load failed:', e.message);
     resetRun();

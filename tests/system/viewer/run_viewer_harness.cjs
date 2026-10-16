@@ -38,7 +38,8 @@ function element() {
   const classes = new Set();
   const listeners = new Map();
   return {
-    innerHTML: '', textContent: '', value: '', dataset: {}, style: {}, children: [],
+    innerHTML: '', textContent: '', value: '', dataset: {}, style: {}, children: [], attributes: {},
+    setAttribute(name, value) { this.attributes[name] = value; },
     classList: {
       add: name => classes.add(name), remove: name => classes.delete(name),
       contains: name => classes.has(name), toggle: name => classes.has(name)
@@ -234,6 +235,15 @@ async function viewer(events, options = {}) {
   };
   /** @brief 上下文内容块按钮取自渲染结果中的 data-context-block 属性，其余选择器没有元素。 */
   const selectAll = selector => {
+    if (selector === '#act-body [data-calendar-row]') {
+      return [...get('#act-body').innerHTML.matchAll(/data-calendar-row="(\d+)"[^>]*aria-pressed="([^"]+)"/g)]
+        .map((match,index) => {
+          const button = get(`calendar-bar:${index}`);
+          button.dataset.calendarRow = match[1];
+          button.setAttribute('aria-pressed',match[2]);
+          return button;
+        });
+    }
     if (selector !== '#ctx-body [data-context-block]') return [];
     return Array.from(get('#ctx-body').innerHTML.matchAll(/data-context-block="([^"]+)"/g), match => {
       const button = get(`button:${match[1]}`);

@@ -45,6 +45,26 @@ test('drop captures every file handle in the event tick before waiting for the e
   assert.deepEqual(view.errors, []);
 });
 
+test('visible load time includes handle and first-engine waits through overview preparation', async t => {
+  const rows=[event('observation',{})];
+  const view=await viewer(rows);
+  t.after(()=>view.close());
+  const window=view.run('window');
+  window.clock=100;
+  window.sql=view.state.SQL;
+  view.state.SQL=null;
+  view.run('performance={now:()=>window.clock}; loadSqlJs=async()=>{window.clock+=2000; return window.sql;}');
+  view.run('const previousOverview=renderOverview; renderOverview=()=>{previousOverview(); window.clock+=300;}');
+  const exported=exportRun(rows);
+  await drop(view,exported.directories.map(handle=>({kind:'file',getAsFileSystemHandle(){
+    window.clock+=500;
+    return Promise.resolve(handle);
+  }})));
+  assert.match(view.get('#run-meta').textContent,/ · 载入 2\.8 秒$/);
+  assert.equal(view.state.view,'overview');
+  assert.deepEqual(view.errors,[]);
+});
+
 test('dropping separate files and choosing files retain the export and its lazy original event body', async t => {
   const rows = [event('observation', {details: '原文'})];
   const view = await viewer(rows);

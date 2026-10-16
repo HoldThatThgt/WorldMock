@@ -1372,13 +1372,14 @@ const REQUIRED_CATALOGS = ['catalog/app-catalog.jsonl', 'catalog/content-catalog
 /** @brief 用例文件冻结时运行清单登记的全部五份目录（四份必需与出行方式）。 */
 const CATALOG_FILES = [...REQUIRED_CATALOGS, 'catalog/travel-method.jsonl'];
 
-/** @brief 泳道各行：标签与行里各条块的左端、宽度和悬停文字（照页面写出的原样）。 */
-function lanes(markup) {
-  const row = new RegExp('<div class="act-lane"><div class="act-lane-label" title="[^"]*">([^<]*)</div>\\s*' +
-    '<div class="act-lane-track">([\\s\\S]*?)</div></div>', 'g');
-  const bar = /<span class="act-lane-bar" style="left:([^%]*)%;width:([^%]*)%;[^"]*"\s*title="([^"]*)"><\/span>/g;
-  return [...markup.matchAll(row)].map(([, label, track]) => ({label,
-    bars: [...track.matchAll(bar)].map(([, left, width, title]) => ({left, width, title}))}));
+/** @brief 从当天选择器及真实条块读取活动分组；分组身份与实际占用的显示行互不等同。 */
+function activityGroups(markup) {
+  const choices = [...markup.matchAll(/<option value="(\d+)"[^>]*>([^<]*)<\/option>/g)]
+    .filter(match => match[2].includes(' · '));
+  const bar = /<button class="act-lane-bar" style="left:([^%]*)%;width:([^%]*)%;[^"]*"\s*title="([^"]*)"\s*data-calendar-row="(\d+)"/g;
+  const bars = [...markup.matchAll(bar)];
+  return choices.map(([,index,text]) => ({label:text.split(' · ').slice(2).join(' · '),
+    bars:bars.filter(match=>match[4]===index).map(([,left,width,title])=>({left,width,title}))}));
 }
 
 /** @brief 总览「对象名称」卡片的完整标记，缺的素材名以「、」相连。 */
@@ -1573,7 +1574,7 @@ test('activity table lanes and timeline write the shared wording and keep the ki
   assert.deepEqual(tableRows(markup, 'act-table').map(cells => [cells[2].replace(/<[^>]*>/g, ''), cells[3]]), [
     ['互动', phrases[0]], ['互动', phrases[1]], ['购买', phrases[2]], ['出行', '驾车 · → 公司'], ['睡眠', '—'],
     ['查询', queries[0]], ['查询', queries[1]]]);
-  assert.deepEqual(lanes(markup).map(lane => lane.label), [...phrases, '出行 驾车 · → 公司', '睡眠 —', ...queries]);
+  assert.deepEqual(activityGroups(markup).map(lane => lane.label), [...phrases, '出行 驾车 · → 公司', '睡眠 —', ...queries]);
   // 查询的类型标签用它自己的颜色。
   assert.ok(markup.includes('<span class="act-kind" style="background:#5b8def33;color:#5b8def">查询</span>'));
   // 时间线：受理行和活动段行直接写写法；一集做到头的那条活动段行写的是刚做完的这一集。
@@ -1727,8 +1728,8 @@ test('touching uses of one app are drawn as one lane block labelled with every i
   const view = await viewer(nightEvents(), {catalog: NIGHT_CATALOG});
   t.after(() => view.close());
   const markup = view.activities();
-  const drawn = lanes(markup);
-  // 十二次使用画成七行、七个条块，自上而下按开始时刻；并成一行的标签把各段放过的内容依次列出。
+  const drawn = activityGroups(markup);
+  // 十二次使用合成七个可选对象、七个条块；名称把各段放过的内容依次列出，显示行另按并发复用。
   assert.deepEqual(drawn.map(lane => lane.label), [
     '使用哔哩哔哩《散步装备准备》', '使用哔哩哔哩《雨天出门准备》',
     '使用哔哩哔哩《拼图边框练习》《回家做饭长视频》《家庭合照挑选》', '使用网易云音乐《晚间歌单》',
@@ -1746,24 +1747,24 @@ test('touching uses of one app are drawn as one lane block labelled with every i
   assert.equal(drawn[5].bars[0].title, '2026/09/28 21:58:03–2026/09/28 22:01:03 · ' +
     '使用微信《亲子阅读角》《旅行行李清单》 · 连续使用，共 2 段');
   assert.ok(markup.includes('同一时间轴上的条块表示实际执行区间；空白表示尚无结算记录。' +
-    '同一个 app 首尾相接的几次使用画在同一行，连成一个条块。'));
+    '首尾相接的同一 app 使用合成条块；先后执行的区间复用显示行，只有实际重叠时分行。'));
   assert.deepEqual(view.errors, []);
 });
 
 test('a gap, an overlap or a different app ends a continuous use', async t => {
   const view = await viewer(nightEvents(), {catalog: NIGHT_CATALOG});
   t.after(() => view.close());
-  const drawn = lanes(view.activities());
-  // 19:52:00 和 20:00:00 两次隔了 390 秒，各自一行，标签和悬停文字里没有「连续使用」。
+  const drawn = activityGroups(view.activities());
+  // 19:52:00 和 20:00:00 两次隔了 390 秒，各自保留条块，名称和悬停文字里没有「连续使用」。
   assert.deepEqual(drawn.slice(0, 2).map(lane => lane.bars[0].title), [
     '2026/09/28 19:52:00–2026/09/28 19:53:30 · 使用哔哩哔哩《散步装备准备》',
     '2026/09/28 20:00:00–2026/09/28 20:02:30 · 使用哔哩哔哩《雨天出门准备》']);
-  // 哔哩哔哩 20:43:33 结束、网易云音乐同一秒开始：两个 app 各在各的行；21:23:33 和 21:58:03 两处同理。
+  // 哔哩哔哩 20:43:33 结束、网易云音乐同一秒开始：两个 app 各自保留条块；21:23:33 和 21:58:03 两处同理。
   assert.equal(drawn[3].bars[0].title, '2026/09/28 20:43:33–2026/09/28 21:23:33 · 使用网易云音乐《晚间歌单》');
   assert.ok(drawn[2].bars[0].title.startsWith('2026/09/28 20:19:33–2026/09/28 20:43:33 · '));
   assert.ok(drawn[4].bars[0].title.startsWith('2026/09/28 21:23:33–2026/09/28 21:58:03 · '));
   assert.ok(drawn[5].bars[0].title.startsWith('2026/09/28 21:58:03–2026/09/28 22:01:03 · '));
-  // 同一个 app 相隔恰好 1 秒的两次、区间重叠 1 秒的两次：都是两行、两个条块，标记栏都是「—」。
+  // 同一个 app 相隔恰好 1 秒的两次、区间重叠 1 秒的两次：都是两个可选对象、两个条块，标记栏都是「—」。
   const apart = await viewer([
     ...appUse('gap-1', 'douyin', 'c-short', at('10:00:00'), at('10:02:00')),
     ...appUse('gap-2', 'douyin', 'c-short-2', at('10:02:01'), at('10:03:31')),
@@ -1772,8 +1773,8 @@ test('a gap, an overlap or a different app ends a continuous use', async t => {
   ]);
   t.after(() => apart.close());
   const markup = apart.activities();
-  assert.deepEqual(lanes(markup).map(lane => lane.bars.length), [1, 1, 1, 1]);
-  assert.ok(lanes(markup).every(lane => !lane.bars[0].title.includes('连续使用')));
+  assert.deepEqual(activityGroups(markup).map(lane => lane.bars.length), [1, 1, 1, 1]);
+  assert.ok(activityGroups(markup).every(lane => !lane.bars[0].title.includes('连续使用')));
   assert.deepEqual(marks(markup), ['—', '—', '—', '—']);
   assert.ok(!acceptances(apart).some(text => text.includes('接续')));
   assert.deepEqual(apart.errors, []);
@@ -1813,7 +1814,7 @@ test('only app uses of one person join, never location activities, purchases, qu
   ]);
   t.after(() => view.close());
   const markup = view.activities();
-  const drawn = lanes(markup);
+  const drawn = activityGroups(markup);
   assert.equal(drawn.length, view.state.acts.length);
   assert.equal(drawn.length, 8);
   assert.ok(drawn.every(lane => lane.bars.every(bar => !bar.title.includes('连续使用'))));
@@ -1866,7 +1867,7 @@ test('a paused and resumed use keeps its own row and two blocks', async t => {
     [at('21:30:00'), at('21:50:00')]));
   t.after(() => view.close());
   const markup = view.activities();
-  const drawn = lanes(markup);
+  const drawn = activityGroups(markup);
   assert.deepEqual(drawn.map(lane => lane.label), ['使用哔哩哔哩《测试长视频》']);
   assert.deepEqual(drawn[0].bars.map(bar => bar.title), [
     '2026/09/28 21:00:00–2026/09/28 21:08:00 · 使用哔哩哔哩《测试长视频》',
@@ -1885,7 +1886,7 @@ test('a use of the same app that fills a pause joins both halves', async t => {
   const view = await viewer(fill(at('21:10:30')));
   t.after(() => view.close());
   const markup = view.activities();
-  const drawn = lanes(markup);
+  const drawn = activityGroups(markup);
   assert.equal(drawn.length, 1);
   assert.equal(drawn[0].label, '使用哔哩哔哩《测试长视频》《测试图文》《测试长视频》');
   assert.deepEqual(drawn[0].bars.map(bar => bar.title), ['2026/09/28 21:00:00–2026/09/28 21:22:30 · ' +
@@ -1899,7 +1900,7 @@ test('a use of the same app that fills a pause joins both halves', async t => {
   const late = await viewer(fill(at('21:10:31')));
   t.after(() => late.close());
   const lateMarkup = late.activities();
-  const lateLanes = lanes(lateMarkup);
+  const lateLanes = activityGroups(lateMarkup);
   assert.equal(lateLanes.length, 1);
   assert.deepEqual(lateLanes[0].bars.map(bar => bar.title), [
     '2026/09/28 21:00:00–2026/09/28 21:10:30 · 使用哔哩哔哩《测试长视频》《测试图文》 · 连续使用，共 2 段',
@@ -1916,7 +1917,7 @@ test('a paused use that touches another use on each side is marked with both con
     ...appUse('later', 'bilibili', 'c-article', at('21:30:00'), at('21:38:00')), after]);
   t.after(() => view.close());
   const markup = view.activities();
-  const drawn = lanes(markup);
+  const drawn = activityGroups(markup);
   assert.equal(drawn.length, 1);
   assert.deepEqual(drawn[0].bars.map(bar => bar.title), [
     '2026/09/28 21:00:00–2026/09/28 21:10:30 · 使用哔哩哔哩《测试长视频》《测试图文》 · 连续使用，共 2 段',
@@ -1937,7 +1938,7 @@ test('midnight, time zone, paging, sorting and timeline filters never cut a cont
   t.after(() => view.close());
   const pair = [1, 2].map(index => `09/28 23:58–09/29 00:03 · 第 ${index} 段，共 2 段`);
   const markup = view.activities();
-  assert.deepEqual(lanes(markup).map(lane => lane.bars.length), [1]);
+  assert.deepEqual(activityGroups(markup).map(lane => lane.bars.length), [1]);
   assert.deepEqual(marks(markup), pair);
   // 每页一行：两页各一行，标记不变。
   view.run('AT.pageSize = 1');
@@ -1970,7 +1971,7 @@ test('a use cut by the run end keeps the uses that touch it', async t => {
   const view = await viewer([...done, accepted, progress]);
   t.after(() => view.close());
   const markup = view.activities();
-  assert.deepEqual(lanes(markup).map(lane => lane.bars.map(bar => bar.title)), [[
+  assert.deepEqual(activityGroups(markup).map(lane => lane.bars.map(bar => bar.title)), [[
     '2026/09/28 20:00:00–2026/09/28 20:01:30 · 使用哔哩哔哩《测试文章》《测试长视频》 · 连续使用，共 2 段']]);
   assert.deepEqual(marks(markup), [1, 2].map(index => `09/28 20:00–09/28 20:01 · 第 ${index} 段，共 2 段`));
   // 后一次受理之后没有任何进度事件：它没有执行段，前一次标记栏是「—」，后一次受理行不加半句。
@@ -1988,7 +1989,7 @@ test('an item continued in the next use is written once in the label of the cont
     ...appUse('other', 'bilibili', 'c-image', at('20:40:00'), at('20:45:00')),
   ]);
   t.after(() => view.close());
-  const drawn = lanes(view.activities());
+  const drawn = activityGroups(view.activities());
   assert.equal(drawn[0].label, '使用哔哩哔哩《测试长视频》《测试图文》');
   assert.deepEqual(drawn[0].bars.map(bar => bar.title), ['2026/09/28 20:00:00–2026/09/28 20:45:00 · ' +
     '使用哔哩哔哩《测试长视频》《测试图文》 · 连续使用，共 3 段']);
@@ -1999,7 +2000,7 @@ test('continuous uses are found without the frozen catalog', async t => {
   const view = await viewer(nightEvents(), {files: []});
   t.after(() => view.close());
   const markup = view.activities();
-  const drawn = lanes(markup);
+  const drawn = activityGroups(markup);
   // 条块、标记和「接续」只用身份和时刻，照样算出；标签里的名称显示缺失。
   assert.deepEqual(drawn.map(lane => lane.bars.length), [1, 1, 1, 1, 1, 1, 1]);
   assert.deepEqual(marks(markup), NIGHT_MARKS);
@@ -2044,8 +2045,8 @@ test('a feed of more than three items is written with three titles and the count
   const feed = '使用抖音《测试短视频》《测试短视频二》《测试实况》等 4 条';
   assert.deepEqual(targets(markup), [feed, '使用抖音《测试长视频》']);
   // 两项并成一行：c-long 在两项之间相邻，只算一次，标签与唯一的条块都写前三条加「等 4 条」。
-  assert.deepEqual(lanes(markup).map(lane => lane.label), [feed]);
-  assert.deepEqual(lanes(markup)[0].bars.map(bar => bar.title),
+  assert.deepEqual(activityGroups(markup).map(lane => lane.label), [feed]);
+  assert.deepEqual(activityGroups(markup)[0].bars.map(bar => bar.title),
     [`2026/09/28 20:00:00–2026/09/28 21:08:30 · ${feed} · 连续使用，共 2 段`]);
   assert.deepEqual(view.errors, []);
 });
