@@ -1064,8 +1064,9 @@ def test_branch_copies_parent_rows_and_artifact_rows_byte_for_byte(tmp_path):
     store.close()
 
 
-def test_branch_rejects_an_invalid_parent_body_before_creating_the_stage(tmp_path):
+def test_branch_rejects_an_invalid_parent_body_before_creating_the_stage(tmp_path, monkeypatch):
     from pydantic import ValidationError
+    from worldmock.footprints import checkpoint as checkpoint_module
     store = _make_store(tmp_path)
     (first,) = store.append_evidence([EventDraft(event_type="action_result", occurred_at=100, agent_id=1)])
     body = first.model_dump()
@@ -1074,8 +1075,12 @@ def test_branch_rejects_an_invalid_parent_body_before_creating_the_stage(tmp_pat
         store.connection.execute("INSERT INTO events VALUES(?,?,?)", (2, "raw-invalid", canonical_json(body).decode()))
     reference = store.assets.put_json({"workspace": True}, {"kind": "fixture"})
     point = store.checkpoint(store.state, {"agent:1": reference, "life": reference})
+    stages, make_stage = [], checkpoint_module.tempfile.mkdtemp
+    monkeypatch.setattr(checkpoint_module.tempfile, "mkdtemp",
+                        lambda **kwargs: stages.append(kwargs) or make_stage(**kwargs))
     with pytest.raises(ValidationError):
         restore_branch(store, point.checkpoint_id, tmp_path / "child")
+    assert stages == []
     assert not (tmp_path / "child").exists()
     assert _no_stage(tmp_path)
     store.close()
