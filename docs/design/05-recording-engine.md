@@ -16,7 +16,7 @@ flowchart LR
     Export --> Evaluation[行为评估]
 ```
 
-查看器读的是运行目录或导出目录里的数据库、运行清单和冻结的目录素材，见「显示写法与检查工具」。
+查看器打开导出目录：在页面里从 events.jsonl 建索引，读导出清单、运行清单和冻结的目录素材，见「显示写法与检查工具」。
 
 运行库只有环境 actor 一个写入者，写入分两种，每次都是一个 SQLite 事务。
 
@@ -348,7 +348,7 @@ app 名按事件的 `app_id` 取；功能 app 也在冻结的 app 目录里，�
 | 导出写时间线和质量报告 | 足迹库持有的运行清单 | 运行目录的 `assets/<sha256>` |
 | 导出认证重算质量报告 | 导出清单的 `frozen_run_manifest` | 导出目录的 `assets/<sha256>`：导出复制了全部环境素材，只凭导出目录就能重算 |
 | 零点计划的经历句 | 不回读文件 | 运行中的引擎用内存里的目录，它与冻结的素材是同一份字节 |
-| 查看器 | 同一次拖入或选择的文件里、属于本库的运行清单（运行目录的 `manifest.json`，或导出清单里的 `frozen_run_manifest`） | 同一次拖入的 `assets/<sha256>` 文件 |
+| 查看器 | 导出清单的 `frozen_run_manifest`；同一次拖入了运行目录时取运行目录的 `manifest.json`（内容相同） | 同一次拖入的 `assets/<sha256>` 文件 |
 
 Python 一侧读冻结素材时沿用导出认证的读取：先核对素材名集合，再逐个按摘要定位并复核字节数与摘要，然后用登记环境时的同一套严格行模型解析各行。
 
@@ -364,7 +364,6 @@ Python 一侧的使用方都是要出结论的工具或人物的输入，取不�
 | 素材的字节与清单不符 | `Frozen environment asset identity is invalid` | 只核对字节数：`console.error('Frozen catalog file size disagrees with the run manifest:', <素材名>)`，按缺失处理 |
 | 素材名集合与清单不符 | `Frozen environment asset set is invalid`、`Frozen catalog file set is invalid` | 不检查 |
 | 某一行不是合法的 JSON 对象，或不合当前的行模型 | 登记环境时的同一句英文原因，带文件名和行号 | 只要求每行能解析成 JSON 对象：`console.error('Frozen catalog file is unreadable:', <素材名>)`，按缺失处理；多出来的字段不管 |
-| 没有属于本库的运行清单 | 不适用：这几个工具都从运行目录或导出目录的清单起步 | `console.error('Frozen catalog is unavailable: no run manifest for this database')` 一次，全部名称缺失 |
 | 购买活动的 `order_ids` 在订单记录里找不到 | `Purchase activity has no recorded order: <order_id>` | 这张订单的位置显示「名称缺失（<order_id>）」 |
 | 活动种类没有专门的写法，也不在中文种类表里 | `Unsupported activity kind for display: <kind>` | 没有专门写法的种类在目标处一律显示「—」；类型列写种类标签，表里没有的写原值 |
 
@@ -372,14 +371,62 @@ Python 一侧取不到名称时：`render_day.py` 的命令行不写出时间线
 
 ### 查看器
 
-查看器不做认证。它这样读运行目录：
+查看器不做认证，只打开导出目录。没有导出的运行（包括运行中和中途停下的）先用 `worldmock export` 导出，`--cutoff` 只导出到某个事件。
+拖入导出目录，或拖入包含它的执行目录（运行目录一起读），也可在文件选择框里选中导出目录里的 `events.jsonl` 与 `manifest.json`
+（要名称再选中 assets 里的文件）。
 
-- 遍历拖入的目录时，把直接位于名为 `assets` 的目录下的文件按文件名记下句柄，不读内容；顶层选中或拖入的、文件名恰为 64 位十六进制摘要的文件也记下。
-  同一个文件名记到两次时取先遇到的那个。文件选择框不限扩展名，素材文件没有扩展名。
-- 认定本库的运行清单后，取 `environment_assets` 里上表五个素材名的 `sha256` 和 `size_bytes`，在同一次拖入的文件里找到 `assets/<sha256>`，
-  核对字节数等于 `size_bytes`，读成文本后逐行解析成 JSON 对象。不在浏览器里重算摘要，不接受另外拖入的环境数据集目录。
-- 只拖 `footprints.sqlite` 一个文件时，app、内容、商品、地点、出行方式的名称全部显示为缺失；活动名、事务名、地点会话名是事件和世界状态自己带的文字，不受影响。
-- 加载次序固定：打开数据库建索引；认定运行清单，读目录文件建名称表；合并活动并算出连续使用；最后生成各行摘要文字，只算一次。换一个数据库时，名称表、订单表和缺失记录一起清空。
+- **认定导出。** 同一次拖入的 `manifest.json` 里，带 `frozen_run_manifest` 对象的那一份是导出清单，必须恰有一份，且带 `run_id`、
+  `window.timezone` 与 `artifacts.events`；不读结构号，各版导出都能打开。`events.jsonl` 取导出清单所在目录下 `artifacts.events.path`
+  指的文件。导出清单的 `frozen_run_manifest` 必须是 `run_id` 相同、带 `agent_ids` 的运行清单。只拖了 `footprints.sqlite`
+  （或 `.sqlite3`、`.db`）而没有导出清单时，页面说明先导出。
+- **运行身份与时区。** 都取导出清单：顶层的 `run_id` 与 `window.timezone`，不读世界状态，没有缺省时区。总览与顶栏的 run_id 是这个值；
+  恢复链的导出写的是最后一段的运行。
+- **页内索引。** 每次读 32 MiB（Perfetto 读大文件的分段），按换行分行，逐行严格按 UTF-8 解码并解析，写进页面里的 sql.js 内存库：
+  `events(event_seq, event_id, body)` 与运行数据库同形；`event_lines(event_seq, offset, length)` 记每行在文件里的字节起点与长度
+  （不含换行）；`world_state(singleton, version, body)` 在导出清单带最终存档时写入 `checkpoint.state` 一行，不完整导出没有这一行。
+  行数必须等于 `artifacts.events.rows`。写完建 `events_type` 索引（`json_extract(body,'$.event_type'), event_seq`），与各视图按类型
+  读取的写法相同。建索引时每过约 0.1 秒经一次消息投递让出页面（隐藏的标签页里计时器每秒至多唤醒一次，消息投递不受限），拖放区每读过
+  一成写一行进度；同一时间只加载一份导出。
+- **裁剪。** 三类大事件的 body 只留各视图批量读取的部分，其余事件写原行：
+
+  | 事件 | 索引里的 body |
+  | --- | --- |
+  | observation | 信封全留；data 只留 `balance_fen`、`body`、`active_activities`、`calendar_context` |
+  | model_request | 信封与 data 全留；`data.request.messages` 只留第一条 |
+  | model_response | 信封与 data 全留，去掉 `data.request` |
+
+  这张表只在 `tools/run-viewer-index.js` 维护一处，SQL 控制台的说明由它生成。
+- **全文。** 时间线展开一行、「上下文」读请求与响应时，按 `event_lines` 的字节区间从 `events.jsonl` 读原行，与导出文件逐字节相同；
+  读不到（文件被移走或改动）时在该处写读取失败和英文错误日志。
+- **不完整导出。** 没有最终存档时，对象名称、运行输入警告和当地时刻照常；期末账户与世界状态版本显示「无 world_state」，
+  没有地点会话，人物写「agent <编号>」。
+- **人物总结。** `MEMORY.md` 只在同一次拖入了运行目录（`as2/agents/agent_<编号>/MEMORY.md`）时显示；记忆正文照常取自
+  `memory_updated` 事件。
+- **冻结目录。** 认定运行清单（拖入了运行目录的 `manifest.json` 时取它本身，否则取导出清单里的冻结副本）后，取 `environment_assets`
+  里上表五个素材名的 `sha256` 和 `size_bytes`，在同一次拖入的文件里找到 `assets/<sha256>`（直接位于名为 `assets` 的目录下的文件按
+  文件名记下句柄，顶层选中的、文件名恰为 64 位十六进制摘要的文件也记下，同名取先遇到的），核对字节数后逐行解析成 JSON 对象；
+  不在浏览器里重算摘要，不接受另外拖入的环境数据集目录。文件选择框不限扩展名，素材文件没有扩展名。没有拖入 assets 时，app、内容、
+  商品、地点、出行方式的名称显示为缺失；活动名、事务名、地点会话名是事件和世界状态自己带的文字，不受影响。
+- **加载次序。** 固定为：清空上一份运行（索引库、名称表、订单表、缺失记录、各视图状态）；认定导出清单与 events.jsonl；建索引；
+  读事件索引与摘要字段；认定运行清单，读目录文件建名称表；合并活动并算出连续使用；最后生成各行摘要文字，只算一次。
+- **SQL 控制台。** 查询的是这个索引；说明写明三类 body 的裁剪、各留什么、`event_lines` 表、没有 checkpoints 与 artifacts 表，
+  以及完整行在哪里读：`event_lines` 的字节区间、`sqlite3` 只读打开运行目录的 `footprints.sqlite`、`scripts/inspect_run.py`。
+- **容量。** 30 天的导出（events.jsonl 1.92 GB）建成的索引约 260 MB。sql.js 把索引放在一个随写入按 1.125 倍增长的 ArrayBuffer
+  里，Chrome 单个 ArrayBuffer 的上限约 2 GB，按每天约 7.4 MB 约 200 天到顶。
+
+加载被拒绝的情形（英文原因显示在拖放区，并写同文错误日志）：
+
+| 情形 | 原因 |
+| --- | --- |
+| 没有导出清单，拖入了数据库文件 | `<路径> is not opened directly: export the run with "worldmock export …" … and drop the export directory` |
+| 没有导出清单 | `No export manifest was dropped: …` |
+| 导出清单多于一份 | `More than one export manifest was dropped: …` |
+| 导出清单缺字段 | `Export manifest lacks run_id, window.timezone or artifacts.events` |
+| 冻结副本不是本运行的运行清单 | `Export manifest frozen_run_manifest is not the run manifest of run <run_id>` |
+| 没有拖入 events.jsonl | `The export's events file was not dropped: <路径>` |
+| 某行解不了 | `events.jsonl line <行号> could not be indexed: <原因>` |
+| 文件被截断 | `events.jsonl does not end with a newline: the file is truncated` |
+| 行数不符 | `events.jsonl holds <n> events but the export manifest lists <m>` |
 
 种类标签「互动」「购买」「查询」「出行」「睡眠」留在活动表的「活动类型」列、图例和排序里；写法放在「目标」列、时间线和泳道。
 
@@ -400,9 +447,10 @@ Python 一侧取不到名称时：`render_day.py` 的命令行不写出时间线
 `interact` 在 `app` 分组下是「使用」、在 `location` 分组下是「做」，`travel` 是「出行」，`sleep` 是「睡觉」，`purchase` 是「购买」，`query` 是「查询」（工具层没有查询的行，只用于动作请求行）；
 目标类别、下钻正文和「整层原文」保持原始 JSON。
 
-拖放区说明写「对象名称取自这次运行冻结的环境目录：拖入整个 run 目录或导出目录才读得到，只拖数据库时显示为「名称缺失」。」
-有任何一份必需的目录文件没有读到时，总览在「运行输入警告」卡片旁显示一张标题为「对象名称」的卡片，正文是
-「未读到这次运行冻结的环境目录（缺 <素材名，以「、」相连>），对象名称显示为「名称缺失（身份）」。请把整个 run 目录或导出目录拖入：其中的 manifest.json 与 assets 目录都要在。」
+拖放区说明写「把 worldmock export 写出的导出目录拖到此处……对象名称取自导出目录 assets 里冻结的环境目录，没有 assets 时显示为
+「名称缺失」……」（全文见 `tools/run-viewer.html` 拖放区）。有任何一份必需的目录文件没有读到时，总览在「运行输入警告」卡片旁显示
+一张标题为「对象名称」的卡片，正文是「未读到这次运行冻结的环境目录（缺 <素材名，以「、」相连>），对象名称显示为「名称缺失（身份）」。
+请把整个导出目录拖入：其中的 manifest.json 与 assets 目录都要在。」
 目录文件都读到时不显示这张卡片。
 
 ### 查看器里的连续使用
@@ -617,7 +665,7 @@ app 的开关、订单通知和地点停留只进事件与这些工件，不进�
 
 `app_touch` 只剩回调足迹：`rule_id` 是冻结的 `catalog/callbacks.jsonl` 里登记的一条回调规则的身份，`step` 只取 `browse` 或 `payment`；
 没有冻结这份文件的运行不得有 `app_touch`。规则身份没有登记、或步骤不在这两个值之内，都报 `App touch step disagrees with its source`。
-坏素材或投影拒绝发布，已有正确导出不被半成品覆盖。评估同样先认证输入。查看器不做认证，它怎样读运行目录和冻结的目录素材见「显示写法与检查工具」。
+坏素材或投影拒绝发布，已有正确导出不被半成品覆盖。评估同样先认证输入。查看器不做认证，它怎样读导出目录和冻结的目录素材见「显示写法与检查工具」。
 
 ## 运行比对
 

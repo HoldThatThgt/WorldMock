@@ -15,8 +15,9 @@ def test_run_viewer_recorded_names():
     test_file = Path(__file__).with_name("run_viewer.test.cjs")
     context_file = Path(__file__).with_name("run_viewer_context.test.cjs")
     wording_file = Path(__file__).with_name("run_viewer_wording.test.cjs")
+    identity_file = Path(__file__).with_name("run_viewer_identity.test.cjs")
     result = subprocess.run(
-        [node, "--test", str(test_file), str(context_file), str(wording_file)],
+        [node, "--test", str(test_file), str(context_file), str(wording_file), str(identity_file)],
         cwd=test_file.parents[3],
         capture_output=True,
         text=True,
