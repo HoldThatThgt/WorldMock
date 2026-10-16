@@ -128,6 +128,7 @@ EXPORT_REFERENCES = {
         "memory_references.problems[].event_id": "event",
         "day_plan_metrics.*.external_constraints.source_event_ids[]": "event",
         "day_plan_metrics.*.external_constraints.other_rejections.source_event_ids[]": "event",
+        "day_plan_metrics.*.external_constraints.missing_evidence_event_ids[]": "event",
     },
 }
 #: 导出里按行比较的 JSONL 工件。
@@ -1175,7 +1176,29 @@ def _normalize_quality(report: dict, context: NormalizeContext) -> dict:
     if isinstance(metrics, dict) and context.code_sha256 in metrics:
         masked["day_plan_metrics"] = {("<code-identity>" if key == context.code_sha256 else key): value
                                       for key, value in metrics.items()}
-    return _map_digests(map_ids(masked, EXPORT_REFERENCES["quality.json"], context), context)
+    mapped = map_ids(masked, EXPORT_REFERENCES["quality.json"], context)
+    return _map_digests(_order_quality_references(mapped), context)
+
+
+def _order_quality_references(report: dict) -> dict:
+    """@brief 仅重排质量报告中按随机事件身份排序的三组引用，保留重复项与引用错误。"""
+    metrics = report.get("day_plan_metrics")
+    if not isinstance(metrics, dict):
+        return report
+    for metric in metrics.values():
+        constraints = metric.get("external_constraints") if isinstance(metric, dict) else None
+        if not isinstance(constraints, dict):
+            continue
+        groups = ((constraints, ("source_event_ids", "missing_evidence_event_ids")),
+                  (constraints.get("other_rejections"), ("source_event_ids",)))
+        for fields, names in groups:
+            if not isinstance(fields, dict):
+                continue
+            for name in names:
+                values = fields.get(name)
+                if isinstance(values, list):
+                    fields[name] = sorted(values, key=canonical_bytes)
+    return report
 
 
 def drop_replaced(base: dict, head: dict) -> tuple[dict, dict]:

@@ -798,6 +798,87 @@ def test_quality_wall_fields_and_code_key_are_masked(tmp_path):
     assert report["verdict"] == "different" and ".actions.request_events" in _paths(report)
 
 
+QUALITY_EVIDENCE_FIELDS = ("source_event_ids", "other_rejections.source_event_ids", "missing_evidence_event_ids")
+
+
+def _quality_evidence(recording, field, values):
+    """@brief 设置一组质量证据，返回持有该字段的对象以构造缺项反例。"""
+    owner = recording.quality["day_plan_metrics"][CODE]["external_constraints"]
+    keys = field.split(".")
+    for key in keys[:-1]:
+        owner = owner.setdefault(key, {})
+    owner[keys[-1]] = values
+    return owner
+
+
+@pytest.mark.parametrize("field", QUALITY_EVIDENCE_FIELDS)
+def test_quality_reference_order_follows_event_identity(tmp_path, field):
+    """报告按各自随机 ID 排序，映射后必须得到相同引用；原始序号顺序故意相反。"""
+    class ReversedIds(Recording):
+        def eid(self, seq):
+            return f"{self.prefix}{9 - seq:031x}"
+
+    base, head = Recording(), ReversedIds(prefix="b")
+    _quality_evidence(base, field, sorted([base.eid(4), base.eid(6)]))
+    _quality_evidence(head, field, sorted([head.eid(4), head.eid(6)]))
+    report = _compare(tmp_path, base, head)
+    assert report["verdict"] == "equal"
+    assert report["problems"] == []
+
+
+@pytest.mark.parametrize("field", QUALITY_EVIDENCE_FIELDS)
+@pytest.mark.parametrize("references", [(4,), (4, 6, 6), (4, 5)], ids=["missing", "duplicate", "changed"])
+def test_quality_reference_membership_is_compared(tmp_path, field, references):
+    base, head = Recording(), Recording(prefix="b")
+    _quality_evidence(base, field, [base.eid(4), base.eid(6)])
+    _quality_evidence(head, field, [head.eid(seq) for seq in references])
+    report = _compare(tmp_path, base, head)
+    assert report["verdict"] == "different"
+    assert report["problems"] == []
+    assert any(f".external_constraints.{field}" in path for path in _paths(report))
+
+
+@pytest.mark.parametrize("field", QUALITY_EVIDENCE_FIELDS)
+def test_unknown_quality_reference_is_a_problem(tmp_path, field):
+    base, head = Recording(), Recording(prefix="b")
+    _quality_evidence(base, field, [base.eid(4), base.eid(6)])
+    _quality_evidence(head, field, [head.eid(4), "f" * 32])
+    report = _compare(tmp_path, base, head)
+    assert report["verdict"] == "different"
+    assert {"kind": "REFERENCE_NOT_AN_ID", "id_kind": "event", "side": "head",
+            "path": f".day_plan_metrics.<code-identity>.external_constraints.{field}[1]",
+            "value": "f" * 32} in report["problems"]
+
+
+@pytest.mark.parametrize("field", QUALITY_EVIDENCE_FIELDS)
+def test_missing_quality_reference_field_differs_from_empty(tmp_path, field):
+    base, head = Recording(), Recording()
+    _quality_evidence(base, field, [])
+    owner = _quality_evidence(head, field, [])
+    del owner[field.split(".")[-1]]
+    report = _compare(tmp_path, base, head)
+    assert report["verdict"] == "different"
+    assert any(f".external_constraints.{field}" in path for path in _paths(report))
+
+
+@pytest.mark.parametrize("location", ["quality-actions", "quality-metric", "quality-outcome", "event", "activity"])
+def test_other_reference_lists_keep_their_order(tmp_path, location):
+    base, head = Recording(), Recording()
+    for recording, sequences in ((base, (4, 6)), (head, (6, 4))):
+        references = [recording.eid(seq) for seq in sequences]
+        if location == "quality-actions":
+            recording.quality["actions"]["source_event_ids"] = references
+        elif location == "quality-metric":
+            recording.quality["day_plan_metrics"][CODE]["source_event_ids"] = references
+        elif location == "quality-outcome":
+            recording.quality["run_outcome"] = {"run_ended_events": references}
+        elif location == "event":
+            _event(recording, "activity_progress")["data"]["source_event_ids"] = references
+        else:
+            recording.extra_rows["activities.jsonl"] = [{"source_event_ids": references}]
+    assert _compare(tmp_path, base, head)["verdict"] == "different"
+
+
 def test_export_must_cover_the_database_prefix(tmp_path):
     base_run, base_export = _write(tmp_path / "base", Recording())
     head_run, head_export = _write(tmp_path / "head", Recording())

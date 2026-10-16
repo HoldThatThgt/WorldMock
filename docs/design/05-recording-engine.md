@@ -679,6 +679,11 @@ app 的开关、订单通知和地点停留只进事件与这些工件，不进�
 
 两次运行是否给了人物同样的经历按记录比对。字段分类只在这里定义，`scripts/compare_runs.py` 照此实现：
 
+质量报告的 `day_plan_metrics.<代码摘要>.external_constraints` 下，`source_event_ids`、
+`other_rejections.source_event_ids` 与 `missing_evidence_event_ids` 由报告生成器按随机事件身份排序。
+这三组引用映射到事件序号后重新排序再比较；保留重复项，缺项和指向别的事件仍算不同，未知引用仍报错。
+其他引用列表保持原有顺序。
+
 - **身份**：事件的 `event_id`、`caused_by` 与工具里声明的引用字段，映射到所指事件的序号；检查点身份映射到它的 `checkpoint_created` 事件的序号；运行身份映射到段次序。映射是双射，引用指向别的事件仍然算不同。动作、活动、决策、订单等复合身份含运行身份，照原文比较：它们也是随机流的键，比对的两次运行必须使用同样的运行身份。人物工作区 `MEMORY.md` 已核验经历行里的「来源事件」身份同样映射到事件序号；`memory_updated` 记下的 `MEMORY.md` 摘要（`memory_sha256`、`memory_before_sha256`）随这些身份变化，按首次出现的次序成双射比较，文件内容在每个比较的工作区快照里逐行比较。
 - **壁钟**：只有事件顶层的 `recorded_at` 与 `wall_elapsed_ms`、人物工作区 AGENT.json 的 `initialized_at`、运行清单 `lineage` 各项的 `last_recorded_at` 与 `branched_at`、质量报告 `acceleration` 下的实测墙钟项、按记录时刻定峰谷的估价项与峰时计数、`lineage` 节的停机秒数。嵌套的同名字段是模拟时间（例如记忆层 `earlier_today[].recorded_at`），照常比较。
 - **传输记录**：`model_response` 信封里的 `transport_attempts`（失败发送的壁钟毫秒数与传输错误），不进任何提示。
