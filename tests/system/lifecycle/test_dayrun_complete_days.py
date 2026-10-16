@@ -2,6 +2,7 @@
 from datetime import timedelta
 import pytest
 from scripts import render_day
+from tests.footprints.recording import artifact_rows
 from tests.life.conftest import MAIN_TOOL, SIDE_TOOL, do_at, purchase, stage_day_plan, travel, use_app
 from tests.life.environment_runtime import act, act_group, conclude_app_use, events, finish_activity, run_to_end
 from worldmock.footprints.export import export_run
@@ -23,7 +24,8 @@ def test_complete_days_reach_declared_stop_without_failure(engine_factory, tmp_p
     workspace = write_agent_workspace(tmp_path / "agent")
     engine.checkpoint({"agent:1": snapshot_directory(workspace, engine.context.store.assets)})
     export_run(engine.context.store, engine.context.store.last_event_seq, tmp_path / "export")
-    manifest, exported_events, activities = validate_export(tmp_path / "export")
+    manifest, activities = validate_export(tmp_path / "export")
+    exported_events = artifact_rows(tmp_path / "export", "events")
     assert manifest["experiment_completed"] is True and exported_events and activities
 
 

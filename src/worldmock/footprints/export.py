@@ -3,12 +3,14 @@
 from __future__ import annotations
 from worldmock.footprints import timeline_labels
 
-from worldmock.footprints.timeline_labels import window_days
+from worldmock.footprints.timeline_labels import timeline_sources, window_days
 import hashlib
 import importlib.util
 import logging
+import os
 import shutil
 import tempfile
+from collections.abc import Iterator
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -23,6 +25,7 @@ from worldmock.footprints.experiences import project_verified_experiences
 from worldmock.footprints.frozen_environment import frozen_display_names
 from worldmock.footprints.location_stays import project_location_stays
 from worldmock.footprints.models import AssetRef, Event, canonical_json
+from worldmock.footprints.post_run import post_run_view
 from worldmock.footprints.purchases import project_purchase_facts
 from worldmock.footprints.quality import build_quality_report
 from worldmock.footprints.store import FootprintStore
@@ -43,9 +46,10 @@ def write_jsonl(path: Path, records: list[dict]) -> dict:
 
 
 def export_run(store: FootprintStore, cutoff: int, destination: Path) -> dict:
-    """@brief 所有事件与素材验证成功后原子发布新目录，不读截止点之后的世界状态。"""
-    events = store.read_events(cutoff)
-    if not events:
+    """@brief 一遍分页读取截止前缀：逐条校验、照旧编码写入 events.jsonl 并哈希，内存里只留事后读取视图；全部工件与素材验证成功后原子发布新目录，不读截止点之后的事件。"""
+    events = store.iter_events(cutoff)
+    if cutoff == 0:
+        logging.error("Cannot export an empty event range")
         raise IntegrityError("Cannot export an empty event range")
     destination = Path(destination).resolve()
     if destination.exists():
@@ -53,7 +57,8 @@ def export_run(store: FootprintStore, cutoff: int, destination: Path) -> dict:
     destination.parent.mkdir(parents=True, exist_ok=True)
     stage = Path(tempfile.mkdtemp(prefix=".export-", dir=destination.parent))
     try:
-        manifest = _write_export(store, events, stage)
+        kept, events_artifact = _write_events(events, stage / "events.jsonl")
+        manifest = _write_export(store, kept, events_artifact, stage)
         atomic_write(stage / "manifest.json", canonical_json(manifest))
         stage.rename(destination)
     except Exception:
@@ -63,15 +68,31 @@ def export_run(store: FootprintStore, cutoff: int, destination: Path) -> dict:
     return manifest
 
 
-def _write_export(store: FootprintStore, events: list[Event], stage: Path) -> dict:
-    """@brief 固定六份主文件（事件、活动、已核验经历、购买、app 使用、地点停留）和全部外部素材，并绑定原始运行身份。"""
+def _write_events(events: Iterator[Event], path: Path) -> tuple[list[Event], dict]:
+    """@brief 逐条写入规范 JSONL（与 write_jsonl 同一编码）并边写边哈希；返回事后读取视图与工件身份。"""
+    digest, rows, kept = hashlib.sha256(), 0, []
+    with path.open("xb") as stream:
+        for event in events:
+            line = canonical_json(event.model_dump()) + b"\n"
+            stream.write(line)
+            digest.update(line)
+            rows += 1
+            kept.append(post_run_view(event))
+        stream.flush()
+        os.fsync(stream.fileno())
+    return kept, {"path": path.name, "rows": rows, "sha256": digest.hexdigest()}
+
+
+def _write_export(store: FootprintStore, events: list[Event], events_artifact: dict, stage: Path) -> dict:
+    """@brief 固定六份主文件（事件、活动、已核验经历、购买、app 使用、地点停留）和全部外部素材，并绑定原始运行身份；
+    events 是截止前缀的事后读取视图。"""
     # 显示名称在复制素材之前从运行目录冻结的环境目录取一次，质量报告与时间线投影共用这一张表。
     names = frozen_display_names(store.run_dir, store.manifest)
     activities = reconstruct_activities(events)
     manifest = _export_identity(store.manifest, events)
     rows = [event.model_dump() for event in events]
     manifest["artifacts"] = {
-        "events": write_jsonl(stage / "events.jsonl", rows),
+        "events": events_artifact,
         "activities": write_jsonl(stage / "activities.jsonl", activities),
         "verified_experiences": write_jsonl(
             stage / "verified-experiences.jsonl", _verified_experience_rows(store.manifest["agent_ids"], events)),
@@ -102,7 +123,7 @@ def _write_export(store: FootprintStore, events: list[Event], stage: Path) -> di
     atomic_write(stage / "quality.json", quality)
     manifest["quality_report"] = {"path": "quality.json", "size_bytes": len(quality),
                                   "sha256": hashlib.sha256(quality).hexdigest()}
-    manifest["timeline"] = _write_timeline_projections(store, stage, manifest["daily_coverage"], names)
+    manifest["timeline"] = _write_timeline_projections(store, events, stage, manifest["daily_coverage"], names)
     return manifest
 
 
@@ -115,25 +136,27 @@ def _verified_experience_rows(agent_ids: list[int], events: list[Event]) -> list
                                           item.get("goods_id", "")))
 
 
-def _write_timeline_projections(store: FootprintStore, stage: Path, days: list[str],
+def _write_timeline_projections(store: FootprintStore, events: list[Event], stage: Path, days: list[str],
                                 names: DisplayNames) -> list[dict]:
-    """@brief 生成确定性时间线投影 timeline/<agent>-<date>.md 并哈希绑定。
+    """@brief 由截止前缀的同一份事件一次取出进度与订单，逐人逐日投影 timeline/<agent>-<date>.md 并哈希绑定。
 
-    投影调用 scripts/render_day.py 的渲染函数（单一实现，不重复），名称取运行目录里冻结的环境目录；
-    每个人物每个覆盖日一个文件，列入导出清单（sha256 + 字节数）。
+    投影调用 scripts/render_day.py 的 day_rows 与 day_markdown（单一实现，不重复）；截止之后的事件不进时间线。
+    名称取运行目录里冻结的环境目录；每个人物每个覆盖日一个文件，列入导出清单（sha256 + 字节数）。
     """
     module = timeline_labels._load_render_day()
+    progress, orders = timeline_sources(events)
+    zone = store.manifest["window"]["timezone"]
     records = []
     for agent_id in sorted(int(item) for item in store.manifest["agent_ids"]):
+        bodies = [body for body in progress if body.get("agent_id") == agent_id]
         for day in days:
-            markdown = module.render_day_markdown(
-                store.connection, agent_id, date.fromisoformat(day), store.manifest["window"]["timezone"], names)
+            moment = date.fromisoformat(day)
+            markdown = module.day_markdown(agent_id, moment, module.day_rows(bodies, orders, names, moment, zone))
             payload = markdown.encode("utf-8")
             relative = f"timeline/{agent_id}-{day}.md"
             atomic_write(stage / relative, payload)
             records.append({"agent_id": agent_id, "date": day, "path": relative,
-                            "size_bytes": len(payload),
-                            "sha256": hashlib.sha256(payload).hexdigest()})
+                            "size_bytes": len(payload), "sha256": hashlib.sha256(payload).hexdigest()})
     return records
 
 

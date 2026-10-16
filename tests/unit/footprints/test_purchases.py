@@ -7,8 +7,8 @@ from worldmock.footprints.purchases import project_purchase_facts
 
 def test_actual_basket_preserves_payment_goods_and_receipt_ownership(engine_factory):
     engine, _ = recorded_engine(engine_factory, content=False)
-    events = [row.model_dump(mode="json") for row in engine.context.store.read_events(
-        engine.context.store.last_event_seq)]
+    events = [row.model_dump(mode="json") for row in list(engine.context.store.iter_events(
+        engine.context.store.last_event_seq))]
     facts = project_purchase_facts(events)
     bought = [row for row in facts if row["fact_kind"] == "purchase"]
     received = [row for row in facts if row["fact_kind"] == "receipt"]
@@ -27,8 +27,8 @@ def test_actual_basket_preserves_payment_goods_and_receipt_ownership(engine_fact
 def test_real_purchase_attempt_is_one_current_action(engine_factory):
     """一条 start_side_activity 购买调用（数组里几份商品都算）是一次尝试；同一工具的内容 app 调用不是购买尝试。"""
     engine, _ = recorded_engine(engine_factory)
-    events = [row.model_dump(mode="json") for row in engine.context.store.read_events(
-        engine.context.store.last_event_seq)]
+    events = [row.model_dump(mode="json") for row in list(engine.context.store.iter_events(
+        engine.context.store.last_event_seq))]
     attempts = [row for row in project_purchase_facts(events) if row["fact_kind"] == "order_attempt"]
     assert len(attempts) == 1
     assert attempts[0]["action"] == "purchase" and attempts[0]["status"] == "in_progress"

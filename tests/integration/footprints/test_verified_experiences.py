@@ -61,7 +61,7 @@ def test_recent_window_only_projects_own_committed_progress_before_observation(s
         event_type="observation", occurred_at=100, agent_id=1,
     )])[0]
     expected = project_verified_experiences(committed, agent_id=1, cutoff_seq=observation.event_seq - 1)
-    monkeypatch.setattr(store, "read_events", lambda _: pytest.fail("observation scanned all events"))
+    monkeypatch.setattr(store, "iter_events", lambda *_: pytest.fail("observation scanned all events"))
     recent = recent_verified_experiences(store, 1, observation.event_seq - 1)
     assert recent == expected
     assert [row["kind"] for row in recent] == ["received", "played", "arrived"]
@@ -202,7 +202,7 @@ def test_received_recent_window_pages_past_nonprojected_activity_sources(store, 
         return original(agent_id, before_seq, limit)
 
     monkeypatch.setattr(store, "read_recent_experience_sources", read_page)
-    monkeypatch.setattr(store, "read_events", lambda _: pytest.fail("receipt window scanned all events"))
+    monkeypatch.setattr(store, "iter_events", lambda *_: pytest.fail("receipt window scanned all events"))
     facts = recent_verified_experiences(store, 1, cutoff)
     assert len(calls) == 2 and all(agent_id == 1 and limit == 32 for agent_id, _, limit in calls)
     assert calls[0][1] == cutoff + 1 and calls[1][1] < calls[0][1]
@@ -263,3 +263,16 @@ def test_recent_window_returns_latest_five_before_cutoff_with_more_history(store
     assert [row["order_id"] for row in facts] == [f"own-{index}" for index in range(count - 5, count)]
     assert [row["source_event_id"] for row in facts] == [event.event_id for event in own[-5:]]
     assert [row["event_seq"] for row in facts] == list(range(count - 4, count + 1))
+
+
+def test_every_recorded_window_replays_from_the_store(engine_factory):
+    """真实运行里每条观察记下的已核验经历窗口，都能由运行库在观察前一条事件处原样重算（两段索引子查询的合并读法）。"""
+    from tests.footprints.recording import recorded_engine
+
+    engine, point = recorded_engine(engine_factory)
+    store = engine.context.store
+    observations = [event for event in store.iter_events(point.last_event_seq) if event.event_type == "observation"]
+    assert observations and any(event.data["verified_experiences"] for event in observations)
+    for event in observations:
+        replayed = recent_verified_experiences(store, event.agent_id, event.event_seq - 1)
+        assert replayed == event.data["verified_experiences"]

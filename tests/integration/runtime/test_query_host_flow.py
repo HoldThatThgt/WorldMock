@@ -15,7 +15,7 @@ from worldmock.life.models import StartSideActivityRequest
 
 def _requested(engine) -> list:
     """已登记的世界请求（action_requested 事件），按落库先后。"""
-    return [event for event in engine.context.store.read_events(engine.context.store.last_event_seq)
+    return [event for event in list(engine.context.store.iter_events(engine.context.store.last_event_seq))
             if event.event_type == "action_requested"]
 
 
@@ -62,7 +62,7 @@ async def test_person_reads_the_answer_in_the_next_decision(engine_factory):
     before = engine.context.store.last_event_seq
     _, requests, _, _ = await decide(engine, "read", [
         ToolResponse(MAIN_TOOL, main_arguments("interact", "家", "测试休息"))])
-    stored = [event.data["request"] for event in engine.context.store.read_events(engine.context.store.last_event_seq)
+    stored = [event.data["request"] for event in list(engine.context.store.iter_events(engine.context.store.last_event_seq))
               if event.event_type == "model_request" and event.event_seq > before]
     assert stored == requests
     [user] = [message["content"] for message in stored[0]["messages"] if message["role"] == "user"]

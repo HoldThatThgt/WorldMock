@@ -168,7 +168,7 @@ async def test_actual_app_progress_is_written_to_verified_memory_with_source_and
     _, results = submit_round(engine, {1: ("conclude_activity", conclude_request(activity.name))},
                               "memory-app-end")
     assert results[0].status == "completed"
-    events = engine.context.store.read_events(engine.context.store.last_event_seq)
+    events = list(engine.context.store.iter_events(engine.context.store.last_event_seq))
     facts = project_verified_experiences(events, agent_id=1, cutoff_seq=engine.context.store.last_event_seq)[-5:]
     assert facts and all(fact["kind"] == "played" for fact in facts)
     runtime, owner = _runtime(tmp_path / "app-memory")

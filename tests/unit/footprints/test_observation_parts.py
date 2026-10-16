@@ -129,8 +129,9 @@ def test_every_read_method_returns_the_complete_observation(store):
     data = _observation()
     identity = _stored(store, data)
     reads = [store.read_event(identity), *store.read_agent_events("observation", 1),
-             *store.read_decision_observations(1, "decision-a", 100), *store.read_events(store.last_event_seq)]
-    assert len(reads) == 4
+             *store.read_decision_observations(1, "decision-a", 100), *list(store.iter_events(store.last_event_seq)),
+             store.find_event(identity)]
+    assert len(reads) == 5
     assert all(canonical_json(event.data) == canonical_json(data) for event in reads)
 
 

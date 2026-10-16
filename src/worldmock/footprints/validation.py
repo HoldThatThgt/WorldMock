@@ -24,14 +24,19 @@ from worldmock.footprints.quality import build_quality_report
 from worldmock.footprints.invariants import validate_footprint_facts
 from worldmock.footprints.frozen_environment import frozen_display_names, validate_frozen_environment
 from worldmock.footprints.location_stays import project_location_stays, validate_location_stays
+from worldmock.footprints.post_run import post_run_row, post_run_view
 
 
-def validate_export(directory: Path) -> tuple[dict, list[dict], list[dict]]:
-    """@brief 只有完整终态、检查点和所有素材均可信时才返回消费材料。"""
+def validate_export(directory: Path) -> tuple[dict, list[dict]]:
+    """@brief 只有完整终态、检查点和所有素材均可信时才返回导出清单与活动行。
+
+    events.jsonl 读两遍：第一遍只按字节核对摘要与行数，第二遍逐行做活动快照检查与严格校验，内存里只留事后读取视图，
+    并确认两遍读到同一份字节；其余检查读同一份视图。事件条数取清单 artifacts.events.rows。
+    """
     root = directory.resolve()
     manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
     _validate_identity(manifest)
-    events = _read_artifact(root, manifest["artifacts"]["events"], "events.jsonl")
+    digest = _authenticated_events(root, manifest["artifacts"]["events"])
     activities = _read_artifact(root, manifest["artifacts"]["activities"], "activities.jsonl")
     experiences = _read_artifact(
         root, manifest["artifacts"]["verified_experiences"], "verified-experiences.jsonl")
@@ -39,8 +44,7 @@ def validate_export(directory: Path) -> tuple[dict, list[dict], list[dict]]:
     app_usage = _read_artifact(root, manifest["artifacts"]["app_usage"], "app-usage.jsonl")
     stays = _read_artifact(root, manifest["artifacts"]["location_stays"], "location-stays.jsonl")
     indexed = _read_artifact(root, manifest["asset_index"], "asset-index.jsonl")
-    validate_activity_prefix(events)
-    records = [Event.model_validate(row, strict=True) for row in events]
+    events, records = _read_events(root / "events.jsonl", digest)
     checkpoint = _validate_checkpoint(manifest, records)
     _validate_events(manifest, records)
     _validate_assets(root, records, checkpoint, indexed, manifest["frozen_run_manifest"])
@@ -62,7 +66,7 @@ def validate_export(directory: Path) -> tuple[dict, list[dict], list[dict]]:
     validate_footprint_facts(events, activities, purchases, app_usage, checkpoint.state)
     validate_location_stays(stays, events, activities, checkpoint.state, manifest["frozen_run_manifest"]["window"])
     _validate_quality(root, manifest, records, activities)
-    return manifest, events, activities
+    return manifest, activities
 
 
 def _validate_quality(root: Path, manifest: dict, events: list[Event], activities: list[dict]) -> None:
@@ -123,6 +127,44 @@ def _read_artifact(root: Path, descriptor: dict, name: str) -> list[dict]:
     if len(rows) != descriptor["rows"]:
         raise IntegrityError("Export artifact row count is invalid")
     return rows
+
+
+def _authenticated_events(root: Path, descriptor: dict) -> str:
+    """@brief 第一遍：只按字节流式核对 events.jsonl 的路径、摘要与行数（行按 bytes.splitlines 切分），不解析任何一行。"""
+    path = root / "events.jsonl"
+    if descriptor["path"] != "events.jsonl" or path.is_symlink() or not path.is_file():
+        logging.error("Export artifact path is invalid")
+        raise IntegrityError("Export artifact path is invalid")
+    digest, rows = hashlib.sha256(), 0
+    with path.open("rb") as stream:
+        for chunk in stream:
+            digest.update(chunk)
+            rows += len(chunk.splitlines())
+    if digest.hexdigest() != descriptor["sha256"]:
+        logging.error("Export artifact hash is invalid")
+        raise IntegrityError("Export artifact hash is invalid")
+    if rows != descriptor["rows"]:
+        logging.error("Export artifact row count is invalid")
+        raise IntegrityError("Export artifact row count is invalid")
+    return digest.hexdigest()
+
+
+def _read_events(path: Path, digest: str) -> tuple[list[dict], list[Event]]:
+    """@brief 第二遍：逐行解析、活动快照检查与严格校验，只留事后读取视图；读完再核对一次摘要。"""
+    hasher, rows, records = hashlib.sha256(), [], []
+    with path.open("rb") as stream:
+        for chunk in stream:
+            hasher.update(chunk)
+            for line in chunk.splitlines():
+                row = json.loads(line)
+                validate_activity_prefix([row])
+                record = Event.model_validate(row, strict=True)
+                rows.append(post_run_row(row))
+                records.append(post_run_view(record))
+    if hasher.hexdigest() != digest:
+        logging.error("Export events changed between the two reads")
+        raise IntegrityError("Export artifact hash is invalid")
+    return rows, records
 
 
 def _validate_checkpoint(manifest: dict, events: list[Event]) -> Checkpoint:

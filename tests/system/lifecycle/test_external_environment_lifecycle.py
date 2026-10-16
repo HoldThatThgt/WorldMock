@@ -5,6 +5,7 @@ import shutil
 
 import pytest
 
+from tests.footprints.recording import artifact_rows
 from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT
 from tests.integration.runtime_fixtures import write_agent_workspace
 from tests.life.conftest import advance_next, stage_day_plan, use_app
@@ -70,7 +71,8 @@ def test_external_content_survives_real_start_reopen_and_authenticated_export(
         assert reopened.context.state.agents[1].content_progress["c-article"].completed_rounds == 1
         checkpoint = _complete_run(reopened, tmp_path / "completed")
         export_run(reopened.context.store, checkpoint.last_event_seq, tmp_path / "export")
-        manifest, events, activities = validate_export(tmp_path / "export")
+        manifest, activities = validate_export(tmp_path / "export")
+        events = artifact_rows(tmp_path / "export", "events")
         assert manifest["experiment_completed"] is True
         exported = next(row for row in activities if row["activity_id"] == started.activity_id)
         assert exported["status"] == "completed" and exported["data"]["content_id"] == "c-article"
@@ -115,7 +117,8 @@ def test_complete_day_with_a_prerequisite_content_reaches_the_stop_time_and_expo
         assert state.current_time == state.end_time == moment(13, 8)
         assert events(reopened, "run_ended") and not events(reopened, "run_failed")
         export_run(reopened.context.store, checkpoint.last_event_seq, tmp_path / "export")
-        manifest, exported_events, activities = validate_export(tmp_path / "export")
+        manifest, activities = validate_export(tmp_path / "export")
+        exported_events = artifact_rows(tmp_path / "export", "events")
         assert manifest["experiment_completed"] is True
         exported = next(row for row in activities if row["activity_id"] == started.activity_id)
         assert exported["status"] == "completed" and exported["data"]["content_id"] == "dingtalk-clock"

@@ -9,6 +9,7 @@ import logging
 import sqlite3
 import time
 import zlib
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,7 +19,7 @@ from worldmock.errors import IntegrityError
 from worldmock.footprints.assets import AssetStore, atomic_write
 from worldmock.footprints.ledger import validate_account_transition
 from worldmock.footprints.models import AssetRef, Checkpoint, Event, EventDraft, EventType, canonical_json
-from worldmock.footprints.observation_parts import copy_parts, insert_parts, rehydrate_observation, require_parts
+from worldmock.footprints.observation_parts import insert_parts, rehydrate_observation, require_parts
 
 SCHEMA = """
 PRAGMA foreign_keys=ON;
@@ -43,6 +44,10 @@ CREATE TRIGGER parts_no_update BEFORE UPDATE ON parts BEGIN SELECT RAISE(ABORT,'
 CREATE TRIGGER parts_no_delete BEFORE DELETE ON parts BEGIN SELECT RAISE(ABORT,'Observation parts are immutable'); END;
 """
 
+#: 分页读取事件时每页的条数：每页一个读语句、读完即放开读锁；观察最大约 0.5 MB（30 天运行），一页至多约 120 MB 正文。
+EVENT_PAGE_SIZE = 256
+#: 足迹库连接遇到读者持锁时最多等待的秒数（docs/design/10-runtime.md「运行与恢复」）；超过才报 database is locked。
+BUSY_TIMEOUT_SECONDS = 120
 #: 检查点行正文的 zlib 压缩级别（docs/design/05-recording-engine.md「冻结输入、检查点与分支」）。
 _CHECKPOINT_ZLIB_LEVEL = 1
 
@@ -93,7 +98,7 @@ class FootprintStore:
         if not database.is_file():
             raise IntegrityError("Footprint database does not exist")
         self.manifest = json.loads((self.run_dir / "manifest.json").read_text(encoding="utf-8"))
-        self.connection = sqlite3.connect(database)
+        self.connection = sqlite3.connect(database.as_uri(), uri=True, timeout=BUSY_TIMEOUT_SECONDS)
         self.connection.execute("PRAGMA synchronous=FULL")
         self.connection.execute("PRAGMA foreign_keys=ON")
         self.assets = AssetStore(self.run_dir / "assets")
@@ -230,19 +235,6 @@ class FootprintStore:
         except Exception:
             logging.exception("Observation append failed; no observation or new part was committed")
             raise
-
-    def copy_history(self, parent: FootprintStore, events: list[Event]) -> None:
-        """@brief 分支：在调用方事务内原样复制父库整张观察分件表，再按父库存储原文写入已解码复核的事件前缀（观察仍带引用）
-        并登记素材索引。
-
-        @param parent 父运行的存储
-        @param events 父库截止序号之前、已经 read_events 解码复核的事件
-        """
-        copy_parts(parent.connection, self.connection)
-        for event in events:
-            row = parent.connection.execute("SELECT body FROM events WHERE event_seq=?", (event.event_seq,)).fetchone()
-            self._index_artifacts(event)
-            self.connection.execute("INSERT INTO events VALUES(?,?,?)", (event.event_seq, event.event_id, row[0]))
 
     def _require_stored_version(self, version: int) -> None:
         """@brief 在调用方已开始的写事务内核对库里的世界版本仍是缓存版本（按预期版本写入）；不同即拒绝，事务随之回滚。"""
@@ -383,11 +375,11 @@ class FootprintStore:
 
         :raises IntegrityError: 库里没有这个身份（Event does not exist）。
         """
-        row = self.connection.execute("SELECT body FROM events WHERE event_id=?", (event_id,)).fetchone()
-        if row is None:
+        event = self.find_event(event_id)
+        if event is None:
             logging.error("Event %s does not exist", event_id)
             raise IntegrityError("Event does not exist")
-        return self._decode(row[0])
+        return event
 
     def read_agent_events(self, event_type: EventType, agent_id: int, after: int = 0) -> list[Event]:
         """@brief 只读取指定人物在已知边界之后的同类事件，避免反复解码原始模型调用。"""
@@ -398,6 +390,106 @@ class FootprintStore:
             AND json_extract(body,'$.event_type')=? AND event_seq>? ORDER BY event_seq
         """, (agent_id, event_type, after))
         return [self._decode(row[0]) for row in rows]
+
+    def iter_events(self, cutoff: int, after: int = 0) -> Iterator[Event]:
+        """@brief 按事件序号读 (after, cutoff] 的事件：调用时先核对区间；之后每页一个短读语句，逐条解码并核对行与正文一致。
+
+        事件只追加、不修改，分页读到的就是这一段已提交前缀；两页之间不持有读锁。
+        :raises IntegrityError: 区间不在已提交序号之内。
+        """
+        if not 0 <= after <= cutoff <= self.last_event_seq:
+            logging.error("Event range (%d, %d] is outside the committed sequence", after, cutoff)
+            raise IntegrityError("Event cutoff is outside the committed sequence")
+        return (self._decoded_row(*row) for row in self._event_rows(after, cutoff))
+
+    def _event_rows(self, after: int, cutoff: int) -> Iterator[tuple[int, str, str]]:
+        """@brief 按序号分页取 (after, cutoff] 的原始行（序号、身份、正文），每页一个语句并一次取完。"""
+        while after < cutoff:
+            stop = min(after + EVENT_PAGE_SIZE, cutoff)
+            yield from self.connection.execute(
+                "SELECT event_seq,event_id,body FROM events WHERE event_seq>? AND event_seq<=? ORDER BY event_seq",
+                (after, stop)).fetchall()
+            after = stop
+
+    def _decoded_row(self, sequence: int, identity: str, body: str) -> Event:
+        """@brief 用唯一的行解码器解码一行，并核对行的序号与身份等于正文里的值。"""
+        event = self._decode(body)
+        if event.event_seq != sequence or event.event_id != identity:
+            logging.error("Event row %d disagrees with its body", sequence)
+            raise IntegrityError("Event row disagrees with its body")
+        return event
+
+    def event_prefix_digest(self, cutoff: int) -> tuple[int, str]:
+        """@brief 前缀 [1, cutoff] 原始行的条数与 SHA-256（逐行「序号\\t身份\\t正文\\n」的 UTF-8），分页读、不解码。"""
+        digest, rows = hashlib.sha256(), 0
+        for sequence, identity, body in self._event_rows(0, cutoff):
+            digest.update(f"{sequence}\t{identity}\t{body}\n".encode())
+            rows += 1
+        return rows, digest.hexdigest()
+
+    def copy_event_prefix(self, parent: FootprintStore, cutoff: int, references: Sequence[AssetRef]) -> None:
+        """@brief 新分支库在一个事务里按存储字节复制父库前缀 [1, cutoff] 的事件、观察分件与素材索引行。
+
+        父库以只读 URI 附加；素材索引按事件顺序先到先留，与逐条插入相同；提交后核对本库与父库前缀的条数和摘要。
+        :raises IntegrityError: 复制结果与父库前缀不一致。
+        """
+        source = f"{(parent.run_dir / 'footprints.sqlite').as_uri()}?mode=ro"
+        self.connection.execute("ATTACH DATABASE ? AS parent", (source,))
+        try:
+            with self.connection:
+                self.connection.execute("INSERT INTO main.parts SELECT sha256, body FROM parent.parts")
+                for reference in references:
+                    self.connection.execute("INSERT OR IGNORE INTO artifacts VALUES(?,?)", (
+                        reference.sha256, canonical_json(reference.model_dump()).decode(),
+                    ))
+                self.connection.execute("INSERT INTO events SELECT event_seq,event_id,body FROM parent.events "
+                                        "WHERE event_seq<=? ORDER BY event_seq", (cutoff,))
+        except Exception:
+            logging.exception("Branch event copy failed; the child keeps no copied event")
+            raise
+        finally:
+            self.connection.execute("DETACH DATABASE parent")
+        if self.event_prefix_digest(cutoff) != parent.event_prefix_digest(cutoff):
+            logging.error("Branch event copy disagrees with the parent prefix")
+            raise IntegrityError("Branch event copy disagrees with the parent prefix")
+
+    def has_event(self, event_type: EventType) -> bool:
+        """@brief 库里是否已有该类型的事件：只走类型表达式索引（不读正文），找到第一条即停。"""
+        row = self.connection.execute(
+            "SELECT 1 FROM events WHERE json_extract(body,'$.event_type')=? LIMIT 1", (event_type,)).fetchone()
+        return row is not None
+
+    def find_event(self, event_id: str) -> Event | None:
+        """@brief 按事件身份读取一条事件（events.event_id 有唯一索引）；没有时返回 None，由调用方决定是否为错误。"""
+        row = self.connection.execute("SELECT body FROM events WHERE event_id=?", (event_id,)).fetchone()
+        return self._decode(row[0]) if row is not None else None
+
+    def first_own_event_seq(self) -> int:
+        """@brief 本运行自己写下的第一个事件序号；没有时为 last_event_seq+1。
+
+        分支库里父前缀的事件带祖先运行身份，本运行的事件是连续的后缀：从末事件按主键向前走到运行身份不同为止。
+        """
+        sequence = self.last_event_seq
+        while sequence > 0 and self.connection.execute(
+                "SELECT json_extract(body,'$.run_id') FROM events WHERE event_seq=?",
+                (sequence,)).fetchone()[0] == self.manifest["run_id"]:
+            sequence -= 1
+        return sequence + 1
+
+    def first_action_result_seq(self, agent_id: int, action_id: str, after: int) -> int | None:
+        """@brief 人物在 after 之后该动作的第一条 action_result 的序号；没有时为 None。沿人物与类型索引读，找到即停。
+
+        :raises IntegrityError: after 不在已提交序号之内。
+        """
+        if after < 0 or after > self.last_event_seq:
+            logging.error("Agent event boundary %d is outside the committed sequence", after)
+            raise IntegrityError("Agent event boundary is outside the committed sequence")
+        row = self.connection.execute(
+            "SELECT event_seq FROM events WHERE json_extract(body,'$.agent_id')=? "
+            "AND json_extract(body,'$.event_type')='action_result' AND event_seq>? "
+            "AND json_extract(body,'$.action_id')=? ORDER BY event_seq LIMIT 1",
+            (agent_id, after, action_id)).fetchone()
+        return row[0] if row is not None else None
 
     def read_decision_observations(self, agent_id: int, decision_id: str, observed_at: int) -> list[Event]:
         """@brief 只解码人物、决策和发生时刻精确匹配的观察，保留全部匹配记录供唯一性复核。
@@ -412,25 +504,23 @@ class FootprintStore:
         return [self._decode(row[0]) for row in rows]
 
     def read_recent_experience_sources(self, agent_id: int, before_seq: int, limit: int) -> list[Event]:
-        """@brief 按倒序有限读取本人活动进度与收货候选事件。"""
+        """@brief 按倒序有限读取本人活动进度与收货候选事件：两类各沿人物与类型索引倒序取前 limit 条，再合并取前 limit 条，不排序全部历史。"""
         if (type(agent_id) is not int or agent_id <= 0 or type(before_seq) is not int
                 or not 0 < before_seq <= self.last_event_seq + 1
                 or type(limit) is not int or limit <= 0):
             raise IntegrityError("Experience source query boundary is invalid")
         rows = self.connection.execute("""
-            SELECT body FROM events WHERE json_extract(body,'$.agent_id')=?
-            AND (json_extract(body,'$.event_type')='activity_progress'
-                 OR (json_extract(body,'$.event_type')='environment_event'
-                     AND json_extract(body,'$.data.kind')='goods_received'))
-            AND event_seq<? ORDER BY event_seq DESC LIMIT ?
-        """, (agent_id, before_seq, limit))
-        return [self._decode(row[0]) for row in rows]
-
-    def read_events(self, cutoff: int) -> list[Event]:
-        """@brief 固定截止序号读取原始顺序，拒绝不存在的截止位置。"""
-        if cutoff < 0 or cutoff > self.last_event_seq:
-            raise IntegrityError("Event cutoff is outside the committed sequence")
-        rows = self.connection.execute("SELECT body FROM events WHERE event_seq<=? ORDER BY event_seq", (cutoff,))
+            SELECT body FROM (
+              SELECT event_seq, body FROM (SELECT event_seq, body FROM events
+                WHERE json_extract(body,'$.agent_id')=? AND json_extract(body,'$.event_type')='activity_progress'
+                AND event_seq<? ORDER BY event_seq DESC LIMIT ?)
+              UNION ALL
+              SELECT event_seq, body FROM (SELECT event_seq, body FROM events
+                WHERE json_extract(body,'$.agent_id')=? AND json_extract(body,'$.event_type')='environment_event'
+                AND json_extract(body,'$.data.kind')='goods_received' AND event_seq<?
+                ORDER BY event_seq DESC LIMIT ?)
+            ) ORDER BY event_seq DESC LIMIT ?
+        """, (agent_id, before_seq, limit, agent_id, before_seq, limit, limit))
         return [self._decode(row[0]) for row in rows]
 
     def checkpoint(self, state: dict, snapshots: dict[str, AssetRef]) -> Checkpoint:

@@ -99,7 +99,7 @@ class HostRun:
     def events(self, event_type: str | None = None, decision=None) -> list:
         """库里已提交的事件，可按类型与决策筛选。"""
         store = self.engine.context.store
-        return [event for event in store.read_events(store.last_event_seq)
+        return [event for event in list(store.iter_events(store.last_event_seq))
                 if (event_type is None or event.event_type == event_type)
                 and (decision is None or event.decision_id == decision.decision_id)]
 

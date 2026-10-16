@@ -12,6 +12,8 @@ import tarfile
 import tempfile
 import unicodedata
 import zlib
+from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from uuid import uuid4
 
@@ -103,22 +105,40 @@ def _check_members(members: list[tarfile.TarInfo],
         raise IntegrityError(message)
 
 
+@dataclass(frozen=True)
+class _ParentPrefix:
+    """@brief 父库检查点前缀逐条复核的结果。"""
+
+    #: 前缀事件出现过的全部运行身份。
+    run_ids: frozenset[str]
+    #: 按事件序号、事件内次序排列的全部素材引用（可重复），每个都已读取并核对。
+    references: tuple[AssetRef, ...]
+
+
+def _validated_prefix(store: FootprintStore, cutoff: int) -> _ParentPrefix:
+    """@brief 逐条解码校验父库前缀（分页、不留事件列表），读取核对每个素材引用，记下运行身份与引用。"""
+    run_ids, references = set(), []
+    for event in store.iter_events(cutoff):
+        run_ids.add(event.run_id)
+        for reference in event.artifact_refs:
+            store.assets.read(reference)
+            references.append(reference)
+    return _ParentPrefix(frozenset(run_ids), tuple(references))
+
+
 def restore_branch(store: FootprintStore, checkpoint_id: str, destination: Path,
                    branch_metadata: dict | None = None) -> FootprintStore:
-    """@brief 校验父检查点后原子发布新运行，不复制父目录较新的可变状态。"""
+    """@brief 校验父检查点并逐条复核父前缀后，在暂存目录按字节复制前缀并原子发布新运行，不复制父目录较新的可变状态。"""
     checkpoint = store.get_checkpoint(checkpoint_id)
     metadata = _branch_metadata(branch_metadata)
     destination = Path(destination).resolve()
     if destination.exists() or store.run_dir == destination or store.run_dir in destination.parents:
         raise IntegrityError("Restore requires a new destination outside the parent run")
-    events = store.read_events(checkpoint.last_event_seq)
-    for event in events:
-        for reference in event.artifact_refs:
-            store.assets.read(reference)
+    prefix = _validated_prefix(store, checkpoint.last_event_seq)
     destination.parent.mkdir(parents=True, exist_ok=True)
     stage = Path(tempfile.mkdtemp(prefix=".restore-", dir=destination.parent))
     try:
-        _populate_branch(store, checkpoint, events, stage, metadata)
+        _populate_branch(store, checkpoint, prefix, stage, metadata)
         stage.rename(destination)
     except Exception:
         logging.exception("Checkpoint branch restoration failed")
@@ -127,24 +147,23 @@ def restore_branch(store: FootprintStore, checkpoint_id: str, destination: Path,
     return FootprintStore(destination)
 
 
-def _populate_branch(store: FootprintStore, checkpoint, events, stage: Path, metadata: dict) -> None:
-    """@brief 新库保留父事件身份，并绑定子运行和共同初态。"""
+def _populate_branch(store: FootprintStore, checkpoint, prefix: _ParentPrefix, stage: Path, metadata: dict) -> None:
+    """@brief 新库保留父事件的存储字节与身份，并绑定子运行和共同初态。"""
     manifest = dict(store.manifest)
     manifest.pop("intervention_sha256", None)
     manifest.update(metadata)
     manifest.update(run_id=uuid4().hex, parent_run_id=store.manifest["run_id"],
                     parent_checkpoint_id=checkpoint.checkpoint_id,
                     source_group_id=store.manifest.get("source_group_id", store.manifest["run_id"]))
-    manifest["source_run_ids"] = sorted({event.run_id for event in events} | {manifest["run_id"]})
+    manifest["source_run_ids"] = sorted(prefix.run_ids | {manifest["run_id"]})
     child = FootprintStore.create(stage, manifest, checkpoint.state)
     try:
-        references = _branch_asset_references(store, checkpoint, events)
+        references = _branch_asset_references(store, checkpoint, prefix.references)
         for reference in references.values():
             child.assets.put(store.assets.read(reference), {
                 "media_type": reference.media_type, "source": reference.source,
             })
-        with child.connection:
-            child.copy_history(store, events)
+        child.copy_event_prefix(store, checkpoint.last_event_seq, prefix.references)
         state = dict(checkpoint.state)
         state.update(run_id=manifest["run_id"], version=state["version"] + 1)
         child.commit(checkpoint.state, state, [EventDraft(
@@ -155,18 +174,17 @@ def _populate_branch(store: FootprintStore, checkpoint, events, stage: Path, met
         child.close()
 
 
-def _branch_asset_references(store: FootprintStore, checkpoint, events: list) -> dict[str, AssetRef]:
+def _branch_asset_references(store: FootprintStore, checkpoint, references: Sequence[AssetRef]) -> dict[str, AssetRef]:
     """@brief 检查点、真实事件与完整冻结环境素材必须共同复制到恢复分支。"""
-    references = {reference.sha256: reference for reference in checkpoint.snapshots.values()}
+    references_by_hash = {reference.sha256: reference for reference in checkpoint.snapshots.values()}
     if not isinstance(store.manifest.get("environment_assets"), dict):
         logging.error("Frozen environment assets are missing from the parent run")
         raise IntegrityError("Frozen environment assets are missing from the parent run")
     for value in store.manifest["environment_assets"].values():
         reference = AssetRef.model_validate(value)
-        references[reference.sha256] = reference
-    for event in events:
-        references.update({reference.sha256: reference for reference in event.artifact_refs})
-    return references
+        references_by_hash[reference.sha256] = reference
+    references_by_hash.update({reference.sha256: reference for reference in references})
+    return references_by_hash
 
 
 def _branch_metadata(value: dict | None) -> dict:

@@ -4,6 +4,7 @@ import hashlib
 import json
 import shutil
 import pytest
+from tests.footprints.recording import artifact_rows
 from tests.engine_fixture import engine_factory
 from tests.integration.runtime.current_contract_fixtures import inputs, metadata_service
 from tests.life.conftest import context
@@ -153,7 +154,8 @@ def test_complete_run_with_any_optional_files_passes_export_certification(engine
     root = _environment(tmp_path / "input", files)
     engine, point = recorded_engine(lambda mutate: engine_factory(root, mutate=mutate))
     export_run(engine.context.store, point.last_event_seq, tmp_path / "export")
-    manifest, events, _ = validate_export(tmp_path / "export")
+    manifest, _ = validate_export(tmp_path / "export")
+    events = artifact_rows(tmp_path / "export", "events")
     frozen = manifest["frozen_run_manifest"]
     present = {name for name, content in {METHODS: b"fixture", **files}.items() if content is not None}
     assert set(frozen["environment_assets"]) == {

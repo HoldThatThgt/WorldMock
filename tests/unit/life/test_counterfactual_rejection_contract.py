@@ -91,3 +91,27 @@ def test_valid_counterfactual_transfers_equal_and_opposite_amount_once(engine_fa
         assert branch.context.state.accounts == changed
     finally:
         branch.close()
+
+
+def test_counterfactual_source_at_or_after_the_branch_event_is_not_visible(tmp_path):
+    """来源按事件身份逐条读：序号不早于分支事件的来源一律不可见（真实分支带不出子运行的来源身份，这里直接调用来源核对）。"""
+    from worldmock.footprints.models import EventDraft
+    from worldmock.footprints.store import FootprintStore
+    from worldmock.life.counterfactual_runtime import CounterfactualRuntime
+
+    store = FootprintStore.create(tmp_path / "run", {"run_id": "run", "agent_ids": [1]},
+                                  {"version": 0, "current_time": 100})
+    try:
+        _, observation, _ = store.append_evidence([
+            EventDraft(event_type="action_result", occurred_at=100, agent_id=1),
+            EventDraft(event_type="observation", occurred_at=100, agent_id=1, visibility="agent"),
+            EventDraft(event_type="action_result", occurred_at=100, agent_id=1)])
+        runtime = CounterfactualRuntime(SimpleNamespace(store=store, state=SimpleNamespace(agents={1: object()})))
+        intervention = CounterfactualIntervention(kind="set_balance_fen", agent_id=1, balance_fen=123456,
+                                                  hypothesis="资金改变可选购买。",
+                                                  source_event_ids=(observation.event_id,))
+        with pytest.raises(ProtocolError, match="^Counterfactual source is not visible to the target agent$"):
+            runtime._validate_counterfactual_sources(intervention, SimpleNamespace(event_seq=2))
+        runtime._validate_counterfactual_sources(intervention, SimpleNamespace(event_seq=3))
+    finally:
+        store.close()

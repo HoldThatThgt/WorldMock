@@ -91,8 +91,10 @@ class StorefrontRuntime:
         return outcome.state, list(outcome.receipts)
 
     def _accepted_cause(self, activity: ActivityState) -> str:
-        """@brief 支付证据只关联已提交的真实购买受理结果。"""
-        matches = [event for event in self.context.store.read_agent_events("action_result", activity.agent_id)
+        """@brief 支付证据只关联已提交的真实购买受理结果；受理与活动开始同一秒，只读活动开始那一秒及以后的结果。"""
+        store = self.context.store
+        matches = [event for event in store.read_agent_events(
+                       "action_result", activity.agent_id, store.last_event_seq_before(activity.started_at))
                    if event.action_id == activity.origin_action_id
                    and event.data.get("status") in {"accepted", "in_progress", "completed"}]
         if len(matches) != 1:

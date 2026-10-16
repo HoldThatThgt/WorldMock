@@ -101,6 +101,8 @@ WorldMock 累计秒数必须与认证推进区间一致，暂停空档不能算�
 ### 认证与适配
 
 WorldMock 只接受当前认证导出；先校验全部事件前缀，再投影活动。
+适配逐行读 `events.jsonl`，每行按事件模型解析后只把事后读取视图留在内存（[记录引擎](05-recording-engine.md)
+「完整导出认证」的同一张表）；适配读的字段都不在表里，结果与读完整事件相同。
 包含退役活动种类时统一报 `Activity snapshot uses a retired activity kind`，
 其他不在当前闭集中的种类报 `Activity type is outside the current closed set`。
 公开动作类别直接取请求与活动的 `action`：出行、购买、睡眠、interact 和查询都取请求所写的动作，出行一律是 `travel`。活动的渠道按有没有自带 app 判断：活动数据带 `app_id` 的 interact 和查询算数字交互，其余活动（含不带 app 的查询）算现实活动。不从内容标题反解，也不读数据集的出行方式行。

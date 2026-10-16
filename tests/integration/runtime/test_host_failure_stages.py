@@ -160,7 +160,7 @@ def _agent_logs(caplog) -> list[tuple]:
 
 def _events_after(run, sequence: int) -> list:
     """库里序号晚于给定序号的全部事件。"""
-    return [event for event in run.engine.context.store.read_events(run.engine.context.store.last_event_seq)
+    return [event for event in list(run.engine.context.store.iter_events(run.engine.context.store.last_event_seq))
             if event.event_seq > sequence]
 
 

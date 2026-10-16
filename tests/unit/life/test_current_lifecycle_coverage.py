@@ -230,8 +230,7 @@ def test_failure_is_one_durable_fact_and_empty_failure_is_rejected(engine_factor
         engine.fail_run("")
     engine.fail_run("actual failure")
     engine.fail_run("a repeated failure")
-    [failed] = events(engine, "run_failed")
-    assert failed.data["error"] == "actual failure"
+    assert [failed.data["error"] for failed in events(engine, "run_failed")] == ["actual failure"]
     assert engine.context.state.current_time == int(engine.context.config.start_time.timestamp())
 
 

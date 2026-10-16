@@ -207,7 +207,7 @@ async def _created_run(tmp_path, native_runtime, run_id: str, **declared):
     result = await run_world(RunRequest(ROOT, root, tmp_path / run_id, run_id, run_id))
     store = FootprintStore(result.run_dir)
     try:
-        events = store.read_events(store.last_event_seq)
+        events = list(store.iter_events(store.last_event_seq))
         manifest = store.manifest
     finally:
         store.close()

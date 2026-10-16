@@ -1,7 +1,7 @@
 """@brief 观察分件：观察里按内容单独存放一次的大表与按开始日期分段的活动绑定，观察正文只带它们的 sha256。
 
 存储形式与规则见 docs/design/05-recording-engine.md「事件与来源」；parts 表的建表语句在 store.SCHEMA，
-本模块是拆分、登记、核对、换回与复制观察分件的唯一实现。
+本模块是拆分、登记、核对与换回观察分件的唯一实现；分支在 FootprintStore.copy_event_prefix 里整表复制 parts。
 """
 
 from __future__ import annotations
@@ -86,12 +86,6 @@ def require_parts(connection: sqlite3.Connection, data: dict[str, Any]) -> None:
         if connection.execute("SELECT 1 FROM parts WHERE sha256=?", (ref,)).fetchone() is None:
             logging.error("Observation part %s is missing", ref)
             raise IntegrityError("Observation part is missing")
-
-
-def copy_parts(source: sqlite3.Connection, target: sqlite3.Connection) -> None:
-    """@brief 在 target 的调用方事务内原样复制 source 的整张 parts 表（分支用）。"""
-    target.executemany("INSERT INTO parts VALUES(?,?)",
-                       source.execute("SELECT sha256,body FROM parts ORDER BY sha256"))
 
 
 def _part_refs(data: dict[str, Any]) -> list[str]:

@@ -45,7 +45,7 @@ def action_result(engine, action_id):
 
 def events(engine, kind=None):
     """只读取已提交的真实事实。"""
-    rows = engine.context.store.read_events(engine.context.store.last_event_seq)
+    rows = list(engine.context.store.iter_events(engine.context.store.last_event_seq))
     return rows if kind is None else [row for row in rows if row.event_type == kind]
 
 

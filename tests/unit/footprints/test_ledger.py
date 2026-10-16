@@ -26,7 +26,7 @@ def transfer(changes):
 def test_balanced_transfer_reconstructs_actual_final_accounts(funded):
     state = {'version': 2, 'current_time': 101, 'accounts': {'agent:1': 90, 'external:scenario': -90}}
     funded.commit(funded.state, state, [transfer({'account:agent:1': -10, 'account:external:scenario': 10})])
-    validate_account_history(funded.read_events(funded.last_event_seq), funded.state)
+    validate_account_history(list(funded.iter_events(funded.last_event_seq)), funded.state)
     assert funded.state['accounts'] == state['accounts']
 
 
@@ -50,13 +50,13 @@ def test_missing_or_false_ledger_cannot_commit_changed_accounts(funded, kind):
 def test_new_funds_require_explicit_external_counterparty(funded):
     new_state = {'version': 2, 'current_time': 101, 'accounts': {'agent:1': 150, 'external:scenario': -150}}
     funded.commit(funded.state, new_state, [transfer({'account:agent:1': 50, 'account:external:scenario': -50})])
-    validate_account_history(funded.read_events(funded.last_event_seq), funded.state)
+    validate_account_history(list(funded.iter_events(funded.last_event_seq)), funded.state)
 
 
 def test_final_checkpoint_balance_must_equal_complete_event_history(funded):
     wrong = {'accounts': {'agent:1': 90, 'external:scenario': -90}}
     with pytest.raises(IntegrityError, match='reconstruct'):
-        validate_account_history(funded.read_events(funded.last_event_seq), wrong)
+        validate_account_history(list(funded.iter_events(funded.last_event_seq)), wrong)
 
 
 def test_reused_receipt_cannot_record_a_second_payment(funded):

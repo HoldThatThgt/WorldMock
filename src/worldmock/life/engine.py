@@ -161,8 +161,7 @@ class LifeEngine:
         """@brief 追加唯一 run_failed，使后续故障覆盖先前完成候选。"""
         if not error:
             raise ProtocolError("Run failure error must not be empty")
-        events = self.context.store.read_events(self.context.store.last_event_seq)
-        if any((event.event_type == "run_failed" for event in events)):
+        if self.context.store.has_event("run_failed"):
             return
         self.context.store.append_evidence([world_ops._failure_draft(self.context.state.current_time, error, None)])
         self.context.ops.log(self.context.state.current_time, "engine", "error",

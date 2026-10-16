@@ -54,7 +54,7 @@ def assert_observations_round_trip(store: FootprintStore, recorded: list[tuple[s
     :param started: 每项活动身份 → started_at。
     :param zone: 运行的场景时区。
     """
-    stored = [event.event_id for event in store.read_events(store.last_event_seq) if event.event_type == "observation"]
+    stored = [event.event_id for event in list(store.iter_events(store.last_event_seq)) if event.event_type == "observation"]
     assert stored == [identity for identity, _ in recorded]
     for identity, built in recorded:
         expected = {key: value for key, value in built.items() if key not in HOST_ONLY_KEYS}

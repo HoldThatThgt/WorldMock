@@ -24,7 +24,7 @@ def test_read_only_tools_cannot_enter_action_dispatch(engine_factory, caplog, to
     before = state.model_dump(mode="json")
     persisted = store.state
     sequence = store.last_event_seq
-    events = store.read_events(sequence)
+    events = list(store.iter_events(sequence))
     pending = PendingAction(
         run_id=state.run_id, round_id="misrouted-read-only", decision_id="read-only-decision",
         action_id="read-only-action", agent_id=min(state.agents), observed_at=state.current_time,
@@ -41,4 +41,4 @@ def test_read_only_tools_cannot_enter_action_dispatch(engine_factory, caplog, to
     assert state.model_dump(mode="json") == before
     assert store.state == persisted
     assert store.last_event_seq == sequence
-    assert store.read_events(sequence) == events
+    assert list(store.iter_events(sequence)) == events

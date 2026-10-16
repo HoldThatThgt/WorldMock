@@ -416,7 +416,7 @@ def test_a_real_run_leaving_on_duty_is_recomputed_as_early_leave(engine_factory)
     engine = engine_factory(mutate=_workday_run)
     engine.register_day_plan(1, PlanDayRequest(goals=()), [], [])
     departure = _leave_on_duty_at_three(engine)
-    events = [event.model_dump(mode="json") for event in engine.context.store.read_events(engine.context.store.last_event_seq)]
+    events = [event.model_dump(mode="json") for event in list(engine.context.store.iter_events(engine.context.store.last_event_seq))]
     inputs = workday_inputs(engine.context.inputs)
     [group] = behavior_metrics_report(events, workday=inputs).values()
     reports = group["reports"]
@@ -486,7 +486,7 @@ def _walk_to(engine, name: str, location_id: str) -> None:
 
 def _recomputed(engine) -> dict:
     """从 SQLite 读回全部事件，用运行自己的场景文档打包输入（没有卡片），经 behavior_metrics_report 重算 reports。"""
-    events = [event.model_dump(mode="json") for event in engine.context.store.read_events(engine.context.store.last_event_seq)]
+    events = [event.model_dump(mode="json") for event in list(engine.context.store.iter_events(engine.context.store.last_event_seq))]
     [group] = behavior_metrics_report(events, workday=workday_inputs(engine.context.inputs)).values()
     return group["reports"]
 

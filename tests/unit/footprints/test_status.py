@@ -125,3 +125,102 @@ def test_observed_usage_is_empty_without_responses_and_refuses_a_missing_databas
     with pytest.raises(IntegrityError, match='^Run database does not exist$'):
         observed_model_usage(tmp_path / 'absent')
     assert 'Run database does not exist' in caplog.text
+
+
+# ---- 运行中可查：短读、按类型索引计数（长时运行成本第四章） ----
+
+
+def _status_run(run):
+    """一个带五类事件的运行库：两种模型、两个阶段的模型响应，以及观察、行动结果和检查点前的证据。"""
+    from worldmock.footprints.models import EventDraft
+
+    store = FootprintStore.create(run, {'run_id': 'run', 'agent_ids': [1], 'window': {'timezone': 'UTC'}},
+                                  {'version': 0, 'current_time': 100, 'end_time': 200, 'activities': [],
+                                   'agents': {}})
+    usage = {'prompt_tokens': 3, 'completion_tokens': 2, 'total_tokens': 5}
+
+    def response(model, phase):
+        return EventDraft(event_type='model_response', occurred_at=100, source_kind='model', visibility='system',
+                          data={'phase': phase, 'response': {'model': model, 'usage': usage}})
+
+    drafts = [EventDraft(event_type='observation', occurred_at=100, agent_id=1),
+              EventDraft(event_type='model_request', occurred_at=100, source_kind='model', visibility='system',
+                         data={'phase': 'request', 'request': {}}),
+              response('flash', 'response'), response('pro', 'error'), response('pro', 'response'),
+              EventDraft(event_type='action_result', occurred_at=100, agent_id=1),
+              EventDraft(event_type='observation', occurred_at=100, agent_id=1),
+              response('flash', 'response')]
+    for draft in drafts:
+        store.append_evidence([draft])
+    store.close()
+
+
+def test_status_counts_and_wall_time_equal_the_whole_history_queries(tmp_path):
+    import sqlite3
+    from datetime import datetime
+
+    run = tmp_path / 'run'
+    _status_run(run)
+    result = read_status(run)
+    connection = sqlite3.connect(run / 'footprints.sqlite')
+    try:
+        grouped = connection.execute("SELECT json_extract(body,'$.event_type'),count(*) FROM events "
+                                     "GROUP BY json_extract(body,'$.event_type')").fetchall()
+        lowest, highest = connection.execute("SELECT min(json_extract(body,'$.recorded_at')),"
+                                             "max(json_extract(body,'$.recorded_at')) FROM events").fetchone()
+    finally:
+        connection.close()
+    assert len(grouped) >= 4
+    assert list(result['event_counts'].items()) == grouped
+    assert result['wall_time']['started_at'] == datetime.fromisoformat(lowest).isoformat()
+    assert result['wall_time']['last_event_at'] == datetime.fromisoformat(highest).isoformat()
+
+
+def test_status_issues_no_explicit_transaction(tmp_path, monkeypatch):
+    import sqlite3
+
+    run = tmp_path / 'run'
+    _status_run(run)
+    statements, connect = [], sqlite3.connect
+
+    def traced(*args, **kwargs):
+        connection = connect(*args, **kwargs)
+        connection.set_trace_callback(statements.append)
+        return connection
+
+    monkeypatch.setattr('worldmock.status.sqlite3.connect', traced)
+    read_status(run)
+    assert statements
+    assert not [sql for sql in statements if sql.lstrip().upper().startswith('BEGIN')]
+
+
+#: 第四章之前的用量合计语句（逐条读正文判断类型），用来核对经类型索引的同一行集。
+_OBSERVED_USAGE_BY_BODY = """
+    SELECT json_extract(body,'$.data.response.model'), count(*),
+    count(json_extract(body,'$.data.response.usage.prompt_tokens')),
+    sum(json_extract(body,'$.data.response.usage.prompt_tokens')),
+    sum(json_extract(body,'$.data.response.usage.completion_tokens')),
+    sum(json_extract(body,'$.data.response.usage.total_tokens'))
+    FROM events WHERE json_extract(body,'$.event_type')='model_response'
+    AND json_extract(body,'$.data.phase')='response'
+    GROUP BY json_extract(body,'$.data.response.model')
+    ORDER BY json_extract(body,'$.data.response.model')
+"""
+
+
+def test_observed_usage_reads_responses_through_the_type_index(tmp_path):
+    import sqlite3
+    from worldmock.status import _OBSERVED_USAGE_SQL
+
+    run = tmp_path / 'run'
+    _status_run(run)
+    connection = sqlite3.connect(run / 'footprints.sqlite')
+    try:
+        plan = "\n".join(row[-1] for row in connection.execute(f"EXPLAIN QUERY PLAN {_OBSERVED_USAGE_SQL}"))
+        assert 'USING COVERING INDEX events_agent_type' in plan
+        expected = connection.execute(_OBSERVED_USAGE_BY_BODY).fetchall()
+        assert connection.execute(_OBSERVED_USAGE_SQL).fetchall() == expected
+    finally:
+        connection.close()
+    assert [row[0] for row in expected] == ['flash', 'pro'] and expected[1][1] == 1
+    assert [(row['model'], row['responses']) for row in observed_model_usage(run)] == [('flash', 2), ('pro', 1)]

@@ -27,7 +27,8 @@ def real_export(engine_factory, tmp_path):
 
 
 def test_actual_purchase_content_and_current_artifacts_are_authenticated(real_export):
-    manifest, events, activities = validate_export(real_export)
+    manifest, activities = validate_export(real_export)
+    events = artifact_rows(real_export, "events")
     assert manifest["schema_version"] == 8
     assert manifest["checkpoint"]["state"]["schema_version"] == 15
     assert {name: row["path"] for name, row in manifest["artifacts"].items()} == {
@@ -192,7 +193,8 @@ def test_two_purchases_on_the_same_route_export_with_one_payment_per_purchase(en
     run_to_end(engine)
     point = final_checkpoint(engine)
     export_run(engine.context.store, point.last_event_seq, tmp_path / "same-route")
-    _, exported, _ = validate_export(tmp_path / "same-route")
+    validate_export(tmp_path / "same-route")
+    exported = artifact_rows(tmp_path / "same-route", "events")
     payments = [row["data"] for row in exported if row["data"].get("kind") == "purchase_payment"]
     assert [row["order_ids"] for row in payments] == [[first.order_id], [second.order_id]]
     assert len({row["activity_id"] for row in payments}) == 2
@@ -218,7 +220,8 @@ def test_one_order_over_two_delivery_groups_exports_with_a_single_payment(engine
     assert {order.status for order in engine.context.state.deliveries.values()} == {"delivered"}
     point = final_checkpoint(engine)
     export_run(engine.context.store, point.last_event_seq, tmp_path / "one-order")
-    _, exported, _ = validate_export(tmp_path / "one-order")
+    validate_export(tmp_path / "one-order")
+    exported = artifact_rows(tmp_path / "one-order", "events")
     (payment,) = [row for row in exported if row["data"].get("kind") == "purchase_payment"]
     assert payment["data"]["order_ids"] == [order.order_id for order in orders]
     assert payment["data"]["amount_fen"] == sum(order.total_price_fen for order in orders) == 5000

@@ -444,7 +444,7 @@ async def _waking_decision(engine_factory, tmp_path, *replies, note: str | None 
 
 def _decision_events(run: SimpleNamespace, event_type: str) -> list:
     """库里属于醒来那次决策的某类事件（按事件序号）。"""
-    events = run.engine.context.store.read_events(run.engine.context.store.last_event_seq)
+    events = list(run.engine.context.store.iter_events(run.engine.context.store.last_event_seq))
     return [event for event in events
             if event.decision_id == run.decision.decision_id and event.event_type == event_type]
 

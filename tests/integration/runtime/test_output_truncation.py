@@ -374,3 +374,56 @@ async def test_the_exported_quality_report_counts_the_truncations_the_run_record
         "method": quality["truncations"]["method"]}
     assert quality["truncations"]["wasted_output_tokens"] == 24001 == quality["truncations"]["reasoning_tokens"]
     assert quality["schema_version"] == 8
+
+
+def _exported_files(directory) -> dict:
+    """导出目录里每个文件的相对路径与字节。"""
+    return {path.relative_to(directory).as_posix(): path.read_bytes()
+            for path in sorted(directory.rglob("*")) if path.is_file()}
+
+
+@pytest.mark.asyncio
+async def test_export_with_model_calls_is_byte_identical_with_and_without_the_post_run_view(
+        _engine_factory, tmp_path, monkeypatch) -> None:
+    """带真实模型请求与响应的导出：内存里的请求只留提纲、响应去掉候选的 message，导出的每个字节（含质量报告的
+    model_usage 与 truncations）与按完整事件导出的相同。"""
+    from worldmock.footprints import export as export_module
+
+    engine = _engine_factory()
+    stage_day_plan(engine)
+    environment = _environment(engine)
+    await _single(environment, "plan", [TruncatedResponse(_SPIRALS[0], 8001),
+                                        _reply("call-plan", "revise_day_plan", _PLAN, None)])
+    await _single(environment, "wait", [TruncatedResponse(_SPIRALS[1]), _TextOnly(), TruncatedResponse(_SPIRALS[0]),
+                                        _reply("call-wait", MAIN_TOOL, _WAIT, None)])
+    advance_next(engine)
+    store = engine.context.store
+    stored = list(store.iter_events(store.last_event_seq))
+    requests = [event.data["request"] for event in stored if event.event_type == "model_request"]
+    responses = [event.data["response"] for event in stored if event.event_type == "model_response"
+                 and isinstance(event.data.get("response"), dict)]
+    assert any("content" in message for request in requests for message in request["messages"])
+    assert any("parameters" in tool["function"] for request in requests for tool in request.get("tools") or [])
+    assert any("message" in choice for response in responses for choice in response["choices"])
+    captured, original = [], export_module.build_quality_report
+
+    def capture(events, *args):
+        captured.extend(events)
+        return original(events, *args)
+
+    with monkeypatch.context() as patched:
+        patched.setattr(export_module, "build_quality_report", capture)
+        export_run(store, store.last_event_seq, tmp_path / "views")
+    with monkeypatch.context() as patched:
+        patched.setattr(export_module, "post_run_view", lambda event: event)
+        export_run(store, store.last_event_seq, tmp_path / "full")
+    assert _exported_files(tmp_path / "views") == _exported_files(tmp_path / "full")
+    outlines = [event.data["request"] for event in captured if event.event_type in {"model_request", "model_response"}
+                and isinstance(event.data.get("request"), dict)]
+    assert outlines and not any({"content", "reasoning_content"} & set(message) for request in outlines
+                                for message in request["messages"])
+    assert not any({"description", "parameters"} & set(tool["function"]) for request in outlines
+                   for tool in request.get("tools") or [])
+    kept = [event.data["response"] for event in captured if event.event_type == "model_response"
+            and isinstance(event.data.get("response"), dict)]
+    assert kept and not any("message" in choice for response in kept for choice in response["choices"])

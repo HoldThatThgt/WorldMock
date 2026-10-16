@@ -212,7 +212,7 @@ def test_cause_in_same_transaction_and_immutable_database(store):
     first = EventDraft(event_type='action_requested', occurred_at=100)
     second = EventDraft(event_type='action_accepted', occurred_at=100, caused_by=[first.event_id])
     store.append_evidence([first, second])
-    assert store.read_events(2)[1].caused_by == [first.event_id]
+    assert list(store.iter_events(2))[1].caused_by == [first.event_id]
     with pytest.raises(sqlite3.IntegrityError):
         store.connection.execute('DELETE FROM events')
     with pytest.raises(IntegrityError):
@@ -294,7 +294,7 @@ def test_rehashed_checkpoint_with_inconsistent_world_is_rejected(store, tmp_path
 def test_checkpoint_event_must_match_committed_identity_and_clock(store, field, value):
     reference = store.assets.put_json({'memory': 'saved'}, {'kind': 'agent'})
     point = store.checkpoint(store.state, {'agent:1': reference, 'life': reference})
-    event = store.read_events(point.last_event_seq)[-1].model_dump()
+    event = list(store.iter_events(point.last_event_seq))[-1].model_dump()
     event[field] = value
     store.connection.execute('DROP TRIGGER events_no_update')
     with store.connection:
@@ -331,3 +331,173 @@ def test_create_rejects_non_integer_initial_clock_or_version(tmp_path, bad_state
     manifest = {'run_id': 'bad-shape', 'agent_ids': [1], 'code': 'frozen'}
     with pytest.raises(IntegrityError):
         FootprintStore.create(tmp_path / 'bad-run', manifest, bad_state)
+
+
+# ---- 整段历史的分页读取与按索引读取（长时运行成本第四章） ----
+
+
+def _events(store, count, **fields):
+    """追加 count 条同版本证据事件，返回写下的事件。"""
+    return store.append_evidence([EventDraft(event_type='action_result', occurred_at=100, agent_id=1, **fields)
+                                  for _ in range(count)])
+
+
+def test_iter_events_pages_by_sequence_and_rejects_an_outside_range(store, monkeypatch, caplog):
+    from tests.footprints.statement_log import StatementLog
+    monkeypatch.setattr('worldmock.footprints.store.EVENT_PAGE_SIZE', 2)
+    written = _events(store, 5)
+    log = StatementLog(store.connection)
+    monkeypatch.setattr(store, 'connection', log)
+    page = 'SELECT event_seq,event_id,body FROM events WHERE event_seq>?'
+    assert list(store.iter_events(5)) == written
+    assert [parameters for sql, parameters in log.statements if sql.startswith(page)] == [(0, 2), (2, 4), (4, 5)]
+    assert list(store.iter_events(5, 2)) == written[2:]
+    for after, cutoff in [(0, 6), (-1, 3), (4, 3)]:
+        log.statements.clear()
+        caplog.clear()
+        with pytest.raises(IntegrityError, match='^Event cutoff is outside the committed sequence$'):
+            store.iter_events(cutoff, after)
+        assert f'Event range ({after}, {cutoff}] is outside the committed sequence' in caplog.messages
+        assert not [sql for sql, _ in log.statements if sql.startswith(page)]
+
+
+def test_paged_reads_reject_a_row_that_disagrees_with_its_body(store, caplog):
+    (first,) = _events(store, 1)
+    body = first.model_dump()
+    body.update(event_seq=2, event_id='body-identity')
+    with store.connection:
+        store.connection.execute('INSERT INTO events VALUES(?,?,?)',
+                                 (2, 'column-identity', canonical_json(body).decode()))
+    assert list(store.iter_events(1)) == [first]
+    with pytest.raises(IntegrityError, match='^Event row disagrees with its body$'):
+        list(store.iter_events(2))
+    assert 'Event row 2 disagrees with its body' in caplog.messages
+
+
+def test_has_event_reads_the_type_index_and_stops_at_the_first_match(store, monkeypatch):
+    from tests.footprints.statement_log import StatementLog
+    assert store.has_event('run_failed') is False
+    store.append_evidence([EventDraft(event_type='run_failed', occurred_at=100, visibility='system',
+                                      data={'error_type': 'RuntimeError', 'error': 'boom', 'round_id': None})])
+    log = StatementLog(store.connection)
+    monkeypatch.setattr(store, 'connection', log)
+    assert store.has_event('run_failed') is True
+    assert store.has_event('observation') is False
+    sql, parameters = log.statements[0]
+    assert sql.endswith('LIMIT 1')
+    assert 'USING COVERING INDEX events_agent_type' in log.plan(sql, parameters)
+
+
+def test_find_event_returns_none_for_an_unknown_identity(store, caplog):
+    (first,) = _events(store, 1)
+    assert store.find_event(first.event_id) == first
+    assert store.find_event('event-unknown') is None
+    with pytest.raises(IntegrityError, match='^Event does not exist$'):
+        store.read_event('event-unknown')
+    assert 'Event event-unknown does not exist' in caplog.messages
+
+
+def test_first_own_event_seq_walks_back_over_the_branch_suffix(store, tmp_path):
+    _events(store, 2)
+    assert store.first_own_event_seq() == 1
+    reference = store.assets.put_json({'memory': 'saved'}, {'kind': 'agent'})
+    point = store.checkpoint(store.state, {'agent:1': reference, 'life': reference})
+    child = restore_branch(store, point.checkpoint_id, tmp_path / 'child')
+    try:
+        branch = list(child.iter_events(child.last_event_seq))[-1]
+        assert branch.data['kind'] == 'branch_created' and branch.event_seq == point.last_event_seq + 1
+        assert child.first_own_event_seq() == branch.event_seq
+        child.manifest['run_id'] = 'another-run'
+        assert child.first_own_event_seq() == child.last_event_seq + 1
+    finally:
+        child.close()
+
+
+def test_first_action_result_is_the_earliest_result_after_the_boundary(store, caplog):
+    def result(action_id, event_type='action_result'):
+        return EventDraft(event_type=event_type, occurred_at=100, agent_id=1, action_id=action_id)
+    store.append_evidence([result('a', 'action_requested'), result('b'), result('a'), result('b'),
+                           result('a', 'observation'), result('a')])
+    assert store.first_action_result_seq(1, 'a', 0) == 3
+    assert store.first_action_result_seq(1, 'a', 3) == 6
+    assert store.first_action_result_seq(1, 'a', 6) is None
+    assert store.first_action_result_seq(2, 'a', 0) is None
+    assert store.first_action_result_seq(1, 'unknown', 0) is None
+    for after in (-1, store.last_event_seq + 1):
+        caplog.clear()
+        with pytest.raises(IntegrityError, match='^Agent event boundary is outside the committed sequence$'):
+            store.first_action_result_seq(1, 'a', after)
+        assert f'Agent event boundary {after} is outside the committed sequence' in caplog.messages
+
+
+#: 第四章之前的经历候选语句（OR 一次取全部候选再倒序排），用来核对两段索引子查询的合并结果。
+_EXPERIENCE_SOURCES_WITH_OR = """
+    SELECT body FROM events WHERE json_extract(body,'$.agent_id')=?
+    AND (json_extract(body,'$.event_type')='activity_progress'
+         OR (json_extract(body,'$.event_type')='environment_event'
+             AND json_extract(body,'$.data.kind')='goods_received'))
+    AND event_seq<? ORDER BY event_seq DESC LIMIT ?
+"""
+
+
+def _experience_receipt(agent_id, number):
+    """一条收货环境事件（与已核验经历测试同一载荷）。"""
+    data = {"kind": "goods_received", "order_id": f"order-{agent_id}-{number}", "payer_id": agent_id,
+            "goods_id": "rice", "category": "meal", "quantity": 1, "destination_id": "restaurant",
+            "recipient_location_id": "restaurant", "recipient_asleep": False, "provided": 600, "applied": 540,
+            "efficiency": 0.9, "resource_flows": []}
+    return EventDraft(event_type='environment_event', occurred_at=100, agent_id=agent_id, data=data)
+
+
+def test_recent_experience_sources_equal_the_single_query_with_or(store):
+    from worldmock.footprints.models import Event
+    drafts = []
+    for number in range(40):
+        activity = {'activity_id': f'activity-{number}', 'agent_id': 1, 'kind': 'sleep'}
+        drafts.append(EventDraft(event_type='activity_progress', occurred_at=100, agent_id=1,
+                                 activity_id=f'activity-{number}',
+                                 data={'interval_start': 90, 'interval_end': 100, 'activity': activity}))
+        if number % 4 == 0:
+            drafts.append(_experience_receipt(1, number))
+            drafts.append(_experience_receipt(2, number))
+        if number % 7 == 0:
+            drafts.append(EventDraft(event_type='environment_event', occurred_at=100, agent_id=1,
+                                     data={'kind': 'activity_paused', 'activity_id': f'activity-{number}'}))
+            drafts.append(EventDraft(event_type='action_result', occurred_at=100, agent_id=1))
+    store.append_evidence(drafts)
+    last = store.last_event_seq
+    assert len([draft for draft in drafts if draft.data.get('kind') == 'goods_received' and draft.agent_id == 1]) == 10
+    for before_seq in range(1, last + 2):
+        for limit in (1, 5, 32):
+            rows = store.connection.execute(_EXPERIENCE_SOURCES_WITH_OR, (1, before_seq, limit))
+            expected = [Event.model_validate_json(row[0]) for row in rows]
+            assert store.read_recent_experience_sources(1, before_seq, limit) == expected
+
+
+def test_store_connection_waits_120_seconds_for_a_reader(store):
+    assert store.connection.execute('PRAGMA busy_timeout').fetchone()[0] == 120000
+
+
+def test_event_prefix_digest_covers_sequence_identity_and_body(store, tmp_path):
+    _events(store, 3)
+    copy = FootprintStore.create(tmp_path / 'copy', {'run_id': 'copy', 'agent_ids': [1]},
+                                 {'version': 0, 'current_time': 100})
+    try:
+        rows = store.connection.execute('SELECT event_seq,event_id,body FROM events ORDER BY event_seq').fetchall()
+        with copy.connection:
+            copy.connection.executemany('INSERT INTO events VALUES(?,?,?)', rows)
+        assert copy.event_prefix_digest(3) == store.event_prefix_digest(3)
+        assert store.event_prefix_digest(3)[0] == 3 and store.event_prefix_digest(2)[0] == 2
+        assert store.event_prefix_digest(2) != store.event_prefix_digest(3)
+        copy.connection.execute('DROP TRIGGER events_no_update')
+        with copy.connection:
+            copy.connection.execute('UPDATE events SET body=? WHERE event_seq=2', (rows[1][2] + ' ',))
+        assert copy.event_prefix_digest(3) != store.event_prefix_digest(3)
+        with copy.connection:
+            copy.connection.execute('UPDATE events SET body=?,event_id=? WHERE event_seq=2', (rows[1][2], 'other'))
+        assert copy.event_prefix_digest(3) != store.event_prefix_digest(3)
+        with copy.connection:
+            copy.connection.execute('UPDATE events SET event_id=? WHERE event_seq=2', (rows[1][1],))
+        assert copy.event_prefix_digest(3) == store.event_prefix_digest(3)
+    finally:
+        copy.close()

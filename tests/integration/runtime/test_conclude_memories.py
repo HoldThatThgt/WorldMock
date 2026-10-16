@@ -487,7 +487,7 @@ async def _decide(engine, environment: LifeEnv, person: LifeAgent, round_id: str
 
 def _events(engine, event_type: str, decision_id: str) -> list:
     """本轮决策写下的某类事件。"""
-    return [event for event in engine.context.store.read_events(engine.context.store.last_event_seq)
+    return [event for event in list(engine.context.store.iter_events(engine.context.store.last_event_seq))
             if event.event_type == event_type and event.decision_id == decision_id]
 
 

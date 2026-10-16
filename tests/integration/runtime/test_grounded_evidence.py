@@ -128,7 +128,7 @@ def test_model_request_persists_exact_grounded_tools(_engine_factory):  # noqa: 
 
     reopened = FootprintStore(directory)
     try:
-        requests = [event for event in reopened.read_events(cutoff) if event.event_type == "model_request"]
+        requests = [event for event in list(reopened.iter_events(cutoff)) if event.event_type == "model_request"]
         assert len(requests) == 1
         assert canonical_json(requests[0].data["request"]) == expected
         assert requests[0].data["request"]["tools"] == tools
@@ -169,7 +169,7 @@ def test_protocol_feedback_is_persisted_in_next_model_request(_engine_factory): 
     reopened = FootprintStore(directory)
     try:
         events = [
-            event for event in reopened.read_events(reopened.last_event_seq)
+            event for event in list(reopened.iter_events(reopened.last_event_seq))
             if event.event_type in {"model_request", "model_response"}
         ]
         assert [event.event_type for event in events] == [
@@ -193,7 +193,7 @@ def test_protocol_feedback_is_persisted_in_next_model_request(_engine_factory): 
         assert second_names == {"finish"}
         assert all("Authoritative" not in event.data["request"]["messages"][0]["content"]
                    for event in (events[0], events[2]))
-        assert [event for event in reopened.read_events(reopened.last_event_seq)
+        assert [event for event in list(reopened.iter_events(reopened.last_event_seq))
                 if event.event_type == "decision_started"] == []
     finally:
         reopened.close()

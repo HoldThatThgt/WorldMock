@@ -14,6 +14,7 @@ os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
 os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
+from tests.footprints.recording import artifact_rows
 from tests.integration.reflection_fixtures import host_run, memory
 from tests.integration.runtime_fixtures import write_agent_workspace
 from tests.life.conftest import advance_next, oversleep_identity, sleep, stage_day_plan, travel
@@ -118,7 +119,8 @@ def test_oversleep_survives_a_mid_sleep_checkpoint_and_a_rerun_draws_the_same_ex
     assert not any(row.event_type == "run_failed" for row in recorded)
     _checkpoint(engine, tmp_path / "final")
     export_run(engine.context.store, engine.context.store.last_event_seq, tmp_path / "export")
-    manifest, events, _ = validate_export(tmp_path / "export")
+    manifest, _ = validate_export(tmp_path / "export")
+    events = artifact_rows(tmp_path / "export", "events")
     assert manifest["experiment_completed"] is True
     (report,) = behavior_metrics_report(events, timezone=engine.context.config.timezone).values()
     assert report["schema_version"] == "behavior-metrics-4"
@@ -178,7 +180,8 @@ async def test_run_with_naps_exports_clean_memory_sources_and_a_resume_at_wake_u
     assert any(row.event_type == "run_ended" for row in recorded)
     engine.checkpoint({"agent:1": snapshot_directory(workspace, engine.context.store.assets)})
     export_run(engine.context.store, engine.context.store.last_event_seq, tmp_path / "export")
-    manifest, events, _ = validate_export(tmp_path / "export")
+    manifest, _ = validate_export(tmp_path / "export")
+    events = artifact_rows(tmp_path / "export", "events")
     assert manifest["experiment_completed"] is True
     quality = json.loads((tmp_path / "export" / "quality.json").read_text(encoding="utf-8"))
     memory_references = quality["memory_references"]

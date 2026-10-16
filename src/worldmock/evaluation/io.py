@@ -8,7 +8,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable, Iterator, Mapping
 
 from worldmock.evaluation.errors import EvaluationError
 from worldmock.evaluation.models import ArtifactIdentity, JsonObject
@@ -39,15 +39,18 @@ def read_json(path: Path) -> JsonObject:
 
 def read_jsonl(path: Path) -> list[JsonObject]:
     """@brief 严格读取 JSONL，拒绝空行和非对象。"""
-    rows: list[JsonObject] = []
+    return list(iter_jsonl(path))
+
+
+def iter_jsonl(path: Path) -> Iterator[JsonObject]:
+    """@brief 严格逐行读取 JSONL，拒绝空行和非对象；一次只解析一行，供大文件流式使用。"""
     try:
         handle = path.open(encoding="utf-8")
     except OSError as exc:
         raise EvaluationError("missing_artifact", f"cannot open JSONL artifact: {path}") from exc
     with handle:
         for line_number, line in enumerate(handle, start=1):
-            rows.append(_parse_jsonl_row(line, path, line_number))
-    return rows
+            yield _parse_jsonl_row(line, path, line_number)
 
 
 def _parse_jsonl_row(line: str, path: Path, line_number: int) -> JsonObject:

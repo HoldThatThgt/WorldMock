@@ -6,6 +6,7 @@ import logging
 
 import pytest
 
+from tests.footprints.recording import artifact_rows
 from tests.integration.footprints.test_acs_export import real_export
 from worldmock.errors import IntegrityError
 from worldmock.footprints.invariants import validate_footprint_facts
@@ -14,7 +15,8 @@ from worldmock.footprints.validation import validate_export
 
 @pytest.fixture
 def facts(real_export):
-    manifest, events, activities = validate_export(real_export)
+    manifest, activities = validate_export(real_export)
+    events = artifact_rows(real_export, "events")
     def rows(name):
         return [json.loads(line) for line in (real_export / name).read_bytes().splitlines()]
     return events, activities, rows("purchases.jsonl"), rows("app-usage.jsonl"), manifest["checkpoint"]["state"]

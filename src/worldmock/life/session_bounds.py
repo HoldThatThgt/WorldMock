@@ -31,15 +31,14 @@ def session_lower(store: FootprintStore, state: WorldState, session: SessionStat
 def _opening_result_seq(store: FootprintStore, session: SessionState) -> int:
     """@brief 引起切换的那条结果（该动作的首个 action_result）的事件序号。
 
-    切换与这条结果在同一次决策结算里提交，发生在 session 开始那一秒，所以只读这一秒及以后的结果。
+    切换与这条结果在同一次决策结算里提交，发生在 session 开始那一秒，所以只读这一秒及以后的结果，沿人物与类型索引读到第一条匹配即停。
     """
     after = store.last_event_seq_before(session.started_at)
-    seqs = [event.event_seq for event in store.read_agent_events("action_result", session.agent_id, after)
-            if event.action_id == session.opened_by_action_id]
-    if not seqs:
+    sequence = store.first_action_result_seq(session.agent_id, session.opened_by_action_id, after)
+    if sequence is None:
         logging.error("Session opening action has no committed result")
         raise IntegrityError("Session opening action has no committed result")
-    return seqs[0]
+    return sequence
 
 
 def _first_session(state: WorldState, session: SessionState) -> bool:

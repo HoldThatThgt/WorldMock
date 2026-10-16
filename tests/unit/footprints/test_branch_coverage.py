@@ -366,7 +366,7 @@ def test_store_read_rejects_out_of_range_boundaries(tmp_path):
     with pytest.raises(IntegrityError, match="boundary"):
         store.read_agent_events("observation", 1, after=5)
     with pytest.raises(IntegrityError, match="cutoff"):
-        store.read_events(9)
+        list(store.iter_events(9))
     store.close()
 
 
@@ -674,7 +674,7 @@ def test_restore_branch_carries_event_artifacts_into_child_run(tmp_path):
     point = store.checkpoint(store.state, {"agent:1": reference, "life": reference})
     child = restore_branch(store, point.checkpoint_id, tmp_path / 'child')
     try:
-        events = child.read_events(child.last_event_seq)
+        events = list(child.iter_events(child.last_event_seq))
         assert any(event.artifact_refs for event in events)
         assert child.manifest["parent_run_id"] == "run"
         assert child.manifest["parent_checkpoint_id"] == point.checkpoint_id
@@ -1015,3 +1015,116 @@ def _complete_export(tmp_path, engine_factory):
     directory = tmp_path / "export"
     export_run(store, point.last_event_seq, directory)
     return directory
+
+
+# ---------------------------------------------------------------------------
+# 分支按存储字节复制父库前缀（长时运行成本第四章）
+# ---------------------------------------------------------------------------
+
+
+def _parent_with_shared_artifact(tmp_path):
+    """父库：两条事件引用同一摘要、来源不同的素材，另有一条不带素材的事件；最后写共同检查点。"""
+    store = _make_store(tmp_path)
+    first = store.assets.put(b"shared evidence", {"media_type": "text/plain", "source": {"kind": "first"}})
+    second = store.assets.put(b"shared evidence", {"media_type": "text/plain", "source": {"kind": "second"}})
+    assert first.sha256 == second.sha256 and first != second
+    store.append_evidence([
+        EventDraft(event_type="model_response", occurred_at=100, agent_id=1, artifact_refs=[first]),
+        EventDraft(event_type="action_result", occurred_at=100, agent_id=1),
+        EventDraft(event_type="model_response", occurred_at=100, agent_id=1, artifact_refs=[second]),
+    ])
+    snapshot = store.assets.put_json({"workspace": True}, {"kind": "fixture"})
+    point = store.checkpoint(store.state, {"agent:1": snapshot, "life": snapshot})
+    return store, point
+
+
+def _rows(store, cutoff):
+    return store.connection.execute(
+        "SELECT event_seq,event_id,body FROM events WHERE event_seq<=? ORDER BY event_seq", (cutoff,)).fetchall()
+
+
+def _no_stage(tmp_path):
+    return not [item for item in os.listdir(tmp_path) if item.startswith(".restore-")]
+
+
+def test_branch_copies_parent_rows_and_artifact_rows_byte_for_byte(tmp_path):
+    store, point = _parent_with_shared_artifact(tmp_path)
+    child = restore_branch(store, point.checkpoint_id, tmp_path / "child")
+    try:
+        assert _rows(child, point.last_event_seq) == _rows(store, point.last_event_seq)
+        expected = {}
+        for event in store.iter_events(point.last_event_seq):
+            for reference in event.artifact_refs:
+                expected.setdefault(reference.sha256, canonical_json(reference.model_dump()).decode())
+        assert dict(child.connection.execute("SELECT sha256,body FROM artifacts")) == expected
+        assert json.loads(next(iter(expected.values())))["source"] == {"kind": "first"}
+        assert child.manifest["source_run_ids"] == sorted({"run", child.manifest["run_id"]})
+    finally:
+        child.close()
+    store.close()
+
+
+def test_branch_rejects_an_invalid_parent_body_before_creating_the_stage(tmp_path):
+    from pydantic import ValidationError
+    store = _make_store(tmp_path)
+    (first,) = store.append_evidence([EventDraft(event_type="action_result", occurred_at=100, agent_id=1)])
+    body = first.model_dump()
+    body.update(event_seq=2, event_id="raw-invalid", event_type="unknown_event_type")
+    with store.connection:
+        store.connection.execute("INSERT INTO events VALUES(?,?,?)", (2, "raw-invalid", canonical_json(body).decode()))
+    reference = store.assets.put_json({"workspace": True}, {"kind": "fixture"})
+    point = store.checkpoint(store.state, {"agent:1": reference, "life": reference})
+    with pytest.raises(ValidationError):
+        restore_branch(store, point.checkpoint_id, tmp_path / "child")
+    assert not (tmp_path / "child").exists()
+    assert _no_stage(tmp_path)
+    store.close()
+
+
+def test_branch_copy_that_disagrees_with_the_parent_publishes_nothing(tmp_path, monkeypatch, caplog):
+    store, point = _parent_with_shared_artifact(tmp_path)
+    original = FootprintStore.event_prefix_digest
+
+    def digest(self, cutoff):
+        rows, value = original(self, cutoff)
+        return (rows, "0" * 64) if self.run_dir == store.run_dir else (rows, value)
+
+    monkeypatch.setattr(FootprintStore, "event_prefix_digest", digest)
+    with pytest.raises(IntegrityError, match="^Branch event copy disagrees with the parent prefix$"):
+        restore_branch(store, point.checkpoint_id, tmp_path / "child")
+    assert "Branch event copy disagrees with the parent prefix" in caplog.messages
+    assert not (tmp_path / "child").exists()
+    assert _no_stage(tmp_path)
+    store.close()
+
+
+def test_branch_reads_every_parent_artifact_reference(tmp_path, monkeypatch):
+    from worldmock.footprints import checkpoint as checkpoint_module
+    store, point = _parent_with_shared_artifact(tmp_path)
+    shared = next(event.artifact_refs[0] for event in store.iter_events(point.last_event_seq) if event.artifact_refs)
+    (store.assets.root / shared.sha256).unlink()
+    monkeypatch.setattr(checkpoint_module.tempfile, "mkdtemp",
+                        lambda **kwargs: pytest.fail("the stage was created before the parent prefix was checked"))
+    with pytest.raises(IntegrityError, match="^Artifact is missing or is a symbolic link$"):
+        restore_branch(store, point.checkpoint_id, tmp_path / "child")
+    assert not (tmp_path / "child").exists()
+    store.close()
+
+
+def test_branch_detaches_the_parent_after_a_failed_copy(tmp_path, caplog):
+    parent, point = _parent_with_shared_artifact(tmp_path / "parent")
+    references = [reference for event in parent.iter_events(point.last_event_seq)
+                  for reference in event.artifact_refs]
+    child = FootprintStore.create(tmp_path / "child", {"run_id": "child", "agent_ids": [1]},
+                                  {"version": 0, "current_time": 100})
+    try:
+        child.append_evidence([EventDraft(event_type="action_result", occurred_at=100, agent_id=1)])
+        with pytest.raises(sqlite3.IntegrityError, match="Event sequence must append exactly one record"):
+            child.copy_event_prefix(parent, point.last_event_seq, references)
+        assert "Branch event copy failed; the child keeps no copied event" in caplog.messages
+        assert child.last_event_seq == 1
+        assert child.connection.execute("SELECT count(*) FROM artifacts").fetchone()[0] == 0
+        assert [row[1] for row in child.connection.execute("PRAGMA database_list")] == ["main"]
+    finally:
+        child.close()
+        parent.close()

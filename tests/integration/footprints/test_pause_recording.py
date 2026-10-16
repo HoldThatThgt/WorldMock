@@ -38,7 +38,7 @@ def test_actual_pause_and_resume_export_only_running_intervals(engine_factory, t
     point = engine.checkpoint({"agent:1": snapshot})
     directory = tmp_path / "export"
     export_run(store, point.last_event_seq, directory)
-    _, _, activities = validate_export(directory)
+    _, activities = validate_export(directory)
     actual = next(row for row in activities if row["activity_id"] == started.activity_id)
     assert len(actual["segments"]) == 2
     assert actual["segments"][0]["ended_at"] == paused_at
@@ -80,6 +80,6 @@ def test_paused_location_activity_concluded_later_elsewhere_exports_its_running_
     point = engine.checkpoint({"agent:1": snapshot})
     directory = tmp_path / "export"
     export_run(store, point.last_event_seq, directory)
-    _, _, activities = validate_export(directory)
+    _, activities = validate_export(directory)
     actual = next(row for row in activities if row["activity_id"] == started.activity_id)
     assert [(row["started_at"], row["ended_at"]) for row in actual["segments"]] == [(started_at, paused_at)]

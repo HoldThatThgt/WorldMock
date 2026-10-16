@@ -3,6 +3,7 @@
 from datetime import timedelta
 import json
 
+from tests.footprints.recording import artifact_rows
 from tests.life.conftest import advance_until_ready, do_at, travel, use_app
 from tests.life.environment_runtime import act, events, run_to_end
 from worldmock.footprints.export import export_run
@@ -37,7 +38,8 @@ def test_run_with_a_refusal_during_an_activity_exports_and_certifies(engine_fact
     snapshot = engine.context.store.assets.put_json({"completed": True}, {"kind": "test_agent_snapshot"})
     point = engine.checkpoint({"agent:1": snapshot})
     export_run(engine.context.store, point.last_event_seq, tmp_path / "export")
-    manifest, exported, activities = validate_export(tmp_path / "export")
+    manifest, activities = validate_export(tmp_path / "export")
+    exported = artifact_rows(tmp_path / "export", "events")
     assert manifest["experiment_completed"] is True
     assert [row["event_id"] for row in exported if row["event_type"] == "action_rejected"] == [rejection.event_id]
     # 被拒绝的出发没有开始任何活动；进行中的那项活动照旧做完，时长不因这次拒绝多算或少算。
@@ -64,7 +66,8 @@ def test_refusal_while_an_app_is_in_use_leaves_its_app_use_row_to_the_real_settl
     snapshot = engine.context.store.assets.put_json({"completed": True}, {"kind": "test_agent_snapshot"})
     point = engine.checkpoint({"agent:1": snapshot})
     export_run(engine.context.store, point.last_event_seq, tmp_path / "export")
-    _, exported, activities = validate_export(tmp_path / "export")
+    _, activities = validate_export(tmp_path / "export")
+    exported = artifact_rows(tmp_path / "export", "events")
     usage = [json.loads(line) for line in (tmp_path / "export/app-usage.jsonl").read_bytes().splitlines()]
     (used,) = [row for row in usage if row["fact_kind"] == "app_use"]
     watched = next(row for row in activities if row["activity_id"] == watching.activity_id)

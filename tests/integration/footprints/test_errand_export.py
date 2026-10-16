@@ -2,7 +2,7 @@
 
 import json
 
-from tests.footprints.recording import short_window
+from tests.footprints.recording import artifact_rows, short_window
 from tests.life.conftest import advance_next, conclude_request, errand_add, purchase, use_app
 from tests.life.environment_runtime import act, finish_activity, run_to_end
 from worldmock.footprints.export import export_run
@@ -33,7 +33,8 @@ def test_errand_completion_recertifies_actual_received_goods(engine_factory, tmp
     point = engine.checkpoint({"agent:1": store.assets.put_json({"saved": True}, {"kind": "snapshot"})})
     destination = tmp_path / "export"
     export_run(store, point.last_event_seq, destination)
-    manifest, rows, activities = validate_export(destination)
+    manifest, activities = validate_export(destination)
+    rows = artifact_rows(destination, "events")
     quality = json.loads((destination / "quality.json").read_bytes())
     assert quality == build_quality_report([Event.model_validate(row) for row in rows], activities,
                                           manifest["frozen_run_manifest"], sample_display_names())

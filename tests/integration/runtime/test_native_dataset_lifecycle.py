@@ -101,7 +101,7 @@ async def test_native_dataset_run_resume_and_replay_finish_with_real_frozen_work
     assert len(configured) == 1
     store = FootprintStore(result.run_dir)
     try:
-        events = store.read_events(store.last_event_seq)
+        events = list(store.iter_events(store.last_event_seq))
         assert any(event.event_type == "run_ended" for event in events)
         assert not any(event.event_type == "run_failed" for event in events)
         observed = next(event for event in events if event.event_type == "observation")
@@ -131,7 +131,7 @@ async def test_native_dataset_run_resume_and_replay_finish_with_real_frozen_work
     assert len(configured) == 2
     child_store = FootprintStore(restored.run_dir)
     try:
-        events = child_store.read_events(child_store.last_event_seq)
+        events = list(child_store.iter_events(child_store.last_event_seq))
         assert child_store.manifest["branch_kind"] == branch
         assert sum(event.event_type == "environment_event" and event.data.get("kind") == "counterfactual_intervention"
                    for event in events) == int(branch == "counterfactual")
@@ -144,7 +144,7 @@ def _persisted_responses(run_dir, until=None):
     """运行库里已落盘的模型响应（phase=response）条数；until 给出时只数序号不晚于它的。"""
     store = FootprintStore(run_dir)
     try:
-        events = store.read_events(store.last_event_seq if until is None else until)
+        events = list(store.iter_events(store.last_event_seq if until is None else until))
     finally:
         store.close()
     return sum(event.event_type == "model_response" and event.data.get("phase") == "response" for event in events)
@@ -154,7 +154,7 @@ def _shared_checkpoint(run_dir):
     """父运行第一次观察之后的第一个共同检查点事件，以及那次观察的事件身份。"""
     store = FootprintStore(run_dir)
     try:
-        events = store.read_events(store.last_event_seq)
+        events = list(store.iter_events(store.last_event_seq))
     finally:
         store.close()
     observed = next(event for event in events if event.event_type == "observation")

@@ -127,7 +127,7 @@ def record_complete_day(monkeypatch, case: Path, project: Path, kind: str,
         workspace = write_agent_workspace(case / "agent")
         engine.checkpoint({"agent:1": snapshot_directory(workspace, engine.context.store.assets)})
         export_run(engine.context.store, engine.context.store.last_event_seq, case / "export")
-        exported, _, _ = validate_export(case / "export")
+        exported, _ = validate_export(case / "export")
         assert exported["experiment_completed"]
         return {"persona_sha256": inputs.persona_sha256, "config_sha256": inputs.config_sha256,
                 "environment_identity": environment_identity(inputs), "seed": inputs.config.seed,

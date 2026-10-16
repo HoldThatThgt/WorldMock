@@ -181,8 +181,8 @@ def test_real_unaffordable_purchase_is_an_external_block(engine_factory):
     engine = engine_factory(mutate=empty_balance)
     _, result = act(engine, "unaffordable-purchase", purchase("柠檬茶"))
     assert result.status == "rejected" and result.error_code == "INSUFFICIENT_FUNDS"
-    events = [row.model_dump(mode="json") for row in engine.context.store.read_events(
-        engine.context.store.last_event_seq)]
+    events = [row.model_dump(mode="json") for row in list(engine.context.store.iter_events(
+        engine.context.store.last_event_seq))]
     metrics = day_plan_metrics(events, engine.context.config.timezone)[UNREPORTED_CODE_KEY]
     assert metrics["external_constraints"]["block_count"] == 1
     assert metrics["external_constraints"]["by_error_code"] == {"INSUFFICIENT_FUNDS": 1}
@@ -203,8 +203,8 @@ def test_real_rejected_start_group_counts_two_rejected_actions(engine_factory):
     _, results = act_group(engine, "unaffordable-group", travel("公司"), purchase("柠檬茶"))
     assert [(row.status, row.error_code) for row in results] == [("rejected", "INSUFFICIENT_FUNDS")] * 2
     assert engine.context.state.activities == {}
-    events = [row.model_dump(mode="json") for row in engine.context.store.read_events(
-        engine.context.store.last_event_seq)]
+    events = [row.model_dump(mode="json") for row in list(engine.context.store.iter_events(
+        engine.context.store.last_event_seq))]
     rejected = [row for row in events if row["event_type"] == "action_rejected"]
     assert [row["action_id"] for row in rejected] == [action_identity("unaffordable-group", number)
                                                       for number in (1, 2)]
@@ -265,8 +265,8 @@ def test_real_unmet_content_prerequisite_is_one_external_block(engine_factory, t
     engine = engine_factory(dingtalk_environment(tmp_path / "input"), mutate=example_window())
     _, result = act(engine, "clock-at-home", use_app("钉钉"))
     assert result.status == "rejected" and result.error_code == "CONTENT_PREREQUISITE_UNMET"
-    events = [row.model_dump(mode="json") for row in engine.context.store.read_events(
-        engine.context.store.last_event_seq)]
+    events = [row.model_dump(mode="json") for row in list(engine.context.store.iter_events(
+        engine.context.store.last_event_seq))]
     metrics = day_plan_metrics(events, engine.context.config.timezone)[UNREPORTED_CODE_KEY]
     assert metrics["external_constraints"]["block_count"] == 1
     assert metrics["external_constraints"]["by_error_code"] == {"CONTENT_PREREQUISITE_UNMET": 1}

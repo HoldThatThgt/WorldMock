@@ -39,7 +39,7 @@ async def test_viewer_fixture_is_recorded_from_the_current_host(_engine_factory)
     assert {"start_main_activity", "start_side_activity", "report_status", "pause_activity", "conclude_activity",
             "revise_day_plan", "recall_task_summary"} <= names
     assert names.isdisjoint({"query_world", "start_activity", "set_alarm", "send_message", "submit_work"})
-    events = engine.context.store.read_events(engine.context.store.last_event_seq)
+    events = list(engine.context.store.iter_events(engine.context.store.last_event_seq))
     assert not any(event.event_type == "action_rejected" for event in events)
     activity = next(iter(engine.context.state.activities.values()))
     assert activity.kind.value == "interact" and activity.data["app_id"] == "bilibili"

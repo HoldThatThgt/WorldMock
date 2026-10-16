@@ -321,7 +321,7 @@ async def test_fail_run_persists_the_failure_evidence(tmp_path) -> None:
     env = await _new_env(tmp_path, "fail")
     try:
         await env.fail_run("injected fatal notification")
-        events = env.engine.context.store.read_events(env.engine.context.store.last_event_seq)
+        events = list(env.engine.context.store.iter_events(env.engine.context.store.last_event_seq))
         assert any(event.event_type == "run_failed" for event in events)
     finally:
         await env.close()
@@ -426,7 +426,7 @@ async def test_close_failure_records_run_failure_or_raises_group(tmp_path,
     with pytest.raises(ValueError, match="disk full while closing"):
         await env.close()
     assert env.engine is not None  # 失败路径不置空引擎
-    events = engine.context.store.read_events(engine.context.store.last_event_seq)
+    events = list(engine.context.store.iter_events(engine.context.store.last_event_seq))
     assert any(event.event_type == "run_failed" for event in events)
 
     def broken_fail_run(error: str) -> None:

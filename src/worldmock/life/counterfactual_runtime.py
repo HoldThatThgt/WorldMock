@@ -4,8 +4,10 @@ from __future__ import annotations
 from worldmock.life.world_ops import _current_branch_event
 from worldmock.life.world_ops import _request_sha
 
+import logging
+
 from worldmock.errors import ProtocolError
-from worldmock.footprints.models import EventDraft
+from worldmock.footprints.models import Event, EventDraft
 from worldmock.life.models import CounterfactualIntervention, CounterfactualReceipt
 
 from worldmock.life.engine_context import EngineContext
@@ -64,36 +66,39 @@ class CounterfactualRuntime:
         )
 
     def _validate_counterfactual(self, intervention: CounterfactualIntervention, digest: str, round_open: bool) -> None:
-        """@brief 核对分支身份、唯一时序及父检查点以前的人物可见证据。"""
+        """@brief 核对分支身份、唯一时序及父检查点以前的人物可见证据；只读本运行自己的事件，来源按身份逐条读。"""
         manifest = self.context.store.manifest
-        if (
-            manifest.get("branch_kind") != "counterfactual"
-            or manifest.get("intervention_sha256") != digest
-            or (not manifest.get("parent_checkpoint_id"))
-        ):
+        if (manifest.get("branch_kind") != "counterfactual" or manifest.get("intervention_sha256") != digest
+                or not manifest.get("parent_checkpoint_id")):
+            logging.error("Counterfactual branch manifest is invalid")
             raise ProtocolError("Counterfactual branch manifest is invalid")
-        events = self.context.store.read_events(self.context.store.last_event_seq)
-        branch = _current_branch_event(events, manifest)
+        store = self.context.store
+        own = [event for event in store.iter_events(store.last_event_seq, store.first_own_event_seq() - 1)
+               if event.event_type in ("environment_event", "decision_started")]
+        branch = _current_branch_event(own, manifest)
         if branch is None:
+            logging.error("Counterfactual branch creation evidence is invalid")
             raise ProtocolError("Counterfactual branch creation evidence is invalid")
-        child_events = [event for event in events if event.event_seq > branch.event_seq]
-        if round_open or any(
-            (
-                event.event_type == "decision_started"
-                or (event.event_type == "environment_event" and event.data.get("kind") == "counterfactual_intervention")
-                for event in child_events
-            )
-        ):
+        if round_open or any(event.event_seq > branch.event_seq and _forbidden_before_intervention(event)
+                             for event in own):
+            logging.error("Counterfactual intervention must precede the first decision and occur once")
             raise ProtocolError("Counterfactual intervention must precede the first decision and occur once")
-        self._validate_counterfactual_sources(intervention, events)
+        self._validate_counterfactual_sources(intervention, branch)
 
-    def _validate_counterfactual_sources(self, intervention, events) -> None:
-        """@brief 要求全部来源来自父检查点截止内且对目标人物可见。"""
-        branch = _current_branch_event(events, self.context.store.manifest)
-        if branch is None or intervention.agent_id not in self.context.state.agents:
+    def _validate_counterfactual_sources(self, intervention: CounterfactualIntervention, branch: Event) -> None:
+        """@brief 要求全部来源都在分支事件之前（父检查点截止内）且对目标人物可见；来源按事件身份逐条读。"""
+        if intervention.agent_id not in self.context.state.agents:
+            logging.error("Counterfactual branch or target agent is invalid")
             raise ProtocolError("Counterfactual branch or target agent is invalid")
-        sources = {event.event_id: event for event in events if event.event_seq < branch.event_seq}
         for event_id in intervention.source_event_ids:
-            event = sources.get(event_id)
-            if event is None or event.visibility != "agent" or event.agent_id not in {None, intervention.agent_id}:
+            event = self.context.store.find_event(event_id)
+            if (event is None or event.event_seq >= branch.event_seq or event.visibility != "agent"
+                    or event.agent_id not in {None, intervention.agent_id}):
+                logging.error("Counterfactual source is not visible to the target agent")
                 raise ProtocolError("Counterfactual source is not visible to the target agent")
+
+
+def _forbidden_before_intervention(event: Event) -> bool:
+    """@brief 分支事件之后不能先于干预出现的事件：决策开始，或另一条反事实干预。"""
+    return event.event_type == "decision_started" or (
+        event.event_type == "environment_event" and event.data.get("kind") == "counterfactual_intervention")

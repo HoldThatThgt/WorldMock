@@ -478,3 +478,23 @@ def test_inspect_run_body_reads_values_and_levels(tmp_path, capsys):
     assert "能量=  350.0" in lines[0] and "饥饿=饿得难受" in lines[0] and "困意=困" in lines[0]
     assert "睡眠不足= 1.50h" in lines[0]
     assert "饥饿=饿得发慌" in lines[1]
+
+
+def test_result_bodies_through_the_index_equal_the_full_scan(tmp_path):
+    """订单记录的来源经类型表达式索引取序号再读正文：与以前逐条读正文判断类型的整表扫描逐条相同。"""
+    events = [_progress("a", _watching("a", "c-article"), _at(9, 0), _at(9, 30)),
+              EventDraft(event_type="action_result", occurred_at=_at(9, 30), agent_id=1, data={"status": "completed"}),
+              _progress("b", _watching("b", "c-article"), _at(9, 30), _at(10, 0), agent=2),
+              EventDraft(event_type="action_result", occurred_at=_at(10, 0), agent_id=2, data={"status": "accepted"}),
+              EventDraft(event_type="action_result", occurred_at=_at(10, 0), data={"status": "in_progress"})]
+    sqlite_path = _build_store(tmp_path, events)
+    conn = render_day._connect(sqlite_path)
+    try:
+        old = "SELECT body FROM events WHERE json_extract(body,'$.event_type')='action_result' ORDER BY event_seq"
+        expected = [json.loads(body) for (body,) in conn.execute(old)]
+        assert len(expected) == 3
+        assert render_day._result_bodies(conn) == expected
+        plan = " | ".join(row[-1] for row in conn.execute(f"EXPLAIN QUERY PLAN {render_day._RESULT_BODIES_SQL}"))
+        assert "USING COVERING INDEX events_agent_type" in plan
+    finally:
+        conn.close()

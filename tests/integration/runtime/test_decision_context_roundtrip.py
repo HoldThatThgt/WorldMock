@@ -129,7 +129,7 @@ async def test_real_context_roundtrip_preserves_evidence_and_delays_results(_eng
     assert concluded.status.value == "completed"
     assert [row["task"] for row in concluded.data["memory_sources"]] == [waited]
 
-    events = engine.context.store.read_events(engine.context.store.last_event_seq)
+    events = list(engine.context.store.iter_events(engine.context.store.last_event_seq))
     starts = [event for event in events if event.event_type == "decision_started"]
     assert len(starts) == 2
     assert all(set(event.data) == {"round_id", "round_order", "world_state_version", "wake_reasons"}
