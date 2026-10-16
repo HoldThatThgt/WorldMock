@@ -8,7 +8,8 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from tests.life.conftest import (
-    advance_next, conclude_request, context, do_at, purchase, sleep, stage_day_plan, stage_errands, travel,
+    action_identity, advance_next, conclude_request, context, do_at, oversleep_identity, purchase, sleep,
+    stage_day_plan, stage_errands, travel,
 )
 from tests.life.environment_inputs import copy_environment, write_catalog_rows
 from tests.life.environment_runtime import act, action_result, events, finish_activity, settle_decision
@@ -17,8 +18,7 @@ from worldmock.errors import ProtocolError
 from worldmock.life.schedule import PlanGoal
 from worldmock.life.sleep_plan import oversleep_seconds
 
-#: 规格给出的可复算例子：种子 7 时这条动作身份抽到的一位是 1，随后的分钟数是 27。
-_LATE_ACTION = "run-a:round:1791356400:42:agent:1:order:0:action:0001"
+#: 睡过头用例取的多睡时长：各用例按自己的决策标签找一条恰好抽中这么久的动作身份。
 _LATE_SECONDS = 27 * 60
 
 
@@ -44,13 +44,6 @@ def _one_in_the_morning(persona, config):
     persona["body"]["initial_sleep_debt_hours"] = 6.0
     config["start_time"] = datetime.fromisoformat("2026-01-05T01:00:00+08:00")
     config["stop_time"] = datetime.fromisoformat("2026-01-08T01:00:00+08:00")
-
-
-def _drawn(engine, prefix: str, seconds: int | None = None) -> str:
-    """找一条会抽中多睡的动作身份（给了秒数时要求恰好多睡这么久）：此前睡得不足时，用它开始的睡眠一定睡过头。"""
-    state = engine.context.state.random_state
-    return next(f"{prefix}-{index}" for index in range(4000)
-                if (extra := oversleep_seconds(0, state, f"{prefix}-{index}")) and seconds in (None, extra))
 
 
 def _clock(engine, epoch: int) -> str:
@@ -107,7 +100,8 @@ def _observe_and_conclude(engine, label: str, activity_id: str) -> dict:
     engine.begin_decision_round([decision])
     observed = engine.observe(decision)
     name = engine.context.state.activities[activity_id].name
-    engine.submit_action(DirectToolCall(decision, f"action-{label}", "conclude_activity", conclude_request(name)))
+    engine.submit_action(DirectToolCall(decision, f"{decision.decision_id}:action:0001", "conclude_activity",
+                                        conclude_request(name)))
     assert engine.commit_decision_round(label)[0].status == "completed"
     return observed
 
@@ -130,13 +124,14 @@ def test_short_sleep_after_a_long_day_oversleeps_once_and_recovers_by_the_time_a
     engine = engine_factory(mutate=_after_a_long_day)
     start = engine.context.state.current_time
     assert engine.context.state.agents[1].body.sleep_deficit_hours == 5.0
-    _, result = act(engine, "late", sleep(220), action_id=_LATE_ACTION)
+    late = oversleep_identity(engine, "late", _LATE_SECONDS)
+    _, result = act(engine, "late", sleep(220), action_id=late)
     assert result.status == "in_progress", result.error_code
     activity = engine.context.state.activities[result.activity_id]
     assert (activity.data["declared_duration_seconds"], activity.data["oversleep_seconds"]) == (13200, _LATE_SECONDS)
     assert activity.planned_duration_seconds == 13200 + _LATE_SECONDS
     assert activity.planned_end_at == start + 13200 + _LATE_SECONDS
-    accepted = action_result(engine, _LATE_ACTION).data["activities"][0]
+    accepted = action_result(engine, late).data["activities"][0]
     assert accepted["planned_end_at"] == activity.planned_end_at
     assert (accepted["data"]["declared_duration_seconds"], accepted["data"]["oversleep_seconds"]) == (13200, 1620)
 
@@ -153,7 +148,7 @@ def test_short_sleep_after_a_long_day_oversleeps_once_and_recovers_by_the_time_a
 
     observed = _observe_and_conclude(engine, "woke", result.activity_id)
     assert _activity_row(observed, woke.name)["state"] == "已做约 4 小时，比打算的多睡了 27 分钟"
-    after, again = act(engine, "again", sleep(60), action_id=_drawn(engine, "again"))
+    after, again = act(engine, "again", sleep(60), action_id=oversleep_identity(engine, "again"))
     assert "睡觉（1月5日 07:00 起）：07:00–11:07，比打算的多睡了 27 分钟" in _settled_lines(after)
     assert again.status == "in_progress", again.error_code
     second = engine.context.state.activities[again.activity_id]
@@ -170,8 +165,8 @@ def test_the_same_short_sleep_wakes_on_time_when_the_draw_misses(engine_factory)
     那一刻。"""
     engine = engine_factory(mutate=_after_a_long_day)
     start = engine.context.state.current_time
-    missed = next(f"on-time-{index}" for index in range(200)
-                  if not oversleep_seconds(0, engine.context.state.random_state, f"on-time-{index}"))
+    missed = next(action_identity("on-time", number) for number in range(1, 200)
+                  if not oversleep_seconds(0, engine.context.state.random_state, action_identity("on-time", number)))
     _, result = act(engine, "on-time", sleep(170), action_id=missed)
     activity = engine.context.state.activities[result.activity_id]
     assert activity.data["oversleep_seconds"] == 0 and activity.planned_end_at == start + 10200
@@ -191,7 +186,7 @@ def test_a_sleep_declared_at_twelve_hours_oversleeps_after_a_day_with_one_hour_o
 
     engine = engine_factory(mutate=worn_out)
     start = engine.context.state.current_time
-    _, result = act(engine, "long", sleep(720), action_id=_LATE_ACTION)
+    _, result = act(engine, "long", sleep(720), action_id=oversleep_identity(engine, "long", _LATE_SECONDS))
     assert result.status == "in_progress", result.error_code
     activity = engine.context.state.activities[result.activity_id]
     assert activity.data["declared_duration_seconds"] == 43200 and activity.data["oversleep_seconds"] == 1620
@@ -209,7 +204,7 @@ def test_a_normal_night_is_judged_from_the_moment_it_starts_and_wakes_on_time(en
     动作身份也一样。窗口要是算到写的时长到点的那一刻，前一晚的睡眠就全在窗口之外了。"""
     engine = engine_factory(mutate=_at_midnight)
     start = engine.context.state.current_time
-    _, result = act(engine, "night", sleep(470), action_id=_drawn(engine, "night"))
+    _, result = act(engine, "night", sleep(470), action_id=oversleep_identity(engine, "night"))
     assert result.status == "in_progress", result.error_code
     activity = engine.context.state.activities[result.activity_id]
     assert activity.data["oversleep_seconds"] == 0 and activity.planned_duration_seconds == 28200
@@ -228,7 +223,7 @@ def test_a_short_night_wakes_on_time_and_the_full_night_after_it_oversleeps(engi
     已结算文字都写「比打算的多睡了 40 分钟」。"""
     engine = engine_factory(mutate=_one_in_the_morning)
     start = engine.context.state.current_time
-    _, short = act(engine, "short-night", sleep(180), action_id=_drawn(engine, "short-night"))
+    _, short = act(engine, "short-night", sleep(180), action_id=oversleep_identity(engine, "short-night"))
     assert short.status == "in_progress", short.error_code
     first = engine.context.state.activities[short.activity_id]
     assert first.data["oversleep_seconds"] == 0 and first.planned_end_at == start + 10800
@@ -247,7 +242,7 @@ def test_a_short_night_wakes_on_time_and_the_full_night_after_it_oversleeps(engi
     sleeps = [item for item in engine.context.state.activities.values() if item.kind == "sleep"]
     assert [(item.started_at, item.ended_at) for item in sleeps] == [(start, start + 10800)]
     before = engine.context.state.agents[1].body.sleep_deficit_hours
-    _, late = act(engine, "full-night", sleep(470), action_id=_drawn(engine, "full-night", 40 * 60))
+    _, late = act(engine, "full-night", sleep(470), action_id=oversleep_identity(engine, "full-night", 40 * 60))
     assert late.status == "in_progress", late.error_code
     second = engine.context.state.activities[late.activity_id]
     assert (second.data["declared_duration_seconds"], second.data["oversleep_seconds"]) == (28200, 2400)
@@ -355,7 +350,7 @@ def test_office_nap_resets_the_discomfort_timer_freezes_both_needs_and_must_be_c
     finish_activity(engine, trip, "to-office")
     awake = engine.context.state.agents[1]
     assert awake.discomfort_started_at is not None
-    _, nap = act(engine, "nap", sleep(170), action_id=_LATE_ACTION)
+    _, nap = act(engine, "nap", sleep(170), action_id=oversleep_identity(engine, "nap", _LATE_SECONDS))
     assert nap.status == "in_progress", nap.error_code
     activity = engine.context.state.activities[nap.activity_id]
     assert activity.location_id == "office" and activity.data["oversleep_seconds"] == _LATE_SECONDS

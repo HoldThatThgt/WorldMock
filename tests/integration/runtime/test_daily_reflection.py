@@ -281,7 +281,8 @@ def _commit(engine, decision, request, tool: str | None = None, observe: bool = 
     """在已开的这一轮里取观察（还没取过时）、登记一条世界请求并结算，关上这一轮。"""
     if observe:
         engine.observe(decision)
-    engine.submit_action(DirectToolCall(decision, f"action-{decision.round_id}", tool or tool_of(request), request))
+    engine.submit_action(DirectToolCall(decision, f"{decision.decision_id}:action:0001", tool or tool_of(request),
+                                        request))
     (result,) = engine.commit_decision_round(decision.round_id)
     return result
 

@@ -16,7 +16,7 @@ import pytest
 from scripts import inspect_run
 from tests.integration.reflection_fixtures import host_run
 from tests.integration.runtime.current_contract_fixtures import ToolResponse, decide
-from tests.life.conftest import advance_next, do_at, purchase, sleep, stage_day_plan, travel, use_app
+from tests.life.conftest import action_identity, advance_next, do_at, purchase, sleep, stage_day_plan, travel, use_app
 from tests.life.environment_runtime import act, conclude_app_use, events, finish_activity, reach
 from worldmock.status import write_status
 
@@ -227,7 +227,7 @@ def test_inspector_request_lines_read_only_the_current_keys(engine_factory, caps
     _, bought = act(engine, "buy", purchase("牛肉面", "薯片", "柠檬茶", "扑克牌", "牛肉面", "薯片", "柠檬茶", "扑克牌"))
     assert bought.status == "in_progress", bought.error_code
     lines = _events(engine, capsys)
-    request = next(row for row in events(engine, "action_requested") if row.action_id == "action-buy")
+    request = next(row for row in events(engine, "action_requested") if row.action_id == action_identity("buy"))
     text = json.dumps(request.data["request"], ensure_ascii=False)
     assert len(text) > 80
     assert _line(lines, request.event_seq).endswith(f"start_side_activity {text[:80]}")
@@ -255,11 +255,11 @@ def test_inspector_other_lines_read_the_envelope_resource_changes(engine_factory
     assert ride.status == "in_progress", ride.error_code
     lines = _events(engine, capsys)
     results = {row.action_id: row for row in events(engine, "action_result")}
-    fare = results["action-ride"]
+    fare = results[action_identity("ride")]
     assert fare.resource_changes == {"account:agent:1": -200, "account:external:scenario": 200}
     assert _line(lines, fare.event_seq).endswith('action_result        {"account:agent:1": -200, '
                                                  '"account:external:scenario": 200}')
-    other = results["action-refused"]
+    other = results[action_identity("refused")]
     assert not other.resource_changes
     body = {key: value for key, value in other.data.items() if key not in ("request", "response")}
     assert _line(lines, other.event_seq).endswith(f"action_result        {json.dumps(body, ensure_ascii=False)[:90]}")

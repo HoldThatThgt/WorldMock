@@ -4,7 +4,9 @@ from datetime import timedelta
 
 import pytest
 
-from tests.life.conftest import advance_next, conclude_request, errand_add, purchase, report_request, use_app
+from tests.life.conftest import (
+    action_identity, advance_next, conclude_request, errand_add, purchase, report_request, use_app,
+)
 from tests.life.current_world import stage_moment
 from tests.life.environment_inputs import copy_environment, write_catalog_rows
 from tests.life.environment_runtime import act, events, finish_activity, reach
@@ -22,13 +24,14 @@ def test_local_basket_pays_once_at_completion_and_receives_each_actual_item(engi
     engine = engine_factory(mutate=at_store)
     _, result = act(engine, "basket", purchase("柠檬茶", "纸巾"))
     assert result.status == "in_progress", result.error_code
-    assert result.activity_id == "activity-action-basket-purchase"
+    assert result.activity_id == f"activity-{action_identity('basket')}-purchase"
     activity = engine.context.state.activities[result.activity_id]
     orders = list(engine.context.state.deliveries.values())
     assert len(orders) == 2 and len(engine.context.state.activities) == 1
     # 一份一条商品履约记录，序号按配送组、组内按商品身份升序补零到四位；结果只带这条动作创建的记录
     assert {order.order_id: (order.goods_id, order.quantity) for order in orders} == {
-        "order-action-basket-0001": ("lemon-tea", 1), "order-action-basket-0002": ("tissue", 1)}
+        f"order-{action_identity('basket')}-0001": ("lemon-tea", 1),
+        f"order-{action_identity('basket')}-0002": ("tissue", 1)}
     assert [row["order_id"] for row in result.data["orders"]] == sorted(order.order_id for order in orders)
     assert activity.name.startswith("购买柠檬茶、纸巾（")
     assert activity.resource_claims == {"second"}

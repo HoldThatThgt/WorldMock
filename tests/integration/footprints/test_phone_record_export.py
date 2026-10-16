@@ -10,7 +10,7 @@ import pytest
 from tests.engine_fixture import engine_factory_at
 from tests.footprints.recording import (artifact_rows, export_completed, read_export, reproject, write_manifest,
                                         write_rows)
-from tests.life.conftest import advance_until_ready, purchase, sleep, travel, use_app
+from tests.life.conftest import action_identity, advance_until_ready, purchase, sleep, travel, use_app
 from tests.life.environment_inputs import copy_environment, write_catalog_rows
 from tests.life.environment_runtime import act, finish_activity
 from tests.life.phone_records import (label_where, moment, paying_label, phone_environment, phone_window,
@@ -36,8 +36,8 @@ def phone_day(engine):
     finish_activity(engine, watching, "watch")
     finish_activity(engine, trip, "commute")
     assert engine.context.state.current_time == ARRIVE
-    label = label_where("desk", lambda item: (purchase_draws(engine, f"action-{item}", "luckin")[1],
-                                              purchase_draws(engine, f"action-{item}", "bilibili")[1])
+    label = label_where("desk", lambda item: (purchase_draws(engine, action_identity(item), "luckin")[1],
+                                              purchase_draws(engine, action_identity(item), "bilibili")[1])
                         == ("alipay", None))
     _, bought = act(engine, label, purchase("冰美式", "平台笔记本"))
     assert bought.status == "in_progress", bought.error_code
@@ -288,7 +288,7 @@ def test_rewritten_foreground_intervals_are_refused(exported, phone_export, faul
     elif fault == "interval_of_the_app_activity":
         ordering["activity_id"] = ids["watching"]
     else:
-        second["activity_id"] = "activity-action-ghost"
+        second["activity_id"] = f"activity-{action_identity('ghost')}"
     rejected(exported, reason, events)
 
 

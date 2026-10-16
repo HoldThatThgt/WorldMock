@@ -17,8 +17,8 @@ import pytest
 from scripts import inspect_run, render_day
 from tests.footprints.recording import artifact_rows, export_completed
 from tests.life.conftest import (
-    SIDE_TOOL, activity_name, advance_until_ready, conclude_request, do_at, pause_request, progress_calls,
-    report_request, target_actions, tool_targets, travel, use_app,
+    SIDE_TOOL, action_identity, activity_name, advance_until_ready, conclude_request, do_at, pause_request,
+    progress_calls, report_request, target_actions, tool_targets, travel, use_app,
 )
 from tests.life.environment_inputs import catalog_rows, five_episode_environment, meal_environment, write_catalog_rows
 from tests.life.environment_runtime import (
@@ -262,7 +262,7 @@ def test_ended_app_use_lists_three_contents_and_says_how_many_are_left_out(engin
     assert record["result"]["details"] == {"contents": rows, "contents_omitted": "还有 2 条没列"}
     validate_layer(observed["progress_layer"])
     [terminal] = [row for row in events(engine, "action_result")
-                  if row.action_id == "action-watch" and row.data["status"] != "in_progress"]
+                  if row.action_id == action_identity("watch") and row.data["status"] != "in_progress"]
     assert terminal.data["status"] == ("cancelled" if how == "concluded" else "completed")
     assert [item["content_id"] for item in terminal.data["activity"]["data"]["played"]] == [
         f"c-drama-{number}" for number in range(1, played + 1)]

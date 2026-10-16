@@ -14,8 +14,8 @@ from datetime import timedelta
 import pytest
 
 from tests.life.conftest import (
-    advance_next, advance_until_ready, conclude_request, context, do_at, pause_request, purchase, report_request,
-    travel,
+    action_identity, advance_next, advance_until_ready, conclude_request, context, do_at, pause_request, purchase,
+    report_request, travel,
 )
 from tests.life.environment_inputs import (
     DINNER_EPISODES, GROCERIES, catalog_rows, grocery_environment, set_content, write_catalog_rows,
@@ -146,7 +146,7 @@ def test_received_groceries_open_cooking_and_starting_it_uses_them(engine_factor
         "playing-cards", 0, 1, 1)
     assert "做饭" in home_units(engine, "opened")
     started = cook(engine)
-    result = accepted(engine, "action-cook")
+    result = accepted(engine, action_identity("cook"))
     [consumed] = effects(engine, "consume_on_start")
     assert consumed.data == {"kind": "callback_effect", "type": "consume_on_start", "rule_id": None,
                              "state": GROCERIES, "content_id": "cook", "before": 1, "after": 0}
@@ -308,7 +308,7 @@ def test_using_up_the_groceries_fires_the_threshold_rule_once(engine_factory, tm
     engine = grocery_engine(engine_factory, tmp_path, change=_threshold_rules(offset))
     balance = engine.context.state.accounts["agent:1"]
     started = cook(engine)
-    result = accepted(engine, "action-cook")
+    result = accepted(engine, action_identity("cook"))
     [consumed] = effects(engine, "consume_on_start")
     assert consumed.caused_by == [result.event_id]
     fired = _rule_effects(engine, "groceries-out")
@@ -369,7 +369,7 @@ def test_at_the_parcel_station_collecting_comes_before_using_the_groceries(engin
     assert engine.context.state.deliveries[order.order_id].status == "ready_for_pickup"
     _, meal = act(engine, "meal", do_at("快递驿站", "驿站加餐"))
     assert meal.status == "in_progress", meal.error_code
-    result = accepted(engine, "action-meal")
+    result = accepted(engine, action_identity("meal"))
     later = [row for row in events(engine, "environment_event") if row.event_seq > result.event_seq
              and row.data.get("kind") in {"goods_received", "callback_effect"}]
     assert [row.data.get("type", row.data["kind"]) for row in later] == [

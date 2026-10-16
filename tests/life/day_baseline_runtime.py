@@ -97,19 +97,31 @@ def _callback_day(engine):
     assert engine.context.state.agents[1].callback_states["driving_days"] == 3
 
 
+def create_complete_day_engine(case: Path, kind: str) -> LifeEngine:
+    """@brief 在 case 下建好这种完整日（activity 或 callback）的环境副本并创建引擎；固定记录身份与计时
+    （deterministic_day_runtime）由调用方负责。"""
+    case.mkdir(parents=True)
+    inputs = _environment(case, kind)
+    identity = current_run_identity(inputs, f"baseline-{kind}")
+    return LifeEngine.create(inputs, case / "run", identity,
+        stage_model_identity(inputs.config.model, inputs.model_metadata), {})
+
+
+def play_complete_day(engine: LifeEngine, kind: str) -> list:
+    """@brief 预置当日计划、走完这种完整日的脚本并推进到运行截止，返回全部已提交事件。"""
+    stage_day_plan(engine)
+    (_activity_day if kind == "activity" else _callback_day)(engine)
+    return run_to_end(engine)
+
+
 def record_complete_day(monkeypatch, case: Path, project: Path, kind: str,
                         signature: Callable[[Path, Path], dict] = day_baseline_signature) -> dict:
     """@brief 录一份脚本化完整日并返回其签名；signature 缺省为绑定代码身份的签名，行为比较传行为签名。"""
     deterministic_day_runtime(monkeypatch)
-    case.mkdir(parents=True)
-    inputs = _environment(case, kind)
-    identity = current_run_identity(inputs, f"baseline-{kind}")
-    engine = LifeEngine.create(inputs, case / "run", identity,
-        stage_model_identity(inputs.config.model, inputs.model_metadata), {})
+    engine = create_complete_day_engine(case, kind)
+    inputs = engine.context.inputs
     try:
-        stage_day_plan(engine)
-        (_activity_day if kind == "activity" else _callback_day)(engine)
-        recorded = run_to_end(engine)
+        recorded = play_complete_day(engine, kind)
         assert any(row.event_type == "run_ended" for row in recorded)
         assert not any(row.event_type == "run_failed" for row in recorded)
         workspace = write_agent_workspace(case / "agent")

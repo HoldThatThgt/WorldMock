@@ -7,7 +7,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from tests.life.conftest import advance_next, advance_until_ready, context, do_at, progress_calls, purchase, travel
+from tests.life.conftest import (action_identity, advance_next, advance_until_ready, context, do_at, progress_calls,
+                                 purchase, travel)
 from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
 from tests.life.environment_runtime import (
     act, act_group, action_result, events, finish_activity, reach, settle_decision,
@@ -33,7 +34,8 @@ def test_same_name_twice_buys_two_portions_in_one_delivery_group(engine_factory)
     _, result = act(engine, "basket", purchase("牛肉面", "柠檬茶", "柠檬茶"))
     assert result.status == "in_progress", result.error_code
     orders = _orders(engine, result)
-    assert [order.order_id for order in orders] == [f"order-action-basket-{number:04d}" for number in (1, 2, 3)]
+    assert [order.order_id for order in orders] == [f"order-{action_identity('basket')}-{number:04d}"
+                                                    for number in (1, 2, 3)]
     assert [(order.goods_id, order.quantity, order.unit_price_fen, order.delivery_fee_fen) for order in orders] == [
         ("beef-noodles", 1, 2800, 500), ("lemon-tea", 1, 1200, 0), ("lemon-tea", 1, 1200, 0)]
     assert {(order.store_id, order.app_id, order.destination_id, order.fulfillment.value) for order in orders} == {
@@ -44,7 +46,7 @@ def test_same_name_twice_buys_two_portions_in_one_delivery_group(engine_factory)
     assert {order.distance_meters for order in orders} == {2524}
     activity = engine.context.state.activities[result.activity_id]
     assert activity.name == "购买牛肉面、柠檬茶×2（1月5日 08:00 起）" and activity.resource_claims == {"second"}
-    assert activity.activity_id == "activity-action-basket-purchase"
+    assert activity.activity_id == f"activity-{action_identity('basket')}-purchase"
     assert [order["order_id"] for order in result.data["orders"]] == [order.order_id for order in orders]
     assert engine.context.state.accounts["agent:1"] == 200000
     finish_activity(engine, result, "basket")
@@ -64,7 +66,7 @@ def test_more_than_ten_portions_are_accepted_with_four_digit_order_numbers(engin
     assert result.status == "in_progress", result.error_code
     activity = engine.context.state.activities[result.activity_id]
     identities = activity.data["order_ids"]
-    assert identities == [f"order-action-many-{number:04d}" for number in range(1, 13)]
+    assert identities == [f"order-{action_identity('many')}-{number:04d}" for number in range(1, 13)]
     assert identities == sorted(identities) and len(set(identities)) == 12
     orders = [engine.context.state.deliveries[key] for key in identities]
     assert [order.goods_id for order in orders] == sorted(order.goods_id for order in orders)
@@ -146,7 +148,8 @@ def test_one_purchase_of_several_goods_triggers_its_action_callback_once(engine_
     assert [row.data["rule_id"] for row in effects] == ["ride", "buy"]
     assert engine.context.state.agents[1].callback_states == {"stock": 2}
     results = {row.action_id: row.event_id for row in events(engine, "action_result")}
-    assert effects[0].caused_by == [results["action-pair-1"]] and effects[1].caused_by == [results["action-pair-2"]]
+    assert effects[0].caused_by == [results[action_identity("pair", 1)]]
+    assert effects[1].caused_by == [results[action_identity("pair", 2)]]
     fare = 500
     assert engine.context.state.accounts["agent:1"] == 200000 - fare - 30
 
@@ -231,11 +234,11 @@ def test_naming_a_unit_at_the_station_collects_every_ready_parcel(engine_factory
     assert activity.name.startswith("进行驿站等候（") and activity.data["content_id"] == "parcel-wait"
     assert activity.planned_duration_seconds == 300 and activity.resource_claims == {"first"}
     assert {engine.context.state.deliveries[order.order_id].status for order in parcels} == {"delivered"}
-    snapshots = action_result(engine, "action-pickup").data["orders"]
+    snapshots = action_result(engine, action_identity("pickup")).data["orders"]
     assert [row["order_id"] for row in snapshots] == [order.order_id for order in parcels]
     assert {row["status"] for row in snapshots} == {"delivered"}
     assert all(row["received_at"] == engine.context.state.current_time for row in snapshots)
-    accepted = next(row for row in events(engine, "action_result") if row.action_id == "action-pickup")
+    accepted = next(row for row in events(engine, "action_result") if row.action_id == action_identity("pickup"))
     received = [row for row in events(engine, "environment_event") if row.data.get("kind") == "goods_received"]
     assert sorted(row.data["order_id"] for row in received) == [order.order_id for order in parcels]
     assert all(row.caused_by == [accepted.event_id] for row in received)

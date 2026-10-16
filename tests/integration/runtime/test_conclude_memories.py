@@ -422,7 +422,7 @@ def _settle(engine, round_id: str, tool: str, request):
     decision = context(engine, round_id)
     engine.begin_decision_round([decision])
     engine.observe(decision)
-    engine.submit_action(DirectToolCall(decision, f"action-{round_id}", tool, request))
+    engine.submit_action(DirectToolCall(decision, f"{decision.decision_id}:action:0001", tool, request))
     [result] = engine.commit_decision_round(decision.round_id)
     return result
 

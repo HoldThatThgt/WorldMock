@@ -13,7 +13,8 @@ def act(engine, label, request, tool=None, action_id=None):
     decision = context(engine, label)
     engine.begin_decision_round([decision])
     observed = engine.observe(decision)
-    engine.submit_action(DirectToolCall(decision, action_id or f"action-{label}", tool or tool_of(request), request))
+    identity = action_id or f"{decision.decision_id}:action:0001"
+    engine.submit_action(DirectToolCall(decision, identity, tool or tool_of(request), request))
     return observed, engine.commit_decision_round(label)[0]
 
 
@@ -25,7 +26,7 @@ def act_group(engine, label, *requests):
     decision = context(engine, label)
     engine.begin_decision_round([decision])
     observed = engine.observe(decision)
-    identities = [f"action-{label}-{index}" for index, _ in enumerate(requests, start=1)]
+    identities = [f"{decision.decision_id}:action:{index:04d}" for index, _ in enumerate(requests, start=1)]
     for identity, request in zip(identities, requests, strict=True):
         engine.submit_action(DirectToolCall(decision, identity, tool_of(request), request))
     returned = engine.commit_decision_round(label)

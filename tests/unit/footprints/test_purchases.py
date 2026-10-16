@@ -1,6 +1,7 @@
 """购买、收货投影保留实际订单金额和两个不同的来源。"""
 
 from tests.footprints.recording import recorded_engine
+from tests.life.conftest import action_identity
 from worldmock.footprints.purchases import project_purchase_facts
 
 
@@ -34,7 +35,7 @@ def test_real_purchase_attempt_is_one_current_action(engine_factory):
     assert attempts[0]["error_code"] is None
     requested = {row["event_id"]: row for row in events if row["event_type"] == "action_requested"}
     source = requested[attempts[0]["request_event_id"]]
-    assert source["action_id"] == attempts[0]["action_id"] == "action-recorded-basket"
+    assert source["action_id"] == attempts[0]["action_id"] == action_identity("recorded-basket")
     assert source["data"]["tool_name"] == "start_side_activity"
     assert source["data"]["request"] == {"action": "purchase", "target": ["柠檬茶", "纸巾"], "prefer": None}
     side = [row["data"]["request"] for row in requested.values() if row["data"]["tool_name"] == "start_side_activity"]

@@ -204,7 +204,7 @@ def test_real_unaffordable_purchase_is_an_external_block(engine_factory):
 def test_real_rejected_start_group_counts_two_rejected_actions(engine_factory):
     """一个被拒的开始组是两条被拒动作：步行（不花钱）与买不起的柠檬茶同组，整组不开始，两条动作各有同一个拒绝码；
     按动作计数的外部约束不合并，记两次受阻、两条终态动作，证据是两条动作各自的拒绝事件。"""
-    from tests.life.conftest import purchase, travel
+    from tests.life.conftest import action_identity, purchase, travel
     from tests.life.environment_runtime import act_group
 
     def empty_balance(persona, config):
@@ -217,7 +217,8 @@ def test_real_rejected_start_group_counts_two_rejected_actions(engine_factory):
     events = [row.model_dump(mode="json") for row in engine.context.store.read_events(
         engine.context.store.last_event_seq)]
     rejected = [row for row in events if row["event_type"] == "action_rejected"]
-    assert [row["action_id"] for row in rejected] == ["action-unaffordable-group-1", "action-unaffordable-group-2"]
+    assert [row["action_id"] for row in rejected] == [action_identity("unaffordable-group", number)
+                                                      for number in (1, 2)]
     metrics = day_plan_metrics(events, engine.context.config.timezone)[UNREPORTED_CODE_KEY]
     external = metrics["external_constraints"]
     assert external["block_count"] == 2 and external["by_error_code"] == {"INSUFFICIENT_FUNDS": 2}

@@ -4,8 +4,10 @@ from datetime import timedelta
 
 import pytest
 
-from tests.life.conftest import (advance_next, advance_until_ready, conclude_request, context, do_at, purchase,
-                                 sleep, travel, use_app)
+from tests.life.conftest import (
+    action_identity, advance_next, advance_until_ready, conclude_request, context, do_at, purchase, sleep, travel,
+    use_app,
+)
 from tests.life.current_world import stage_moment
 from tests.life.environment_runtime import act, act_group, events, finish_activity, reach
 from tests.life.phone_records import (foreground, label_where, moment, notices, paying_label, phone_environment,
@@ -29,7 +31,7 @@ def coffee(engine_factory, tmp_path, method):
     """咖啡例子：人在家，09:05:00 一边开始「测试休息」一边买冰美式；购买抽到 200 秒，付款抽到给定方式和 15 秒。"""
     engine = engine_factory(phone_environment(tmp_path / "coffee"), mutate=phone_window((9, 0), 2))
     stage_moment(engine, BUY)
-    label = label_where("coffee", lambda item: purchase_draws(engine, f"action-{item}-2", "luckin")
+    label = label_where("coffee", lambda item: purchase_draws(engine, action_identity(item, 2), "luckin")
                         == (200, method, 15), limit=400000)
     _, (rest, bought) = act_group(engine, label, do_at("家", "测试休息"), purchase("冰美式"))
     assert (rest.status, bought.status) == ("in_progress", "in_progress"), bought.error_code
@@ -277,7 +279,8 @@ def test_departing_and_opening_an_app_in_the_same_round_has_one_interval_after_t
     engine = commute(engine_factory, tmp_path, clip_seconds=660)
     seed = engine.context.state.random_state
     label = label_where("both", lambda item: random_stream(
-        seed, f"navigation-return:activity-action-{item}-1:activity-action-{item}-2").getrandbits(1) == 1)
+        seed, f"navigation-return:activity-{action_identity(item, 1)}:activity-{action_identity(item, 2)}"
+    ).getrandbits(1) == 1)
     _, (trip, watching) = act_group(engine, label, travel("公司", "驾车"), use_app("哔哩哔哩"))
     assert (trip.status, watching.status) == ("in_progress", "in_progress")
     # 出发那一秒槽位 2 已有活动：导航一开始不在前台，不记零秒区间。

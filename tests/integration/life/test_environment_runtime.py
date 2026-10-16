@@ -9,9 +9,8 @@ import pytest
 
 from agentsociety2.society import DirectToolCall
 from tests.life.conftest import (
-    MAIN_TOOL, advance_next, advance_until_ready, conclude_request, context, pause_request, purchase, report_request,
-    sleep,
-    stage_day_plan, target_actions, tool_of, travel, use_app,
+    MAIN_TOOL, action_identity, advance_next, advance_until_ready, conclude_request, context, pause_request, purchase,
+    report_request, sleep, stage_day_plan, target_actions, tool_of, travel, use_app,
 )
 from tests.life.current_world import stage_moment
 from tests.life.prerequisite_inputs import (
@@ -65,7 +64,7 @@ def test_each_travel_method_uses_complete_path_actual_departure_fare_and_arrival
     assert engine.context.state.weather_by_date == {"2026-01-05": "light_rain"}
     _, result = act(engine, f"trip-{action}", travel("公司", method))
     assert result.status == "in_progress", result.error_code
-    assert result.activity_id == f"activity-action-trip-{action}"
+    assert result.activity_id == f"activity-{action_identity(f'trip-{action}')}"
     activity = engine.context.state.activities[result.activity_id]
     # 出行只有 travel 一个动作：活动保存所选出行方式的身份、它的代谢当量键，行程身份以出行方式身份结尾
     assert activity.data["action"] == "travel" and activity.travel_method_id == identity
@@ -84,7 +83,8 @@ def test_each_travel_method_uses_complete_path_actual_departure_fare_and_arrival
     assert engine.context.state.agents[1].location_id == "office"
     assert final.route_progress_meters == activity.data["distance_meters"]
     assert engine.context.state.accounts["agent:1"] == 200000 - paid
-    terminal = [row for row in events(engine, "action_result") if row.action_id == f"action-trip-{action}"][-1]
+    terminal = [row for row in events(engine, "action_result")
+                if row.action_id == action_identity(f"trip-{action}")][-1]
     assert terminal.data["status"] == "completed"
 
 
@@ -141,7 +141,8 @@ def test_two_slot_group_starts_travel_and_app_interaction_atomically(engine_fact
     started_at = engine.context.state.current_time
     _, results = act_group(engine, "parallel", travel("公司"), use_app("哔哩哔哩"))
     assert [item.status for item in results] == ["in_progress", "in_progress"], [item.error_code for item in results]
-    assert [item.activity_id for item in results] == ["activity-action-parallel-1", "activity-action-parallel-2"]
+    assert [item.activity_id for item in results] == [f"activity-{action_identity('parallel', number)}"
+                                                       for number in (1, 2)]
     activities = engine.context.state.activities
     assert set(activities) == {item.activity_id for item in results}
     trip, media = (activities[item.activity_id] for item in results)
@@ -151,7 +152,8 @@ def test_two_slot_group_starts_travel_and_app_interaction_atomically(engine_fact
     assert (media.kind, media.data["app_id"], media.resource_claims) == ("interact", "bilibili", {"second"})
     assert trip.started_at == media.started_at == started_at
     assert trip.status == media.status == "active"
-    assert (trip.origin_action_id, media.origin_action_id) == ("action-parallel-1", "action-parallel-2")
+    assert (trip.origin_action_id, media.origin_action_id) == (action_identity("parallel", 1),
+                                                                action_identity("parallel", 2))
     for item in results:
         assert item.message == "Activities started"
         assert [row["activity_id"] for row in item.data["activities"]] == [item.activity_id]
@@ -204,17 +206,17 @@ def test_same_start_tool_twice_in_one_decision_is_a_protocol_fault_and_starts_no
     engine.begin_decision_round([decision])
     engine.observe(decision)
     request = first()
-    engine.submit_action(DirectToolCall(decision, "action-same-tool-1", tool_of(request), request))
+    engine.submit_action(DirectToolCall(decision, action_identity("same-tool", 1), tool_of(request), request))
     # 同一槽位的两项不再能写进一个请求：同一个开始工具在一个决策里登记第二次是协议故障，不是业务拒绝
     request = second()
     with pytest.raises(ProtocolError, match="Agent already submitted its decision round action"):
-        engine.submit_action(DirectToolCall(decision, "action-same-tool-2", tool_of(request), request))
+        engine.submit_action(DirectToolCall(decision, action_identity("same-tool", 2), tool_of(request), request))
     engine.abort_decision_round("same-tool", "expected fault")
     assert not engine.context.state.activities
     assert not engine.context.state.deliveries
     assert engine.context.state.accounts == {"agent:1": 200000, "external:scenario": -200000}
-    assert set(engine.context.state.processed_actions) == {"action-same-tool-1"}
-    assert engine.context.state.processed_actions["action-same-tool-1"].result["status"] == "failed"
+    assert set(engine.context.state.processed_actions) == {action_identity("same-tool", 1)}
+    assert engine.context.state.processed_actions[action_identity("same-tool", 1)].result["status"] == "failed"
 
 
 def test_pause_resume_and_conclude_keep_actual_shared_content_progress(engine_factory):
@@ -265,13 +267,13 @@ def test_observation_carries_no_world_query_keys(engine_factory):
 def test_action_id_replay_is_idempotent_and_parameter_conflict_is_protocol_error(engine_factory):
     engine = engine_factory()
     request = use_app("Keep")
-    _, result = act(engine, "stable", request, action_id="same-action")
+    _, result = act(engine, "stable", request)
     reach(engine, engine.context.state.activities[result.activity_id].planned_end_at)
     original = engine.context.state.model_dump(mode="json")
     decision = context(engine, "replay")
     engine.begin_decision_round([decision])
     engine.observe(decision)
-    engine.submit_action(DirectToolCall(decision, "same-action", tool_of(request), request))
+    engine.submit_action(DirectToolCall(decision, action_identity("stable"), tool_of(request), request))
     replay = engine.commit_decision_round("replay")[0]
     assert replay.status == "completed"
     assert len(engine.context.state.activities) == len(original["activities"]) == 1
@@ -279,7 +281,7 @@ def test_action_id_replay_is_idempotent_and_parameter_conflict_is_protocol_error
     engine.begin_decision_round([decision])
     engine.observe(decision)
     with pytest.raises(ProtocolError, match="different parameters"):
-        engine.submit_action(DirectToolCall(decision, "same-action", tool_of(request), use_app("哔哩哔哩")))
+        engine.submit_action(DirectToolCall(decision, action_identity("stable"), tool_of(request), use_app("哔哩哔哩")))
     engine.abort_decision_round("conflict", "expected conflict")
 
 
@@ -302,10 +304,10 @@ def test_abort_and_stale_context_never_execute_the_uncommitted_action(engine_fac
     decision = context(engine, "abort")
     engine.begin_decision_round([decision])
     engine.observe(decision)
-    engine.submit_action(DirectToolCall(decision, "never-run", MAIN_TOOL, sleep()))
+    engine.submit_action(DirectToolCall(decision, action_identity("abort"), MAIN_TOOL, sleep()))
     engine.abort_decision_round("abort", "test failure")
     assert not engine.context.state.activities
-    assert engine.context.state.processed_actions["never-run"].result["status"] == "failed"
+    assert engine.context.state.processed_actions[action_identity("abort")].result["status"] == "failed"
     with pytest.raises(ProtocolError):
         engine.observe(decision)
 
@@ -397,7 +399,7 @@ def test_trip_record_and_arrival_event_carry_the_declared_distance(engine_factor
     final = engine.context.state.activities[result.activity_id]
     assert final.status == "completed" and final.route_progress_meters == 12600
     assert engine.context.state.agents[1].location_id == "office"
-    terminal = [row for row in events(engine, "action_result") if row.action_id == "action-declared-walk"][-1]
+    terminal = [row for row in events(engine, "action_result") if row.action_id == action_identity("declared-walk")][-1]
     assert terminal.data["status"] == "completed"
     recorded = [row for row in events(engine) if row.activity_id == result.activity_id
                 and isinstance(row.data.get("activity"), dict)]

@@ -16,7 +16,7 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from tests.integration.reflection_fixtures import host_run, memory
 from tests.integration.runtime_fixtures import write_agent_workspace
-from tests.life.conftest import advance_next, sleep, stage_day_plan, travel
+from tests.life.conftest import advance_next, oversleep_identity, sleep, stage_day_plan, travel
 from tests.life.environment_runtime import act, finish_activity, run_to_end
 from worldmock.evaluation.behavior_metrics import behavior_metrics_report
 from worldmock.footprints.checkpoint import restore_branch, restore_directory, snapshot_directory
@@ -25,8 +25,6 @@ from worldmock.footprints.validation import validate_export
 from worldmock.life.engine import LifeEngine
 
 _ZONE = ZoneInfo("Asia/Shanghai")
-#: 规格给出的可复算例子：种子 7 时这条动作身份抽到多睡 27 分钟。
-_LATE_ACTION = "run-a:round:1791356400:42:agent:1:order:0:action:0001"
 
 
 @pytest.fixture(autouse=True)
@@ -67,7 +65,7 @@ def _checkpoint(engine, root):
 def _short_night_office_nap_and_long_sleep(engine, checkpoint_root=None):
     """家里一觉写 220 分钟并睡过头，实际睡了 4 小时 07 分；驾车去公司后在办公室午睡 60 分钟；回家再睡 480 分钟。
     后两觉开始时往回 24 小时都已睡满 4 小时，按时醒。给了目录时在第一觉的中途提交一个共同检查点并返回它。"""
-    _, late = act(engine, "late", sleep(220), action_id=_LATE_ACTION)
+    _, late = act(engine, "late", sleep(220), action_id=oversleep_identity(engine, "late", 27 * 60))
     assert late.status == "in_progress", late.error_code
     for _ in range(3):
         advance_next(engine)

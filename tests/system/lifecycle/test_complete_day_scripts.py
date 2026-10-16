@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from tests.footprints.recording import artifact_rows, read_export, write_manifest, write_rows
+from tests.life.conftest import action_identity
 from tests.life.day_baseline_runtime import record_complete_day
 from worldmock.errors import IntegrityError
 from worldmock.footprints.validation import validate_export
@@ -71,7 +72,7 @@ def _assert_the_media_use_is_concluded_before_the_nap(case: Path) -> None:
     requested = [json.loads(row[0]) for row in rows]
     requested = [body["data"] for body in requested if body["event_type"] == "action_requested"]
     (media,) = [row for row in artifact_rows(case / "export", "activities")
-                if row["origin_action_id"] == "action-travel-media-2"]
+                if row["origin_action_id"] == action_identity("travel-media", 2)]
     assert media["activity_type"] == "interact" and media["data"]["app_id"] == "bilibili"
     assert len(media["data"]["played"]) >= 1 and "played_count" not in media["data"]
     concluding = [index for index, data in enumerate(requested) if data["tool_name"] == "conclude_activity"
@@ -87,7 +88,7 @@ def _assert_preferred_orders_and_a_self_ending_query(case: Path) -> None:
     那次查询做完即结束，运行里没有任何一条 conclude_activity 点到它。"""
     export = case / "export"
     bought = [row for row in artifact_rows(export, "purchases")
-              if row["fact_kind"] == "purchase" and row["action_id"] == "action-home-basket-2"]
+              if row["fact_kind"] == "purchase" and row["action_id"] == action_identity("home-basket", 2)]
     assert {(row["goods_id"], row["app_id"], row["store_id"]) for row in bought} == {
         ("chips", "eleme", "cafe"), ("beef-noodles", "meituan", "noodle-1")}
     placed = [row for row in artifact_rows(export, "app_usage")
@@ -140,6 +141,6 @@ def test_callback_day_drives_to_the_store_and_restores_the_state(monkeypatch, tm
         ("start_main_activity", {"action": "travel", "target": "四季便利", "detail": "驾车"}),
         ("start_side_activity", {"action": "purchase", "target": ["纸巾", "饭团"], "prefer": None})]
     bought = [row for row in artifact_rows(case / "export", "purchases")
-              if row["fact_kind"] == "purchase" and row["action_id"] == "action-reset-purchase"]
+              if row["fact_kind"] == "purchase" and row["action_id"] == action_identity("reset-purchase")]
     assert {(row["goods_id"], row["app_id"], row["store_id"]) for row in bought} == {
         ("tissue", None, "store"), ("rice-ball", None, "store")}

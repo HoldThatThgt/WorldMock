@@ -45,7 +45,7 @@ def _submitted(engine_factory):
     engine.begin_decision_round([decision])
     engine.observe(decision)
     request = travel("公司")
-    engine.submit_action(DirectToolCall(decision, "action-probe", tool_of(request), request))
+    engine.submit_action(DirectToolCall(decision, f"{decision.decision_id}:action:0001", tool_of(request), request))
     return engine
 
 

@@ -73,7 +73,7 @@ def test_only_typed_mutations_can_enter_the_real_action_queue(engine_factory, to
     engine.observe(frozen)
     sequence = engine.context.store.last_event_seq
     with pytest.raises(ProtocolError):
-        engine.submit_action(DirectToolCall(frozen, "invalid-action", tool, payload))
+        engine.submit_action(DirectToolCall(frozen, f"{frozen.decision_id}:action:0001", tool, payload))
     assert engine.context.store.last_event_seq == sequence
     assert not engine.decisions.round.pending_actions
 
@@ -90,7 +90,8 @@ def test_removed_query_world_cannot_be_registered_as_a_world_action(engine_facto
     engine.observe(frozen)
     sequence = engine.context.store.last_event_seq
     with pytest.raises(ProtocolError, match=message):
-        engine.submit_action(DirectToolCall(frozen, "removed-action", tool, RecallTaskSummaryRequest(task_name="家")))
+        engine.submit_action(DirectToolCall(frozen, f"{frozen.decision_id}:action:0001", tool,
+                                            RecallTaskSummaryRequest(task_name="家")))
     assert engine.context.store.last_event_seq == sequence
     assert not engine.decisions.round.pending_actions
 
@@ -99,7 +100,8 @@ def test_duplicate_submission_reuses_receipt_and_commits_one_actual_activity(eng
     engine = engine_factory()
     frozen = context(engine, "duplicate")
     request = do_at("家", "测试休息")
-    call = DirectToolCall(frozen, "same-action", MAIN_TOOL, request)
+    same = f"{frozen.decision_id}:action:0001"
+    call = DirectToolCall(frozen, same, MAIN_TOOL, request)
     with pytest.raises(ProtocolError, match="open decision round"):
         engine.submit_action(call)
     engine.begin_decision_round([frozen])
@@ -108,13 +110,13 @@ def test_duplicate_submission_reuses_receipt_and_commits_one_actual_activity(eng
     assert engine.submit_action(call) == first
     assert len(engine.decisions.round.pending_actions) == 1
     with pytest.raises(ProtocolError, match="different parameters"):
-        engine.submit_action(DirectToolCall(frozen, "same-action", MAIN_TOOL, do_at("家", "测试闲聊")))
+        engine.submit_action(DirectToolCall(frozen, same, MAIN_TOOL, do_at("家", "测试闲聊")))
     with pytest.raises(ProtocolError, match="different parameters"):
-        engine.submit_action(DirectToolCall(frozen, "same-action", SIDE_TOOL, use_app("哔哩哔哩")))
+        engine.submit_action(DirectToolCall(frozen, same, SIDE_TOOL, use_app("哔哩哔哩")))
     with pytest.raises(ProtocolError, match="already submitted"):
-        engine.submit_action(DirectToolCall(frozen, "another-action", MAIN_TOOL, request))
+        engine.submit_action(DirectToolCall(frozen, f"{frozen.decision_id}:action:0002", MAIN_TOOL, request))
     with pytest.raises(ProtocolError, match="another decision round"):
-        engine.submit_action(DirectToolCall(replace(frozen, round_id="foreign"), "same-action", MAIN_TOOL, request))
+        engine.submit_action(DirectToolCall(replace(frozen, round_id="foreign"), same, MAIN_TOOL, request))
     [result] = engine.commit_decision_round("duplicate")
     assert result.status == "in_progress"
     assert len(engine.context.state.activities) == 1
@@ -169,7 +171,8 @@ def test_memory_evidence_cannot_claim_another_observation_or_source_window(engin
 
     def requested() -> str:
         """同一人物、同一决策但不是观察的事件：本决策的行动请求。"""
-        engine.submit_action(DirectToolCall(frozen, "memory-action", MAIN_TOOL, do_at("家", "测试休息")))
+        engine.submit_action(DirectToolCall(frozen, f"{frozen.decision_id}:action:0001", MAIN_TOOL,
+                                            do_at("家", "测试休息")))
         return events(engine, "action_requested")[-1].event_id
 
     claims = {"missing": lambda: "missing-observation",

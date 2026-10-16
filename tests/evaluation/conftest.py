@@ -336,7 +336,7 @@ def _engine_decision(engine, count, activity_type):
         assert activity_type in {"sleep", "interact", "query"}, activity_type
         request = _idle_request(state, activity_type)
         tool = tool_of(request)
-    engine.submit_action(DirectToolCall(context, f"action-{count}", tool, request))
+    engine.submit_action(DirectToolCall(context, f"{context.decision_id}:action:0001", tool, request))
     results = engine.commit_decision_round(context.round_id)
     assert all(row.error_code is None for row in results), results
 

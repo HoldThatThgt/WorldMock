@@ -210,11 +210,12 @@ async def test_full_round_drives_engine_interfaces(tmp_path, monkeypatch) -> Non
             "request", 1, {"model": "deepseek-flash", "messages": []})
         await env.record_model_exchange(evidence)
 
+        identity = f"{contexts[-1].decision_id}:action:0001"
         receipt = await env.submit_action(DirectToolCall(
-            contexts[-1], "action-round-1", MAIN_TOOL, do_at("家", "测试休息")))
-        assert receipt.action_id == "action-round-1"
+            contexts[-1], identity, MAIN_TOOL, do_at("家", "测试休息")))
+        assert receipt.action_id == identity
         results = await env.commit_decision_round("round-1")
-        assert [item.action_id for item in results] == ["action-round-1"]
+        assert [item.action_id for item in results] == [identity]
 
         from dataclasses import replace
         memory_context = replace(contexts[-1], world_state_version=engine.context.state.version)
@@ -264,7 +265,7 @@ async def test_full_round_drives_engine_interfaces(tmp_path, monkeypatch) -> Non
             await env.begin_decision_round(tuple(contexts))
             for context in reversed(contexts):
                 await env.submit_action(DirectToolCall(
-                    context, f"action-{round_id}-{context.agent_id}", MAIN_TOOL, do_at("家", "测试休息")))
+                    context, f"{context.decision_id}:action:0001", MAIN_TOOL, do_at("家", "测试休息")))
             await env.commit_decision_round(round_id)
             state = await env.scheduling_state()
             guard += 1

@@ -4,7 +4,7 @@ from datetime import timedelta
 
 import pytest
 
-from tests.life.conftest import advance_until_ready, conclude_request, purchase
+from tests.life.conftest import action_identity, advance_until_ready, conclude_request, purchase
 from tests.life.current_world import stage_moment
 from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
 from tests.life.environment_runtime import act, events, finish_activity, reach
@@ -91,7 +91,8 @@ def squeezed_label(engine, floor):
     """按固定种子挑一个请求身份：它抽到的购买时长短于 floor 秒（付款合计的下限），购买因此被付款撑长。"""
     state = engine.context.state.random_state
     return next(f"bulk-{index}" for index in range(200)
-                if random_stream(state, f"purchase-duration:action-bulk-{index}").randint(60, 300) < floor)
+                if random_stream(state, f"purchase-duration:{action_identity(f'bulk-{index}')}").randint(60, 300)
+                < floor)
 
 
 def tamper_orders(engine, changes):

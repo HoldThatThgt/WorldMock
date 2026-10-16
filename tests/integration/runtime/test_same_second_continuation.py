@@ -392,7 +392,7 @@ async def test_missing_model_evidence_breaks_the_chain(_engine_factory) -> None:
     ctx = context(engine, "direct")
     engine.begin_decision_round([ctx])
     engine.observe(ctx)
-    engine.submit_action(DirectToolCall(ctx, "action-direct", MAIN_TOOL, do_at("家", "不存在的对象")))
+    engine.submit_action(DirectToolCall(ctx, f"{ctx.decision_id}:action:0001", MAIN_TOOL, do_at("家", "不存在的对象")))
     assert engine.commit_decision_round("direct")[0].status == "rejected"
     observation, [request], _ = await _single(_environment(engine), "wait", _wait_reply())
     assert observation["continuation"] is None and len(request["messages"]) == 2
@@ -422,7 +422,7 @@ def _recorded_decision(engine: LifeEngine, messages: list[dict], response: dict 
         engine.record_model_exchange(ModelCallEvidence(ctx, call_id, "response", 1, request, response=response))
     requests = {MAIN_TOOL: do_at("家", "不存在的对象"), SIDE_TOOL: use_app("哔哩哔哩")}
     for index, tool in enumerate(registered, start=1):
-        engine.submit_action(DirectToolCall(ctx, f"action-recorded-{index}", tool, requests[tool]))
+        engine.submit_action(DirectToolCall(ctx, f"{ctx.decision_id}:action:{index:04d}", tool, requests[tool]))
     assert engine.commit_decision_round("recorded")[0].status == "rejected"
 
 

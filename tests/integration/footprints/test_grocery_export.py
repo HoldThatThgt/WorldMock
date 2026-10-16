@@ -12,7 +12,7 @@ from pydantic import ValidationError
 
 from tests.engine_fixture import engine_factory_at
 from tests.footprints.recording import export_completed, read_export, reproject
-from tests.life.conftest import conclude_request, do_at
+from tests.life.conftest import action_identity, conclude_request, do_at
 from tests.life.environment_inputs import grocery_environment
 from tests.life.environment_runtime import act, until_ended
 from worldmock.errors import IntegrityError
@@ -65,7 +65,7 @@ def test_a_grocery_run_exports_and_certifies(grocery_export):
     _, events = read_export(grocery_export)
     [consume] = consumed(events)
     [cause] = [row for row in events if row["event_id"] in consume["caused_by"]]
-    assert (cause["event_type"], cause["action_id"]) == ("action_result", "action-cook")
+    assert (cause["event_type"], cause["action_id"]) == ("action_result", action_identity("cook"))
     assert consume["data"] == {"kind": "callback_effect", "type": "consume_on_start", "rule_id": None,
                                "state": "groceries", "content_id": "cook", "before": 1, "after": 0}
     [meal] = completed(events)

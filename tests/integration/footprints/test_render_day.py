@@ -7,12 +7,14 @@ from zoneinfo import ZoneInfo
 from scripts import inspect_run, render_day
 from tests.footprints.display_fixtures import freeze_environment, sample_display_names
 from tests.life.conftest import (
-    advance_next, conclude_request, do_at, pause_request, purchase, query, report_request, travel, use_app,
+    action_identity, advance_next, conclude_request, do_at, pause_request, purchase, query, report_request, travel,
+    use_app,
 )
 from tests.life.environment_inputs import (
     catalog_rows, copy_environment, replace_travel_methods, travel_method_row, write_catalog_rows,
 )
 from tests.life.environment_runtime import act, conclude_app_use, events, finish_activity, settle_decision
+from tests.life.phone_records import label_where, purchase_draws
 from tests.life.prerequisite_inputs import add_rows
 from worldmock.footprints.models import EventDraft
 from worldmock.footprints.store import FootprintStore
@@ -258,7 +260,10 @@ def test_purchase_row_is_split_by_order_with_its_channel(engine_factory, tmp_pat
         persona["initial_location"] = "四季便利"
 
     engine = engine_factory(mutate=at_store)
-    for label, goods in (("pickup", ("纸巾", "饭团")), ("split", ("纸巾", "牛肉面"))):
+    for prefix, goods, apps in (("pickup", ("纸巾", "饭团"), (None,)), ("split", ("纸巾", "牛肉面"), (None, "meituan"))):
+        # 按固定种子挑请求身份：这次购买的每张订单都抽到经付款 app 付款，不是直付。
+        label = label_where(prefix, lambda item: all(
+            purchase_draws(engine, action_identity(item), app)[1] is not None for app in apps))
         _, bought = act(engine, label, purchase(*goods))
         assert bought.status == "in_progress", bought.error_code
         finish_activity(engine, bought, label)

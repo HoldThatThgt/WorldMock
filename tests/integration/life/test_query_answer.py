@@ -11,8 +11,10 @@ from __future__ import annotations
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from tests.life.conftest import (SIDE_TOOL, advance_next, advance_until_ready, conclude_pending, context, do_at,
-                                 progress_calls, purchase, query, travel)
+from tests.life.conftest import (
+    SIDE_TOOL, action_identity, advance_next, advance_until_ready, conclude_pending, context, do_at, progress_calls,
+    purchase, query, travel,
+)
 from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
 from tests.life.environment_runtime import act, act_group, settle_decision
 from worldmock.life.randomness import random_stream
@@ -282,8 +284,8 @@ def test_answer_is_the_second_result_and_replaying_the_action_returns_it(engine_
     engine = engine_factory()
     done, answer = _asked(engine, "tea", "柠檬茶")
     assert answer["rows"]
-    stored = engine.context.state.processed_actions["action-tea"].result
-    _, replayed = act(engine, "again", query("柠檬茶"), action_id="action-tea")
+    stored = engine.context.state.processed_actions[action_identity("tea")].result
+    _, replayed = act(engine, "again", query("柠檬茶"), action_id=action_identity("tea"))
     assert replayed.model_dump(mode="json") == stored
     assert replayed.status == "completed" and replayed.data["activity"]["data"]["answer"] == done.data["answer"]
     assert list(engine.context.state.activities) == [done.activity_id]

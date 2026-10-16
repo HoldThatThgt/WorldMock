@@ -9,8 +9,8 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from tests.life.conftest import (
-    advance_next, conclude_request, context, do_at, pause_request, report_request, sleep, stage_day_plan,
-    target_tools, travel, use_app,
+    action_identity, advance_next, conclude_request, context, do_at, pause_request, report_request, sleep,
+    stage_day_plan, target_tools, travel, use_app,
 )
 from tests.life.environment_inputs import (
     bilibili_series_rows, copy_environment, meal_environment, office_stretch_environment, second_series_environment,
@@ -40,16 +40,16 @@ def _every(seconds: int):
     return mutate
 
 
-def _opening(engine, app_id: str, prefix: str, *content_ids: str, suffix: str = "") -> str:
-    """按固定种子挑一个开始标签：生产的打开顺序此刻用这个标签的键 activity-action-<标签><suffix>:0 抽到的第一条在
-    content_ids 里。单独一条 act 的 suffix 为空；act_group 里排第二的打开 app 一条，动作身份带「-2」。"""
+def _opening(engine, app_id: str, prefix: str, *content_ids: str, number: int = 1) -> str:
+    """按固定种子挑一个开始标签：生产的打开顺序此刻用这个标签第 number 条动作开始的活动的键 activity-<动作身份>:0
+    抽到的第一条在 content_ids 里。单独一条 act 的 number 为 1；act_group 里排第二的打开 app 一条为 2。"""
     state = engine.context.state
     stay = present_location(state, 1)
 
     def accepts(label: str) -> bool:
         """这个标签打开 app 时打开顺序挑中的是不是想要的那一条。"""
-        request = ContentRequest(1, app_id, stay, f"activity-action-{label}{suffix}")
-        stream = random_stream(state.random_state, f"activity-action-{label}{suffix}:0")
+        request = ContentRequest(1, app_id, stay, f"activity-{action_identity(label, number)}")
+        stream = random_stream(state.random_state, f"activity-{action_identity(label, number)}:0")
         return select_content(engine.context.catalog, state, request, stream)[0].content_id in content_ids
 
     return label_where(prefix, accepts)
@@ -102,18 +102,33 @@ def _settled(engine, activity_id: str) -> list[tuple[int, int, str, bool]]:
              row.data["content"]["completed"]) for row in _progress(engine, activity_id) if "content" in row.data]
 
 
+#: 规格「算例」的三次内容抽取（池大小，抽中的序号）：打开时在 4 条里抽第 2 条《测试长视频》，接续时在 3 条里抽第 2 条
+#: 《测试短视频》，再在 2 条里抽第 1 条《测试实况》。
+_WORKED_DRAWS = ((4, 1), (3, 1), (2, 0))
+
+
+def _worked_label(engine) -> str:
+    """按固定种子挑一个打开抖音的标签：它开始的活动的键 activity-<动作身份>:0、:1、:2 依次抽到「算例」的三次。"""
+    state = engine.context.state.random_state
+    return label_where("douyin", lambda label: all(
+        random_stream(state, f"activity-{action_identity(label)}:{index}").randrange(size) == drawn
+        for index, (size, drawn) in enumerate(_WORKED_DRAWS)))
+
+
 def _feed_to_the_stop(engine) -> str:
-    """照规格「算例」：08:00 打开抖音（动作身份 action-douyin），每次就绪都只播报，推进到这次使用停下；返回活动身份。"""
+    """照规格「算例」：08:00 打开抖音（动作身份按固定种子挑，三次内容抽取与算例相同），每次就绪都只播报，推进到这次使用
+    停下；返回活动身份。"""
     stage_day_plan(engine, submitted=True)
-    activity_id = _open(engine, "抖音", "douyin")
-    assert activity_id == "activity-action-douyin"
+    label = _worked_label(engine)
+    activity_id = _open(engine, "抖音", label)
+    assert activity_id == f"activity-{action_identity(label)}"
     assert engine.context.state.activities[activity_id].data["content_id"] == "c-long"
     assert _ready_times(engine, activity_id) == [_at(8, 30), _at(9), _at(9, 7)]
     return activity_id
 
 
 def test_a_feed_chains_unseen_items_by_keyed_draws_and_stops_when_none_is_left(engine_factory):
-    """单条之后随机接一条没看过的：键 activity-action-douyin:1、:2 依次抽到《测试短视频》《测试实况》，条目边界不叫起她；
+    """单条之后随机接一条没看过的：键 activity-<动作身份>:1、:2 依次抽到《测试短视频》《测试实况》，条目边界不叫起她；
     09:00 的推送指向的《测试短视频二》被预留，09:07 没有可接的就停下等收尾，收尾结果「完成」。同一秒再打开抖音，
     打开顺序钉住那条推送；放完之后四条都看过，不回放，第二次使用也停下。"""
     engine = engine_factory()
@@ -307,7 +322,7 @@ def test_on_the_road_content_tied_to_the_start_location_is_not_drawn(engine_fact
     if case == "home":
         keep = _open(engine, "Keep", _opening(engine, "keep", "keep", "c-run"))
     else:
-        label = _opening(engine, "keep", "commute", "c-run", suffix="-2")
+        label = _opening(engine, "keep", "commute", "c-run", number=2)
         _, (trip, opened) = act_group(engine, label, travel("公司", "步行"), use_app("Keep"))
         assert [trip.status, opened.status] == ["in_progress", "in_progress"], (trip.error_code, opened.error_code)
         keep = opened.activity_id
@@ -329,7 +344,7 @@ def test_a_chained_item_continues_the_same_activity(engine_factory):
     时长加余量，推送字段为空，受理事件带过去，08:30 的播报锚点不动；两条各有自己结算的进度事件。"""
     engine = engine_factory()
     stage_day_plan(engine, submitted=True)
-    activity_id = _open(engine, "抖音", "douyin")
+    activity_id = _open(engine, "抖音", _worked_label(engine))
     accepted = engine.context.state.activities[activity_id].data["accepted_event_id"]
     _report_until(engine, _at(8, 40))
     activity = engine.context.state.activities[activity_id]
@@ -418,7 +433,7 @@ def test_a_concluded_app_use_reads_end_of_use(engine_factory, tmp_path, case):
     assert concluded.data["outcome"] == [{"activity": ended.name, "outcome": "结束使用"}]
     assert (ended.status, ended.boundary_type, ended.interruption_reason) == (
         "cancelled", "cancelled", "agent_cancelled")
-    results = [row for row in events(engine, "action_result") if row.action_id == "action-used"]
+    results = [row for row in events(engine, "action_result") if row.action_id == action_identity("used")]
     assert [(row.data["status"], row.data["message"]) for row in results][1] == ("cancelled", "Activity cancelled")
     if case == "clock":
         assert ended.data["content_id"] == "dingtalk-clock" and ended.location_id == "office"
@@ -443,9 +458,10 @@ def test_progress_events_carry_the_played_count_and_other_snapshots_the_list(eng
     assert [data["played_count"] for data in snapshots] == [0, 0, 1, 2, 2, 2, 3]
     played = engine.context.state.activities[activity_id].data["played"]
     assert len(played) == 3
-    (accepted,) = [row for row in events(engine, "action_accepted") if row.action_id == "action-douyin"]
+    origin = engine.context.state.activities[activity_id].origin_action_id
+    (accepted,) = [row for row in events(engine, "action_accepted") if row.action_id == origin]
     assert accepted.data["activity"]["data"]["played"] == []
-    results = [row for row in events(engine, "action_result") if row.action_id == "action-douyin"]
+    results = [row for row in events(engine, "action_result") if row.action_id == origin]
     assert [row.data["status"] for row in results] == ["in_progress", "completed"]
     assert results[1].occurred_at == _at(9, 7) and results[1].data["activity"]["data"]["played"] == played
     (lifecycle,) = [row for row in events(engine, "environment_event")
@@ -458,7 +474,7 @@ def test_a_use_truncated_at_the_cutoff_keeps_the_full_played_list(engine_factory
     activity_truncated 事件的快照带完整的 played（与世界状态相同），不带条数 played_count。"""
     engine = engine_factory(mutate=one_hour)
     stage_day_plan(engine, submitted=True)
-    activity_id = _open(engine, "抖音", "douyin")
+    activity_id = _open(engine, "抖音", _worked_label(engine))
     run_to_end(engine)
     truncated = engine.context.state.activities[activity_id]
     assert (truncated.status, truncated.ended_at) == ("truncated", _at(9))

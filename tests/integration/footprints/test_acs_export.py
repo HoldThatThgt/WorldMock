@@ -9,7 +9,7 @@ import pytest
 
 from tests.footprints.recording import (artifact_rows, final_checkpoint, read_export, recorded_engine, reproject,
                                         short_window, write_manifest, write_rows)
-from tests.life.conftest import purchase
+from tests.life.conftest import action_identity, purchase
 from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
 from tests.life.environment_runtime import act, finish_activity, run_to_end
 from worldmock.errors import IntegrityError
@@ -48,13 +48,15 @@ def test_actual_purchase_content_and_current_artifacts_are_authenticated(real_ex
     side = [row for row in events if row["event_type"] == "action_requested"
             and row["data"]["tool_name"] == "start_side_activity"]
     assert [(row["action_id"], row["data"]["request"]) for row in side] == [
-        ("action-recorded-basket", {"action": "purchase", "target": ["柠檬茶", "纸巾"], "prefer": None}),
-        ("action-recorded-content", {"action": "interact", "target": ["哔哩哔哩"], "prefer": None})]
+        (action_identity("recorded-basket"), {"action": "purchase", "target": ["柠檬茶", "纸巾"], "prefer": None}),
+        (action_identity("recorded-content"), {"action": "interact", "target": ["哔哩哔哩"], "prefer": None})]
     bought = artifact_rows(real_export, "purchases")
     attempts = [row for row in bought if row["fact_kind"] == "order_attempt"]
     assert [(row["action_id"], row["request_event_id"], row["action"], row["status"], row["error_code"])
-            for row in attempts] == [("action-recorded-basket", side[0]["event_id"], "purchase", "in_progress", None)]
-    assert {row["action_id"] for row in bought if row["fact_kind"] == "purchase"} == {"action-recorded-basket"}
+            for row in attempts] == [(action_identity("recorded-basket"), side[0]["event_id"], "purchase",
+                                      "in_progress", None)]
+    assert {row["action_id"] for row in bought
+            if row["fact_kind"] == "purchase"} == {action_identity("recorded-basket")}
     assert len([row for row in bought if row["fact_kind"] == "purchase"]) == 2
     facts = artifact_rows(real_export, "app_usage")
     consumed = [row for row in facts if row["fact_kind"] == "content_consumed"]

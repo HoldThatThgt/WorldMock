@@ -366,7 +366,7 @@ def _decide(engine, name, tool, request):
     decision = context(engine, name)
     engine.begin_decision_round([decision])
     observed = engine.observe(decision)
-    engine.submit_action(DirectToolCall(decision, f"action-{name}", tool,
+    engine.submit_action(DirectToolCall(decision, f"{decision.decision_id}:action:0001", tool,
                                        request(observed) if callable(request) else request))
     return engine.commit_decision_round(name)[0]
 

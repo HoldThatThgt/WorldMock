@@ -35,6 +35,21 @@ def context(engine: LifeEngine, round_id: str, agent_id: int = 1) -> DecisionCon
                            agent_id, observed, engine.context.state.version)
 
 
+def action_identity(label: str, number: int = 1, agent_id: int = 1) -> str:
+    """@brief 测试决策 decision-<标签>-<人物> 的第 number 条动作身份，形式与 LifeAgent 相同。"""
+    return f"decision-{label}-{agent_id}:action:{number:04d}"
+
+
+def oversleep_identity(engine: LifeEngine, label: str, seconds: int | None = None) -> str:
+    """@brief 标签为 label 的决策里找一条会抽中多睡的动作身份（给了秒数时要求恰好多睡这么久）：此前睡得不足时，用它开始的
+    睡眠一定睡过头。"""
+    from worldmock.life.sleep_plan import oversleep_seconds
+
+    state = engine.context.state.random_state
+    return next(action_identity(label, number) for number in range(1, 10000)
+                if (extra := oversleep_seconds(0, state, action_identity(label, number))) and seconds in (None, extra))
+
+
 def stage_day_plan(engine: LifeEngine, agent_id: int = 1, goals: tuple = (), submitted: bool = False) -> None:
     """预置当日计划（只置 day_plan）并保持存储版本连续；submitted 时同时写入当日日期（零点计划的幂等键）。
 
@@ -212,7 +227,7 @@ def submit_round(engine: LifeEngine, requests: dict[int, tuple[str, object]], ro
     receipts = []
     for item in reversed(contexts):
         tool_name, request = requests[item.agent_id]
-        action_id = f"action-{round_id}-{item.agent_id}"
+        action_id = f"{item.decision_id}:action:0001"
         receipts.append(engine.submit_action(DirectToolCall(item, action_id, tool_name, request)))
     return receipts, engine.commit_decision_round(round_id)
 
@@ -367,7 +382,7 @@ def conclude_pending(engine: LifeEngine, round_id: str, agent_id: int = 1):
     engine.begin_decision_round([decision])
     names = pending_names(engine.observe(decision))
     assert names, "no activity is awaiting conclusion"
-    engine.submit_action(DirectToolCall(decision, f"action-{round_id}", "conclude_activity",
+    engine.submit_action(DirectToolCall(decision, f"{decision.decision_id}:action:0001", "conclude_activity",
                                         conclude_request(*names)))
     return engine.commit_decision_round(round_id)[0]
 
