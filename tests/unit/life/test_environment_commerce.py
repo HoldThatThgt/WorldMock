@@ -54,7 +54,8 @@ def world(inputs, location="home", balance=200000, random_state="commerce-tests"
 
 def runtime(inputs):
     event = SimpleNamespace(action_id="buy", event_id="accepted-result", data={"status": "in_progress"})
-    store = SimpleNamespace(read_agent_events=lambda event_type, agent_id: [event])
+    store = SimpleNamespace(read_agent_events=lambda event_type, agent_id, after=0: [event],
+                            last_event_seq_before=lambda occurred_at: 0)
     context = SimpleNamespace(inputs=inputs, catalog=inputs.catalog, persona=inputs.persona,
                               config=inputs.config, body=assemble_body_config(inputs.persona), store=store, callback_causes={})
     return StorefrontRuntime(context)
