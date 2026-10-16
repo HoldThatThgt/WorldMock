@@ -7,7 +7,7 @@ const assert = require('node:assert/strict');
 const {readFileSync} = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
-const {CASES, RUN_ID, epoch, viewer, event, droppedFile, fileEntry, directoryEntry, frozenCatalog, runManifest,
+const {CASES, RUN_ID, epoch, viewer, event, droppedFile, fileHandle, directoryHandle, frozenCatalog, runManifest,
   tableRows, targets, exportRun, eventsFile, canonicalJson, Database} = require('./run_viewer_harness.cjs');
 
 /** 录制的当前行动请求与续接请求（四条消息）。 */
@@ -135,10 +135,10 @@ function identityRun() {
       name: '家（1月5日 06:00 起）', started_at: epoch, ended_at: null, status: 'active', activity_ids: ['e-1']}}};
   const manifest = runManifest({input_warnings: [warning('CONTENT_EMPTY_WITH_MEDIA_TASTES', 1, '陈曦没有媒体口味'),
     warning('LOCATION_NAME_SUSPICIOUS', null, '地点名带坐标')]});
-  const run = directoryEntry('run', [fileEntry('manifest.json', manifest),
-    directoryEntry('assets', frozenCatalog().files.map(file => fileEntry(file.name, file.text))),
-    directoryEntry('as2', [directoryEntry('agents', [directoryEntry('agent_0001', [
-      fileEntry('MEMORY.md', '今天把纪要交了。')])])])]);
+  const run = directoryHandle('run', [fileHandle('manifest.json', manifest),
+    directoryHandle('assets', frozenCatalog().files.map(file => fileHandle(file.name, file.text))),
+    directoryHandle('as2', [directoryHandle('agents', [directoryHandle('agent_0001', [
+      fileHandle('MEMORY.md', '今天把纪要交了。')])])])]);
   return {rows, options: {timezone: 'Asia/Tokyo', world, frozen: manifest, files: [], directories: [run],
     lineEdits: [[15, '"energy_kcal":1230,', '"energy_kcal":1230.0,']]}};
 }
@@ -454,8 +454,8 @@ test('loading refuses inputs that are not one complete export, with the exact me
         '(--cutoff <event_seq> exports part of it) and drop the export directory'}],
       ['nothing', [], [], {message: 'No export manifest was dropped: drop the directory written by ' +
         '"worldmock export", or select its manifest.json and events.jsonl'}],
-      ['two exports', [], [directoryEntry('a', [fileEntry('manifest.json', M)]),
-        directoryEntry('b', [fileEntry('manifest.json', M)])],
+      ['two exports', [], [directoryHandle('a', [fileHandle('manifest.json', M)]),
+        directoryHandle('b', [fileHandle('manifest.json', M)])],
       {message: 'More than one export manifest was dropped: a/manifest.json, b/manifest.json; ' +
         'drop one export directory'}],
       ['no time zone', ex({exportFields: {window: null}}).files, [],

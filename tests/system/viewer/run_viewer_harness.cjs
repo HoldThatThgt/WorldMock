@@ -36,6 +36,7 @@ const REFERENCE_TYPE_INDEX = "CREATE INDEX events_type ON events(json_extract(bo
 /** @brief 提供渲染所需的最小 DOM，不替换页面业务逻辑。 */
 function element() {
   const classes = new Set();
+  const listeners = new Map();
   return {
     innerHTML: '', textContent: '', value: '', dataset: {}, style: {}, children: [],
     classList: {
@@ -43,7 +44,9 @@ function element() {
       contains: name => classes.has(name), toggle: name => classes.has(name)
         ? classes.delete(name) : classes.add(name),
     },
-    addEventListener() {}, appendChild(child) { this.children.push(child); },
+    addEventListener(type, callback) { listeners.set(type, callback); },
+    dispatch(type, event) { return listeners.get(type)(event); },
+    appendChild(child) { this.children.push(child); },
     querySelector() { return element(); }, click() {},
     after(child) { this.nextElementSibling = child; },
   };
@@ -96,21 +99,18 @@ function droppedFile(name, content) {
   return {name, size: Buffer.byteLength(text, 'utf8'), text: async () => text};
 }
 
-/** @brief 拖入目录中的文件条目（FileSystemFileEntry 的最小形状）；content 是带 slice 与数字 size 的文件对象时原样交出，
+/** @brief 拖入的文件句柄（FileSystemFileHandle 的最小形状）；content 是带 slice 与数字 size 的文件对象时原样交出，
  *  否则照 droppedFile 写成文件。 */
-function fileEntry(name, content) {
+function fileHandle(name, content) {
   const fileLike = content !== null && typeof content === 'object' && typeof content.slice === 'function' &&
     typeof content.size === 'number';
   const file = fileLike ? content : droppedFile(name, content);
-  return {isFile: true, isDirectory: false, name, file(callback) { callback(file); }};
+  return {kind: 'file', name, async getFile() { return file; }};
 }
 
-/** @brief 拖入的目录条目：readEntries 先交出全部子项，再交出空批次表示读完。 */
-function directoryEntry(name, children) {
-  return {isFile: false, isDirectory: true, name, createReader() {
-    let listed = false;
-    return {readEntries(callback) { callback(listed ? [] : children); listed = true; }};
-  }};
+/** @brief 拖入的目录句柄：values 异步交出各个文件或子目录句柄。 */
+function directoryHandle(name, children) {
+  return {kind: 'directory', name, async *values() { yield* children; }};
 }
 
 /** @brief 冻结的目录：catalog 每组目录行写成 JSONL 文本、以 SHA-256 摘要为文件名；返回运行清单 environment_assets 的
@@ -144,8 +144,8 @@ function runManifest(fields = {}, runId = RUN_ID, catalog = CASES.catalog) {
 
 /** @brief 假的运行目录：属于测试运行的运行清单，assets 目录里放 catalog 冻结的目录文件。 */
 function runDirectory(catalog = CASES.catalog) {
-  return directoryEntry('run', [fileEntry('manifest.json', runManifest({}, RUN_ID, catalog)),
-    directoryEntry('assets', frozenCatalog(catalog).files.map(file => fileEntry(file.name, file.text)))]);
+  return directoryHandle('run', [fileHandle('manifest.json', runManifest({}, RUN_ID, catalog)),
+    directoryHandle('assets', frozenCatalog(catalog).files.map(file => fileHandle(file.name, file.text)))]);
 }
 
 /** @brief catalog 冻结的目录文件，作为顶层选中的素材文件（文件名就是摘要）。 */
@@ -182,9 +182,9 @@ function exportRun(rows, options = {}) {
   const file = eventsFile(text);
   const manifestText = canonicalJson(manifest);
   if (!options.files && !options.directories) {
-    const assets = frozenCatalog(catalog).files.map(asset => fileEntry(asset.name, asset.text));
-    return {lines, text, manifest, files: [], directories: [directoryEntry('export', [fileEntry('events.jsonl', file),
-      fileEntry('manifest.json', manifestText), directoryEntry('assets', assets)])]};
+    const assets = frozenCatalog(catalog).files.map(asset => fileHandle(asset.name, asset.text));
+    return {lines, text, manifest, files: [], directories: [directoryHandle('export', [fileHandle('events.jsonl', file),
+      fileHandle('manifest.json', manifestText), directoryHandle('assets', assets)])]};
   }
   return {lines, text, manifest, files: [file, droppedFile('manifest.json', manifestText), ...(options.files ?? [])],
     directories: options.directories ?? []};
@@ -311,6 +311,6 @@ function targets(markup) {
   return tableRows(markup, 'act-table').map(cells => cells[3]);
 }
 
-module.exports = {CASES, ROOT, RUN_ID, epoch, viewer, event, droppedFile, fileEntry, directoryEntry,
+module.exports = {CASES, ROOT, RUN_ID, epoch, viewer, event, droppedFile, fileHandle, directoryHandle,
   frozenCatalog, withCatalog, runManifest, runDirectory, assetFiles, tableRows, targets, exportRun, eventsFile,
   referenceIndex, canonicalJson, Database};

@@ -375,6 +375,14 @@ Python 一侧取不到名称时：`render_day.py` 的命令行不写出时间线
 拖入导出目录，或拖入包含它的执行目录（运行目录一起读），也可在文件选择框里选中导出目录里的 `events.jsonl` 与 `manifest.json`
 （要名称再选中 assets 里的文件）。
 
+- **取得文件。** Chrome 的拖放入口使用 File System Access 的 `getAsFileSystemHandle()`，在 `drop` 回调首次等待之前
+  同步取得全部文件与目录句柄的承诺，再一起等待；不再使用依赖目录 URL 的 `webkitGetAsEntry()`。
+  目录通过 `values()` 递归枚举，文件通过 `getFile()` 按需取得；收集阶段不读事件文件或素材正文。
+  单独选择文件仍消费文件选择框的 `File`；目录递归、清单相对路径、素材同名取先遇到的和人物 `MEMORY.md` 的读取规则相同。
+  取得句柄、枚举目录或读取事件文件失败时，加载终止、清空半成品并显示英文原因和错误日志，不切换旧接口。
+  这一入口采用 [Chrome 官方拖放用法](https://developer.chrome.com/docs/capabilities/web-apis/file-system-access#drag-and-drop-integration)；
+  本地打开使用 `file:` 上下文，[安全上下文规范](https://www.w3.org/TR/secure-contexts/#is-origin-trustworthy)
+  将该协议列为可被信任的来源，实际文件访问仍由浏览器对用户拖入的句柄授权。
 - **认定导出。** 同一次拖入的 `manifest.json` 里，带 `frozen_run_manifest` 对象的那一份是导出清单，必须恰有一份，且带 `run_id`、
   `window.timezone` 与 `artifacts.events`；不读结构号，各版导出都能打开。`events.jsonl` 取导出清单所在目录下 `artifacts.events.path`
   指的文件。导出清单的 `frozen_run_manifest` 必须是 `run_id` 相同、带 `agent_ids` 的运行清单。只拖了 `footprints.sqlite`

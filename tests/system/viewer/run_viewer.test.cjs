@@ -5,7 +5,7 @@ const {createHash} = require('node:crypto');
 const {readFileSync} = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
-const {CASES, ROOT, RUN_ID, epoch, viewer, event, droppedFile, fileEntry, directoryEntry, frozenCatalog, withCatalog,
+const {CASES, ROOT, RUN_ID, epoch, viewer, event, droppedFile, fileHandle, directoryHandle, frozenCatalog, withCatalog,
   runManifest, runDirectory, assetFiles, tableRows, targets, exportRun, eventsFile, Database} =
   require('./run_viewer_harness.cjs');
 
@@ -1229,12 +1229,12 @@ test('the run manifest is bound to the export\'s run, the run directory copy is 
     input_warnings: [inputWarning('CONTENT_EMPTY_WITH_MEDIA_TASTES', 1, '子运行清单冻结的警告')]});
   const frozen = {...child, input_warnings: [inputWarning('CONTENT_EMPTY_WITH_MEDIA_TASTES', 1, '导出清单中的副本')]};
   // 恢复链的导出以父运行的事件开头，导出清单与运行清单才是本运行；同目录的 LabelKit 输入清单也写着本运行的 run_id。
-  const run = directoryEntry('resumed', [
-    directoryEntry('labelkit-input', [fileEntry('manifest.json',
+  const run = directoryHandle('resumed', [
+    directoryHandle('labelkit-input', [fileHandle('manifest.json',
       {schema_version: 1, run_id: 'viewer-test-run', agent_id: 1})]),
-    fileEntry('manifest.json', child),
-    directoryEntry('as2', [directoryEntry('agents', [directoryEntry('agent_0001', [
-      fileEntry('MEMORY.md', '今天把纪要交了。')])])]),
+    fileHandle('manifest.json', child),
+    directoryHandle('as2', [directoryHandle('agents', [directoryHandle('agent_0001', [
+      fileHandle('MEMORY.md', '今天把纪要交了。')])])]),
   ]);
   const parent = droppedFile('manifest.json', runManifest({input_warnings: []}, 'parent-run'));
   const resumed = [event('observation', {}, {run_id: 'parent-run'}), event('observation', {})];
@@ -1340,10 +1340,10 @@ function catalogRun(texts, adjust = assets => assets) {
     const sha256 = createHash('sha256').update(text, 'utf8').digest('hex');
     assets[asset] = {sha256, size_bytes: Buffer.byteLength(text, 'utf8'), media_type: 'text/plain',
       source: {kind: 'environment_input', path: asset}};
-    entries.push(fileEntry(sha256, text));
+    entries.push(fileHandle(sha256, text));
   }
-  return directoryEntry('run', [fileEntry('manifest.json', {...runManifest(), environment_assets: adjust(assets)}),
-    directoryEntry('assets', entries)]);
+  return directoryHandle('run', [fileHandle('manifest.json', {...runManifest(), environment_assets: adjust(assets)}),
+    directoryHandle('assets', entries)]);
 }
 
 /** @brief 用例文件 catalog 冻结后的各份目录原文（素材名到文本）。 */
@@ -1406,14 +1406,14 @@ test('catalog names are read from the frozen assets named by the run manifest', 
   // 同一个摘要记到两次（例如运行目录和导出目录一起拖入）取先遇到的那个：这里先遇到的那份把哔哩哔哩写成同字节数的「哔哩哔哔」。
   const appsSha = frozenCatalog().assets['catalog/app-catalog.jsonl'].sha256;
   const variant = caseTexts()['catalog/app-catalog.jsonl'].replace('哔哩哔哩', '哔哩哔哔');
-  const copy = () => directoryEntry('copy', [directoryEntry('assets', [fileEntry(appsSha, variant)])]);
+  const copy = () => directoryHandle('copy', [directoryHandle('assets', [fileHandle(appsSha, variant)])]);
   assert.equal(targets((await opened({directories: [copy(), runDirectory()]})).activities())[0],
     '使用哔哩哔哔《测试文章》');
   assert.equal(targets((await opened({directories: [runDirectory(), copy()]})).activities())[0],
     '使用哔哩哔哩《测试文章》');
   // 别的运行的清单不被采用：名称经导出清单里冻结的本运行清单，在同一次拖入的素材里读到。
-  const stranger = directoryEntry('other', [fileEntry('manifest.json', runManifest({}, 'another-run')),
-    directoryEntry('assets', frozenCatalog().files.map(file => fileEntry(file.name, file.text)))]);
+  const stranger = directoryHandle('other', [fileHandle('manifest.json', runManifest({}, 'another-run')),
+    directoryHandle('assets', frozenCatalog().files.map(file => fileHandle(file.name, file.text)))]);
   const foreign = await opened({directories: [stranger]});
   assert.deepEqual(targets(foreign.activities()), NAMED);
   assert.equal(foreign.state.runManifest.frozen, true);
@@ -2134,7 +2134,7 @@ test('the events file is the one beside the export manifest', async t => {
   const rows = [event('observation', {}), event('observation', {}, {occurred_at: epoch + 60})];
   const view = await viewer(rows);
   t.after(() => view.close());
-  const decoy = directoryEntry('other', [fileEntry('events.jsonl', eventsFile('{"x":1}\n'))]);
+  const decoy = directoryHandle('other', [fileHandle('events.jsonl', eventsFile('{"x":1}\n'))]);
   const exported = exportRun(rows, {});
   for (const directories of [[decoy, ...exported.directories], [...exported.directories, decoy]]) {
     await view.run('openExport')([], directories, () => {});

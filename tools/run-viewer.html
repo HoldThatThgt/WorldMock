@@ -1659,7 +1659,7 @@ function bindDayInput(){
  * ================================================================ */
 /** @brief 拖放区与文件选择框的加载：同一时间只加载一份导出；加载 sql.js 后经 openExport 打开，成功后显示总览，
  *  失败时写英文错误日志、清空半成品、回到拖放区并显示原因。 */
-async function handleFiles(fileList, dirEntries){
+async function handleFiles(fileList, droppedItems){
   const logEl = $('#drop-log'), errEl = $('#drop-err');
   if (S.loading){
     const text = 'Another export is still loading; drop again after it finishes';
@@ -1672,10 +1672,13 @@ async function handleFiles(fileList, dirEntries){
   logEl.style.display='block'; logEl.textContent=''; errEl.style.display='none';
   const log = m => { logEl.textContent += m+'\n'; logEl.scrollTop = logEl.scrollHeight; };
   try{
+    // drop 的数据存储只在本轮事件中可读：先同步调用全部句柄接口，再等待它们完成。
+    const handles = await Promise.all(Array.from(droppedItems||[]).filter(item=>item.kind==='file')
+      .map(item=>item.getAsFileSystemHandle()));
     log('· 加载 sql.js 引擎（CDN）…');
     if (!S.SQL) S.SQL = await loadSqlJs();
     log('· 引擎就绪');
-    await openExport(fileList||[], dirEntries||[], log);
+    await openExport(fileList||[], handles, log);
     $('#run-meta').textContent = `${S.runId.slice(0,8)} · ${fmtT(S.t0)} ~ ${fmtT(S.t1)} · ${nf(S.events.length)} 事件`;
     const sel = $('#agent-filter');
     sel.innerHTML = '<option value="">全部</option>' +
@@ -1701,9 +1704,9 @@ async function handleFiles(fileList, dirEntries){
 
 /** @brief 页面与测试共用的加载入口（S.SQL 已就绪）：清空上一份运行，收集拖入的文件，认定唯一的导出清单与它的
  *  events.jsonl，运行身份与时区取自导出清单，建索引，再读运行清单与冻结目录、合并活动并生成摘要。 */
-async function openExport(files, dirEntries, log){
+async function openExport(files, handles, log){
   resetRun();
-  const dropped = await collectDropped(files, dirEntries);
+  const dropped = await collectDropped(files, handles);
   const manifests = await parseManifests(dropped.manifests);
   const exported = exportManifestOf(manifests, dropped.databases);
   S.runId = exported.value.run_id;
@@ -1731,15 +1734,15 @@ async function indexRun(manifests, assets, log){
 }
 
 /** @brief 收集同一次拖入或选中的文件：manifest.json、events.jsonl 与数据库文件经 noteFile 记下；顶层文件名恰为 64 位
- *  十六进制摘要的文件记作素材（只记句柄，同名取先遇到的）；拖入的目录交给 loadDirFiles。顶层文件的路径就是文件名。 */
-async function collectDropped(files, dirEntries){
+ *  十六进制摘要的文件记作素材（只记句柄，同名取先遇到的）；拖入的句柄交给 loadDirFiles。顶层文件的路径就是文件名。 */
+async function collectDropped(files, handles){
   const dropped = {manifests:[], events:[], databases:[], assets:new Map()};
   for (const file of Array.from(files)){
     noteFile(dropped, file.name, async ()=>file);
     if (/^[0-9a-f]{64}$/.test(file.name) && !dropped.assets.has(file.name))
       dropped.assets.set(file.name, async ()=>file);
   }
-  if (dirEntries.length) await loadDirFiles(dirEntries, dropped);
+  await loadDirFiles(handles, dropped);
   return dropped;
 }
 
@@ -1789,32 +1792,26 @@ function eventsFileOf(candidates, exported){
   return found;
 }
 
-/* 目录拖入 → 各层文件经 noteFile 记下；直接位于 assets 目录下的文件按文件名记入素材（只记句柄，不读内容）；
- * 人物的 MEMORY.md 读进 S.memFiles */
-async function loadDirFiles(entries, dropped){
-  const walk = async (entry, path='')=>{
-    if (entry.isFile){
-      const file = ()=>new Promise((res,rej)=>entry.file(res,rej));
-      const full = (path+'/'+entry.name).slice(1);
-      if (path.split('/').at(-1)==='assets' && !dropped.assets.has(entry.name)) dropped.assets.set(entry.name, file);
+/** @brief 递归读取用户拖入的文件句柄：素材与事件只记取得 File 的函数，人物 MEMORY.md 读进 S.memFiles。 */
+async function loadDirFiles(handles, dropped){
+  const walk = async (handle, path='')=>{
+    if (!handle) throw new Error('Could not access a dropped file or directory');
+    const full = path ? path+'/'+handle.name : handle.name;
+    if (handle.kind==='file'){
+      const file = ()=>handle.getFile();
+      const asset = path.split('/').at(-1)==='assets' || (!path && /^[0-9a-f]{64}$/.test(handle.name));
+      if (asset && !dropped.assets.has(handle.name)) dropped.assets.set(handle.name, file);
       noteFile(dropped, full, file);
-      if (entry.name==='MEMORY.md'){
+      if (handle.name==='MEMORY.md'){
         const m = full.match(/agent_?0*(\d+)/i);
         const aid = m? String(+m[1]) : String(Object.keys(S.memFiles).length+1);
         S.memFiles[aid] = {memoryMd: await (await file()).text()};
       }
       return;
     }
-    if (entry.isDirectory){
-      const reader = entry.createReader();
-      let batch;
-      do {
-        batch = await new Promise((res,rej)=>reader.readEntries(res,rej));
-        for (const c of batch) await walk(c, path+'/'+entry.name);
-      } while (batch.length);
-    }
+    if (handle.kind==='directory') for await (const child of handle.values()) await walk(child, full);
   };
-  for (const e of entries) await walk(e);
+  for (const handle of handles) await walk(handle);
 }
 
 /** @brief 清空上一份运行：关闭索引库，丢掉事件、摘要、名称表、订单表、缓存、缺失记录与各视图状态；sql.js 引擎与加载标志保留。 */
@@ -1846,15 +1843,9 @@ function bindDnd(){
   zone.addEventListener('drop', ev=>{
     ev.preventDefault();
     box.classList.remove('dragover');
-    const dirEntries = [];
-    if (ev.dataTransfer.items)
-      for (const it of ev.dataTransfer.items){
-        const entry = it.webkitGetAsEntry && it.webkitGetAsEntry();
-        if (entry && entry.isDirectory) dirEntries.push(entry);
-      }
-    handleFiles(ev.dataTransfer.files, dirEntries);
+    return handleFiles([], ev.dataTransfer.items);
   });
-  input.onchange = ()=>{ if (input.files.length) handleFiles(input.files, null); };
+  input.onchange = ()=>{ if (input.files.length) return handleFiles(input.files, null); };
   $('#btn-reload').onclick = ()=>{
     resetRun();
     $('#app').classList.remove('on');
