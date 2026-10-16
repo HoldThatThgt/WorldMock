@@ -29,7 +29,7 @@ def real_export(engine_factory, tmp_path):
 def test_actual_purchase_content_and_current_artifacts_are_authenticated(real_export):
     manifest, events, activities = validate_export(real_export)
     assert manifest["schema_version"] == 7
-    assert manifest["checkpoint"]["state"]["schema_version"] == 14
+    assert manifest["checkpoint"]["state"]["schema_version"] == 15
     assert {name: row["path"] for name, row in manifest["artifacts"].items()} == {
         "events": "events.jsonl", "activities": "activities.jsonl",
         "verified_experiences": "verified-experiences.jsonl", "purchases": "purchases.jsonl",
