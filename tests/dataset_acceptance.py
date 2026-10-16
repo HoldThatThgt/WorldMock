@@ -885,5 +885,18 @@ MUTATIONS = (
          "::test_an_action_identity_not_formed_from_its_decision_is_refused_before_any_event",
          "tests/integration/life/test_action_identity.py"
          "::test_a_settled_action_identity_cannot_be_submitted_in_a_later_round")),
+    SourceMutation("processed_actions_never_pruned", "worldmock.life.action_evidence::prune_processed_actions",
+        "kept = {key: stored for key, stored in state.processed_actions.items() if key in origins}",
+        "kept = dict(state.processed_actions)",
+        ("tests/integration/life/test_processed_actions.py"
+         "::test_processed_actions_keep_only_this_second_and_unfinished_origins",)),
+    SourceMutation("paused_origin_pruned", "worldmock.life.action_evidence::prune_processed_actions",
+        "if activity.status in {ActivityStatus.ACTIVE, ActivityStatus.PAUSED}}",
+        "if activity.status == ActivityStatus.ACTIVE}",
+        ("tests/integration/life/test_processed_actions.py::test_a_paused_activity_keeps_its_origin_until_it_ends",)),
+    SourceMutation("missing_origin_not_detected", "worldmock.life.action_evidence::require_origin_action",
+        "if activity.origin_action_id not in state.processed_actions:", "if False:",
+        ("tests/integration/life/test_processed_actions.py"
+         "::test_an_activity_whose_origin_action_is_missing_cannot_end",)),
     # ---- 世界状态与检查点存储（长时运行成本第二章）结束 ----
 )

@@ -152,6 +152,46 @@ def observe_only(engine, label):
     return engine.observe(context(engine, f"{label}-{engine.context.state.current_time}"))
 
 
+def check_every_step(monkeypatch, engine, check) -> None:
+    """在引擎实例上包住 commit_decision_round、advance 与 decide_midnight_rhythm：调用原方法之后（零点判定未完成时除外）
+    执行 check(engine, origins)；origins 是最近一次 advance 调用之前进行中或暂停活动的 origin_action_id 集合。"""
+    origins = [frozenset()]
+
+    def wrapped(name):
+        """包住引擎实例上的一个方法。"""
+        original = getattr(engine, name)
+
+        def step(*args, **kwargs):
+            """推进之前记下 origins，调用原方法后核对。"""
+            if name == "advance":
+                origins[0] = _unfinished_origins(engine.context.state)
+            result = original(*args, **kwargs)
+            if not engine.midnight_rhythm_pending:
+                check(engine, origins[0])
+            return result
+
+        return step
+
+    for name in ("commit_decision_round", "advance", "decide_midnight_rhythm"):
+        monkeypatch.setattr(engine, name, wrapped(name))
+
+
+def ledger_holds_only_readable_entries(state, origins: frozenset[str]) -> None:
+    """processed_actions 只含规则还会读的条目：本秒结算的结果与最近一次推进前未终结活动的开始动作。"""
+    keys = set(state.processed_actions)
+    for key in keys:
+        assert key in origins or state.processed_actions[key].result["occurred_at"] == state.current_time, key
+    assert origins <= keys, sorted(origins - keys)
+    live = _unfinished_origins(state)
+    assert live <= keys, sorted(live - keys)
+
+
+def _unfinished_origins(state) -> frozenset[str]:
+    """此刻进行中或暂停的活动的 origin_action_id。"""
+    return frozenset(activity.origin_action_id for activity in state.activities.values()
+                     if activity.status in {"active", "paused"})
+
+
 def every_five_minutes(persona, config):
     """运行配置：每五分钟到一次重估间隔，人物在路上、在一件事做到一半时都有决策机会。"""
     config["reconsideration_interval_seconds"] = 300

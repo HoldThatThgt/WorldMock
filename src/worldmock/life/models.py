@@ -518,7 +518,8 @@ class DeliveryState(StrictModel):
 
 
 class StoredAction(StrictModel):
-    """@brief 动作幂等判断所需的请求与结果。"""
+    """@brief 一条已结算动作的回执与即时结果：本秒的拒绝计数读它，活动终结时核对开始动作仍在
+    （docs/design/04-simulation-engine.md「原子性与恢复」）。"""
 
     action_id: str = Field(min_length=1)
     tool_name: str = Field(min_length=1)
@@ -585,6 +586,8 @@ class WorldState(StrictModel):
     sessions: dict[str, SessionState] = Field(default_factory=dict)
     deliveries: dict[str, DeliveryState] = Field(default_factory=dict)
     pending_events: list[ScheduledEvent] = Field(default_factory=list)
+    #: 规则仍会读取的已结算动作：本秒的结果与进行中或暂停活动的开始动作
+    #: （docs/design/04-simulation-engine.md「原子性与恢复」）。
     processed_actions: dict[str, StoredAction] = Field(default_factory=dict)
     #: 呈现派生量（docs/design/09-io-formats.md「世界、人物与活动」）：按（人物, 对象标识）记录上次呈现
     #: 时刻（UTC 纪元秒），是曝光轮转的判据，不含任何偏好推断。

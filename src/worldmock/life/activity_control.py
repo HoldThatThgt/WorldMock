@@ -15,8 +15,7 @@ from worldmock.life.activity_evidence import OUTCOME_APP_USE_ENDED, app_use_ende
 from worldmock.life.activity_titles import TitleIndex
 from worldmock.life.error_contract import ErrorItem, items_fix
 from worldmock.life.guidance import Refusal, items_refusal, refusal_for_code
-from worldmock.life.action_evidence import (_activity_terminal_draft, _activity_terminal_result,
-                                            _terminal_action_records)
+from worldmock.life.action_evidence import _activity_terminal_draft, require_origin_action
 from worldmock.life.content_select import next_episode
 from worldmock.life.models import (CONCLUDABLE_TERMINAL_STATUSES, ActivityKind, ActivityState, ActivityStatus,
                                    PendingAction, WorldState, active_activities)
@@ -420,13 +419,13 @@ def _listed(activities: Iterable[ActivityState], names: Mapping[str, str]) -> st
 
 
 def record_changes(before: WorldState, after: WorldState, pending: PendingAction,
-                   context: RecordContext) -> tuple[WorldState, list[EventDraft]]:
+                   context: RecordContext) -> list[EventDraft]:
     """@brief 本次控制改变的每项活动写一条 environment_event；活动终结时给开始它的动作写一次终态；控制请求里每条被受理
     的个人事务变更各写一条事务事件（errands.request_drafts，只在这条成功分支生成，docs/design/04-simulation-engine.md
     「唤醒、日计划与个人事务」）。"""
     drafts = _lifecycle_drafts(before, after, pending, context.snapshot)
-    changed, terminal = _terminal_records(before, after, pending.requested_event_id, context.index)
-    return changed, drafts + terminal + errands.request_drafts(before, after, pending)
+    terminal = _terminal_records(before, after, pending.requested_event_id, context.index)
+    return drafts + terminal + errands.request_drafts(before, after, pending)
 
 
 def truncation_record(activity: ActivityState, snapshot: dict, now: int) -> EventDraft:
@@ -464,17 +463,16 @@ def _lifecycle_drafts(before: WorldState, after: WorldState, pending: PendingAct
 
 
 def _terminal_records(before: WorldState, after: WorldState, request_event_id: str,
-                      index: TitleIndex) -> tuple[WorldState, list[EventDraft]]:
-    """@brief 本次新终结的活动：各自更新开始它的那条动作在 processed_actions 里的结果并写一次终态。"""
+                      index: TitleIndex) -> list[EventDraft]:
+    """@brief 本次新终结的活动各写一次终态；开始它的那条动作必须仍在 processed_actions 里。"""
     newly = [item for key, item in sorted(after.activities.items()) if item.status in _TERMINAL_STATUSES
              and key in before.activities and before.activities[key].status not in _TERMINAL_STATUSES]
     drafts = []
     for activity in newly:
-        result = _activity_terminal_result(after, activity, after.current_time, index)
-        after = after.model_copy(update={"processed_actions": _terminal_action_records(after, result)})
+        require_origin_action(after, activity)
         drafts.append(_activity_terminal_draft(after, activity, after.current_time, [request_event_id],
                                                index))
-    return after, drafts
+    return drafts
 
 
 def _agent_activities(state: WorldState, agent_id: int,

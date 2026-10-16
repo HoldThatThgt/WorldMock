@@ -315,7 +315,7 @@ class DecisionCoordinator:
         first = group[0]
         changed = self._consume_report_opportunity(state, changed, first.agent_id)
         changed = self._after_success(changed, first.agent_id, first.tool_name)
-        (changed, records) = activity_control.record_changes(state, changed, first, self.actions.record_context)
+        records = activity_control.record_changes(state, changed, first, self.actions.record_context)
         index = title_index(self.context.catalog)
         drafts, result_drafts = [], []
         for pending, result in zip(group, results, strict=True):
