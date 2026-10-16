@@ -104,7 +104,9 @@ def persisted_trip(catalog: Catalog, activity: ActivityState) -> Trip:
     return trip
 
 
-def record_arrival(activity: ActivityState, agent: AgentState) -> None:
-    """@brief 行程完成后记录已经结算的位置事实，场景不再声明访问资格。"""
-    if activity.elapsed_seconds >= activity.planned_duration_seconds:
-        activity.data["arrival"] = {"location_id": agent.location_id, "access_status": "allowed"}
+def record_arrival(activity: ActivityState, agent: AgentState) -> ActivityState:
+    """@brief 行程完成后返回记下已结算位置事实的新活动条目（条目只替换、不原地修改）；没完成时原样返回。"""
+    if activity.elapsed_seconds < activity.planned_duration_seconds:
+        return activity
+    arrival = {"location_id": agent.location_id, "access_status": "allowed"}
+    return activity.model_copy(update={"data": {**activity.data, "arrival": arrival}})

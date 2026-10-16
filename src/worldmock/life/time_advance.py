@@ -320,7 +320,7 @@ class TimeAdvanceCoordinator:
         if activity.kind==ActivityKind.TRAVEL:
             trip=persisted_trip(self.context.catalog,activity)
             changed,agent=update_travel(activity,trip,state.agents[activity.agent_id])
-            record_arrival(changed,agent)
+            changed=record_arrival(changed,agent)
             state.activities[activity.activity_id],state.agents[agent.agent_id]=changed,agent
         elif activity.kind==ActivityKind.PURCHASE:
             from worldmock.life.storefront_runtime import StorefrontRuntime

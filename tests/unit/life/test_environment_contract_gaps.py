@@ -84,7 +84,9 @@ def test_restore_rejects_retired_navigation_app_activity_field(engine_factory, n
     _, result = act(engine, "valid-walk", travel("公司"))
     assert result.status == "in_progress"
     state = engine.context.state.model_copy(deep=True)
-    state.activities[result.activity_id].data["navigation_app_id"] = navigation
+    entry = state.activities[result.activity_id]
+    state.activities[result.activity_id] = entry.model_copy(
+        update={"data": {**entry.data, "navigation_app_id": navigation}})
     with pytest.raises(IntegrityError, match="Persisted activity target is invalid"):
         validate_activity_targets(state, engine.context.catalog, engine.context.persona)
 

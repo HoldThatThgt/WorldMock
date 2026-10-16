@@ -357,9 +357,10 @@ class DecisionCoordinator:
             result_draft = _result_draft(pending, result, "action_result")
             result_draft = result_draft.model_copy(
                 update={"resource_changes": self.actions.resource_changes.pop(pending.action_id, {})})
-            for activity in changed.activities.values():
+            for activity_id, activity in list(changed.activities.items()):
                 if activity.origin_action_id == pending.action_id:
-                    activity.data["accepted_event_id"] = result_draft.event_id
+                    data = {**activity.data, "accepted_event_id": result_draft.event_id}
+                    changed.activities[activity_id] = activity.model_copy(update={"data": data})
             drafts.extend((accepted, result_draft))
             result_drafts.append(result_draft)
         result_draft = result_drafts[0]

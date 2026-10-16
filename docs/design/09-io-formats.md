@@ -48,6 +48,10 @@ flowchart LR
 `paid_at` 在一次购买的全部记录上同时写入，等于购买完成的时刻；到店记录的 `expected_at` 是购买开始时刻加实际购买时长。
 内容共享进度以人物与内容身份保存，报告不新增进度。位置归零、轮数加一有两个来源：内容做到末尾，和在地点做的事被人物结束，规则见[模拟引擎](04-simulation-engine.md)「出行、内容与查询」。
 
+`activities` 与 `processed_actions` 的条目是不可变值：活动或已处理动作的任何变化（包括 `data`、`result`、`receipt`、
+`session_ids`、`note_history`、`resource_claims` 等嵌套字段）都换成一个新条目，不原地修改已有条目；同一个条目对象可以
+同时属于已提交世界和候选世界。同一个对象不同时挂在条目与世界的其他字段下。
+
 ## 输入与模型身份
 
 五项环境身份是 environment_id、environment_version、rules_version、catalog_content_sha256、map_sha256。

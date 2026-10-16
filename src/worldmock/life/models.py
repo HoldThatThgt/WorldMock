@@ -5,6 +5,7 @@ from worldmock.exchange.types import GoodsCategory
 
 from worldmock.base_models import StrictModel, FrozenModel
 from worldmock.errors import IntegrityError
+import copy
 import logging
 import re
 from worldmock.life.action_contract import (ACTIVITY_ACTIONS, MAIN_ACTIVITY_ACTIONS, SIDE_ACTIVITY_ACTIONS,
@@ -563,6 +564,10 @@ class SameMomentPresentation(StrictModel):
     stamps: dict[str, int]
 
 
+#: 条目只替换、从不原地修改的两个世界集合（docs/design/09-io-formats.md「世界、人物与活动」）：深复制世界时换新字典、共享条目。
+_SHARED_ENTRY_FIELDS = frozenset({"activities", "processed_actions"})
+
+
 class WorldState(StrictModel):
     """@brief 提交到 FootprintStore 的完整世界状态。"""
 
@@ -593,6 +598,20 @@ class WorldState(StrictModel):
     random_seed: int
     random_state: str = Field(min_length=1)
 
+    def __deepcopy__(self, memo: dict[int, Any] | None = None) -> "WorldState":
+        """@brief 深复制世界：activities 与 processed_actions 换新字典、共享条目，其余字段照常深复制。
+
+        条目是不可变值，变化一律换成新条目（docs/design/09-io-formats.md「世界、人物与活动」），所以候选世界与已提交世界
+        共享没变的条目时互不影响。model_copy(deep=True) 与 copy.deepcopy 都经过这里。条目类不定义 __deepcopy__：
+        model_copy(update=..., deep=True) 会把更新写进 __deepcopy__ 返回的对象，返回共享条目就会改坏已提交世界。
+        @param memo copy.deepcopy 的备忘表；model_copy 不传时新建一张，整份世界共用
+        @return 新的世界实例
+        """
+        memo = {} if memo is None else memo
+        copied = self.__copy__()
+        for name, value in self.__dict__.items():
+            copied.__dict__[name] = dict(value) if name in _SHARED_ENTRY_FIELDS else copy.deepcopy(value, memo)
+        return copied
 
     @model_validator(mode="after")
     def validate_world(self) -> "WorldState":

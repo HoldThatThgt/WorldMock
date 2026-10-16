@@ -18,7 +18,9 @@ def started(engine_factory, request=None):
     _, result = act(engine, "actual-start", request or use_app("哔哩哔哩"))
     assert result.status == "in_progress"
     state = engine.context.state.model_copy(deep=True)
-    return engine, state, state.activities[result.activity_id]
+    activity = state.activities[result.activity_id].model_copy(deep=True)
+    state.activities[result.activity_id] = activity
+    return engine, state, activity
 
 
 @pytest.mark.parametrize("field,value", [

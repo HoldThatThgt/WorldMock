@@ -823,7 +823,11 @@ MUTATIONS = (
     SourceMutation("version_step_skips_the_committed_world_check", "worldmock.footprints.store::FootprintStore.commit",
         "self.require_committed(base)", "None",
         ("tests/unit/footprints/test_store_commit_path.py"
-         "::test_version_step_refuses_a_base_that_differs_from_the_committed_world",)),
+         "::test_version_step_refuses_a_base_that_differs_from_the_committed_world",
+         "tests/integration/life/test_committed_world_guard.py"
+         "::test_in_place_edit_of_a_shared_entry_is_refused_before_the_step_commits",
+         "tests/integration/life/test_committed_world_guard.py"
+         "::test_every_staging_entry_refuses_a_diverged_engine_world")),
     SourceMutation("cache_not_advanced_by_a_version_step", "worldmock.footprints.store::FootprintStore.commit",
         "self._committed = CommittedWorld.of(state, body)", "None",
         ("tests/unit/footprints/test_store_commit_path.py"
@@ -858,5 +862,20 @@ MUTATIONS = (
         "self.require_committed(state)", "None",
         ("tests/unit/footprints/test_branch_coverage.py"
          "::test_store_checkpoint_rejects_stale_state_and_empty_snapshots",)),
+    SourceMutation("observation_skips_the_committed_world_check", "worldmock.life.engine::LifeEngine.observe",
+        'self.context.store.require_committed(self.context.state.model_dump(mode="json"))', "None",
+        ("tests/integration/life/test_committed_world_guard.py"
+         "::test_observation_refuses_an_engine_world_that_differs_from_the_committed_world",)),
+    SourceMutation("world_copy_shares_the_entry_containers", "worldmock.life.models::WorldState.__deepcopy__",
+        "dict(value) if name in _SHARED_ENTRY_FIELDS", "value if name in _SHARED_ENTRY_FIELDS",
+        ("tests/unit/life/test_world_state_copy.py"
+         "::test_deep_copy_gives_fresh_entry_containers_that_share_the_entries",)),
+    SourceMutation("world_copy_copies_the_entries", "worldmock.life.models::WorldState.__deepcopy__",
+        "dict(value) if name in _SHARED_ENTRY_FIELDS", "copy.deepcopy(value, memo) if name in _SHARED_ENTRY_FIELDS",
+        ("tests/unit/life/test_world_state_copy.py"
+         "::test_deep_copy_gives_fresh_entry_containers_that_share_the_entries",)),
+    SourceMutation("world_copy_shares_every_field", "worldmock.life.models::WorldState.__deepcopy__",
+        "copy.deepcopy(value, memo)", "value",
+        ("tests/unit/life/test_world_state_copy.py::test_every_other_field_is_a_full_deep_copy",)),
     # ---- 存储提交路径（长时运行成本第一章）结束 ----
 )
