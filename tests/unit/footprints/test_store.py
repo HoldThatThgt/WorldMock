@@ -160,6 +160,25 @@ def test_read_event_returns_the_event_and_rejects_an_unknown_identity(store, cap
     assert 'Event event-unknown does not exist' in [record.getMessage() for record in caplog.records]
 
 
+def test_read_last_event_rejects_an_empty_store_and_returns_latest_without_writes(store, caplog):
+    """空库没有最后事件，须记录错误并拒绝；有事件时返回最新一条，两种读取都不改世界或事件。"""
+    before = store.state
+    with caplog.at_level('ERROR'), pytest.raises(IntegrityError, match='^Run has no committed event$'):
+        store.read_last_event()
+    assert any(record.levelname == 'ERROR' and record.getMessage() == 'Run has no committed event'
+               for record in caplog.records)
+    assert store.state == before and store.last_event_seq == 0
+    assert list(store.iter_events(0)) == []
+
+    saved = store.append_evidence([
+        EventDraft(event_type='environment_event', occurred_at=100, data={'kind': 'earlier'}),
+        EventDraft(event_type='environment_event', occurred_at=100, data={'kind': 'latest'}),
+    ])
+    assert store.read_last_event() == saved[-1]
+    assert store.state == before and store.last_event_seq == 2
+    assert list(store.iter_events(2)) == saved
+
+
 def test_world_change_without_any_event_cannot_be_committed(store):
     with pytest.raises(IntegrityError):
         store.commit(store.state, {'version': 1, 'current_time': 200, 'balance': 900}, [])
