@@ -420,8 +420,9 @@ Python 一侧取不到名称时：`render_day.py` 的命令行不写出时间线
   顶栏的「载入 X.X 秒」从本次拖入或选择通过重复加载检查开始，到总览准备好为止，包括首次等待 sql.js；这是页面计时，不是首帧或性能基准。
 - **SQL 控制台。** 查询的是这个索引；说明写明三类 body 的裁剪、各留什么、`event_lines` 表、没有 checkpoints 与 artifacts 表，
   以及完整行在哪里读：`event_lines` 的字节区间、`sqlite3` 只读打开运行目录的 `footprints.sqlite`、`scripts/inspect_run.py`。
-- **容量。** 30 天的导出（events.jsonl 1.92 GB）建成的索引约 260 MB。sql.js 把索引放在一个随写入按 1.125 倍增长的 ArrayBuffer
-  里，Chrome 单个 ArrayBuffer 的上限约 2 GB，按每天约 7.4 MB 约 200 天到顶。
+- **容量。** 用户在本机 Chrome 保持页面前台时，载入 30 天的导出（events.jsonl 1.92 GB）约 40 秒；
+  这是用户报告的近似值，后台载入尚未测量。建成的索引约 260 MB。sql.js 把索引放在一个随写入按 1.125 倍增长的
+  ArrayBuffer 里，Chrome 单个 ArrayBuffer 的上限约 2 GB，按每天约 7.4 MB 约 200 天到顶。
 
 #### 按天查看活动
 
