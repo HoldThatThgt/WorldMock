@@ -122,11 +122,12 @@ const ActivityCalendar = {};
     const start = midnight(state.day), end = midnight(shiftDate(state.day,1));
     state.rows = dayRows(activities,start,end);
     const rows = state.rows.map((row,index)=>rowMarkup(row,index,start,end)).join('');
-    const width = Math.ceil((end-start)/3600)*64;
+    const width = Math.ceil((end-start)/3600)*64, hour = 3600/(end-start)*100;
     return toolbar(first,last) + '<div class="hint">同一时间轴上的条块表示实际执行区间；空白表示尚无结算记录。' +
       '同一个 app 首尾相接的几次使用画在同一行，连成一个条块。名称与准确起止独立显示，短活动也可查看详情。</div>' +
       '<div id="activity-detail" aria-live="polite"></div>' + (rows ?
-      `<div class="calendar-scroll"><div class="calendar-grid" style="--calendar-hours:${width}px">` +
+      `<div class="calendar-scroll"><div class="calendar-grid" ` +
+      `style="--calendar-hours:${width}px;--calendar-hour:${hour}%">` +
       `${axis(start,end)}${rows}</div></div>` : '<div class="empty">当天没有活动记录</div>');
   }
 

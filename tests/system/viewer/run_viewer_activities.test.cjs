@@ -2,6 +2,8 @@
 
 /** @brief 活动日历只消费真实活动事件，验证当地日期、实际区间及来源原文。 */
 const assert = require('node:assert/strict');
+const {readFileSync} = require('node:fs');
+const path = require('node:path');
 const test = require('node:test');
 const {viewer, event, tableRows} = require('./run_viewer_harness.cjs');
 const at = value => Date.parse(value)/1000;
@@ -47,8 +49,14 @@ test('calendar clips cross-day intervals, keeps empty days and retains the full 
   assert.match(calendar(view),/Asia\/Shanghai/);
 });
 
-test('calendar uses the export time zone and actual 23-hour and 25-hour days', async t=>{
+test('calendar aligns hourly grid lines and ticks on narrow and wide 23-hour, 24-hour and 25-hour days', async t=>{
+  const css=readFileSync(path.join(__dirname,'../../../tools/run-viewer-activities.css'),'utf8');
+  assert.match(css,/var\(--line\) var\(--calendar-hour\)\)/);
+  assert.match(css,/\.calendar-scroll\{container-type:inline-size;/);
+  assert.match(css,/\.calendar-meta\{[^}]*width:min\(800px,100cqw\)/);
+  assert.equal((css.match(/\.calendar-meta\{/g)||[]).length,1);
   for (const [day,start,end,hours,missing] of [
+    ['2026-03-07','2026-03-07T00:00:00-05:00','2026-03-08T00:00:00-05:00',24,null],
     ['2026-03-08','2026-03-08T00:00:00-05:00','2026-03-09T00:00:00-04:00',23,'02:00'],
     ['2026-11-01','2026-11-01T00:00:00-04:00','2026-11-02T00:00:00-05:00',25,null],
   ]){
@@ -58,9 +66,18 @@ test('calendar uses the export time zone and actual 23-hour and 25-hour days', a
     assert.equal(date(view),day);
     assert.deepEqual(bars(view),[{left:0,width:100}]);
     assert.match(calendar(view),new RegExp(`--calendar-hours:${hours*64}px`));
+    const hour=Number(/--calendar-hour:([^%]+)%/.exec(calendar(view))[1]);
     const axis = calendar(view).split('<div class="calendar-axis">')[1].split('</div>')[0];
+    const ticks=[...axis.matchAll(/style="left:([^%]+)%"/g)].map(match=>Number(match[1]));
+    for (const containerWidth of [1000,2400]){
+      const trackWidth=Math.max(hours*64,containerWidth-280);
+      assert.ok(trackWidth*hour/100>=64-1e-9);
+      for (const [index,tick] of ticks.entries()){
+        assert.ok(Math.abs(trackWidth*hour/100*index-trackWidth*tick/100)<1e-9);
+      }
+    }
     if (missing) assert.ok(!axis.includes(`>${missing}</span>`));
-    else assert.equal((axis.match(/>01:00<\/span>/g)||[]).length,2);
+    else assert.equal((axis.match(/>01:00<\/span>/g)||[]).length,hours===25?2:1);
     assert.match(calendar(view),new RegExp(`当天已结算 ${hours}小时`));
   }
 });
