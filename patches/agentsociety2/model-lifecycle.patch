@@ -313,7 +313,7 @@ index 9081ddb..a275aa9 100644
  # ═══════════════════════════════════════════════════════════
  # Factory
 diff --git a/agentsociety2/config/llm_dispatcher.py b/agentsociety2/config/llm_dispatcher.py
-index 22cefd4..e21cd83 100644
+index 22cefd4..41aa281 100644
 --- a/agentsociety2/config/llm_dispatcher.py
 +++ b/agentsociety2/config/llm_dispatcher.py
 @@ -17,15 +17,32 @@ no global aggregate, no actor).
@@ -383,7 +383,7 @@ index 22cefd4..e21cd83 100644
  
  # Disable Ray's uv-runtime-env packaging (see comment below in init_dispatchers).
  os.environ.setdefault("RAY_ENABLE_UV_RUN_RUNTIME_ENV", "0")
-@@ -88,6 +124,112 @@ def is_rate_limit_like_error(error: Exception) -> bool:
+@@ -88,6 +124,116 @@ def is_rate_limit_like_error(error: Exception) -> bool:
      )
  
  
@@ -424,9 +424,13 @@ index 22cefd4..e21cd83 100644
 +
 +
 +def _retry_after_seconds(error: Exception) -> float | None:
-+    """@brief 429 响应头 Retry-After 给出的等待秒数（整数秒或 HTTP 日期，不小于 0）；没有或无法解析时为空。"""
-+    response = getattr(error, "response", None)
-+    value = response.headers.get("retry-after") if response is not None else None
++    """@brief 429 响应头 Retry-After 给出的等待秒数（整数秒或 HTTP 日期，不小于 0）；没有或无法解析时为空。
++
++    供应商响应头只在 LiteLLM 映射异常时设置的 litellm_response_headers 上（litellm_core_utils/exception_mapping_utils.py）；
++    error.response 是 LiteLLM 另造的不带头的替身。耦合点随锁定的 LiteLLM 版本核对。
++    """
++    headers = getattr(error, "litellm_response_headers", None)
++    value = headers.get("retry-after") if headers is not None else None
 +    if value is None:
 +        return None
 +    text = value.strip()
@@ -496,7 +500,7 @@ index 22cefd4..e21cd83 100644
  # ═══════════════════════════════════════════════════════════
  # Adaptive concurrency (AIMD) — per-process flow control
  # ═══════════════════════════════════════════════════════════
-@@ -294,28 +436,12 @@ class AdaptiveSemaphore:
+@@ -294,28 +440,12 @@ class AdaptiveSemaphore:
  
  
  def _build_router(base_url: str, api_key: str, model: str) -> Any:
@@ -529,7 +533,7 @@ index 22cefd4..e21cd83 100644
  
  
  def merge_token_stats(*deltas: dict[str, dict[str, int]]) -> dict[str, dict[str, int]]:
-@@ -360,6 +486,38 @@ def build_client_for_role(role: str) -> "LLMClient":
+@@ -360,6 +490,38 @@ def build_client_for_role(role: str) -> "LLMClient":
  # ═══════════════════════════════════════════════════════════
  
  
@@ -568,7 +572,7 @@ index 22cefd4..e21cd83 100644
  @dataclass
  class LLMClient:
      """Serializable LLM connection config that builds its runtime per-loop.
-@@ -408,6 +566,20 @@ class LLMClient:
+@@ -408,6 +570,20 @@ class LLMClient:
          self._token_stats = {}
          self._loop = None
  
@@ -589,7 +593,7 @@ index 22cefd4..e21cd83 100644
      def _ensure_runtime(self) -> None:
          """Build (or rebuild) the Router + semaphore for the current event loop."""
          try:
-@@ -416,6 +588,7 @@ class LLMClient:
+@@ -416,6 +592,7 @@ class LLMClient:
              loop = None
          if self._loop is loop and self._router is not None:
              return
@@ -597,7 +601,7 @@ index 22cefd4..e21cd83 100644
          self._router = _build_router(self.base_url, self.api_key, self.model_name)
          initial = max(1, Config.LLM_RAY_CONCURRENCY)
          # No hard cap: AIMD probes the real API ceiling freely and backs off
-@@ -456,91 +629,83 @@ class LLMClient:
+@@ -456,91 +633,83 @@ class LLMClient:
          """Return a copy of this client's token stats without clearing."""
          return {model: dict(s) for model, s in self._token_stats.items()}
  

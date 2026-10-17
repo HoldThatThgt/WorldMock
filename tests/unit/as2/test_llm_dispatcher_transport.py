@@ -1,5 +1,5 @@
 """传输错误重试与普通重试预算相互独立，计数用尽后传输与限流停放重发同一请求，单次发送有整次期限；
-除最后一个真实 Router 用例外全部使用本地脚本化 Router。"""
+除最后几个真实 Router 用例外全部使用本地脚本化 Router，脚本里带响应头的 429 取自真实 Router 对本地服务的回答。"""
 
 import asyncio
 import email.utils
@@ -8,7 +8,6 @@ from datetime import datetime, timedelta, timezone
 from functools import partial
 from types import SimpleNamespace
 
-import httpx
 import pytest
 from litellm.exceptions import (
     APIConnectionError,
@@ -385,10 +384,49 @@ def test_router_disables_underlying_retries_and_preserves_declared_credential(mo
 # ---------------------------------------------------------------------------
 
 
-def _rate_limit(headers=None):
-    """带给定响应头的 429；不给头时没有 Retry-After。"""
-    response = httpx.Response(429, headers=headers or {}, request=httpx.Request("POST", "https://example.invalid"))
-    return RateLimitError(message="busy", llm_provider="openai", model="offline-model", response=response)
+#: 本地服务回 200 时的完整补全正文。
+_COMPLETION = {"id": "local", "object": "chat.completion", "created": 0, "model": "test-model",
+               "choices": [{"index": 0, "message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}],
+               "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}}
+
+
+async def _local_server(answers):
+    """本地补全服务：第 n 个请求按 answers[n]（状态, 响应头）回答，用完后重复最后一项；429 回限流正文，200 回完整补全。
+    返回 (runner, 端口, 每个收到的请求记一项的列表)。"""
+    from aiohttp import web
+
+    hits = []
+
+    async def answer(request):
+        status, headers = answers[min(len(hits), len(answers) - 1)]
+        hits.append(request.path)
+        body = _COMPLETION if status == 200 else {"error": {"message": "busy", "type": "rate_limit"}}
+        return web.json_response(body, status=status, headers=headers)
+
+    app = web.Application()
+    app.router.add_post("/v1/chat/completions", answer)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "127.0.0.1", 0)
+    await site.start()
+    return runner, site._server.sockets[0].getsockname()[1], hits
+
+
+async def _rate_limit(headers=None):
+    """真实 Router 向本地服务发送一次、服务回带给定响应头的 429 时抛出的 RateLimitError，与运行里的同形：供应商响应头
+    只在 litellm_response_headers 上，error.response 是 LiteLLM 另造的不带头的替身。不给头时没有 Retry-After。
+    须在 _client 换掉等待之前构造。"""
+    runner, port, _ = await _local_server([(429, headers or {})])
+    router = llm_dispatcher._build_router(f"http://127.0.0.1:{port}/v1", "test-only", "test-model")
+    try:
+        await router.acompletion(model="test-model", messages=[{"role": "user", "content": "hello"}], stream=False)
+    except RateLimitError as error:
+        return error
+    finally:
+        await llm_dispatcher.close_cached_async_clients()
+        router.discard()
+        await runner.cleanup()
+    raise AssertionError("the local server did not rate-limit the request")
 
 
 def _rooted_failure():
@@ -443,15 +481,21 @@ async def test_park_gives_up_after_twelve_hours_with_the_root_cause(monkeypatch)
 
 
 async def test_rate_limit_parks_after_the_ordinary_count_and_honours_retry_after(monkeypatch):
-    """普通计数为零的 429 立即停放：Retry-After 30 秒等 30 秒；HTTP 日期 45 秒后等约 45 秒；不带头时 1、2、4… 封顶 120。"""
-    client, delays = _client(monkeypatch, [_rate_limit({"retry-after": "30"})] * 3 + [_success()], clock=[0.0])
+    """普通计数为零的 429 立即停放：Retry-After 30 秒等 30 秒；HTTP 日期约 45 秒后时等到那一刻；不带头时 1、2、4… 封顶 120。"""
+    target = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(seconds=45)
+    seconds, dated, bare = (await _rate_limit({"retry-after": "30"}),
+                            await _rate_limit({"retry-after": email.utils.format_datetime(target, usegmt=True)}),
+                            await _rate_limit())
+    client, delays = _client(monkeypatch, [seconds] * 3 + [_success()], clock=[0.0])
     await client.call(messages=[], max_retries=0)
     assert delays == [30, 30, 30]
-    moment = email.utils.format_datetime(datetime.now(timezone.utc) + timedelta(seconds=45), usegmt=True)
-    client, delays = _client(monkeypatch, [_rate_limit({"retry-after": moment})] * 3 + [_success()], clock=[0.0])
+    client, delays = _client(monkeypatch, [dated] * 3 + [_success()], clock=[0.0])
+    before = datetime.now(timezone.utc)
     await client.call(messages=[], max_retries=0)
-    assert len(delays) == 3 and all(44 <= delay <= 45 for delay in delays)
-    client, delays = _client(monkeypatch, [_rate_limit()] * 9 + [_success()], clock=[0.0])
+    after = datetime.now(timezone.utc)
+    assert len(delays) == 3
+    assert all((target - after).total_seconds() <= delay <= (target - before).total_seconds() for delay in delays)
+    client, delays = _client(monkeypatch, [bare] * 9 + [_success()], clock=[0.0])
     await client.call(messages=[], max_retries=0)
     assert delays == [1, 2, 4, 8, 16, 32, 64, 120, 120]
 
@@ -459,7 +503,8 @@ async def test_rate_limit_parks_after_the_ordinary_count_and_honours_retry_after
 @pytest.mark.parametrize("max_retries", [0, 2], ids=["parked", "counted"])
 async def test_retry_after_beyond_the_budget_fails_at_once(monkeypatch, max_retries):
     """Retry-After 五万秒长于十二小时：停放中与计数内都在第一次发送后失败，不等待。"""
-    client, delays = _client(monkeypatch, [_rate_limit({"retry-after": "50000"}), _success()], clock=[0.0])
+    limited = await _rate_limit({"retry-after": "50000"})
+    client, delays = _client(monkeypatch, [limited, _success()], clock=[0.0])
     with pytest.raises(llm_dispatcher.LLMDispatchError, match="after 1 attempts"):
         await client.call(messages=[], max_retries=max_retries)
     assert delays == [] and len(client._router.requests) == 1
@@ -467,8 +512,9 @@ async def test_retry_after_beyond_the_budget_fails_at_once(monkeypatch, max_retr
 
 async def test_unparsable_retry_after_is_ignored_with_a_warning(monkeypatch):
     """Retry-After 无法解析：按退避等待，写一次警告。"""
+    limited = await _rate_limit({"retry-after": "soon"})
     records = _recording_logger(monkeypatch)
-    client, delays = _client(monkeypatch, [_rate_limit({"retry-after": "soon"}), _success()], clock=[0.0])
+    client, delays = _client(monkeypatch, [limited, _success()], clock=[0.0])
     await client.call(messages=[], max_retries=0)
     assert delays == [1]
     assert [text for level, text in records if level == "warning"].count(
@@ -477,8 +523,8 @@ async def test_unparsable_retry_after_is_ignored_with_a_warning(monkeypatch):
 
 async def test_counted_rate_limit_waits_honour_a_longer_retry_after(monkeypatch):
     """计数内的 429 也不短于 Retry-After：两次各等 5 秒后成功。"""
-    response = _success()
-    client, delays = _client(monkeypatch, [_rate_limit({"retry-after": "5"})] * 2 + [response], clock=[0.0])
+    response, limited = _success(), await _rate_limit({"retry-after": "5"})
+    client, delays = _client(monkeypatch, [limited] * 2 + [response], clock=[0.0])
     assert await client.call(messages=[], max_retries=2) is response
     assert delays == [5, 5]
 
@@ -668,22 +714,6 @@ def _fake_time(monkeypatch):
     return clock, delays
 
 
-async def _always_429_server():
-    """本地服务：每个补全请求都回 HTTP 429 且不带 Retry-After；返回 (runner, 端口)。"""
-    from aiohttp import web
-
-    async def busy(request):
-        return web.json_response({"error": {"message": "busy", "type": "rate_limit"}}, status=429)
-
-    app = web.Application()
-    app.router.add_post("/v1/chat/completions", busy)
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, "127.0.0.1", 0)
-    await site.start()
-    return runner, site._server.sockets[0].getsockname()[1]
-
-
 async def test_real_router_keeps_accepting_parked_resends(monkeypatch):
     """真实 Router 在停放速率下不冷却：连到关闭的端口每次都是传输错误，十次发送后用完 600 秒停放预算；本地服务一律回
     429 时每次都是 RateLimitError（不是路由层的限流），十一次发送后用完预算。"""
@@ -700,7 +730,7 @@ async def test_real_router_keeps_accepting_parked_resends(monkeypatch):
     assert delays == [2, 4, 8, 16, 32, 64, 120, 120, 120]
     assert all(item["error"].split(" <- ")[0] in {"APIConnectionError", "InternalServerError", "Timeout"}
                and "RouterRateLimitError" not in item["error"] for item in attempts)
-    runner, port = await _always_429_server()
+    runner, port, _ = await _local_server([(429, {})])
     clock[0], delays[:] = 0.0, []
     limited = llm_dispatcher.LLMClient("test-model", f"http://127.0.0.1:{port}/v1", "test-only")
     try:
@@ -712,3 +742,38 @@ async def test_real_router_keeps_accepting_parked_resends(monkeypatch):
         await runner.cleanup()
     assert delays == [1, 2, 4, 8, 16, 32, 64, 120, 120, 120]
     assert [item["error"].split(" <- ")[0] for item in attempts] == ["RateLimitError"] * 11
+
+
+@pytest.mark.parametrize("max_retries", [0, 2], ids=["parked", "counted"])
+async def test_real_router_waits_exactly_the_providers_retry_after(monkeypatch, max_retries):
+    """真实 Router 对本地服务：前三次回 429 带 Retry-After: 30，之后回答；每次等待正好是服务给出的 30 秒（计数内与停放中
+    都一样），第四次发送拿到回答。"""
+    runner, port, hits = await _local_server([(429, {"Retry-After": "30"})] * 3 + [(200, {})])
+    _, delays = _fake_time(monkeypatch)
+    client = llm_dispatcher.LLMClient("test-model", f"http://127.0.0.1:{port}/v1", "test-only")
+    try:
+        with llm_dispatcher.collect_transport_attempts() as attempts:
+            result = await client.call(messages=[{"role": "user", "content": "hello"}], max_retries=max_retries)
+    finally:
+        await _closing_real_client(client)
+        await runner.cleanup()
+    assert result.choices[0].message.content == "ok"
+    assert delays == [30, 30, 30] and len(hits) == 4
+    assert [(item["error"].split(" <- ")[0], item["wait_ms"]) for item in attempts] == [("RateLimitError", 30000)] * 3
+
+
+@pytest.mark.parametrize("max_retries", [0, 2], ids=["parked", "counted"])
+async def test_real_router_retry_after_beyond_the_park_budget_ends_the_call(monkeypatch, max_retries):
+    """真实 Router 对本地服务：429 带 Retry-After: 50000，长于十二小时停放预算；停放中与计数内都在第一次发送后失败，
+    不等待也不重发。"""
+    runner, port, hits = await _local_server([(429, {"Retry-After": "50000"})])
+    _, delays = _fake_time(monkeypatch)
+    client = llm_dispatcher.LLMClient("test-model", f"http://127.0.0.1:{port}/v1", "test-only")
+    try:
+        with pytest.raises(llm_dispatcher.LLMDispatchError, match="after 1 attempts") as captured:
+            await client.call(messages=[{"role": "user", "content": "hello"}], max_retries=max_retries)
+    finally:
+        await _closing_real_client(client)
+        await runner.cleanup()
+    assert isinstance(captured.value.__cause__, RateLimitError)
+    assert delays == [] and len(hits) == 1

@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 _AS2_PACKAGE = "agentsociety2"
 #: 固定基线与补丁共同生成的实际 AS2 源码身份。
-AS2_LOCKED_SOURCE_SHA256 = "0dd1c9b3aba3142b5177dbc21009e4478f5ec1ad96b7c6ab294a43a29132c2a5"
+AS2_LOCKED_SOURCE_SHA256 = "0a7b9b06fe5bbf70836fefe407eceb830b2bc6acaa8c81db98176ee3c99709ba"
 _AS2_IDENTITY_ERROR = "AS2 runtime identity differs from the locked source"
 
 
