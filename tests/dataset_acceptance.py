@@ -1222,6 +1222,16 @@ MUTATIONS = (
     SourceMutation("request_attempts_accepted", "worldmock.life.model_evidence::_attempt_fields",
         'if exchange.phase == "request" and attempts:', "if False:",
         ("tests/integration/runtime/test_model_exchange_attempts.py::test_request_evidence_with_attempts_is_rejected",)),
+    SourceMutation("plan_day_correction_attempts_dropped", "worldmock.runtime::_generate_day_plan",
+        "evidence.append(day_planning.response_draft(now, agent_id, (*link, attempts), raw, error))",
+        "evidence.append(day_planning.response_draft(now, agent_id, (*link, ()), raw, error))",
+        ("tests/integration/runtime/test_model_exchange_attempts.py"
+         "::test_plan_day_evidence_carries_attempts[validation-retry]",)),
+    SourceMutation("plan_day_response_attempts_dropped", "worldmock.runtime::_generate_day_plan",
+        "evidence.append(day_planning.response_draft(now, agent_id, (*link, attempts), raw, None))",
+        "evidence.append(day_planning.response_draft(now, agent_id, (*link, ()), raw, None))",
+        ("tests/integration/runtime/test_model_exchange_attempts.py"
+         "::test_plan_day_evidence_carries_attempts[response]",)),
     SourceMutation("env_close_leaves_cached_clients", "custom.envs.life_env::LifeEnv.close",
         "await close_cached_async_clients()", "pass",
         ("tests/integration/runtime/test_llm_client_close.py"
