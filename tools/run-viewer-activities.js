@@ -20,12 +20,19 @@ const ActivityCalendar = {};
     return value.toISOString().slice(0,10);
   }
 
-  /** @brief 用现有时区偏移计算当地零点，重新求偏移以覆盖夏令时切换。 */
+  /** @brief 当地日期的第一刻，即 dateKey 首次等于该日期的整秒；夏令时跳过当地零点时为切换时刻。 */
   function midnight(day){
     const wall = Date.parse(day+'T00:00:00Z')/1000;
-    let result = wall;
-    for (let step=0;step<3;step++) result = wall-tzOffsetSec(S.tz,result);
-    return result;
+    // 前一天与后一天的偏移各把当地零点换成一个候选；取当天且前一秒不在当天的最早候选，零点不存在时二分切换秒。
+    const candidates = [wall-tzOffsetSec(S.tz,wall+86400), wall-tzOffsetSec(S.tz,wall-86400)].sort((a,b)=>a-b);
+    const first = candidates.find(time=>dateKey(time)===day && dateKey(time-1)!==day);
+    if (first!==undefined) return first;
+    let [before, after] = candidates;
+    while (after-before>1){
+      const middle = Math.floor((before+after)/2);
+      if (dateKey(middle)===day) after = middle; else before = middle;
+    }
+    return after;
   }
 
   /** @brief 显示当地时分秒；可见时段增加偏移以区分夏令时重复小时。 */

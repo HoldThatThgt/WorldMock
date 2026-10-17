@@ -109,6 +109,45 @@ test('calendar aligns hourly grid lines and ticks on narrow and wide 23-hour, 24
   }
 });
 
+test('a local day starts at its first instant when daylight saving time skips local midnight', async t=>{
+  const span = view => {
+    const day = view.run('ActivityCalendar.selectedDay()');
+    return [day.date,day.start,day.end];
+  };
+  const range = view => /class="calendar-range">([^·]+) ·/.exec(calendar(view))[1];
+  for (const [tz,previous,day,previousStart,dayStart,nextStart,ranges] of [
+    ['Asia/Beirut','2026-03-28','2026-03-29','2026-03-28T00:00:00+02:00','2026-03-29T01:00:00+03:00',
+      '2026-03-30T00:00:00+03:00',['GMT+2 00:00–GMT+3 01:00','GMT+3 01:00–GMT+3 00:00']],
+    ['Africa/Cairo','2026-04-23','2026-04-24','2026-04-23T00:00:00+02:00','2026-04-24T01:00:00+03:00',
+      '2026-04-25T00:00:00+03:00',['GMT+2 00:00–GMT+3 01:00','GMT+3 01:00–GMT+3 00:00']],
+    ['Asia/Beirut','2026-10-24','2026-10-25','2026-10-24T00:00:00+03:00','2026-10-25T00:00:00+02:00',
+      '2026-10-26T00:00:00+02:00',['GMT+3 00:00–GMT+2 00:00','GMT+2 00:00–GMT+2 00:00']],
+    ['America/New_York','2026-10-31','2026-11-01','2026-10-31T00:00:00-04:00','2026-11-01T00:00:00-04:00',
+      '2026-11-02T00:00:00-05:00',['GMT-4 00:00–GMT-4 00:00','GMT-4 00:00–GMT-5 00:00']],
+    ['Asia/Shanghai','2026-01-05','2026-01-06','2026-01-05T00:00:00+08:00','2026-01-06T00:00:00+08:00',
+      '2026-01-07T00:00:00+08:00',['GMT+8 00:00–GMT+8 00:00','GMT+8 00:00–GMT+8 00:00']],
+  ]){
+    const first=at(previousStart),second=at(dayStart),last=at(nextStart),late=second-1800,evening=last-4*3600;
+    const view = await viewer([...activity('late',late,[[late,late+1200]]),
+      ...activity('evening',evening,[[evening,evening+600]])],{timezone:tz});
+    t.after(()=>view.close());
+    view.activities();
+    assert.equal(date(view),previous);
+    assert.deepEqual(span(view),[previous,first,second]);
+    assert.equal(range(view),ranges[0]);
+    assert.deepEqual(bars(view),[{left:(late-first)/(second-first)*100,width:1200/(second-first)*100}]);
+    let rows=tableRows(view.get('#act-body').innerHTML,'act-table');
+    assert.deepEqual(rows.map(row=>row[0]),[`${previous.slice(5).replace('-','/')} 23:30`]);
+    choose(view,day);
+    assert.equal(date(view),day);
+    assert.deepEqual(span(view),[day,second,last]);
+    assert.equal(range(view),ranges[1]);
+    assert.deepEqual(bars(view),[{left:(evening-second)/(last-second)*100,width:600/(last-second)*100}]);
+    rows=tableRows(view.get('#act-body').innerHTML,'act-table');
+    assert.deepEqual(rows.map(row=>row[0]),[`${day.slice(5).replace('-','/')} 20:00`]);
+  }
+});
+
 test('an export with recorded time but no activities still offers its local dates', async t=>{
   const start=at('2026-01-05T06:00:00+08:00'),end=at('2026-01-07T22:00:00+08:00');
   const view=await viewer([event('run_started',{}, {occurred_at:start}),
