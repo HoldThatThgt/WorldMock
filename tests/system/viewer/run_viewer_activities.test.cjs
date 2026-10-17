@@ -115,7 +115,10 @@ test('a local day starts at its first instant when daylight saving time skips lo
     return [day.date,day.start,day.end];
   };
   const range = view => /class="calendar-range">([^·]+) ·/.exec(calendar(view))[1];
-  for (const [tz,previous,day,previousStart,dayStart,nextStart,ranges] of [
+  // 多伦多 1919-03-30 在 23:30 拨到次日 00:30：零点不存在，切换也不在旧偏移的零点，只能逐秒二分找到切换时刻。
+  for (const [tz,previous,day,previousStart,dayStart,nextStart,ranges,lateClock='23:30'] of [
+    ['America/Toronto','1919-03-30','1919-03-31','1919-03-30T00:00:00-05:00','1919-03-31T00:30:00-04:00',
+      '1919-04-01T00:00:00-04:00',['GMT-5 00:00–GMT-4 00:30','GMT-4 00:30–GMT-4 00:00'],'23:00'],
     ['Asia/Beirut','2026-03-28','2026-03-29','2026-03-28T00:00:00+02:00','2026-03-29T01:00:00+03:00',
       '2026-03-30T00:00:00+03:00',['GMT+2 00:00–GMT+3 01:00','GMT+3 01:00–GMT+3 00:00']],
     ['Africa/Cairo','2026-04-23','2026-04-24','2026-04-23T00:00:00+02:00','2026-04-24T01:00:00+03:00',
@@ -137,7 +140,7 @@ test('a local day starts at its first instant when daylight saving time skips lo
     assert.equal(range(view),ranges[0]);
     assert.deepEqual(bars(view),[{left:(late-first)/(second-first)*100,width:1200/(second-first)*100}]);
     let rows=tableRows(view.get('#act-body').innerHTML,'act-table');
-    assert.deepEqual(rows.map(row=>row[0]),[`${previous.slice(5).replace('-','/')} 23:30`]);
+    assert.deepEqual(rows.map(row=>row[0]),[`${previous.slice(5).replace('-','/')} ${lateClock}`]);
     choose(view,day);
     assert.equal(date(view),day);
     assert.deepEqual(span(view),[day,second,last]);
