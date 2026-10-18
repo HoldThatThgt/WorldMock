@@ -8,7 +8,7 @@ from worldmock.evaluation.adapters import parse_world_event
 from worldmock.evaluation.errors import EvaluationError
 from worldmock.evaluation.public_evidence import worldmock_activity_action, worldmock_public_evidence
 from tests.integration.evaluation.test_adapters import _public_event
-from tests.life.conftest import MAIN_TOOL, SIDE_TOOL, main_arguments, side_arguments
+from tests.life.conftest import MAIN_TOOL, SIDE_TOOL, action_identity, main_arguments, side_arguments
 
 def start_call(action, app="real-app"):
     """按活动实际记下的动作给出现行开始工具与完整参数：出行、睡眠和在地点做事用主工具，购买和用内容 app 用副工具。"""
@@ -117,7 +117,8 @@ def test_real_start_group_projects_each_action_with_its_own_activity(engine_fact
     engine.register_day_plan(1, PlanDayRequest(goals=()), [], [])
     _, (walk, watch) = act_group(engine, "pair", travel("公司"), use_app("哔哩哔哩"))
     assert (walk.status, watch.status) == ("in_progress", "in_progress"), (walk.error_code, watch.error_code)
-    assert (walk.action_id, watch.action_id) == ("action-pair-1", "action-pair-2")
+    first, second = action_identity("pair", 1), action_identity("pair", 2)
+    assert (walk.action_id, watch.action_id) == (first, second)
     trip = engine.context.state.activities[walk.activity_id]
     media = engine.context.state.activities[watch.activity_id]
     assert trip.data["action"] == "travel" and media.data["app_id"] == "bilibili" and media.data["content_id"]
@@ -127,10 +128,10 @@ def test_real_start_group_projects_each_action_with_its_own_activity(engine_fact
     facts = {(row.action, row.interaction, row.object_type, row.object_key, row.state,
               tuple(owner[identity] for identity in row.source_event_ids)) for row in evidence}
     assert facts == {
-        ("travel", "travel", "route", trip.data["trip_id"], "requested", ("action-pair-1",)),
-        ("travel", "travel", "route", trip.data["trip_id"], "started", ("action-pair-1",)),
-        ("interact", "interact", "content", media.data["content_id"], "requested", ("action-pair-2",)),
-        ("interact", "interact", "content", media.data["content_id"], "started", ("action-pair-2",))}
+        ("travel", "travel", "route", trip.data["trip_id"], "requested", (first,)),
+        ("travel", "travel", "route", trip.data["trip_id"], "started", (first,)),
+        ("interact", "interact", "content", media.data["content_id"], "requested", (second,)),
+        ("interact", "interact", "content", media.data["content_id"], "started", (second,))}
     assert len(evidence) == 4
 
 
@@ -342,7 +343,7 @@ def test_query_request_acceptance_and_ending_produce_no_public_point_fact(engine
                and (row.data["request"].get("action") == "query" or row.data["tool_name"] != SIDE_TOOL)}
     evidence = worldmock_public_evidence(recorded, [])
     assert [row for row in evidence if {owner[identity] for identity in row.source_event_ids} & related] == []
-    assert {"action-done", "action-stopped", "action-conclude"} <= related
+    assert {action_identity("done"), action_identity("stopped"), action_identity("conclude")} <= related
     row = _public_event(1, "action_requested", {"tool_name": MAIN_TOOL, "request": main_arguments("query", "柠檬茶")},
                         "main-query")
     with pytest.raises(EvaluationError, match="^Start request action is outside the current closed set$"):

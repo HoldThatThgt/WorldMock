@@ -2,17 +2,18 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from worldmock.errors import ProtocolError
 from worldmock.footprints.models import EventDraft
 from worldmock.life.activity_titles import TitleIndex, activity_snapshot
-from worldmock.life.models import (ActionReceipt, ActionResult, ActionStatus, ActivityKind,
+from worldmock.life.models import (ActionReceipt, ActionResult, ActionStatus, ActivityKind, ActivityState,
                                    ActivityStatus, PendingAction, StoredAction, WorldState)
 
 
 def _remember_action(state: WorldState, pending: PendingAction, result: ActionResult) -> WorldState:
-    """@brief 保存终态结果供同一 action_id 严格幂等复用。"""
+    """@brief 保存这条动作的回执与即时结果，供本秒的拒绝计数与活动终结时的开始动作核对。"""
     receipt = ActionReceipt(action_id=pending.action_id, round_id=pending.round_id,
                             decision_id=pending.decision_id, request_sha256=pending.request_sha256)
     stored = StoredAction(action_id=pending.action_id, tool_name=pending.tool_name,
@@ -23,14 +24,28 @@ def _remember_action(state: WorldState, pending: PendingAction, result: ActionRe
     return state.model_copy(update={"processed_actions": actions}, deep=True)
 
 
-def _terminal_action_records(state: WorldState, result: ActionResult) -> dict[str, StoredAction]:
-    """@brief 以活动最终结果替换最初动作的持久幂等结果。"""
-    if result.action_id not in state.processed_actions:
+def prune_processed_actions(state: WorldState) -> WorldState:
+    """@brief 时钟推进时只留下规则仍会读取的动作：进行中或暂停活动的开始动作；其余的完整记录在动作事件里
+    （docs/design/04-simulation-engine.md「原子性与恢复」）。
+
+    @param state 已移到新时刻、尚未结算这次推进的世界副本
+    @return processed_actions 只含这些开始动作的世界副本，其余字段原样
+    """
+    origins = {activity.origin_action_id for activity in state.activities.values()
+               if activity.status in {ActivityStatus.ACTIVE, ActivityStatus.PAUSED}}
+    kept = {key: stored for key, stored in state.processed_actions.items() if key in origins}
+    return state.model_copy(update={"processed_actions": kept})
+
+
+def require_origin_action(state: WorldState, activity: ActivityState) -> None:
+    """@brief 活动终结时开始它的那条动作必须仍在 processed_actions 里。
+
+    @exception ProtocolError 开始动作缺失（Activity origin action is missing from processed actions）
+    """
+    if activity.origin_action_id not in state.processed_actions:
+        logging.error("Activity %s origin action %s is missing from processed actions",
+                      activity.activity_id, activity.origin_action_id)
         raise ProtocolError("Activity origin action is missing from processed actions")
-    actions = dict(state.processed_actions)
-    stored = actions[result.action_id]
-    actions[result.action_id] = stored.model_copy(update={"result": result.model_dump(mode="json")}, deep=True)
-    return actions
 
 
 def _result_draft(pending: PendingAction, result: ActionResult, event_type: str) -> EventDraft:

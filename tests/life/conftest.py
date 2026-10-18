@@ -35,6 +35,21 @@ def context(engine: LifeEngine, round_id: str, agent_id: int = 1) -> DecisionCon
                            agent_id, observed, engine.context.state.version)
 
 
+def action_identity(label: str, number: int = 1, agent_id: int = 1) -> str:
+    """@brief 测试决策 decision-<标签>-<人物> 的第 number 条动作身份，形式与 LifeAgent 相同。"""
+    return f"decision-{label}-{agent_id}:action:{number:04d}"
+
+
+def oversleep_identity(engine: LifeEngine, label: str, seconds: int | None = None) -> str:
+    """@brief 标签为 label 的决策里找一条会抽中多睡的动作身份（给了秒数时要求恰好多睡这么久）：此前睡得不足时，用它开始的
+    睡眠一定睡过头。"""
+    from worldmock.life.sleep_plan import oversleep_seconds
+
+    state = engine.context.state.random_state
+    return next(action_identity(label, number) for number in range(1, 10000)
+                if (extra := oversleep_seconds(0, state, action_identity(label, number))) and seconds in (None, extra))
+
+
 def stage_day_plan(engine: LifeEngine, agent_id: int = 1, goals: tuple = (), submitted: bool = False) -> None:
     """预置当日计划（只置 day_plan）并保持存储版本连续；submitted 时同时写入当日日期（零点计划的幂等键）。
 
@@ -52,7 +67,7 @@ def stage_day_plan(engine: LifeEngine, agent_id: int = 1, goals: tuple = (), sub
     staged.agents[agent_id] = agent.model_copy(
         update={"day_plan": DayPlan(day_end=day_end, goals=tuple(goals)), "plan_submitted_dates": dates}, deep=True)
     staged.version += 1
-    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
+    engine.context.store.commit(engine.context.state.model_dump(mode="json"), staged.model_dump(mode="json"), [EventDraft(
         event_type="environment_event", occurred_at=staged.current_time,
         visibility="system", data={"kind": "test_day_plan_staged"})])
     engine.context.state = staged
@@ -67,7 +82,7 @@ def stage_errands(engine: LifeEngine, agent_id: int, errands=()) -> None:
     staged.agents[agent_id] = staged.agents[agent_id].model_copy(
         update={"errands": {item.errand_id: item for item in errands}}, deep=True)
     staged.version += 1
-    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
+    engine.context.store.commit(engine.context.state.model_dump(mode="json"), staged.model_dump(mode="json"), [EventDraft(
         event_type="environment_event", occurred_at=staged.current_time,
         visibility="system", data={"kind": "test_errands_staged"})])
     engine.context.state = staged
@@ -95,7 +110,7 @@ def stage_legacy_control_request(engine: LifeEngine, tool: str, agent_id: int = 
     staged.version += 1
     shared = {"occurred_at": staged.current_time, "agent_id": agent_id, "decision_id": requested.decision_id,
               "action_id": action_id}
-    engine.context.store.commit(staged.model_dump(mode="json"), [
+    engine.context.store.commit(engine.context.state.model_dump(mode="json"), staged.model_dump(mode="json"), [
         EventDraft(event_type="action_requested", source_kind="model", data=data, **shared),
         EventDraft(event_type="action_result", data={**result.data, "action_id": action_id}, **shared)])
     engine.context.state = staged
@@ -133,7 +148,7 @@ def bring_to_window(engine: LifeEngine, object_ids, agent_id: int = 1) -> None:
     staged.presentation_state = {**staged.presentation_state,
                                  agent_id: {item: staged.current_time for item in sorted(everything - wanted)}}
     staged.version += 1
-    engine.context.store.commit(staged.model_dump(mode="json"), [EventDraft(
+    engine.context.store.commit(engine.context.state.model_dump(mode="json"), staged.model_dump(mode="json"), [EventDraft(
         event_type="environment_event", occurred_at=staged.current_time, visibility="system",
         data={"kind": "test_brought_to_window"})])
     engine.context.state = staged
@@ -212,7 +227,7 @@ def submit_round(engine: LifeEngine, requests: dict[int, tuple[str, object]], ro
     receipts = []
     for item in reversed(contexts):
         tool_name, request = requests[item.agent_id]
-        action_id = f"action-{round_id}-{item.agent_id}"
+        action_id = f"{item.decision_id}:action:0001"
         receipts.append(engine.submit_action(DirectToolCall(item, action_id, tool_name, request)))
     return receipts, engine.commit_decision_round(round_id)
 
@@ -367,7 +382,7 @@ def conclude_pending(engine: LifeEngine, round_id: str, agent_id: int = 1):
     engine.begin_decision_round([decision])
     names = pending_names(engine.observe(decision))
     assert names, "no activity is awaiting conclusion"
-    engine.submit_action(DirectToolCall(decision, f"action-{round_id}", "conclude_activity",
+    engine.submit_action(DirectToolCall(decision, f"{decision.decision_id}:action:0001", "conclude_activity",
                                         conclude_request(*names)))
     return engine.commit_decision_round(round_id)[0]
 

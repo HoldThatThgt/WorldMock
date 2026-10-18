@@ -79,7 +79,7 @@ def _assert_world_untouched(staged: SimpleNamespace) -> None:
     reopened = LifeEngine.open(staged.inputs, staged.run_dir)
     try:
         assert reopened.context.state.model_dump_json().encode('utf-8') == staged.state
-        added = [event for event in reopened.context.store.read_events(reopened.context.store.last_event_seq)
+        added = [event for event in list(reopened.context.store.iter_events(reopened.context.store.last_event_seq))
                  if event.event_seq > staged.sequence]
         assert [(event.event_type, event.decision_id) for event in added] == [
             ('observation', staged.frozen.decision_id)]
@@ -363,7 +363,7 @@ async def test_host_tool_message_is_the_environment_recall_result(engine_factory
     assert refused == await environment.read_query(decision, 'recall_task_summary', shared)
     assert set(refused) == _ERROR_KEYS and refused['error_code'] == 'TASK_NOT_FOUND'
     assert refused['items'][0]['written'] == '歇一歇' and refused['unmet'] == []
-    added = [event for event in engine.context.store.read_events(engine.context.store.last_event_seq) if event.event_seq > sequence]
+    added = [event for event in list(engine.context.store.iter_events(engine.context.store.last_event_seq)) if event.event_seq > sequence]
     assert [event.event_type for event in added] == [
         'decision_started', *(['model_request', 'model_response'] * 3), 'action_requested']
     assert added[-1].data['tool_name'] == 'revise_day_plan'

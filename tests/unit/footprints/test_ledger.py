@@ -14,7 +14,7 @@ def funded(tmp_path):
     injection = EventDraft(event_type='environment_event', occurred_at=100, source_kind='scenario',
                            data={'kind': 'initial_funds_injected'},
                            resource_changes={'account:agent:1': 100, 'account:external:scenario': -100})
-    store.commit(store.state, [injection])
+    store.commit(store.state, {**store.state, 'version': 1}, [injection])
     yield store
     store.close()
 
@@ -24,9 +24,9 @@ def transfer(changes):
 
 
 def test_balanced_transfer_reconstructs_actual_final_accounts(funded):
-    state = {'version': 1, 'current_time': 101, 'accounts': {'agent:1': 90, 'external:scenario': -90}}
-    funded.commit(state, [transfer({'account:agent:1': -10, 'account:external:scenario': 10})])
-    validate_account_history(funded.read_events(funded.last_event_seq), funded.state)
+    state = {'version': 2, 'current_time': 101, 'accounts': {'agent:1': 90, 'external:scenario': -90}}
+    funded.commit(funded.state, state, [transfer({'account:agent:1': -10, 'account:external:scenario': 10})])
+    validate_account_history(list(funded.iter_events(funded.last_event_seq)), funded.state)
     assert funded.state['accounts'] == state['accounts']
 
 
@@ -40,26 +40,29 @@ def test_missing_or_false_ledger_cannot_commit_changed_accounts(funded, kind):
     if kind == 'fraction': changes = {'account:agent:1': -10.0, 'account:external:scenario': 10.0}
     events = [transfer(changes), transfer(changes)] if kind == 'duplicated' else [transfer(changes)]
     with pytest.raises(IntegrityError):
-        funded.commit({'version': 1, 'current_time': 101, 'accounts': {'agent:1': 90, 'external:scenario': -90}}, events)
+        funded.commit(funded.state,
+                      {'version': 2, 'current_time': 101, 'accounts': {'agent:1': 90, 'external:scenario': -90}},
+                      events)
     assert funded.state['accounts'] == {'agent:1': 100, 'external:scenario': -100}
     assert funded.last_event_seq == 1
 
 
 def test_new_funds_require_explicit_external_counterparty(funded):
-    new_state = {'version': 1, 'current_time': 101, 'accounts': {'agent:1': 150, 'external:scenario': -150}}
-    funded.commit(new_state, [transfer({'account:agent:1': 50, 'account:external:scenario': -50})])
-    validate_account_history(funded.read_events(funded.last_event_seq), funded.state)
+    new_state = {'version': 2, 'current_time': 101, 'accounts': {'agent:1': 150, 'external:scenario': -150}}
+    funded.commit(funded.state, new_state, [transfer({'account:agent:1': 50, 'account:external:scenario': -50})])
+    validate_account_history(list(funded.iter_events(funded.last_event_seq)), funded.state)
 
 
 def test_final_checkpoint_balance_must_equal_complete_event_history(funded):
     wrong = {'accounts': {'agent:1': 90, 'external:scenario': -90}}
     with pytest.raises(IntegrityError, match='reconstruct'):
-        validate_account_history(funded.read_events(funded.last_event_seq), wrong)
+        validate_account_history(list(funded.iter_events(funded.last_event_seq)), wrong)
 
 
 def test_reused_receipt_cannot_record_a_second_payment(funded):
-    state = {'version': 1, 'current_time': 101, 'accounts': {'agent:1': 90, 'external:scenario': -90}}
-    funded.commit(state, [transfer({'account:agent:1': -10, 'account:external:scenario': 10})])
-    with pytest.raises(IntegrityError):
-        funded.commit(state, [transfer({'account:agent:1': -10, 'account:external:scenario': 10})])
+    state = {'version': 2, 'current_time': 101, 'accounts': {'agent:1': 90, 'external:scenario': -90}}
+    funded.commit(funded.state, state, [transfer({'account:agent:1': -10, 'account:external:scenario': 10})])
+    with pytest.raises(IntegrityError, match='Account balances disagree with committed financial events'):
+        funded.commit(funded.state, {**state, 'version': 3},
+                      [transfer({'account:agent:1': -10, 'account:external:scenario': 10})])
     assert funded.last_event_seq == 2

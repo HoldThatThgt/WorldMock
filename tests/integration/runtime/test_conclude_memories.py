@@ -422,7 +422,7 @@ def _settle(engine, round_id: str, tool: str, request):
     decision = context(engine, round_id)
     engine.begin_decision_round([decision])
     engine.observe(decision)
-    engine.submit_action(DirectToolCall(decision, f"action-{round_id}", tool, request))
+    engine.submit_action(DirectToolCall(decision, f"{decision.decision_id}:action:0001", tool, request))
     [result] = engine.commit_decision_round(decision.round_id)
     return result
 
@@ -487,7 +487,7 @@ async def _decide(engine, environment: LifeEnv, person: LifeAgent, round_id: str
 
 def _events(engine, event_type: str, decision_id: str) -> list:
     """本轮决策写下的某类事件。"""
-    return [event for event in engine.context.store.read_events(engine.context.store.last_event_seq)
+    return [event for event in list(engine.context.store.iter_events(engine.context.store.last_event_seq))
             if event.event_type == event_type and event.decision_id == decision_id]
 
 

@@ -16,7 +16,24 @@ flowchart LR
     Export --> Evaluation[行为评估]
 ```
 
-查看器读的是运行目录或导出目录里的数据库、运行清单和冻结的目录素材，见「显示写法与检查工具」。
+查看器打开导出目录：在页面里从 events.jsonl 建索引，读导出清单、运行清单和冻结的目录素材，见「显示写法与检查工具」。
+
+运行库只有环境 actor 一个写入者，写入分两种，每次都是一个 SQLite 事务。
+
+- **一步世界推进**：版本恰好加一的新世界与至少一条因果事件。调用方同时交上这一步出发时的世界，存储先核对它与已提交
+  世界的规范 JSON 逐字节相同，不同即以 `Engine world differs from the committed world` 拒绝；新世界在写入前已按加载口径
+  复校。事件的 `state_version_before` 与 `state_version_after` 是推进前后的两个版本。
+- **证据追加**：只写事件，不接收、不改写世界。观察、模型请求与响应、记忆更新、`decision_started` 与
+  `action_requested`、`run_failed` 和零点计划失败时的模型证据都是证据追加，事件的前后版本都等于当前已提交版本。
+  证据追加不能带资金变化；初始注资只属于创建世界的那一步推进。
+
+检查点不改世界：调用方交上的世界必须与已提交世界逐字节相同，载荷只按规范 JSON 编码一次，`record_sha256` 是这份字节的
+SHA-256，存储的正文是它的 zlib 流（见「冻结输入、检查点与分支」）。
+
+写入者在内存里保存最近一次提交的世界的版本、时钟、账户与规范字节：第一次写入时从库里读一次，之后只在推进世界的事务
+成功后换成新世界；最近事件的发生时刻每次按主键从库里取，不缓存。每个写事务提交前核对库里的世界版本仍是缓存的版本，
+不同说明有别的写入者，以 `World state was changed outside this store` 拒绝并整体回滚。只读的打开者（导出、恢复时读取
+父运行）不载入这份缓存，也就不为它解析世界。
 
 ## 事件与来源
 
@@ -106,6 +123,55 @@ callback_effect、callback_reminder、time_trigger、weather 使用闭合字段�
 停留就是地点停留会话，`session_id` 是会话身份。路上不是停留，不写这两种事件；
 到达时刻恰好等于运行截止时照常写 `location_entered`，截止时人物还在的那段停留没有离开事件。
 
+模型请求与观察里的大表各只存一次，读出的证据与写入前相同：
+
+- **模型证据**：模型调用逐次留证。
+  - 请求事件 `model_request` 的 `data.request` 是实际发出的完整请求，消息、工具与参数原样。
+  - 同一调用的响应或失败事件 `model_response` 的 `data.request` 恒为 null（键照常出现），`caused_by` 恰一项，指向它的请求事件。请求只存一次；零点计划的证据本就如此。其余键照旧：`phase`、`call_id`、`attempt`、`response`、`error`，响应带 `protocol_feedback` 时也照旧。
+  - 环境登记请求时记下请求规范 JSON 的 sha256；登记响应或失败时，核对它带来的请求与之相同。比较按规范内容，内容相同、只是重新构造（例如跨进程传送后键的插入次序不同）的请求照常接受。
+  - 不同说明请求在调用途中被改动：先写英文错误日志 `Model <phase> for call <call_id> carries a request that differs from its recorded request`，再抛 `ProtocolError("Model exchange request differs from its recorded request")`。这条响应不写入，运行按故障停下。
+- **观察分件**：观察里七张随时间增长或几乎不变的表按内容单独存放一次，观察事件的正文只带它们的 sha256。存储形式如下表。
+
+| 键 | 存储形式 |
+| --- | --- |
+| `activity_bindings` | 按行序，把所指活动开始时刻 `started_at` 的场景本地日期相同的相邻行归为一段，每段一个观察分件；正文存这些分件 sha256 的列表，次序即行序，没有行时是空列表 |
+| `catalog_bindings`、`errand_item_bindings`、`known_activity_actions`、`locations`、`memory_layer`、`persona_views` | 整表一个观察分件，正文存一个 sha256 |
+| 其余键（含 `todo_layer`、`goal_bindings`） | 照旧内联 |
+
+- **观察分件的写入**：
+  - 观察分件的正文是那张表或那一段行的规范 JSON 文本，sha256 按它的 UTF-8 字节计算；引用是 64 个小写十六进制字符的裸字符串，不是带标记的对象。
+  - 观察分件存在运行库的 `parts` 表（`sha256` 主键、`body` 正文），只能新增，不能修改或删除；同一内容只存一次。
+  - 观察与它的全部观察分件在同一事务写入：先登记分件（已有的同一分件不重写），再写观察；观察引用的每个分件都必须已在表中，否则整笔回滚。登记时正文的 sha256 与键不符报 `Observation part content does not match its sha256`，引用的分件不在表中报 `Observation part is missing`。
+  - 每次观察都把全部分件重新编码、求摘要，不按日期缓存：过去某天的一段会因活动阶段变化、改称「（第二次）」或记忆层标注变化而改变。
+  - 拆分不改动 `observe` 交给宿主的观察及其中任何容器；只给宿主的 `progress_layer`、`progress_meta` 不写入观察事件。要写入的观察缺少这七张表之一，报 `Observation lacks a table stored as a part`。
+- **读取**：存储层读取任何事件都经同一个解码。
+  - 观察的引用换回原表；换回前核对分件存在、正文的 sha256 与引用相同。
+  - 不成立先写英文错误日志，再以 `IntegrityError` 拒绝，原因是 `Observation part is missing`、`Observation part content does not match its sha256` 或 `Stored observation part reference is invalid`。
+  - 冻结观察、回看、名称解析与结算读到的观察，与写入前逐字节相同，键序也相同。
+  - 没经过这个解码的读取拿到的是裸 sha256 字符串，按行取字段立即失败，不会静默读到别的内容。
+  - 任何 SQL 条件只读信封字段和内联键，不读这七个键的内部。
+  - 宿主照旧用 `observe` 返回的内存观察生成提示，存储形式不进入任何提示。
+- **观察分件不是素材**：
+  - 素材按 `AssetRef`（带模态与来源）引用，逐个文件落盘刷盘，在事务之外先发布，每次提交与恢复都重读复核，导出时逐个复制。
+  - 观察分件是运行库里与观察同一事务的行，按裸 sha256 引用；导出时换回原表，不另成工件。
+  - 两者不共用名称。
+
+```mermaid
+flowchart LR
+  O[observe] --> M[内存观察]
+  M --> H[宿主提示]
+  M --> S[拆分]
+  subgraph T[同一事务]
+    P[parts 表]
+    E[带引用的观察事件]
+  end
+  S --> P
+  S --> E
+  R[读取] --> D[唯一解码]
+  D --> F[完整观察]
+  F --> X[冻结观察、导出与检查工具]
+```
+
 ## 数字足迹
 
 `app-usage.jsonl` 的事实共八种，共同字段是 `fact_kind`、`agent_id`、`activity_id`、`app_id`、`source_event_id`。
@@ -164,7 +230,7 @@ app_touch、payment_notification 和 order_notification 是系统点事实，不
 | 情形 | 格式 | 例子 | 样例环境的例子 |
 | --- | --- | --- | --- |
 | 用 app 看到一条内容 | 使用<app 名>《<标题>》 | 使用哔哩哔哩《散步装备准备》 | 使用哔哩哔哩《测试文章》 |
-| 一次使用里连着看了两三条 | 使用<app 名>《<标题一>》《<标题二>》…… | —（查看器泳道把首尾相接的几次使用并成一行、不多于三条时也用这个格式，多于三条照下一行；见下文「查看器里的连续使用」） | 使用哔哩哔哩《测试剧集第一集》《测试剧集第二集》 |
+| 一次使用里连着看了两三条 | 使用<app 名>《<标题一>》《<标题二>》…… | —（查看器活动日历把首尾相接的几次使用合成条块，不多于三条时也用这个格式，多于三条照下一行；见下文「查看器里的连续使用」） | 使用哔哩哔哩《测试剧集第一集》《测试剧集第二集》 |
 | 一次使用里连着看了超过三条 | 使用<app 名>《<标题一>》《<标题二>》《<标题三>》等 <K> 条 | — | 使用抖音《测试短视频》《测试短视频二》《测试实况》等 4 条 |
 | 在地点做一件独立的事 | 在<地点显示名>：<单元名> | 在淀山湖大道东渡悦来城公寓：早上洗漱 | 在家：测试休息 |
 | 在地点做一个系列 | 在<地点显示名>：<系列名>《<集一>》《<集二>》…… | 在淀山湖大道东渡悦来城公寓：做晚饭《备菜做饭》《吃晚饭》《洗碗收拾厨房》 | 样例环境没有地点系列，测试在副本上加 |
@@ -255,11 +321,11 @@ app 名按事件的 `app_id` 取；功能 app 也在冻结的 app 目录里，�
 | 导出的一天时间线，以及质量报告 `timeline_labels` 检查的行 | 每行的「活动」一栏 | 同一活动首尾相接的结算段合成一行，覆盖这些段的进度事件。时间线不读受理事件。活动暂停后再恢复是两行，各列各的 | 起止、总时长、段数三栏 |
 | `scripts/inspect_run.py` 的 `events` | `activity_progress` 行、`action_accepted` 行里的活动；`environment_event` 里的三种手机事件 | 一条事件，只有它指向的那一条内容 | 见下文「检查工具」 |
 | 人物零点做计划时读到的「已核验经历」 | 内容经历句 | 一条内容推进经历，只有那一条内容（经历的 `content_id` 取自进度事件的 `data.content`） | 「<起>–<止> <写法>」，句子见[人物](06-agent.md)「进度、待办与记忆」 |
-| 查看器 | 活动表的「目标」列、活动泳道的标签；时间线的「已受理」「活动段」行；「世界事件」行里的三种手机事件；「结果」行的订单段 | 活动表和泳道：一项活动的全部受理事件与进度事件，按事件序号；泳道里几次使用并成的一行，覆盖这一行各个执行段的进度事件。时间线的行：一条事件 | 见下文「查看器」 |
+| 查看器 | 活动表的「目标」列、活动日历的条块与完整名称；时间线的「已受理」「活动段」行；「世界事件」行里的三种手机事件；「结果」行的订单段 | 活动表和活动日历：一项活动的全部受理事件与进度事件，按事件序号；活动日历中的连续使用可选对象覆盖其全部成员各个执行段的进度事件。时间线的行：一条事件 | 见下文「查看器」 |
 
 一段不间断、不跨零点的活动，时间线的行和查看器的活动表写出的是同一句。暂停后恢复、或跨过零点的活动，时间线分成几行、各列各的，查看器的活动表按活动只有一行，把各段的内容列全；
 受理之后一秒都没有推进就结束的活动，时间线没有这一行，查看器的活动表仍写出受理时选中的那一条。
-标题上限只在一行覆盖几条内容时起作用：时间线的一行在自动接续之下就是一整次使用，查看器的活动表和泳道也是；`inspect_run.py` 与经历句每行只有一条内容。
+标题上限只在同一条写法包含多条内容时起作用：时间线的一行在自动接续之下就是一整次使用，查看器活动表的一项与活动日历的可选对象也是；`inspect_run.py` 与经历句每行只有一条内容。
 
 经历句交给写法的快照只有三项：`kind` 是 `interact`，`location_id` 是这项活动的地点，`data.app_id` 是经历的 `app_id`；内容序列只有经历的 `content_id` 一条。
 一条内容被结算边界切成几段仍是几句，系列逐集一句。
@@ -282,7 +348,7 @@ app 名按事件的 `app_id` 取；功能 app 也在冻结的 app 目录里，�
 | 导出写时间线和质量报告 | 足迹库持有的运行清单 | 运行目录的 `assets/<sha256>` |
 | 导出认证重算质量报告 | 导出清单的 `frozen_run_manifest` | 导出目录的 `assets/<sha256>`：导出复制了全部环境素材，只凭导出目录就能重算 |
 | 零点计划的经历句 | 不回读文件 | 运行中的引擎用内存里的目录，它与冻结的素材是同一份字节 |
-| 查看器 | 同一次拖入或选择的文件里、属于本库的运行清单（运行目录的 `manifest.json`，或导出清单里的 `frozen_run_manifest`） | 同一次拖入的 `assets/<sha256>` 文件 |
+| 查看器 | 导出清单的 `frozen_run_manifest`；同一次拖入了运行目录时取运行目录的 `manifest.json`（内容相同） | 同一次拖入的 `assets/<sha256>` 文件 |
 
 Python 一侧读冻结素材时沿用导出认证的读取：先核对素材名集合，再逐个按摘要定位并复核字节数与摘要，然后用登记环境时的同一套严格行模型解析各行。
 
@@ -298,7 +364,6 @@ Python 一侧的使用方都是要出结论的工具或人物的输入，取不�
 | 素材的字节与清单不符 | `Frozen environment asset identity is invalid` | 只核对字节数：`console.error('Frozen catalog file size disagrees with the run manifest:', <素材名>)`，按缺失处理 |
 | 素材名集合与清单不符 | `Frozen environment asset set is invalid`、`Frozen catalog file set is invalid` | 不检查 |
 | 某一行不是合法的 JSON 对象，或不合当前的行模型 | 登记环境时的同一句英文原因，带文件名和行号 | 只要求每行能解析成 JSON 对象：`console.error('Frozen catalog file is unreadable:', <素材名>)`，按缺失处理；多出来的字段不管 |
-| 没有属于本库的运行清单 | 不适用：这几个工具都从运行目录或导出目录的清单起步 | `console.error('Frozen catalog is unavailable: no run manifest for this database')` 一次，全部名称缺失 |
 | 购买活动的 `order_ids` 在订单记录里找不到 | `Purchase activity has no recorded order: <order_id>` | 这张订单的位置显示「名称缺失（<order_id>）」 |
 | 活动种类没有专门的写法，也不在中文种类表里 | `Unsupported activity kind for display: <kind>` | 没有专门写法的种类在目标处一律显示「—」；类型列写种类标签，表里没有的写原值 |
 
@@ -306,22 +371,118 @@ Python 一侧取不到名称时：`render_day.py` 的命令行不写出时间线
 
 ### 查看器
 
-查看器不做认证。它这样读运行目录：
+查看器不做认证，只打开导出目录。没有导出的运行（包括运行中和中途停下的）先用 `worldmock export` 导出，`--cutoff` 只导出到某个事件。
+拖入导出目录，或拖入包含它的执行目录（运行目录一起读），也可在文件选择框里选中导出目录里的 `events.jsonl` 与 `manifest.json`
+（要名称再选中 assets 里的文件）。
 
-- 遍历拖入的目录时，把直接位于名为 `assets` 的目录下的文件按文件名记下句柄，不读内容；顶层选中或拖入的、文件名恰为 64 位十六进制摘要的文件也记下。
-  同一个文件名记到两次时取先遇到的那个。文件选择框不限扩展名，素材文件没有扩展名。
-- 认定本库的运行清单后，取 `environment_assets` 里上表五个素材名的 `sha256` 和 `size_bytes`，在同一次拖入的文件里找到 `assets/<sha256>`，
-  核对字节数等于 `size_bytes`，读成文本后逐行解析成 JSON 对象。不在浏览器里重算摘要，不接受另外拖入的环境数据集目录。
-- 只拖 `footprints.sqlite` 一个文件时，app、内容、商品、地点、出行方式的名称全部显示为缺失；活动名、事务名、地点会话名是事件和世界状态自己带的文字，不受影响。
-- 加载次序固定：打开数据库建索引；认定运行清单，读目录文件建名称表；合并活动并算出连续使用；最后生成各行摘要文字，只算一次。换一个数据库时，名称表、订单表和缺失记录一起清空。
+- **取得文件。** Chrome 的拖放入口使用 File System Access 的 `getAsFileSystemHandle()`，在 `drop` 回调首次等待之前
+  同步取得全部文件与目录句柄的承诺，再一起等待；不再使用依赖目录 URL 的 `webkitGetAsEntry()`。
+  目录通过 `values()` 递归枚举，文件通过 `getFile()` 按需取得；收集阶段不读事件文件或素材正文。
+  单独选择文件仍消费文件选择框的 `File`；目录递归、清单相对路径、素材同名取先遇到的和人物 `MEMORY.md` 的读取规则相同。
+  取得句柄、枚举目录或读取事件文件失败时，加载终止、清空半成品并显示英文原因和错误日志，不切换旧接口。
+  这一入口采用 [Chrome 官方拖放用法](https://developer.chrome.com/docs/capabilities/web-apis/file-system-access#drag-and-drop-integration)；
+  本地打开使用 `file:` 上下文，[安全上下文规范](https://www.w3.org/TR/secure-contexts/#is-origin-trustworthy)
+  将该协议列为可被信任的来源，实际文件访问仍由浏览器对用户拖入的句柄授权。
+- **认定导出。** 同一次拖入的 `manifest.json` 里，带 `frozen_run_manifest` 对象的那一份是导出清单，必须恰有一份，且带 `run_id`、
+  `window.timezone` 与 `artifacts.events`；不读结构号，各版导出都能打开。`events.jsonl` 取导出清单所在目录下 `artifacts.events.path`
+  指的文件。导出清单的 `frozen_run_manifest` 必须是 `run_id` 相同、带 `agent_ids` 的运行清单。只拖了 `footprints.sqlite`
+  （或 `.sqlite3`、`.db`）而没有导出清单时，页面说明先导出。
+- **运行身份与时区。** 都取导出清单：顶层的 `run_id` 与 `window.timezone`，不读世界状态，没有缺省时区。总览与顶栏的 run_id 是这个值；
+  恢复链的导出写的是最后一段的运行。
+- **页内索引。** 每次读 32 MiB（Perfetto 读大文件的分段），按换行分行，逐行严格按 UTF-8 解码并解析，写进页面里的 sql.js 内存库：
+  `events(event_seq, event_id, body)` 与运行数据库同形；`event_lines(event_seq, offset, length)` 记每行在文件里的字节起点与长度
+  （不含换行）；`world_state(singleton, version, body)` 在导出清单带最终存档时写入 `checkpoint.state` 一行，不完整导出没有这一行。
+  行数必须等于 `artifacts.events.rows`。写完建 `events_type` 索引（`json_extract(body,'$.event_type'), event_seq`），与各视图按类型
+  读取的写法相同。建索引时每过约 0.1 秒经一次消息投递让出页面（隐藏的标签页里计时器每秒至多唤醒一次，消息投递不受限），拖放区每读过
+  一成写一行进度；同一时间只加载一份导出。
+- **裁剪。** 三类大事件的 body 只留各视图批量读取的部分，其余事件写原行：
 
-种类标签「互动」「购买」「查询」「出行」「睡眠」留在活动表的「活动类型」列、图例和排序里；写法放在「目标」列、时间线和泳道。
+  | 事件 | 索引里的 body |
+  | --- | --- |
+  | observation | 信封全留；data 只留 `balance_fen`、`body`、`active_activities`、`calendar_context` |
+  | model_request | 信封与 data 全留；`data.request.messages` 只留第一条 |
+  | model_response | 信封与 data 全留，去掉 `data.request` |
+
+  这张表只在 `tools/run-viewer-index.js` 维护一处，SQL 控制台的说明由它生成。
+- **全文。** 时间线展开一行、「上下文」读请求与响应时，按 `event_lines` 的字节区间从 `events.jsonl` 读原行，与导出文件逐字节相同；
+  读不到（文件被移走或改动）时在该处写读取失败和英文错误日志。
+- **不完整导出。** 没有最终存档时，对象名称、运行输入警告和当地时刻照常；期末账户与世界状态版本显示「无 world_state」，
+  没有地点会话，人物写「agent <编号>」。
+- **人物总结。** `MEMORY.md` 只在同一次拖入了运行目录（`as2/agents/agent_<编号>/MEMORY.md`）时显示；记忆正文照常取自
+  `memory_updated` 事件。
+- **冻结目录。** 认定运行清单（拖入了运行目录的 `manifest.json` 时取它本身，否则取导出清单里的冻结副本）后，取 `environment_assets`
+  里上表五个素材名的 `sha256` 和 `size_bytes`，在同一次拖入的文件里找到 `assets/<sha256>`（直接位于名为 `assets` 的目录下的文件按
+  文件名记下句柄，顶层选中的、文件名恰为 64 位十六进制摘要的文件也记下，同名取先遇到的），核对字节数后逐行解析成 JSON 对象；
+  不在浏览器里重算摘要，不接受另外拖入的环境数据集目录。文件选择框不限扩展名，素材文件没有扩展名。没有拖入 assets 时，app、内容、
+  商品、地点、出行方式的名称显示为缺失；活动名、事务名、地点会话名是事件和世界状态自己带的文字，不受影响。
+- **加载次序。** 固定为：清空上一份运行（索引库、名称表、订单表、缺失记录、各视图状态）；认定导出清单与 events.jsonl；建索引；
+  读事件索引与摘要字段；认定运行清单，读目录文件建名称表；合并活动并算出连续使用；最后生成各行摘要文字，只算一次。
+  顶栏的「载入 X.X 秒」从本次拖入或选择通过重复加载检查开始，到总览准备好为止，包括首次等待 sql.js；这是页面计时，不是首帧或性能基准。
+- **SQL 控制台。** 查询的是这个索引；说明写明三类 body 的裁剪、各留什么、`event_lines` 表、没有 checkpoints 与 artifacts 表，
+  以及完整行在哪里读：`event_lines` 的字节区间、`sqlite3` 只读打开运行目录的 `footprints.sqlite`、`scripts/inspect_run.py`。
+- **容量。** 用户在本机 Chrome 保持页面前台时，载入 30 天的导出（events.jsonl 1.92 GB）约 40 秒；
+  这是用户报告的近似值，后台载入尚未测量。建成的索引约 260 MB。sql.js 把索引放在一个随写入按 1.125 倍增长的
+  ArrayBuffer 里，Chrome 单个 ArrayBuffer 的上限约 2 GB，按每天约 7.4 MB 约 200 天到顶。
+
+#### 按天查看活动
+
+活动页一次显示运行时区中的一个自然日，可以选择日期、前一天和后一天，范围取实际事件首尾所在的当地日期。
+有效导出没有活动时仍可切换日期，并显示「当天没有活动记录」。总览、放大时间段和选中详情参考
+[Chrome DevTools 的时间轴](https://developer.chrome.com/docs/devtools/performance/reference/)。
+已核对 [vis-timeline 的区间堆叠、选择与缩放能力](https://visjs.github.io/vis-timeline/docs/timeline/index.html)：
+这里仅需固定尺度、只读区间和原生选择器，不需要它的拖拽编辑、自由缩放或内容尺寸布局。
+现有浏览器 `Intl` 与 CSS 可承担日期和绘制，区间按开始排序后复用已结束的行；不引入完整时间轴依赖或重新计算活动事实。
+
+```mermaid
+flowchart LR
+    Date[选择运行当地日期] --> Rows[当天实际执行或受理的活动]
+    Rows --> Time[不重叠区间复用行的当天总览]
+    Time --> Zoom[全天或放大到六小时和一小时]
+    Zoom --> Pick[点击条块或搜索选择当天活动]
+    Pick --> Sources[受理与进度事件]
+    Sources --> Body[按字节区间读取原文]
+```
+
+默认全天从当地零点到次日零点，横向适配可视区域；当地零点被夏令时跳过时（如贝鲁特、开罗的春季切换），当天与前一天以切换时刻为界；可以切换六小时或一小时，并向前、向后移动可视时段。
+缩放以当前选择或当前时段中心为准，日期边缘不越界。跨日区间在当天和可视时段边界裁切，夏令时按实际秒数绘制，时段注明 UTC 偏移。
+全天每三小时、六小时视图每小时、一小时视图每十分钟标刻度，网格与刻度使用同一时间比例。
+每段真实执行区间按开始时刻摆放，已经结束的行立即可复用；只有实际同时发生的区间分行，行数等于最大同时执行区间数。
+行不表示主次槽位或活动身份，标签宽度不参与分行；暂停拆成独立区间，空档不画条块。图高至多 320 像素，更多并发可滚动访问。
+条块宽度保留真实秒数比例，名称只在已有宽度内显示，不用最小宽度或拉长时长换取可读性。
+图外的当天活动选择器可搜索名称或人物；极短活动和当天受理但没有结算区间的活动也能选中，后者明确写「尚无结算区间」，不绘制时长。
+选择器可定位当前可视时段之外的活动；选中条块时，同一活动或连续使用的其他可见执行段也高亮。
+选择器、完整名称、准确起止与详情均按可视区域换行，不随时间轴溢出。空日明确显示没有活动记录。
+同页的时间图、选择器、活动表、类型图例、活动数量和地点会话共用所选日期。活动表只列当天有执行或受理记录的活动，
+表内起止与结算时长按当天裁切；暂停空档不计入时长。地点会话只列与当天重叠或当天开始的会话，起止与所含活动也限定在当天，
+其状态列明确表示完整会话的最终状态。切换人物时回到该人物首个活动日，切换日期、人物或导出时清空选择与缩放，表格回第一页；
+表格排序或翻页保留当前日期、时段和选择。
+
+选中活动首先显示当天执行区间与结算时长；完整起止、累计时长与全部相关受理、进度事件放在「完整活动与来源（可跨日）」展开区。
+点事件按钮才读取并展示原文，换日或换运行后旧读取结果不覆盖新选择。连续使用先按完整记录构组，再裁切当天，
+不因活动表的当天筛选丢失跨日成员与来源；表格中的连续使用标记明确属于完整记录。当日活动表和地点会话放在可展开区域中，
+仍可排序和翻页，不混入其他日期的活动。
+
+加载被拒绝的情形（英文原因显示在拖放区，并写同文错误日志）：
+
+| 情形 | 原因 |
+| --- | --- |
+| 没有导出清单，拖入了数据库文件 | `<路径> is not opened directly: export the run with "worldmock export …" … and drop the export directory` |
+| 没有导出清单 | `No export manifest was dropped: …` |
+| 导出清单多于一份 | `More than one export manifest was dropped: …` |
+| 导出清单缺字段 | `Export manifest lacks run_id, window.timezone or artifacts.events` |
+| 冻结副本不是本运行的运行清单 | `Export manifest frozen_run_manifest is not the run manifest of run <run_id>` |
+| 没有拖入 events.jsonl | `The export's events file was not dropped: <路径>` |
+| 某行解不了 | `events.jsonl line <行号> could not be indexed: <原因>` |
+| 文件被截断 | `events.jsonl does not end with a newline: the file is truncated` |
+| 行数不符 | `events.jsonl holds <n> events but the export manifest lists <m>` |
+
+种类标签「互动」「购买」「查询」「出行」「睡眠」留在活动表的「活动类型」列、图例和排序里；写法放在「目标」列、时间线和活动日历。
 
 | 位置 | 写什么 |
 | --- | --- |
 | 时间线「已受理」行 | 「已受理 · <写法> · 计划 <时长>」，例如「已受理 · 使用哔哩哔哩《散步装备准备》 · 计划 1分」 |
 | 时间线「活动段」行 | 「活动段 · <写法> · <状态> · 已进行 <时长>」 |
-| 活动泳道的标签、活动表的「目标」 | 写法 |
+| 活动日历的条块及完整名称、活动表的「目标」 | 写法 |
 | 「结果」行的订单段 | 每条记录「 · 订单 <商品> ¥<金额>（经<app 名>下单）」或「（到店）」，有支付 app 再接「 · 支付 <名称>」 |
 | 「世界事件」行 | 「世界事件 · <手机事件的写法>」 |
 | 出行、睡眠的各行 | 照原格式，名称从目录取 |
@@ -334,9 +495,10 @@ Python 一侧取不到名称时：`render_day.py` 的命令行不写出时间线
 `interact` 在 `app` 分组下是「使用」、在 `location` 分组下是「做」，`travel` 是「出行」，`sleep` 是「睡觉」，`purchase` 是「购买」，`query` 是「查询」（工具层没有查询的行，只用于动作请求行）；
 目标类别、下钻正文和「整层原文」保持原始 JSON。
 
-拖放区说明写「对象名称取自这次运行冻结的环境目录：拖入整个 run 目录或导出目录才读得到，只拖数据库时显示为「名称缺失」。」
-有任何一份必需的目录文件没有读到时，总览在「运行输入警告」卡片旁显示一张标题为「对象名称」的卡片，正文是
-「未读到这次运行冻结的环境目录（缺 <素材名，以「、」相连>），对象名称显示为「名称缺失（身份）」。请把整个 run 目录或导出目录拖入：其中的 manifest.json 与 assets 目录都要在。」
+拖放区说明写「把 worldmock export 写出的导出目录拖到此处……对象名称取自导出目录 assets 里冻结的环境目录，没有 assets 时显示为
+「名称缺失」……」（全文见 `tools/run-viewer.html` 拖放区）。有任何一份必需的目录文件没有读到时，总览在「运行输入警告」卡片旁显示
+一张标题为「对象名称」的卡片，正文是「未读到这次运行冻结的环境目录（缺 <素材名，以「、」相连>），对象名称显示为「名称缺失（身份）」。
+请把整个导出目录拖入：其中的 manifest.json 与 assets 目录都要在。」
 目录文件都读到时不显示这张卡片。
 
 ### 查看器里的连续使用
@@ -355,7 +517,7 @@ Python 一侧取不到名称时：`render_day.py` 的命令行不写出时间线
 
 | 位置 | 写什么 |
 | --- | --- |
-| 活动泳道 | 有执行段同属一条两段及以上连续使用的几项 app 使用画在同一行，连带可以传递；行里每条连续使用一个条块，从它的开始画到它的结束。行的标签把这一行全部执行段放过的内容按先后接在 app 名之后：「使用<app 名>《标题》《标题》……」，相邻的同一条只写一次，多于三条时照「标题怎样列」只写前三条加「等 K 条」。条块的悬停文字是「<起>–<止> · <这一条连续使用的写法>」，两段及以上的再加「 · 连续使用，共 <n> 段」。行的位置按行里各项活动最早的开始时刻。其余 app 使用仍是自己一行、每个执行段一个条块。泳道上方的提示是「同一时间轴上的条块表示实际执行区间；空白表示尚无结算记录。同一个 app 首尾相接的几次使用画在同一行，连成一个条块。」 |
+| 活动日历 | 有执行段同属一条两段及以上连续使用的几项 app 使用作为一个可选对象，连带可以传递；每条连续使用一个条块，按选定日与可视时段裁切，并按真实重叠复用显示行。完整名称把全部执行段放过的内容按先后接在 app 名之后：「使用<app 名>《标题》《标题》……」，相邻的同一条只写一次，多于三条时照「标题怎样列」只写前三条加「等 K 条」。条块的悬停文字保留完整的「<起>–<止> · <这一条连续使用的写法>」，两段及以上的再加「 · 连续使用，共 <n> 段」。其余 app 使用各自是可选对象，每个执行段一个条块。选择器按当天最早可见执行区间或受理时刻排列。提示说明条块只表示实际执行区间、空白没有结算记录、同一 app 首尾相接的使用合并显示。 |
 | 活动表 | 仍是每项活动一行，末尾多一列「连续使用」，不能点，不参加排序。这项活动有执行段属于一条两段及以上的连续使用时写「<整条的开始>–<整条的结束> · 第 <i> 段，共 <n> 段」，时刻是月/日 时:分，例如「09/28 20:19–09/28 20:43 · 第 1 段，共 3 段」；在同一条里占了几段时段号以「、」相连，例如「第 1、3 段，共 3 段」；执行段分属两条时两条都写，按先后以「；」相连，自成一条的那一段不写。其余活动这一格是「—」 |
 | 时间线 | 一次 app 使用的第一个执行段不是所在连续使用的第一段时，开始它的那条受理行（带着这项活动的受理事件里序号最小的那一条）末尾加「 · 接续 <整条的开始> 起的连续使用」，时刻是月/日 时:分，例如「已受理 · 使用哔哩哔哩《家庭合照挑选》 · 计划 1分 · 接续 09/28 20:19 起的连续使用」。其余各行都不加字 |
 
@@ -378,7 +540,15 @@ Python 一侧取不到名称时：`render_day.py` 的命令行不写出时间线
 | `continuation [--topic] [--baseline <运行目录>]` | 逐决策的续接指标与合计（JSON）；`--baseline` 先核对两份清单，不可比即拒绝比较 |
 | `workday --environment <环境目录>` | 工作量与作息偏离（JSON）；班次、住处、播报间隔与下班、到家时段取自完整环境输入，原文字节身份须等于运行清单 |
 
+`event` 与 `events`（含 `--full` 和一行摘要）读到的观察先把观察分件换回原表（见「事件与来源」），与存储层解码的结果相同，打印的与写入时的观察一致。
+分件缺失或摘要不符时以 `IntegrityError` 退出；观察里在分件键上带整表的旧运行库同样以 `Stored observation part reference is invalid` 退出，不为旧库留读取分支。
+其余子命令不读观察分件。
+
 时刻一律按运行清单的 `window.timezone` 显示，格式是 `%m-%d %H:%M:%S`，与运行这条命令的电脑的时区无关；`events` 里前台区间的起止用同一个时区。
+
+`inspect_run.py` 的各子命令按事件序号窗口分页读库：每条语句至多读 256 条事件，读完即放开读锁，只读命令开始时已提交的
+事件，运行中可以使用。`summary` 的各类条数走类型表达式索引、不读事件正文，次序与以前相同：条数多的在前，条数相同按
+首条事件的序号；`money` 只取资金变化非空的事件。输出与以前逐字节相同。`render_day.py` 的订单记录经类型索引读取。
 
 `events` 每行的前半段是「`[序号] 时刻 a人物 事件类型`」，后半段是摘要；「活动短语」是上文的写法，出行和睡眠写活动名：
 
@@ -398,7 +568,8 @@ Python 一侧取不到名称时：`render_day.py` 的命令行不写出时间线
 `rerun` 的「进食次数」在本人零食、食品、饮料收货的不同订单数上，加上 `data.content.completion_effects.food` 不为 null 的 `activity_progress` 事件条数，每条计一次，两个档位都算；
 「首次进食前最低能量」与它读同一组进食时刻：每人每个本地日最早的一次进食，取收货与这些事件中较早的那个，事件取 `occurred_at`。
 
-`scripts/render_day.py` 写出的时间线文件是 UTF-8、LF，在任何平台上与导出里同名的时间线逐字节相同。
+`scripts/render_day.py` 写出的时间线文件是 UTF-8、LF。它读整个运行库，所以在任何平台上与截止在最后一条事件的导出里
+同名的时间线逐字节相同；截止更早的导出只投影截止前缀，见「完整导出认证」。
 
 `render_day.py` 和 `inspect_run.py events` 用严格的行模型解析冻结的目录，读不了冻结的 app 目录里还带着已删除字段的旧运行：当前的行模型按未知字段拒绝这样的行，
 不为旧运行留读取分支；查看器只要求目录文件每行是 JSON 对象，仍打得开这些运行。
@@ -411,26 +582,106 @@ catalog/map.jsonl 是数据集声明的距离，按原字节冻结；map.json �
 冻结清单的文件表必须包含全部必需文件、且不含必需与可选文件名以外的路径，目录摘要按文件表里的全部文件重算。
 清单保存原始字节摘要、五项环境身份、实际模型元数据与非密模型参数。凭据正文不进入清单、事件或报告。
 
-检查点绑定准确事件前缀、共同世界和人物工作区素材。分支复制全部冻结环境素材和所需快照，
+检查点绑定准确事件前缀、共同世界和人物工作区素材。
+每个 AgentSociety2 步骤之后写一个共同检查点；检查点不更新、不删除，每一步都能恢复，恢复从失败的那一秒继续。
+检查点表的一行是 `(checkpoint_id, body, record_sha256)`：`body` 是 zlib 流（RFC 1950，压缩级别 1，头两字节 `78 01`），
+解压后恰为检查点载荷的规范 JSON 字节；`record_sha256` 是这些未压缩字节的 SHA-256。检查点记录、恢复分支写出的
+`restored-checkpoint.json`、导出清单里的最终检查点和它的认证因此都与压缩无关。读取检查点先解压、再核对摘要：行不存在、
+`body` 不是二进制、解不开或摘要不符，都报 `Checkpoint is missing or its record is damaged`。
+人物工作区快照是 gzip 压缩（级别 6）的 POSIX tar，素材的 `media_type` 是 `application/gzip`，来源是 `{kind: workspace}`。
+gzip 头部固定为 `1f 8b 08 00 00 00 00 00 00 ff`：修改时刻为 0、不写文件名、系统字节为 255。tar 与压缩前相同：只含普通文件，
+按相对路径排序，权限 0600、修改时刻 0。同一工作区在任何时刻快照都得到同一素材。恢复先完整解压并核对 CRC 与长度，
+解不开报 `Workspace snapshot archive is invalid`，再照下文核对成员后展开。导出与认证把快照当作按摘要和字节数核对的
+素材，不打开它。
+分支复制全部冻结环境素材和所需快照，
 恢复前认证归档成员，拒绝绝对路径、符号链接、别名与覆盖已有目标文件。
 人物工作区恢复后核验结构化卡片与用冻结的 persona.toml 重新构造出的卡片逐值相等，并核验模型身份，不接受旧结构或参数漂移。
+
+分支按存储字节复制父库截止前缀。先按事件序号分页经唯一的行解码器逐条校验父事件，核对每行的序号、身份与正文一致，逐个
+读取并核对每条事件引用的素材，同时记下前缀里出现的运行身份；`source_run_ids` 仍是这些运行身份加新运行身份的升序集合。
+然后把父库以只读方式附加，在子库一个事务里复制观察分件、按事件顺序插入素材索引行（同一摘要只留第一条），再用
+`INSERT … SELECT` 按序号复制事件行；提交后子库与父库前缀的条数和逐行摘要（序号、身份、正文）必须相同，否则报
+`Branch event copy disagrees with the parent prefix`，分支不发布。父库只被读取，不被改写。子库的事件行就是父运行当时
+写下并读过的字节。
+
+分支清单带 `lineage`：父运行清单的 `lineage` 加一项，描述父运行这一段，按段先后排列；新建运行的 `lineage` 为空数组。
+该项依次记：父运行身份 `run_id`；这一段的模拟起点 `simulated_from`（前一项的 `checkpoint_time`，父运行自己的 `lineage`
+为空时是运行窗口起点）；分出所用检查点 `checkpoint_id`、`checkpoint_event_seq`、`checkpoint_time`；父运行在分出时的最后
+事件 `last_event_seq`、`last_event_time`、`last_recorded_at`；丢弃的事件数 `discarded_events`（最后事件序号减检查点事件
+序号）；结束原因 `end_reason` 与 `end_error`；分出时刻 `branched_at`（UTC 墙钟）。
+结束原因取父运行这一段自己的（前一项检查点事件之后的）最后一条 `run_failed` 或 `run_ended`，`run_failed` 时 `end_error`
+是它的 `data.error`，否则为 null；都没有（被结束进程或仍在运行）为 `no terminal event`。查询只走主键和人物类型索引；
+父运行没有任何事件时报 `Run has no committed event`。
+`source_run_ids` 仍是排好序的来源集合，顺序只由 `lineage` 表示。
 
 ## 完整导出认证
 
 导出固定事件截止、摘要素材、活动、app 使用、购买、已核验经历、地点停留、日时间线及质量报告。
-导出清单的结构号是 7。`artifacts` 的键恰为 `events`、`activities`、`verified_experiences`、`purchases`、`app_usage`、`location_stays`，
+导出清单的结构号是 8。`artifacts` 的键恰为 `events`、`activities`、`verified_experiences`、`purchases`、`app_usage`、`location_stays`，
 每个值是 `{path, rows, sha256}`，`location_stays` 的 `path` 是 `location-stays.jsonl`；
 结构号不符报 `Export manifest is not a committed supported version`，键集不符报 `Export artifact set is invalid`。
 app 的开关、订单通知和地点停留只进事件与这些工件，不进质量报告。
-质量报告 `quality.json` 的结构号是 8。它的 `input_warnings.code_counts` 的键恰为运行输入警告码闭集的两个值
+质量报告 `quality.json` 的结构号是 9。它的 `input_warnings.code_counts` 的键恰为运行输入警告码闭集的两个值
 `CONTENT_EMPTY_WITH_MEDIA_TASTES` 与 `LOCATION_NAME_SUSPICIOUS`（见[配置](08-configuration.md)「校验与输入冻结」），
-闭集之外的码只计入 `unrecognized_code_counts`。导出认证按已认证的事件重算整份质量报告并逐值比较，
+闭集之外的码只计入 `unrecognized_code_counts`。
+质量报告的 `lineage` 节只读冻结清单：父运行各段 `parents`（身份、检查点、结束原因、错误、丢弃事件数、停机秒数 =
+分出时刻减父运行最后一条事件的落盘时刻）、按结束原因的计数、停机总秒数与段数 `segment_count`；这一节是结构号升到 9
+的原因。冻结清单的 `lineage` 不是数组时报 `Quality report manifest has no lineage`。它不计入
+`transport_or_terminal_failures`，后者仍只数导出事件里失败阶段的模型证据。导出认证按已认证的事件重算整份质量报告并逐值比较，
 结构号或任何一个键与当前代码算出的不同，都报 `Export quality report disagrees with authoritative events`。
+
+质量报告的 `model_usage.by_call_class` 按调用类分列模型用量。一次调用的类只凭它的 `model_request` 事件判定，
+不读响应事件里的请求副本；读的是事件的 `purpose` 与 `call_id`，以及请求里的 `purpose`、`extra_body`、各工具的
+`function.name` 与各消息的 `role`：
+
+| 类 | 请求形状 |
+| --- | --- |
+| `fresh_decision_turn` | 没有 purpose 的行动请求（工具含 `start_main_activity`、思考开启），消息恰为 system、user 两条 |
+| `turn_with_history` | 同样的行动请求，消息角色序列不是恰好 system、user 两条；正常运行包括本次决策的后续回合及同一秒续接链 |
+| `truncation_retry` | 没有 purpose，工具含 `start_main_activity`，`extra_body` 恰为关闭思考 `{"thinking": {"type": "disabled"}}`：截断之后的那一次重试 |
+| `consolidation` | 没有 purpose，不带工具：记忆巩固，含反思阶段的那一次 |
+| `reflection` | 没有 purpose，工具恰为 `submit_reflection`：就寝反思及其校验重试 |
+| `plan_day` | purpose 为 `plan_day`：零点计划及其校验重试 |
+
+六类按上表次序总是列出；请求形状不属于任何一类、或终态响应没有对应请求事件的调用归入 `unrecognized`，这一行只在出现时
+列在最后。每行给出请求事件数、提供商响应数、已知 token（与 `model_usage.token_usage` 同一口径）、可计价响应数、
+可计价响应的缓存命中输入、未命中输入与输出 token 合计、峰时响应数、峰时占比（峰时响应数除以可计价响应数，保留六位小数）
+与估算成本；没有可计价响应时，按计价拆开的 token、峰时占比和估算成本为 null，峰时响应数为零。
+各行请求事件数与提供商响应数之和等于 `model_usage` 顶层的同名计数。
+这一节只读已认证事件，不改变任何事件或请求。
+
+计价时段按 `pricing_snapshot.peak_utc`：UTC 周一至周五 01:00–04:00 与 06:00–10:00，按请求事件的 `recorded_at` 判定。
+供应商在中国法定节假日不按峰时计价，质量报告不读节假日：落在工作日节假日的调用按峰时估价，估算成本偏高。
+
 完整运行要求正常运行终态和成功最终共同检查点；时钟到达终点不能单独宣称完整。
 活动保留全部实际来源，来源身份去重；活动时长来自正秒结算，暂停不计入。
 `activities.jsonl` 每行是这项活动在截止范围里的最后一份快照，加上执行区间与来源。interact 活动的最后一份快照来自活动进度事件时，这一行带 `data.played_count`，
 例如导出截止在运行中途、截止前最后一条带它快照的是进度事件；其余 interact 行带 `data.played`：终结的活动最后一份快照是终态结果或生命周期事件，
-运行截止时还在进行或暂停的活动另有截断快照，所以完整运行导出的 interact 行都带 `data.played`。行可以带 `played_count` 是导出清单结构号升到 7 的原因。
+运行截止时还在进行或暂停的活动另有截断快照，所以完整运行导出的 interact 行都带 `data.played`。模型响应与失败事件的 `data.request` 为 null（见「事件与来源」）是结构号升到 8 的原因；导出清单顶层带 `lineage`（与冻结运行清单的 `lineage` 相等）也是升到 8 的原因。
+`lineage` 不是数组或与冻结运行清单不同时报 `Export lineage disagrees with the frozen run manifest`。
+导出经存储层的同一解码读取事件，`events.jsonl` 里的观察是换回原表的完整观察，每行自足；
+`parts` 表不进导出，下游读者（含 LabelKit 与数据集工具）不解析引用。
+
+导出按事件序号分页读取截止前缀：每页一条读语句、至多 256 条，读完即放开读锁，截止之后的事件一条不读。每条事件经
+运行库唯一的行解码器按事件模型校验，照旧以规范 JSON 写成 `events.jsonl` 的一行，边写边算 SHA-256。六份工件、质量报告和日时间线都由
+这同一遍读出的截止前缀算出；日时间线也只读截止前缀里的活动进度与订单记录：截止早于最后一条事件时，截止之后才结算的
+段不进时间线。截止在最后一条事件时，导出与以前逐字节相同。
+
+导出、导出认证和行为评估在内存里保留每条事件的**事后读取视图**：观察、模型请求、模型响应三类大事件去掉下表的庞大
+载荷，其余事件原样。表外的键（包括以后新增的键）原样保留；`events.jsonl` 与运行库里的事件始终完整。表里的键没有一个
+事后读取会读；新的质量指标或检查要读其中一个，先把它移出表。
+
+| 事件类型 | 内存里去掉的 |
+| --- | --- |
+| 观察 `observation` | `activity_bindings`、`persona_views`、`tool_layer`、`interaction_bindings`、`catalog_bindings`、`memory_layer`、`goal_bindings`、`locations`；`errand_item_bindings` 里没有被任何 `errand_bindings` 行引用的商品行（不是对象、缺 `product_id` 或 `name`、`product_id` 不是字符串的行一律保留） |
+| 模型请求 `model_request` | `request` 里每条消息的 `content` 与 `reasoning_content`，每个工具 `function` 的 `description` 与 `parameters` |
+| 模型响应 `model_response` | 同上的 `request` 部分；`response.choices` 每一项的 `message` |
+
+导出认证读 `events.jsonl` 两遍。第一遍只按字节算 SHA-256 和行数（按 `bytes.splitlines` 切行），不解析任何一行，
+摘要不符报 `Export artifact hash is invalid`，行数不符报 `Export artifact row count is invalid`。第二遍逐行解析，先做活动
+快照检查（退役种类、退役 `title` 字段），再按事件模型严格校验，然后只把事后读取视图留在内存；读完再算一次摘要，两遍
+读到的字节不同同样报 `Export artifact hash is invalid`。其余检查与重算不变，读的是事后读取视图。认证返回导出清单与
+活动行，不返回事件；事件条数取清单的 `artifacts.events.rows`。
 
 认证重算投影与摘要、核对实际源事件、资金历史和最终余额、冻结原字节及目录摘要，
 并验证当前活动槽位、本人收货与内容区间。重新计算摘要不能为伪造事实提供可信来源。
@@ -462,4 +713,31 @@ app 的开关、订单通知和地点停留只进事件与这些工件，不进�
 
 `app_touch` 只剩回调足迹：`rule_id` 是冻结的 `catalog/callbacks.jsonl` 里登记的一条回调规则的身份，`step` 只取 `browse` 或 `payment`；
 没有冻结这份文件的运行不得有 `app_touch`。规则身份没有登记、或步骤不在这两个值之内，都报 `App touch step disagrees with its source`。
-坏素材或投影拒绝发布，已有正确导出不被半成品覆盖。评估同样先认证输入。查看器不做认证，它怎样读运行目录和冻结的目录素材见「显示写法与检查工具」。
+坏素材或投影拒绝发布，已有正确导出不被半成品覆盖。评估同样先认证输入。查看器不做认证，它怎样读导出目录和冻结的目录素材见「显示写法与检查工具」。
+
+## 运行比对
+
+两次运行是否给了人物同样的经历按记录比对。字段分类只在这里定义，`scripts/compare_runs.py` 照此实现：
+
+质量报告的 `day_plan_metrics.<代码摘要>.external_constraints` 下，`source_event_ids`、
+`other_rejections.source_event_ids` 与 `missing_evidence_event_ids` 由报告生成器按随机事件身份排序。
+这三组引用映射到事件序号后重新排序再比较；保留重复项，缺项和指向别的事件仍算不同，未知引用仍报错。
+其他引用列表保持原有顺序。
+
+- **身份**：事件的 `event_id`、`caused_by` 与工具里声明的引用字段，映射到所指事件的序号；检查点身份映射到它的 `checkpoint_created` 事件的序号；运行身份映射到段次序。映射是双射，引用指向别的事件仍然算不同。动作、活动、决策、订单等复合身份含运行身份，照原文比较：它们也是随机流的键，比对的两次运行必须使用同样的运行身份。人物工作区 `MEMORY.md` 已核验经历行里的「来源事件」身份同样映射到事件序号；`memory_updated` 记下的 `MEMORY.md` 摘要（`memory_sha256`、`memory_before_sha256`）随这些身份变化，按首次出现的次序成双射比较，文件内容在每个比较的工作区快照里逐行比较。
+  世界状态中的 `agents.*.errands.*.origin_event_id` 与 `pending_events[].caused_by[]` 也是事件引用，
+  在重启点、日终、全部检查点与终态比较中按所指事件的序号映射。未知事件身份报告 `REFERENCE_NOT_AN_ID`；
+  自由文本中的身份与未声明路径上的同名字段照原文比较，不按字段名或 UUID 形状统一替换。
+- **壁钟**：只有事件顶层的 `recorded_at` 与 `wall_elapsed_ms`、人物工作区 AGENT.json 的 `initialized_at`、运行清单 `lineage` 各项的 `last_recorded_at` 与 `branched_at`、质量报告 `acceleration` 下的实测墙钟项、按记录时刻定峰谷的估价项与峰时计数、`lineage` 节的停机秒数。嵌套的同名字段是模拟时间（例如记忆层 `earlier_today[].recorded_at`），照常比较。
+- **传输记录**：`model_response` 信封里的 `transport_attempts`（失败发送的壁钟毫秒数与传输错误），不进任何提示。
+- **丢弃尾段**：`lineage` 各项描述父运行越过重启点走了多远、为何停下（`last_event_seq`、`last_event_time`、`discarded_events`、`end_reason`、`end_error`）及质量报告 `lineage` 节里对应的项。重放以拒绝重启点之后的第一次调用重现重启，来源那一段可能是被杀或传输失败，所以这几项在来源与重放之间本来就不同；丢弃尾段本身不比较。
+- **运行位置与代码身份**：运行清单与人物工作区里的模型服务地址（`base_url`、`metadata_url`），人物工作区 AGENT.json 的 `workspace.root`（工作区所在目录），以及 `code_sha256`、`git_commit`、`git_dirty`。`config_sha256` 不屏蔽：去掉两项地址后按 config.toml 原文重算摘要，再比较。
+- **其余一律是事实**，逐值比较。
+- **记录形式**的变化只能用声明的重建规则对齐。规则只用于没有任何提示、决策、准入或导出路径读取的记录形式，每条写明所依据的读取者检索；观察、绑定、动作事件、结算事件、记忆写入、模型请求与世界事实不能重建、投影或过滤，也没有按事件种类过滤的规则。
+  两侧记录形式相同时各按自己记下的形式读取（检查点行的 zlib 流、`application/gzip` 的工作区快照，见「冻结输入、检查点与分支」），不需要规则；一侧检查点行是文本、另一侧是 zlib 流而没有声明对应规则时拒绝比较，工作区快照的媒体类型不同照常报为不同。
+  `processed-actions-pruned` 先按既定必留键集合裁剪基一侧的已处理动作，并记录符合终态覆盖条件的键；
+  保留状态各按本侧身份与素材摘要规范化后，才将这些键的基一侧 `result` 对齐为头一侧规范化后的 `result`。
+  不把头一侧的原始事件身份放入基一侧再查询，也不规范化已剪掉的历史条目；动作条目的其他字段和必留键检查保持不变。
+  此顺序用于恢复点、日终、全部检查点、终态与导出清单中的检查点；原始输入里的 `<event:序号>` 仍不是合法事件身份。
+
+模型证据是录音应答运行的录音带：`model_request.data.request` 与 `model_response.data.response` 完整保存提供商原文，含推理，不得裁剪。

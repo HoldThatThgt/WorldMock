@@ -6,7 +6,8 @@ worldmock.footprints.display_wording 的写法：内容按各段进度事件指�
 前三条再写「等 K 条」），购买的商品和渠道取订单记录，
 名称只取这次运行冻结的环境目录，取不到即运行故障（docs/design/05-recording-engine.md「显示写法与检查工具」）。
 按 agent_id 与冻结清单的场景时区的模拟日期过滤；同库同参数输出逐字节相同。day_rows 也接受已排序的事件正文，
-质量报告的时间线标签检查据此投影同一张时间线。命令行写出的文件是 UTF-8、LF。
+质量报告的时间线标签检查据此投影同一张时间线；导出的时间线文件同样由 day_rows 与 day_markdown 写出。
+命令行写出的文件是 UTF-8、LF。
 
 用法：
   python3 scripts/render_day.py <sqlite> --agent N --date YYYY-MM-DD [--out DIR]
@@ -35,6 +36,9 @@ from worldmock.footprints.timeline_labels import local_day_bounds  # noqa: E402
 
 WEEKDAYS = ("一", "二", "三", "四", "五", "六", "日")
 _DATE_ARG = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+#: 全库 action_result 正文（按 event_seq）：经类型表达式索引取序号，只读这些正文。
+_RESULT_BODIES_SQL = ("SELECT body FROM events WHERE event_seq IN (SELECT event_seq FROM events "
+                      "WHERE json_extract(body,'$.event_type')='action_result') ORDER BY event_seq")
 
 
 def _connect(sqlite_path: Path) -> sqlite3.Connection:
@@ -53,9 +57,8 @@ def _progress_bodies(conn: sqlite3.Connection, agent_id: int) -> Iterator[dict]:
 
 
 def _result_bodies(conn: sqlite3.Connection) -> list[dict]:
-    """@brief 全库 action_result 事件正文（按 event_seq），订单记录的来源。"""
-    sql = "SELECT body FROM events WHERE json_extract(body,'$.event_type')='action_result' ORDER BY event_seq"
-    return [json.loads(body) for (body,) in conn.execute(sql)]
+    """@brief 全库 action_result 事件正文（按 event_seq），订单记录的来源；经类型表达式索引取序号，只读这些正文。"""
+    return [json.loads(body) for (body,) in conn.execute(_RESULT_BODIES_SQL)]
 
 
 def _segments_for_day(progress: Iterable[dict], bounds: tuple[int, int]) -> list[dict]:
@@ -137,7 +140,7 @@ def day_rows(progress: Iterable[dict], orders: Mapping[str, dict], names: Displa
              "duration": _fmt_duration(run["seconds"]), "count": run["count"]} for run in runs]
 
 
-def _markdown(agent_id: int, day: date, rows: list[dict]) -> str:
+def day_markdown(agent_id: int, day: date, rows: list[dict]) -> str:
     """@brief 时间线 markdown 全文：标题行、表头与各行；当日没有活动时写空标记。"""
     lines = [f"# 人物 {agent_id} · {day.isoformat()} 周{WEEKDAYS[day.weekday()]}", "",
              "| 起止 | 活动 | 总时长 | 段数 |", "| --- | --- | --- | --- |"]
@@ -151,7 +154,7 @@ def render_day_markdown(conn: sqlite3.Connection, agent_id: int, day: date, time
                         names: DisplayNames) -> str:
     """@brief 生成该人物该日的确定性时间线 markdown 全文；订单记录取自全库的 action_result。"""
     orders = orders_by_id(_result_bodies(conn))
-    return _markdown(agent_id, day, day_rows(_progress_bodies(conn, agent_id), orders, names, day, timezone))
+    return day_markdown(agent_id, day, day_rows(_progress_bodies(conn, agent_id), orders, names, day, timezone))
 
 
 def main(argv: list[str] | None = None) -> None:

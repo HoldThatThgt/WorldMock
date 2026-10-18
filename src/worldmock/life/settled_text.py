@@ -41,12 +41,10 @@ def record_lines(context: LayerContext, record: dict, sources: list[Event],
     """@brief 一条进度层记录的 settled 句（没有可写的事实时为 []）。
 
     :param record: 进度层记录（occurred_at 为带时区 ISO）。
-    :param sources: 记录的来源事件（tool_call 为 action_requested 与 action_result；派生记录为空）；重放的请求不写。
+    :param sources: 记录的来源事件（tool_call 为 action_requested 与 action_result；派生记录为空）。
     :param facts: 进度层浓缩用：conclude_activity 写它所结束的、结束事件在 facts.endings 中的活动（本 session 内结束的）；
         为 None 时结束活动的调用不写句子（活动句按结束提交另写，见 ending_lines）。
     """
-    if any(event.data.get("reused") for event in sources):
-        return []
     kind = record["type"]
     if kind == "tool_call":
         return _tool_lines(context, record, sources, facts)

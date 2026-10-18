@@ -9,8 +9,10 @@ from pathlib import Path
 from agentsociety2.agent.base import MemoryUpdateEvidence, ModelCallEvidence
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import (advance_until_ready, conclude_request, context, pending_names, purchase, query,
-                                 stage_day_plan, submit_round, travel, use_app)
+from tests.life.conftest import (
+    action_identity, advance_until_ready, conclude_request, context, pending_names, purchase, query, stage_day_plan,
+    submit_round, travel, use_app,
+)
 from tests.life.environment_runtime import act, act_group
 from worldmock.life.engine import LifeEngine
 from worldmock.opslog import OPS_COMPONENTS, OPS_LEVELS, OpsLogger
@@ -93,9 +95,9 @@ def test_opslog_component_follows_each_start_call(engine_factory) -> None:
     records = [record for record in _records(engine) if record["code"] in {"ACTION_ACCEPTED", "ACTION_REJECTED"}]
     assert [(record["code"], record["component"], record["level"], record["action_id"], record["tool_name"])
             for record in records] == [
-        ("ACTION_REJECTED", "engine", "error", "action-ops-app", "start_side_activity"),
-        ("ACTION_ACCEPTED", "travel", "info", "action-ops-group-1", "start_main_activity"),
-        ("ACTION_ACCEPTED", "commerce", "info", "action-ops-group-2", "start_side_activity")]
+        ("ACTION_REJECTED", "engine", "error", action_identity("ops-app"), "start_side_activity"),
+        ("ACTION_ACCEPTED", "travel", "info", action_identity("ops-group", 1), "start_main_activity"),
+        ("ACTION_ACCEPTED", "commerce", "info", action_identity("ops-group", 2), "start_side_activity")]
     assert records[0]["error_code"] == "ACTION_REQUEST_INVALID"
     assert all("error_code" not in record for record in records[1:])
     assert {record["component"] for record in records} <= OPS_COMPONENTS
@@ -105,4 +107,4 @@ def test_opslog_component_follows_each_start_call(engine_factory) -> None:
     assert asked.status == "in_progress"
     [accepted] = [record for record in _records(asking) if record["code"] == "ACTION_ACCEPTED"]
     assert (accepted["component"], accepted["action_id"], accepted["tool_name"]) == (
-        "engine", "action-ops-query", "start_side_activity")
+        "engine", action_identity("ops-query"), "start_side_activity")

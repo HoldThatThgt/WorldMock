@@ -25,6 +25,17 @@ os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://example.invalid")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 
+@pytest.fixture(autouse=True)
+def committed_world_guard(monkeypatch):
+    """@brief 每条用例包住 LifeEngine 的公开方法：调用不得原地改动它开始时的已提交世界；用例结束时不得留有记录。"""
+    from tests.committed_world_guard import CommittedWorldGuard
+
+    guard = CommittedWorldGuard()
+    guard.install(monkeypatch)
+    yield guard
+    assert guard.leaks == [], f"Committed world changed in place: {guard.leaks}"
+
+
 @pytest.fixture
 def catalog_dir(tmp_path: Path) -> Path:
     """@brief 复制真实人工目录，允许测试独立制造登记反例。"""

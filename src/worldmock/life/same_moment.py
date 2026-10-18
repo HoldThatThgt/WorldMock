@@ -48,7 +48,7 @@ class RoundOutcome:
     :param now: 当前模拟时刻（epoch 秒）
     :param agent: 已计入本轮的人物状态
     :param active: 本轮结算后人物是否有进行中活动
-    :param rejected: 本轮是否为业务拒绝（重放按存档结果）
+    :param rejected: 本轮是否为业务拒绝
     :param limit: 场景的同刻决策上限
     :param pending: 本轮结算后人物是否有待收尾活动
     """
@@ -61,7 +61,7 @@ class RoundOutcome:
 
 
 def count_round(agent: AgentState) -> AgentState:
-    """@brief 受理、业务拒绝与重放各使本秒的同刻轮数加一（第一章「实现约定」）；免计的名称类拒绝不经这里
+    """@brief 受理与业务拒绝各使本秒的同刻轮数加一（第一章「实现约定」）；免计的名称类拒绝不经这里
     （rejection_counts）。"""
     return agent.model_copy(update={"same_moment_rounds": agent.same_moment_rounds + 1}, deep=True)
 
@@ -220,7 +220,7 @@ def refusal_pulse_key(error_code: str) -> str | None:
 
 
 def _second_rejections(state: WorldState, agent_id: int) -> list[str | None]:
-    """@brief 本人在当前模拟秒已结算的业务拒绝码（依据已存的动作结果，按结算先后；重放不另存结果）。
+    """@brief 本人在当前模拟秒已结算的业务拒绝码（依据已存的动作结果，按结算先后）。
 
     按组计：同一决策的两条开始动作被拒时内容相同，只取一次。
     """

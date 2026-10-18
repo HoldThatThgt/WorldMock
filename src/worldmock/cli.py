@@ -14,7 +14,7 @@ from uuid import uuid4
 from worldmock.errors import IntegrityError
 from worldmock.footprints.assets import atomic_write
 from worldmock.footprints.models import canonical_json
-from worldmock.status import observed_model_usage, read_status, write_status
+from worldmock.status import failure_message, observed_model_usage, read_status, write_status
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -117,7 +117,7 @@ def _run_command(arguments) -> dict:
     except BaseException as error:
         if output.exists():
             state = "interrupted" if isinstance(error, KeyboardInterrupt) else "failed"
-            write_status(output, state, "stopped", type(error).__name__)
+            write_status(output, state, "stopped", type(error).__name__, failure_message(error))
         raise
 
 

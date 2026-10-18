@@ -117,3 +117,19 @@ def test_retired_test_environment_selector_is_rejected(tmp_path):
         cwd=mutation_runner.REPO_ROOT, capture_output=True, text=True, encoding="utf-8", check=False)
     assert result.returncode == 4
     assert "unrecognized arguments: --environment-root" in result.stderr
+
+
+def test_all_selected_behaviors_run_beyond_the_windows_command_line_limit(tmp_path):
+    """超过 Windows 命令行上限的完整用例选择仍全部执行，保留顺序、路径空格与逐条回执。"""
+    source = tmp_path / "selection with spaces" / "test_selected.py"
+    source.parent.mkdir()
+    names = [f"argument-{'x' * 180}-{index}" for index in range(180)]
+    source.write_text("import pytest\n\n@pytest.mark.parametrize('value', " + repr(names) + ")\n"
+                      "def test_selected(value):\n    assert value.startswith('argument-')\n", encoding="utf-8")
+    nodes = tuple(f"{source}::test_selected[{name}]" for name in names)
+    assert len(subprocess.list2cmdline(nodes)) > 32767
+    result = mutation_runner.run_behavior(nodes, tmp_path, None,
+        mutation_runner.RunSettings(mutation_runner.CHILD_ENTRY, tmp_path / "receipts", 120))
+    assert result["exit_code"] == 0, result["stdout"] + result["stderr"]
+    assert "180 passed" in result["stdout"]
+    assert result["tests"] == list(nodes)

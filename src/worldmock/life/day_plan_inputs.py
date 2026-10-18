@@ -8,6 +8,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from worldmock.footprints.experiences import project_verified_experiences
+from worldmock.footprints.models import Event
 from worldmock.life import errands, progress_layer, work_schedule
 from worldmock.life.control_items import control_items
 from worldmock.life.day_planning import SELF_REPORT_NOTE, plan_date
@@ -57,15 +58,36 @@ class _Window:
         return f"{local.month}月{local.day}日 {local:%H:%M}"
 
 
+@dataclass(frozen=True, slots=True)
+class _AgentHistory:
+    """@brief 一次零点计划读到的本人四类事件，各读一次、按事件序号，几个部分共用。"""
+
+    #: 本人全部 activity_progress。
+    progress: tuple[Event, ...]
+    #: 本人全部 environment_event。
+    environment: tuple[Event, ...]
+    #: 本人全部 action_result。
+    results: tuple[Event, ...]
+    #: 本人全部 action_requested。
+    requests: tuple[Event, ...]
+
+
+def _agent_history(store: Any, agent_id: int) -> _AgentHistory:
+    """@brief 本人四类事件各读一次（不加时间界：恢复、暂停和结束可能跨日）。"""
+    return _AgentHistory(*(tuple(store.read_agent_events(event_type, agent_id)) for event_type in
+                           ("activity_progress", "environment_event", "action_result", "action_requested")))
+
+
 def plan_inputs(context: Any, observations: Any, midnight_pending: bool, agent_id: int) -> PlanInputs:
     """@brief 为一个人物装配零点计划输入（只读引擎的世界状态、场景与足迹库，不产生任何事件）。"""
     state, zone = context.state, context.config.timezone
     window = _review_window(state.current_time, zone, midnight_pending)
     agent = state.agents[agent_id]
-    experiences = _experience_sentences(context, observations, agent_id, window)
-    results, result_sources = _result_sentences(context, observations, agent_id, window)
-    conclusions, conclusion_sources = _conclusion_records(context, agent_id, window)
-    goals, goal_sources = _previous_goals(context, agent_id, window)
+    history = _agent_history(context.store, agent_id)
+    experiences = _experience_sentences(context, observations, agent_id, history, window)
+    results, result_sources = _result_sentences(context, observations, agent_id, history, window)
+    conclusions, conclusion_sources = _conclusion_records(history, window)
+    goals, goal_sources = _previous_goals(history, window)
     local = datetime.fromtimestamp(state.current_time, ZoneInfo(zone))
     payload = {
         "计划日期": plan_date(state.current_time, zone),
@@ -130,14 +152,13 @@ def _duty_arrangement(context: Any, agent_id: int) -> dict[str, Any] | None:
 
 
 def _experience_sentences(
-    context: Any, observations: Any, agent_id: int, window: _Window
+    context: Any, observations: Any, agent_id: int, history: _AgentHistory, window: _Window
 ) -> tuple[tuple[str, str], ...]:
-    """@brief 回顾时段里已核验经历的确定性句子（settled_text 的共享写法），按时间顺序，带来源事件身份。"""
-    store = context.store
-    events = [*store.read_agent_events("activity_progress", agent_id),
-              *store.read_agent_events("environment_event", agent_id)]
+    """@brief 回顾时段里已核验经历的确定性句子（settled_text 的共享写法），按时间顺序，带来源事件身份；
+    事件取自本次计划共用的一次读取。"""
+    events = [*history.progress, *history.environment]
     events.sort(key=lambda event: event.event_seq)
-    facts = project_verified_experiences(events, agent_id=agent_id, cutoff_seq=store.last_event_seq)
+    facts = project_verified_experiences(events, agent_id=agent_id, cutoff_seq=context.store.last_event_seq)
     context = observations._layer_context(context.state.agents[agent_id], [])
     facts.sort(key=lambda item: (item["event_seq"], item["kind"], item.get("goods_id", "")))
     return tuple(
@@ -147,18 +168,20 @@ def _experience_sentences(
     )
 
 
-def _result_sentences(context: Any, observations: Any, agent_id: int, window: _Window) -> tuple[list[str], list[str]]:
+def _result_sentences(
+    context: Any, observations: Any, agent_id: int, history: _AgentHistory, window: _Window
+) -> tuple[list[str], list[str]]:
     """@brief 本人已结算的公开动作结果与送达，写成 settled 句（与记忆层同一共享句式，不含身份）：下单、
-    送达，以及在回顾时段内结束的活动（按结束事件，起止含已恢复的暂停区间）；失败、重放的请求与其余工具不写。"""
-    store = context.store
+    送达，以及在回顾时段内结束的活动（按结束事件，起止含已恢复的暂停区间）；失败的请求与其余工具不写。
+    事件取自本次计划共用的一次读取。"""
     context = observations._layer_context(context.state.agents[agent_id], [])
-    outcomes = store.read_agent_events("action_result", agent_id)
-    environment = store.read_agent_events("environment_event", agent_id)
+    outcomes = history.results
+    environment = history.environment
     results: dict[str, Any] = {}
     for event in outcomes:
         results.setdefault(event.action_id, event)
     rows: list[tuple[int, str, str]] = []
-    for request in store.read_agent_events("action_requested", agent_id):
+    for request in history.requests:
         result = results.get(request.action_id)
         if result is None or result.visibility != "agent" or not window.covers(result.occurred_at):
             continue
@@ -173,7 +196,7 @@ def _result_sentences(context: Any, observations: Any, agent_id: int, window: _W
                 for item in progress_layer._delivery_records(context, event)
                 for line in record_lines(context, item.record, [event])
             )
-    progress = store.read_agent_events("activity_progress", agent_id)
+    progress = history.progress
     endings = activity_endings([*progress, *environment, *outcomes])
     facts = ActivityFacts(pause_intervals(environment), endings, app_progress(progress, {}))
     rows.extend(
@@ -189,23 +212,21 @@ def _place(context: Any, location_id: str) -> str:
     return context.catalog.locations[location_id].display_name
 
 
-def _conclusion_records(context: Any, agent_id: int, window: _Window) -> tuple[list[dict], list[str]]:
+def _conclusion_records(history: _AgentHistory, window: _Window) -> tuple[list[dict], list[str]]:
     """@brief 回顾时段里已受理的 conclude_activity 请求逐项记下的 summary 与记忆原文（人物自述，未经核验；经 control_items
     读出，每项先普通记忆、后看法与偏好）。
 
-    只取结果为 completed 的首次请求：被拒的请求与重放（reused）的请求不列，与动作结果的口径一致。
+    只取结果为 completed 的首次请求：被拒的请求不列，与动作结果的口径一致。事件取自本次计划共用的一次读取。
     """
-    store = context.store
     completed = {
         event.action_id
-        for event in store.read_agent_events("action_result", agent_id)
-        if event.data.get("status") == "completed" and not event.data.get("reused")
+        for event in history.results
+        if event.data.get("status") == "completed"
     }
     records, sources = [], []
-    for event in store.read_agent_events("action_requested", agent_id):
+    for event in history.requests:
         if (
             event.data.get("tool_name") != "conclude_activity"
-            or event.data.get("reused")
             or event.action_id not in completed
             or not window.covers(event.occurred_at)
         ):
@@ -247,11 +268,13 @@ def _pending_orders(context: Any, agent_id: int, window: _Window) -> list[dict[s
     ]
 
 
-def _previous_goals(context: Any, agent_id: int, window: _Window) -> tuple[list[dict], list[str]]:
-    """@brief 上一天目标的推进情况：回顾时段结束于本次零点时，取该日计划最后一份快照（含末段推进）。"""
+def _previous_goals(history: _AgentHistory, window: _Window) -> tuple[list[dict], list[str]]:
+    """@brief 上一天目标的推进情况：回顾时段结束于本次零点时，取该日计划最后一份快照（含末段推进）；
+    事件取自本次计划共用的一次读取。"""
     snapshots = []
-    for event_type in ("environment_event", "action_result", "activity_progress"):
-        for event in context.store.read_agent_events(event_type, agent_id):
+    for event_type, events in (("environment_event", history.environment), ("action_result", history.results),
+                               ("activity_progress", history.progress)):
+        for event in events:
             plan = (
                 event.data.get("day_plan")
                 if event_type != "action_result"

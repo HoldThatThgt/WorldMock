@@ -14,9 +14,10 @@ os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
 os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
+from tests.footprints.recording import artifact_rows
 from tests.integration.reflection_fixtures import host_run, memory
 from tests.integration.runtime_fixtures import write_agent_workspace
-from tests.life.conftest import advance_next, sleep, stage_day_plan, travel
+from tests.life.conftest import advance_next, oversleep_identity, sleep, stage_day_plan, travel
 from tests.life.environment_runtime import act, finish_activity, run_to_end
 from worldmock.evaluation.behavior_metrics import behavior_metrics_report
 from worldmock.footprints.checkpoint import restore_branch, restore_directory, snapshot_directory
@@ -25,8 +26,6 @@ from worldmock.footprints.validation import validate_export
 from worldmock.life.engine import LifeEngine
 
 _ZONE = ZoneInfo("Asia/Shanghai")
-#: 规格给出的可复算例子：种子 7 时这条动作身份抽到多睡 27 分钟。
-_LATE_ACTION = "run-a:round:1791356400:42:agent:1:order:0:action:0001"
 
 
 @pytest.fixture(autouse=True)
@@ -67,7 +66,7 @@ def _checkpoint(engine, root):
 def _short_night_office_nap_and_long_sleep(engine, checkpoint_root=None):
     """家里一觉写 220 分钟并睡过头，实际睡了 4 小时 07 分；驾车去公司后在办公室午睡 60 分钟；回家再睡 480 分钟。
     后两觉开始时往回 24 小时都已睡满 4 小时，按时醒。给了目录时在第一觉的中途提交一个共同检查点并返回它。"""
-    _, late = act(engine, "late", sleep(220), action_id=_LATE_ACTION)
+    _, late = act(engine, "late", sleep(220), action_id=oversleep_identity(engine, "late", 27 * 60))
     assert late.status == "in_progress", late.error_code
     for _ in range(3):
         advance_next(engine)
@@ -120,7 +119,8 @@ def test_oversleep_survives_a_mid_sleep_checkpoint_and_a_rerun_draws_the_same_ex
     assert not any(row.event_type == "run_failed" for row in recorded)
     _checkpoint(engine, tmp_path / "final")
     export_run(engine.context.store, engine.context.store.last_event_seq, tmp_path / "export")
-    manifest, events, _ = validate_export(tmp_path / "export")
+    manifest, _ = validate_export(tmp_path / "export")
+    events = artifact_rows(tmp_path / "export", "events")
     assert manifest["experiment_completed"] is True
     (report,) = behavior_metrics_report(events, timezone=engine.context.config.timezone).values()
     assert report["schema_version"] == "behavior-metrics-4"
@@ -180,9 +180,18 @@ async def test_run_with_naps_exports_clean_memory_sources_and_a_resume_at_wake_u
     assert any(row.event_type == "run_ended" for row in recorded)
     engine.checkpoint({"agent:1": snapshot_directory(workspace, engine.context.store.assets)})
     export_run(engine.context.store, engine.context.store.last_event_seq, tmp_path / "export")
-    manifest, events, _ = validate_export(tmp_path / "export")
+    manifest, _ = validate_export(tmp_path / "export")
+    events = artifact_rows(tmp_path / "export", "events")
     assert manifest["experiment_completed"] is True
     quality = json.loads((tmp_path / "export" / "quality.json").read_text(encoding="utf-8"))
+    rows = {row["call_class"]: row for row in quality["model_usage"]["by_call_class"]}
+    assert "unrecognized" not in rows
+    assert rows["reflection"]["request_events"] == len(run.model.of("reflection"))
+    assert rows["consolidation"]["request_events"] == len(run.model.of("consolidation"))
+    assert sum(rows[name]["request_events"] for name in (
+        "fresh_decision_turn", "turn_with_history", "truncation_retry")) == len(run.model.of("action"))
+    plans = sum(row["event_type"] == "model_request" and row["data"].get("purpose") == "plan_day" for row in events)
+    assert rows["plan_day"]["request_events"] == plans and plans > 0
     memory_references = quality["memory_references"]
     assert memory_references["problems"] == [] and memory_references["problem_count"] == 0
     assert memory_references["write_points_checked"] >= 4

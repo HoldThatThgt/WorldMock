@@ -13,7 +13,7 @@
     },
     {
       "file": "failure-propagation.patch",
-      "sha256": "e960042a3253e5211ef6f026c8885f59f5289bf4593440d4348394652825c513"
+      "sha256": "1d732bfd83c5529fe401bd440d72c805ad870653d8dff026a7128fb8a6bb4065"
     },
     {
       "file": "memory-checkpoints.patch",
@@ -21,14 +21,14 @@
     },
     {
       "file": "model-lifecycle.patch",
-      "sha256": "0f94b5a120a14d28d47a6095f5d716eee8f6faa103ef32cf8ba3711cc2499f5e"
+      "sha256": "a7bb00e993f9c871fe1a07c92a18fc10cd05413f4e3fcf94bd62bff46717c3d3"
     },
     {
       "file": "package-metadata.patch",
       "sha256": "2cda7b864178be11c28d6706083382dcf123570d45fef97436f64d02baad79e8"
     }
   ],
-  "source_sha256": "bf716c7b982ea1aa057207b4ad06e1758b598bccef90834e18da2ca4253db3c6",
+  "source_sha256": "0a7b9b06fe5bbf70836fefe407eceb830b2bc6acaa8c81db98176ee3c99709ba",
   "install_files": {
     "pyproject.toml": "1e1b1e454999add2106f73c961620c684e4111ebc09b55a0e56309f249713e6b",
     "README.md": "c8c860146cbd2b54cc61c134c2a3bc1a7d71479b6d71c0039b1ab976988e3e4c",

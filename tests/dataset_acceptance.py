@@ -103,7 +103,7 @@ MUTATIONS = (
         ("tests/unit/test_environment_inputs.py"
          "::test_config_schema_version_other_than_two_is_rejected_without_an_old_format_reader",)),
     SourceMutation("previous_run_manifest_version_accepted", "worldmock.life.run_identity::require_environment_identity",
-        'manifest.get("schema_version") == RUN_MANIFEST_SCHEMA_VERSION', 'manifest.get("schema_version") in (5, 6)',
+        'manifest.get("schema_version") == RUN_MANIFEST_SCHEMA_VERSION', 'manifest.get("schema_version") in (6, 7)',
         ("tests/integration/runtime/test_environment_identity.py"
          "::test_run_whose_stored_manifest_carries_the_previous_structure_number_cannot_be_opened",)),
     SourceMutation("clock_text_without_day_wrap", "worldmock.profile.textgen::hour_text",
@@ -292,12 +292,12 @@ MUTATIONS = (
         "format_version: Literal[5]", "format_version: Literal[4]",
         ("tests/unit/catalog/test_manifest_version.py"
          "::test_otherwise_complete_package_with_an_old_version_number_is_refused",)),
-    SourceMutation("world_schema_version_still_thirteen", "worldmock.life.models::WORLD_SCHEMA_VERSION",
-        "WORLD_SCHEMA_VERSION = 14", "WORLD_SCHEMA_VERSION = 13",
+    SourceMutation("world_schema_version_still_fourteen", "worldmock.life.models::WORLD_SCHEMA_VERSION",
+        "WORLD_SCHEMA_VERSION = 15", "WORLD_SCHEMA_VERSION = 14",
         ("tests/integration/life/test_state_serialization.py"
-         "::test_world_state_schema_is_fourteen_and_the_previous_version_is_refused",)),
-    SourceMutation("export_schema_version_still_six", "worldmock.footprints.export::EXPORT_SCHEMA_VERSION",
-        "EXPORT_SCHEMA_VERSION = 7", "EXPORT_SCHEMA_VERSION = 6",
+         "::test_world_state_schema_is_fifteen_and_the_previous_version_is_refused",)),
+    SourceMutation("export_schema_version_still_seven", "worldmock.footprints.export::EXPORT_SCHEMA_VERSION",
+        "EXPORT_SCHEMA_VERSION = 8", "EXPORT_SCHEMA_VERSION = 7",
         ("tests/integration/footprints/test_acs_export.py"
          "::test_actual_purchase_content_and_current_artifacts_are_authenticated",)),
     SourceMutation("result_details_schema_refuses_query", "worldmock.life.prompt_schemas::_RESULT_DETAILS",
@@ -626,7 +626,7 @@ MUTATIONS = (
     SourceMutation("terminal_result_without_query_details", "worldmock.life.result_projection::_details",
         'if snapshot is not None and snapshot["kind"] == "query":', "if False:",
         ("tests/integration/life/test_query_answer.py"
-         "::test_answer_is_the_second_result_and_replaying_the_action_returns_it",
+         "::test_answer_is_the_second_result",
          "tests/integration/life/test_query_answer.py"
          "::test_answer_stays_for_the_stay_and_leaves_a_settled_line_after_departure")),
     # ---- 自动接续轨道（A）：「内容 app 自动接续」「自动接续的显示与记录」 ----
@@ -760,4 +760,543 @@ MUTATIONS = (
          "tests/integration/life/test_closed_app_state.py"
          "::test_clock_in_app_state_names_todays_hours_or_the_next_opening")),
     # ---- 地点与 app 轨道（C）结束 ----
+    # ---- 证明工具（长时运行成本第八章）----
+    SourceMutation("cassette_compares_messages_only", "scripts.recorded_response_run::first_difference",
+        "fields = sorted(key for key in set(expected) | set(received) if _differs(expected, received, key))",
+        'fields = sorted(key for key in {"messages"} if _differs(expected, received, key))',
+        ("tests/unit/engineering/test_recorded_response_run.py"
+         "::test_a_changed_tool_schema_is_a_divergence_named_tools",
+         "tests/unit/engineering/test_recorded_response_run.py::test_an_extra_request_field_is_a_divergence")),
+    SourceMutation("restart_refusal_advances_the_cassette", "scripts.recorded_response_run::Cassette._refuse_restart",
+        "self.refused.add(boundary.segment)", "self.refused.add(boundary.segment); self.next_call += 1",
+        ("tests/unit/engineering/test_recorded_response_run.py"
+         "::test_planned_restart_refuses_once_without_advancing",)),
+    SourceMutation("pre_restart_call_matched_against_the_redone_call",
+        "scripts.recorded_response_run::Cassette._pre_restart_expected",
+        "if boundary.discarded_request is not None:", "if False:",
+        ("tests/unit/engineering/test_recorded_response_run.py"
+         "::test_pre_restart_call_is_matched_against_the_discarded_request",)),
+    SourceMutation("dummy_credential_not_checked", "scripts.recorded_response_run::Cassette.answer",
+        'if headers.get("Authorization") != f"Bearer {DUMMY_CREDENTIAL}":', "if False:",
+        ("tests/unit/engineering/test_recorded_response_run.py"
+         "::test_a_credential_other_than_the_dummy_is_refused_and_not_logged",)),
+    SourceMutation("child_keeps_real_credentials", "scripts.recorded_response_run::child_environment",
+        "variables = {name: value for name, value in parent.items() if not _secret_name(name) and not "
+        "_routing_name(name)}", "variables = dict(parent)",
+        ("tests/unit/engineering/test_recorded_response_run.py"
+         "::test_child_environment_drops_credentials_and_proxies",)),
+    SourceMutation("url_rewrite_unchecked", "scripts.recorded_response_run::rewrite_model_urls",
+        "if tomllib.loads(rewritten) != expected:", "if False:",
+        ("tests/unit/engineering/test_recorded_response_run.py"
+         "::test_url_rewrite_refuses_a_config_whose_url_is_written_differently",)),
+    SourceMutation("run_identity_drawn_twice", "scripts.recorded_response_child::one_shot_uuid",
+        "if drawn:", "if False:",
+        ("tests/unit/engineering/test_recorded_response_run.py::test_one_shot_uuid_returns_the_run_id_once",)),
+    SourceMutation("wall_clock_masked_by_key_name", "scripts.compare_runs::mask_paths",
+        "if path in paths:", 'if path.rsplit(".", 1)[-1] in {item.rsplit(".", 1)[-1] for item in paths}:',
+        ("tests/unit/engineering/test_compare_runs.py::test_nested_recorded_at_is_compared",)),
+    SourceMutation("event_wall_clock_not_masked", "scripts.compare_runs::normalize_event",
+        "event = mask_paths(event, EVENT_MASKS)", "event = dict(event)",
+        ("tests/unit/engineering/test_compare_runs.py"
+         "::test_event_and_checkpoint_ids_and_wall_clock_are_mapped_or_masked",)),
+    SourceMutation("unknown_reference_not_reported", "scripts.compare_runs::IdMaps.normalize",
+        "if ordinal is None:", "if False:",
+        ("tests/unit/engineering/test_compare_runs.py::test_a_reference_to_an_unknown_event_is_a_problem",)),
+    SourceMutation("state_errand_event_reference_not_mapped", "scripts.compare_runs::STATE_REFERENCES",
+        '"agents.*.errands.*.origin_event_id": "event",', "",
+        ("tests/unit/engineering/test_compare_runs.py"
+         "::test_state_event_references_follow_event_identity_in_every_state_layer[errand]",)),
+    SourceMutation("state_pending_event_reference_not_mapped", "scripts.compare_runs::STATE_REFERENCES",
+        '"pending_events[].caused_by[]": "event",', "",
+        ("tests/unit/engineering/test_compare_runs.py"
+         "::test_state_event_references_follow_event_identity_in_every_state_layer[pending]",)),
+    SourceMutation("state_event_reference_target_ignored", "scripts.compare_runs::IdMaps.normalize",
+        'return f"<{kind}:{ordinal}>"', 'return f"<{kind}:1>"',
+        ("tests/unit/engineering/test_compare_runs.py"
+         "::test_state_reference_to_another_event_differs_in_every_state_layer",)),
+    SourceMutation("state_extra_event_references_mapped", "scripts.compare_runs::STATE_REFERENCES",
+        '"pending_events[].caused_by[]": "event",',
+        '"pending_events[].caused_by[]": "event", "extra.origin_event_id": "event", "extra.caused_by[]": "event",',
+        ("tests/unit/engineering/test_compare_runs.py"
+         "::test_state_text_and_undeclared_same_named_references_remain_literal[extra]",)),
+    SourceMutation("quality_reference_identity_order_not_normalized", "scripts.compare_runs::_normalize_quality",
+        "_order_quality_references(mapped)", "mapped",
+        ("tests/unit/engineering/test_compare_runs.py::test_quality_reference_order_follows_event_identity",)),
+    SourceMutation("quality_reference_duplicates_removed", "scripts.compare_runs::_order_quality_references",
+        "sorted(values, key=canonical_bytes)", "sorted(set(values), key=canonical_bytes)",
+        ("tests/unit/engineering/test_compare_runs.py::test_quality_reference_membership_is_compared",)),
+    SourceMutation("quality_missing_evidence_identity_not_mapped", "scripts.compare_runs::EXPORT_REFERENCES",
+        '"day_plan_metrics.*.external_constraints.missing_evidence_event_ids[]": "event",', "",
+        ("tests/unit/engineering/test_compare_runs.py::test_quality_reference_order_follows_event_identity",
+         "tests/unit/engineering/test_compare_runs.py::test_unknown_quality_reference_is_a_problem")),
+    SourceMutation("request_copy_not_rebuilt", "scripts.compare_runs::apply_request_copy",
+        'data["request"] = request', 'data["request"] = None',
+        ("tests/unit/engineering/test_compare_runs.py::test_request_copy_rule_rebuilds_the_response_request",)),
+    SourceMutation("rule_on_decision_inputs_accepted", "scripts.compare_runs::require_allowed",
+        "if (rule.scope, rule.path) not in ALLOWED_RULE_TARGETS:", "if False:",
+        ("tests/unit/engineering/test_compare_runs.py::test_a_rule_on_decision_inputs_is_refused",)),
+    SourceMutation("pruned_actions_projection_copies_the_head", "scripts.compare_runs::project_processed_actions",
+        "projected = {key: base_actions[key] for key in head_actions if key in base_actions}",
+        "projected = dict(head_actions)",
+        ("tests/unit/engineering/test_compare_runs.py::test_processed_actions_rule_rejects_a_changed_entry",)),
+    SourceMutation("pruned_actions_required_keys_unchecked", "scripts.compare_runs::project_processed_actions",
+        "missing = sorted(key for key in required if key not in head_actions)", "missing = []",
+        ("tests/unit/engineering/test_compare_runs.py::test_processed_actions_rule_requires_every_readable_entry",)),
+    SourceMutation("terminal_result_uses_base_identity_context", "scripts.compare_runs::normalize_state_pair",
+        "normalize_state(head, context.head)", "normalize_state(head, context.base)",
+        ("tests/unit/engineering/test_compare_runs.py"
+         "::test_terminal_overwrites_keep_each_sides_identity_context_in_every_state_layer",)),
+    SourceMutation("terminal_result_skips_base_reference_validation", "scripts.compare_runs::normalize_state_pair",
+        "normalize_state(base, context.base)", "base",
+        ("tests/unit/engineering/test_compare_runs.py"
+         "::test_terminal_overwrites_reject_invalid_raw_references_before_alignment",)),
+    SourceMutation("terminal_result_ignores_activity_status", "scripts.compare_runs::_terminal_overwrite",
+        'activity.get("status") in _ENDED_ACTIVITY', "True",
+        ("tests/unit/engineering/test_compare_runs.py"
+         "::test_terminal_overwrites_preserve_projection_boundaries[active]",)),
+    SourceMutation("terminal_result_accepts_normalized_identity_as_raw", "scripts.compare_runs::IdMaps.normalize",
+        "if value is None:", 'if value is None or value == "<event:4>":',
+        ("tests/unit/engineering/test_compare_runs.py"
+         "::test_terminal_overwrites_reject_invalid_raw_references_before_alignment",)),
+    SourceMutation("pruned_action_history_kept_for_normalization", "scripts.compare_runs::align_states",
+        'base["processed_actions"] = projected', 'base["processed_actions"] = dict(base["processed_actions"])',
+        ("tests/unit/engineering/test_compare_runs.py"
+         "::test_pruned_history_is_removed_before_identity_normalization",)),
+    SourceMutation("version_rule_accepts_any_value", "scripts.compare_runs::apply_value_rule",
+        "if (base_value, head_value) != (rule.base_value, rule.head_value):", "if False:",
+        ("tests/unit/engineering/test_compare_runs.py::test_version_rule_accepts_only_the_declared_values",)),
+    # ---- 证明工具（长时运行成本第八章）结束 ----
+    # ---- 存储提交路径（长时运行成本第一章）----
+    SourceMutation("version_step_skips_the_committed_world_check", "worldmock.footprints.store::FootprintStore.commit",
+        "self.require_committed(base)", "None",
+        ("tests/unit/footprints/test_store_commit_path.py"
+         "::test_version_step_refuses_a_base_that_differs_from_the_committed_world",
+         "tests/integration/life/test_committed_world_guard.py"
+         "::test_in_place_edit_of_a_shared_entry_is_refused_before_the_step_commits",
+         "tests/integration/life/test_committed_world_guard.py"
+         "::test_every_staging_entry_refuses_a_diverged_engine_world")),
+    SourceMutation("cache_not_advanced_by_a_version_step", "worldmock.footprints.store::FootprintStore.commit",
+        "self._committed = CommittedWorld.of(state, body)", "None",
+        ("tests/unit/footprints/test_store_commit_path.py"
+         "::test_consecutive_version_steps_and_appends_follow_the_cached_world",)),
+    SourceMutation("cache_advanced_by_a_failed_version_step", "worldmock.footprints.store::FootprintStore.commit",
+        'logging.exception("Footprint transaction failed; no state or event was committed")',
+        'logging.exception("Footprint transaction failed; no state or event was committed"); '
+        "self._committed = CommittedWorld.of(state, body)",
+        ("tests/unit/footprints/test_store.py::test_sql_failure_rolls_back_money_and_all_events",)),
+    SourceMutation("evidence_append_moves_money", "worldmock.footprints.store::FootprintStore.append_evidence",
+        "validate_account_transition(committed.ledger_view(), committed.ledger_view(), events, False)", "None",
+        ("tests/unit/footprints/test_store_commit_path.py::test_evidence_append_refuses_money_and_initial_funding",)),
+    SourceMutation("evidence_append_claims_a_version_step",
+        "worldmock.footprints.store::FootprintStore.append_evidence",
+        "committed.version, committed.version, committed.current_time, events",
+        "committed.version, committed.version + 1, committed.current_time, events",
+        ("tests/unit/footprints/test_store_commit_path.py"
+         "::test_evidence_append_leaves_the_world_row_untouched_and_keeps_the_version",)),
+    SourceMutation("other_writer_not_detected", "worldmock.footprints.store::FootprintStore._require_stored_version",
+        "if stored != version:", "if False:",
+        ("tests/unit/footprints/test_store_commit_path.py"
+         "::test_a_write_after_another_connection_changed_the_world_is_refused",)),
+    SourceMutation("last_event_time_reads_the_oldest_event",
+        "worldmock.footprints.store::FootprintStore._last_event_time",
+        "ORDER BY event_seq DESC LIMIT 1", "ORDER BY event_seq LIMIT 1",
+        ("tests/unit/footprints/test_store_commit_path.py"
+         "::test_evidence_append_refuses_an_event_earlier_than_the_last_event",
+         "tests/unit/footprints/test_store_commit_path.py"
+         "::test_last_event_time_sees_events_inserted_outside_the_write_path")),
+    SourceMutation("checkpoint_skips_the_committed_world_check",
+        "worldmock.footprints.store::FootprintStore.checkpoint",
+        "self.require_committed(state)", "None",
+        ("tests/unit/footprints/test_branch_coverage.py"
+         "::test_store_checkpoint_rejects_stale_state_and_empty_snapshots",)),
+    SourceMutation("observation_skips_the_committed_world_check", "worldmock.life.engine::LifeEngine.observe",
+        'self.context.store.require_committed(self.context.state.model_dump(mode="json"))', "None",
+        ("tests/integration/life/test_committed_world_guard.py"
+         "::test_observation_refuses_an_engine_world_that_differs_from_the_committed_world",)),
+    SourceMutation("world_copy_shares_the_entry_containers", "worldmock.life.models::WorldState.__deepcopy__",
+        "dict(value) if name in _SHARED_ENTRY_FIELDS", "value if name in _SHARED_ENTRY_FIELDS",
+        ("tests/unit/life/test_world_state_copy.py"
+         "::test_deep_copy_gives_fresh_entry_containers_that_share_the_entries",)),
+    SourceMutation("world_copy_copies_the_entries", "worldmock.life.models::WorldState.__deepcopy__",
+        "dict(value) if name in _SHARED_ENTRY_FIELDS", "copy.deepcopy(value, memo) if name in _SHARED_ENTRY_FIELDS",
+        ("tests/unit/life/test_world_state_copy.py"
+         "::test_deep_copy_gives_fresh_entry_containers_that_share_the_entries",)),
+    SourceMutation("world_copy_shares_every_field", "worldmock.life.models::WorldState.__deepcopy__",
+        "copy.deepcopy(value, memo)", "value",
+        ("tests/unit/life/test_world_state_copy.py::test_every_other_field_is_a_full_deep_copy",)),
+    # ---- 存储提交路径（长时运行成本第一章）结束 ----
+    # ---- 世界状态与检查点存储（长时运行成本第二章）----
+    SourceMutation("action_identity_form_unchecked", "worldmock.life.decision_coordinator::_formed_action_identity",
+        "return number != action_id and len(number) == 4 and number.isascii() and number.isdigit()", "return True",
+        ("tests/integration/life/test_action_identity.py"
+         "::test_an_action_identity_not_formed_from_its_decision_is_refused_before_any_event",
+         "tests/integration/life/test_action_identity.py"
+         "::test_a_settled_action_identity_cannot_be_submitted_in_a_later_round")),
+    SourceMutation("processed_actions_never_pruned", "worldmock.life.action_evidence::prune_processed_actions",
+        "kept = {key: stored for key, stored in state.processed_actions.items() if key in origins}",
+        "kept = dict(state.processed_actions)",
+        ("tests/integration/life/test_processed_actions.py"
+         "::test_processed_actions_keep_only_this_second_and_unfinished_origins",)),
+    SourceMutation("paused_origin_pruned", "worldmock.life.action_evidence::prune_processed_actions",
+        "if activity.status in {ActivityStatus.ACTIVE, ActivityStatus.PAUSED}}",
+        "if activity.status == ActivityStatus.ACTIVE}",
+        ("tests/integration/life/test_processed_actions.py::test_a_paused_activity_keeps_its_origin_until_it_ends",)),
+    SourceMutation("missing_origin_not_detected", "worldmock.life.action_evidence::require_origin_action",
+        "if activity.origin_action_id not in state.processed_actions:", "if False:",
+        ("tests/integration/life/test_processed_actions.py"
+         "::test_an_activity_whose_origin_action_is_missing_cannot_end",)),
+    SourceMutation("activities_stored_in_identity_order", "worldmock.life.models::WorldState.serialize_activities",
+        "return list(value.values())", "return sorted(value.values(), key=lambda activity: activity.activity_id)",
+        ("tests/integration/life/test_state_serialization.py::test_activities_are_an_array_in_insertion_order",
+         "tests/integration/life/test_state_serialization.py::test_restored_world_keeps_the_live_activity_order")),
+    SourceMutation("repeated_activity_identity_accepted", "worldmock.life.models::WorldState.activities_from_array",
+        "if identity in mapping:", "if False:",
+        ("tests/integration/life/test_state_serialization.py"
+         "::test_repeated_or_malformed_activity_arrays_are_refused",)),
+    SourceMutation("checkpoint_row_stored_uncompressed", "worldmock.footprints.store::FootprintStore.checkpoint",
+        "zlib.compress(encoded, _CHECKPOINT_ZLIB_LEVEL)", "encoded",
+        ("tests/unit/footprints/test_checkpoint_storage.py"
+         "::test_checkpoint_row_is_the_zlib_stream_of_the_canonical_payload",)),
+    SourceMutation("checkpoint_record_hash_unchecked", "worldmock.footprints.store::_decompressed_record",
+        "if hashlib.sha256(payload).hexdigest() != digest:", "if False:",
+        ("tests/unit/footprints/test_checkpoint_storage.py::test_damaged_checkpoint_rows_are_refused",)),
+    SourceMutation("status_lists_the_oldest_checkpoints", "worldmock.status::read_status",
+        '"SELECT checkpoint_id FROM checkpoints ORDER BY rowid DESC LIMIT 5"',
+        '"SELECT checkpoint_id FROM checkpoints ORDER BY rowid LIMIT 5"',
+        ("tests/unit/footprints/test_status.py"
+         "::test_status_lists_the_five_latest_checkpoint_ids_without_reading_their_bodies",)),
+    SourceMutation("workspace_gzip_takes_the_wall_clock", "worldmock.footprints.checkpoint::snapshot_directory",
+        "compresslevel=_WORKSPACE_GZIP_LEVEL, mtime=0)", "compresslevel=_WORKSPACE_GZIP_LEVEL)",
+        ("tests/unit/footprints/test_workspace_snapshot.py"
+         "::test_workspace_snapshot_bytes_do_not_depend_on_the_wall_clock",)),
+    SourceMutation("workspace_restore_accepts_a_plain_tar", "worldmock.footprints.checkpoint::restore_directory",
+        "archive_bytes = gzip.decompress(content)", "archive_bytes = content",
+        ("tests/unit/footprints/test_workspace_snapshot.py::test_restore_refuses_a_plain_tar_and_damaged_gzip",)),
+    # ---- 世界状态与检查点存储（长时运行成本第二章）结束 ----
+    # ---- 记录的证据只存一次（长时运行成本第三章） ----
+    SourceMutation("model_response_keeps_request_copy",
+        "worldmock.life.model_evidence::ModelEvidenceRecorder.record_model_exchange",
+        '"request": exchange.request if exchange.phase == "request" else None,', '"request": exchange.request,',
+        ("tests/unit/life/test_model_evidence_pairing.py"
+         "::test_response_and_failure_carry_no_request_and_link_to_it[response]",
+         "tests/unit/life/test_model_evidence_pairing.py"
+         "::test_response_and_failure_carry_no_request_and_link_to_it[failure]",
+         "tests/unit/life/test_current_lifecycle_coverage.py"
+         "::test_model_response_requires_one_request_and_keeps_its_actual_cause")),
+    SourceMutation("changed_model_request_accepted",
+        "worldmock.life.model_evidence::ModelEvidenceRecorder._request_cause",
+        "if digest != recorded:", "if False:",
+        ("tests/unit/life/test_model_evidence_pairing.py"
+         "::test_response_or_failure_with_a_changed_request_is_refused[response]",
+         "tests/unit/life/test_model_evidence_pairing.py"
+         "::test_response_or_failure_with_a_changed_request_is_refused[failure]")),
+    SourceMutation("observation_read_skips_rehydration", "worldmock.footprints.store::FootprintStore._decode",
+        'if event.event_type != "observation":', "if True:",
+        ("tests/unit/footprints/test_observation_parts.py::test_every_read_method_returns_the_complete_observation",
+         "tests/unit/footprints/test_observation_parts.py::test_append_and_read_round_trip_the_observation_bytes",
+         "tests/integration/life/test_observation_parts.py"
+         "::test_a_past_day_part_follows_the_activity_phase_after_midnight")),
+    SourceMutation("observation_parts_outside_the_observation_transaction",
+        "worldmock.footprints.store::FootprintStore.append_observation",
+        "with self.connection:", "if True:",
+        ("tests/unit/footprints/test_observation_parts.py"
+         "::test_parts_and_their_observation_share_one_transaction[refused-before-the-write]",)),
+    SourceMutation("day_parts_keyed_by_observation_time",
+        "worldmock.life.observe::ObservationBuilder.stored_observation",
+        'local_date(activities[row["activity_id"]].started_at, zone)',
+        "local_date(self.context.state.current_time, zone)",
+        ("tests/integration/life/test_observation_parts.py"
+         "::test_a_past_day_part_follows_the_activity_phase_after_midnight",)),
+    SourceMutation("observation_part_digest_unchecked_on_read",
+        "worldmock.footprints.observation_parts::_part_value",
+        "if hashlib.sha256(row[0].encode()).hexdigest() != ref:", "if False:",
+        ("tests/unit/footprints/test_observation_parts.py"
+         "::test_damaged_missing_or_malformed_parts_fail_loudly[damaged]",)),
+    SourceMutation("observation_part_digest_unchecked_on_write",
+        "worldmock.footprints.observation_parts::insert_parts",
+        "if hashlib.sha256(body.encode()).hexdigest() != digest:", "if False:",
+        ("tests/unit/footprints/test_observation_parts.py"
+         "::test_a_part_whose_body_does_not_match_its_key_is_refused",)),
+    SourceMutation("unstored_observation_part_accepted",
+        "worldmock.footprints.observation_parts::require_parts",
+        'if connection.execute("SELECT 1 FROM parts WHERE sha256=?", (ref,)).fetchone() is None:', "if False:",
+        ("tests/unit/footprints/test_observation_parts.py"
+         "::test_an_observation_whose_part_is_not_stored_is_refused",)),
+    SourceMutation("split_writes_refs_into_its_input",
+        "worldmock.footprints.observation_parts::split_observation",
+        "return {**data, DAY_PART_KEY: day_refs, **whole}, parts",
+        "data.update({DAY_PART_KEY: day_refs, **whole})\n    return data, parts",
+        ("tests/unit/footprints/test_observation_parts.py::test_split_leaves_the_observation_untouched",)),
+    SourceMutation("activity_bindings_stored_as_one_part",
+        "worldmock.footprints.observation_parts::split_observation",
+        "key=operator.itemgetter(0)", "key=lambda pair: 0",
+        ("tests/unit/footprints/test_observation_parts.py"
+         "::test_split_groups_bindings_by_start_date_and_stores_six_tables_once",)),
+    SourceMutation("day_parts_rehydrated_out_of_order",
+        "worldmock.footprints.observation_parts::rehydrate_observation",
+        "for ref in _day_refs(data)", "for ref in reversed(_day_refs(data))",
+        ("tests/unit/footprints/test_observation_parts.py::test_append_and_read_round_trip_the_observation_bytes",)),
+    SourceMutation("memory_layer_stored_inline",
+        "worldmock.footprints.observation_parts::WHOLE_PART_KEYS",
+        '"memory_layer", "persona_views")', '"persona_views")',
+        ("tests/unit/footprints/test_observation_parts.py"
+         "::test_split_groups_bindings_by_start_date_and_stores_six_tables_once",)),
+    SourceMutation("host_only_keys_stored",
+        "worldmock.life.observe::ObservationBuilder.stored_observation",
+        "if key not in _HOST_ONLY_KEYS}", "}",
+        ("tests/integration/life/test_observation_parts.py"
+         "::test_observe_returns_what_it_built_and_the_store_reads_it_back",)),
+    SourceMutation("inspect_prints_stored_observation", "scripts.inspect_run::_rehydrated",
+        'if row["event_type"] != "observation":', "if True:",
+        ("tests/integration/footprints/test_inspect_observation_parts.py"
+         "::test_event_and_events_print_the_complete_observation",)),
+    # ---- 记录的证据只存一次（长时运行成本第三章）结束 ----
+    # ---- 整段历史读取与运行中可查（长时运行成本第四章） ----
+    SourceMutation("post_run_view_drops_the_todo_layer", "worldmock.footprints.post_run::DROPPED_PAYLOADS",
+        '"catalog_bindings", "memory_layer", "goal_bindings", "locations"}),',
+        '"catalog_bindings", "memory_layer", "goal_bindings", "locations", "todo_layer"}),',
+        ("tests/unit/footprints/test_post_run_view.py::test_post_run_view_drops_only_the_listed_payloads",
+         "tests/integration/footprints/test_post_run_guard.py"
+         "::test_export_is_byte_identical_with_and_without_the_post_run_view[errand]")),
+    SourceMutation("item_bindings_drop_a_reachable_row", "worldmock.footprints.post_run::_unreferenced",
+        'and row["product_id"] not in used)', ")",
+        ("tests/unit/footprints/test_post_run_view.py::test_errand_item_bindings_keep_every_row_a_reader_can_reach",)),
+    SourceMutation("request_outline_drops_the_tools", "worldmock.footprints.post_run::_request_outline",
+        'outline["tools"] = [_tool_outline(tool) for tool in request["tools"]]', 'outline["tools"] = []',
+        ("tests/unit/footprints/test_post_run_view.py::test_request_outline_keeps_every_call_class",)),
+    SourceMutation("post_run_view_drops_the_kind", "worldmock.footprints.post_run::DROPPED_PAYLOADS",
+        '"catalog_bindings", "memory_layer", "goal_bindings", "locations"}),',
+        '"catalog_bindings", "memory_layer", "goal_bindings", "locations", "kind"}),',
+        ("tests/integration/footprints/test_validation.py::test_forged_observation_with_initial_funds_kind_is_rejected",
+         "tests/unit/footprints/test_post_run_view.py::test_no_reduced_key_is_a_key_a_list_level_check_reads")),
+    SourceMutation("response_reduction_drops_the_choices", "worldmock.footprints.post_run::_without_messages",
+        '"choices": [_without(choice, frozenset({"message"})) for choice in response["choices"]]', '"choices": []',
+        ("tests/unit/footprints/test_post_run_view.py"
+         "::test_finish_reason_usage_and_model_survive_the_response_reduction",
+         "tests/integration/runtime/test_output_truncation.py"
+         "::test_export_with_model_calls_is_byte_identical_with_and_without_the_post_run_view")),
+    SourceMutation("export_keeps_full_big_events_in_memory", "worldmock.footprints.export::_write_events",
+        "kept.append(post_run_view(event))", "kept.append(event)",
+        ("tests/integration/footprints/test_post_run_guard.py::test_export_holds_only_post_run_views_in_memory",
+         "tests/integration/runtime/test_output_truncation.py"
+         "::test_export_with_model_calls_is_byte_identical_with_and_without_the_post_run_view")),
+    SourceMutation("export_timeline_reads_past_the_cutoff", "worldmock.footprints.export::_write_timeline_projections",
+        "progress, orders = timeline_sources(events)",
+        "progress, orders = timeline_sources(list(store.iter_events(store.last_event_seq)))",
+        ("tests/integration/footprints/test_export_stream.py::test_mid_run_cutoff_timeline_stops_at_the_cutoff",)),
+    SourceMutation("check_parses_before_authenticating", "worldmock.footprints.validation::validate_export",
+        'digest = _authenticated_events(root, manifest["artifacts"]["events"])',
+        'digest = manifest["artifacts"]["events"]["sha256"]',
+        ("tests/integration/footprints/test_validation.py"
+         "::test_tampered_events_with_an_invalid_line_report_the_hash_first",)),
+    SourceMutation("check_trusts_the_second_read", "worldmock.footprints.validation::_read_events",
+        "if hasher.hexdigest() != digest:", "if False:",
+        ("tests/integration/footprints/test_validation.py::test_events_changed_between_the_two_reads_are_rejected",)),
+    SourceMutation("event_row_disagreeing_with_its_body_accepted",
+        "worldmock.footprints.store::FootprintStore._decoded_row",
+        "if event.event_seq != sequence or event.event_id != identity:", "if False:",
+        ("tests/unit/footprints/test_store.py::test_paged_reads_reject_a_row_that_disagrees_with_its_body",)),
+    SourceMutation("branch_copy_unchecked", "worldmock.footprints.store::FootprintStore.copy_event_prefix",
+        "if self.event_prefix_digest(cutoff) != parent.event_prefix_digest(cutoff):", "if False:",
+        ("tests/unit/footprints/test_branch_coverage.py"
+         "::test_branch_copy_that_disagrees_with_the_parent_publishes_nothing",)),
+    SourceMutation("branch_artifact_rows_not_copied", "worldmock.footprints.store::FootprintStore.copy_event_prefix",
+        "for reference in references:", "for reference in ():",
+        ("tests/unit/footprints/test_branch_coverage.py"
+         "::test_branch_copies_parent_rows_and_artifact_rows_byte_for_byte",)),
+    SourceMutation("branch_skips_parts", "worldmock.footprints.store::FootprintStore.copy_event_prefix",
+        'self.connection.execute("INSERT INTO main.parts SELECT sha256, body FROM parent.parts")', "pass",
+        ("tests/unit/footprints/test_observation_parts.py::test_branch_copies_the_parts_and_the_stored_rows",)),
+    SourceMutation("branch_skips_parent_revalidation", "worldmock.footprints.checkpoint::_validated_prefix",
+        "for event in store.iter_events(cutoff):", "for event in ():",
+        ("tests/unit/footprints/test_branch_coverage.py"
+         "::test_branch_rejects_an_invalid_parent_body_before_creating_the_stage",)),
+    SourceMutation("fail_run_appends_a_second_failure", "worldmock.life.engine::LifeEngine.fail_run",
+        'if self.context.store.has_event("run_failed"):', "if False:",
+        ("tests/unit/life/test_current_lifecycle_coverage.py"
+         "::test_failure_is_one_durable_fact_and_empty_failure_is_rejected",)),
+    SourceMutation("counterfactual_accepts_a_child_source",
+        "worldmock.life.counterfactual_runtime::CounterfactualRuntime._validate_counterfactual_sources",
+        'if (event is None or event.event_seq >= branch.event_seq or event.visibility != "agent"',
+        'if (event is None or event.visibility != "agent"',
+        ("tests/unit/life/test_counterfactual_rejection_contract.py"
+         "::test_counterfactual_source_at_or_after_the_branch_event_is_not_visible",)),
+    SourceMutation("session_opening_takes_the_last_result",
+        "worldmock.footprints.store::FootprintStore.first_action_result_seq",
+        "ORDER BY event_seq LIMIT 1", "ORDER BY event_seq DESC LIMIT 1",
+        ("tests/unit/footprints/test_store.py::test_first_action_result_is_the_earliest_result_after_the_boundary",)),
+    SourceMutation("experience_window_keeps_the_oldest_rows",
+        "worldmock.footprints.store::FootprintStore.read_recent_experience_sources",
+        ") ORDER BY event_seq DESC LIMIT ?", ") ORDER BY event_seq LIMIT ?",
+        ("tests/unit/footprints/test_store.py::test_recent_experience_sources_equal_the_single_query_with_or",)),
+    SourceMutation("storefront_reads_the_whole_history",
+        "worldmock.life.storefront_runtime::StorefrontRuntime._accepted_cause",
+        "store.last_event_seq_before(activity.started_at))", "0)",
+        ("tests/integration/life/test_history_reads.py::test_purchase_acceptance_lookup_starts_at_the_activity_start",)),
+    SourceMutation("busy_timeout_back_to_five_seconds", "worldmock.footprints.store::BUSY_TIMEOUT_SECONDS",
+        "BUSY_TIMEOUT_SECONDS = 120", "BUSY_TIMEOUT_SECONDS = 5",
+        ("tests/unit/footprints/test_store.py::test_store_connection_waits_120_seconds_for_a_reader",)),
+    SourceMutation("status_counts_list_empty_types", "worldmock.status::event_type_counts",
+        "if count:", "if True:",
+        ("tests/unit/footprints/test_status.py::test_status_counts_and_wall_time_equal_the_whole_history_queries",)),
+    SourceMutation("inspect_summary_ignores_first_occurrence", "scripts.inspect_run::cmd_summary",
+        "key=lambda item: (-item[1], item[2])", "key=lambda item: -item[1]",
+        ("tests/integration/footprints/test_inspect_short_reads.py"
+         "::test_summary_orders_equal_counts_by_first_occurrence",)),
+    SourceMutation("inspect_rows_stop_after_one_page", "scripts.inspect_run::_paged",
+        "for after in range(0, last, EVENT_PAGE_SIZE):",
+        "for after in range(0, min(last, EVENT_PAGE_SIZE), EVENT_PAGE_SIZE):",
+        ("tests/integration/footprints/test_inspect_short_reads.py::test_paged_rows_equal_one_whole_history_read",)),
+    SourceMutation("evaluation_holds_full_events", "worldmock.evaluation.adapters::_adapt_canonical",
+        "event_rows = [post_run_view(parse_world_event(row)) for row in iter_jsonl(delivery.event_path)]",
+        "event_rows = [parse_world_event(row) for row in iter_jsonl(delivery.event_path)]",
+        ("tests/integration/evaluation/test_world_adapter_stream.py::test_world_adapter_keeps_only_post_run_views",)),
+    # ---- 整段历史读取与运行中可查（长时运行成本第四章）结束 ----
+    # ---- 网络故障、重启与运行状态（长时运行成本第五章） ----
+    SourceMutation("lineage_forgets_ancestors", "worldmock.footprints.checkpoint::branch_lineage",
+        '[*store.manifest["lineage"], lineage_entry(store, checkpoint)]', "[lineage_entry(store, checkpoint)]",
+        ("tests/integration/footprints/test_branch_lineage.py"
+         "::test_lineage_chains_parents_in_order_with_their_end_reasons",)),
+    SourceMutation("killed_parent_reported_failed", "worldmock.footprints.checkpoint::lineage_entry",
+        'reason, error = "no terminal event", None', 'reason, error = "run_failed", None',
+        ("tests/integration/footprints/test_branch_lineage.py"
+         "::test_lineage_chains_parents_in_order_with_their_end_reasons",)),
+    SourceMutation("terminal_lookup_reads_ancestors", "worldmock.footprints.checkpoint::lineage_entry",
+        'store.read_terminal_event(earlier[-1]["checkpoint_event_seq"] if earlier else 0)',
+        "store.read_terminal_event(0)",
+        ("tests/integration/footprints/test_branch_lineage.py"
+         "::test_terminal_lookup_ignores_ancestor_events_and_takes_the_last",)),
+    SourceMutation("export_lineage_unchecked", "worldmock.footprints.validation::_validate_identity",
+        'manifest.get("lineage") != frozen["lineage"]', "False",
+        ("tests/integration/footprints/test_branch_lineage.py"
+         "::test_export_lineage_must_equal_the_frozen_run_manifest",)),
+    SourceMutation("resume_fetches_live_metadata", "worldmock.runtime::_prepare_resume",
+        "load_environment(root, metadata_loader=frozen_metadata_loader(parent.manifest))", "load_environment(root)",
+        ("tests/integration/runtime/test_frozen_metadata_resume.py"
+         "::test_resume_and_replay_make_no_metadata_request",)),
+    SourceMutation("open_world_fetches_live_metadata", "worldmock.life.world_setup::open_world",
+        "load_environment(environment, metadata_loader=frozen_metadata_loader(store.manifest))",
+        "load_environment(environment)",
+        ("tests/integration/runtime/test_frozen_metadata_resume.py"
+         "::test_engine_open_reads_the_store_manifest_metadata",)),
+    SourceMutation("metadata_fetch_not_retried", "worldmock.model_endpoint::_fetch_metadata",
+        "if not _transient_metadata_error(error):", "if True:",
+        ("tests/unit/runtime/test_model_metadata_fetch.py::test_transient_failures_are_retried_whole_with_fixed_waits",)),
+    SourceMutation("metadata_fetch_retries_rejections", "worldmock.model_endpoint::_transient_metadata_error",
+        "response.status_code in _METADATA_RETRY_STATUSES", "response.status_code >= 400",
+        ("tests/unit/runtime/test_model_metadata_fetch.py::test_authentication_and_payload_failures_are_not_retried",)),
+    SourceMutation("environment_input_error_unpicklable", "worldmock.errors::EnvironmentInputError.__reduce__",
+        "return type(self), (self.path, self.code, self.reason), self.__dict__", "return super().__reduce__()",
+        ("tests/unit/runtime/test_error_pickling.py::test_every_worldmock_error_survives_pickle_and_ray_transport",)),
+    SourceMutation("precondition_error_unpicklable", "worldmock.errors::PreconditionError.__reduce__",
+        "return type(self), (self.args[0], self.unmet, self.suggested, self.public_reason), self.__dict__",
+        "return super().__reduce__()",
+        ("tests/unit/runtime/test_error_pickling.py::test_every_worldmock_error_survives_pickle_and_ray_transport",)),
+    SourceMutation("registration_error_unpicklable", "worldmock.catalog.errors::RegistrationError.__reduce__",
+        "return type(self), (self.code, self.detail), self.__dict__", "return super().__reduce__()",
+        ("tests/unit/runtime/test_error_pickling.py::test_every_worldmock_error_survives_pickle_and_ray_transport",)),
+    SourceMutation("failure_message_ignores_ray_cause", "worldmock.status::failure_message",
+        "if isinstance(cause, BaseException) and cause is not error:", "if False:",
+        ("tests/unit/runtime/test_error_pickling.py::test_actor_error_reaches_the_driver_as_its_own_type",)),
+    SourceMutation("status_error_message_dropped", "worldmock.status::write_status",
+        '"error_message": error_message', '"error_message": None',
+        ("tests/unit/footprints/test_status_liveness.py::test_status_json_carries_the_one_line_error_message",)),
+    SourceMutation("stale_heartbeat_reads_running", "worldmock.status::_liveness",
+        'heartbeat["age_seconds"] > HEARTBEAT_STALE_INTERVALS * HEARTBEAT_INTERVAL_SECONDS',
+        'heartbeat["age_seconds"] > 1e12',
+        ("tests/unit/footprints/test_status_liveness.py::test_old_heartbeat_reads_stale_and_stops_elapsed_time",)),
+    SourceMutation("park_not_reported", "worldmock.status::_liveness",
+        'if last_event_type == "model_request":', "if False:",
+        ("tests/unit/footprints/test_status_liveness.py"
+         "::test_fresh_heartbeat_with_a_pending_request_reads_waiting_for_model",)),
+    SourceMutation("replace_not_retried", "worldmock.footprints.assets::_replace",
+        "for delay in _REPLACE_RETRY_SECONDS:", "for delay in ():",
+        ("tests/unit/footprints/test_atomic_replace_retry.py::test_windows_permission_error_is_retried_then_published",)),
+    SourceMutation("replace_retried_off_windows", "worldmock.footprints.assets::_replace",
+        'if os.name != "nt":', "if False:",
+        ("tests/unit/footprints/test_atomic_replace_retry.py::test_permission_error_off_windows_is_raised_at_once",)),
+    SourceMutation("transport_attempts_dropped", "worldmock.life.model_evidence::_attempt_fields",
+        'return {"transport_attempts": [dict(item) for item in attempts]}', 'return {"transport_attempts": []}',
+        ("tests/integration/runtime/test_model_exchange_attempts.py"
+         "::test_response_and_failure_events_carry_transport_attempts_in_the_envelope",)),
+    SourceMutation("request_attempts_accepted", "worldmock.life.model_evidence::_attempt_fields",
+        'if exchange.phase == "request" and attempts:', "if False:",
+        ("tests/integration/runtime/test_model_exchange_attempts.py::test_request_evidence_with_attempts_is_rejected",)),
+    SourceMutation("plan_day_correction_attempts_dropped", "worldmock.runtime::_generate_day_plan",
+        "evidence.append(day_planning.response_draft(now, agent_id, (*link, attempts), raw, error))",
+        "evidence.append(day_planning.response_draft(now, agent_id, (*link, ()), raw, error))",
+        ("tests/integration/runtime/test_model_exchange_attempts.py"
+         "::test_plan_day_evidence_carries_attempts[validation-retry]",)),
+    SourceMutation("plan_day_response_attempts_dropped", "worldmock.runtime::_generate_day_plan",
+        "evidence.append(day_planning.response_draft(now, agent_id, (*link, attempts), raw, None))",
+        "evidence.append(day_planning.response_draft(now, agent_id, (*link, ()), raw, None))",
+        ("tests/integration/runtime/test_model_exchange_attempts.py"
+         "::test_plan_day_evidence_carries_attempts[response]",)),
+    SourceMutation("env_close_leaves_cached_clients", "custom.envs.life_env::LifeEnv.close",
+        "await close_cached_async_clients()", "pass",
+        ("tests/integration/runtime/test_llm_client_close.py"
+         "::test_life_env_close_closes_cached_clients_in_its_own_loop",)),
+    # ---- 网络故障、重启与运行状态（长时运行成本第五章）结束 ----
+    # ---- 每次决策的宿主成本与模型成本分列 ----
+    SourceMutation("open_activities_omit_pending_conclusions", "worldmock.life.activity_control::open_activities",
+        "if item.agent_id == agent_id and concludable(item))",
+        "if item.agent_id == agent_id and item.status in {ActivityStatus.ACTIVE, ActivityStatus.PAUSED})",
+        ("tests/unit/life/test_open_activities.py::test_open_activities_are_the_concludable_ones_in_world_order",
+         "tests/integration/runtime/test_query_prompt_contract.py"
+         "::test_real_full_slots_and_pending_conclusion_use_the_same_tool_refusal")),
+    SourceMutation("asleep_check_reads_no_activity", "worldmock.life.admission::_sleep_refusal",
+        "for activity in context.open_activities)", "for activity in ())",
+        ("tests/unit/test_environment_engine_admission.py::test_sleep_blocks_second_slot_start_until_its_own_end",)),
+    SourceMutation("tool_layer_admission_without_open_activities", "worldmock.life.tool_layer::_admission_context",
+        "context.open_activities, places,", "(), places,",
+        ("tests/integration/runtime/test_query_prompt_contract.py"
+         "::test_real_full_slots_and_pending_conclusion_use_the_same_tool_refusal",)),
+    SourceMutation("tool_row_ignores_the_binding_note", "worldmock.life.tool_layer::_action_row",
+        '"available": action["note"] is None,', '"available": True,',
+        ("tests/integration/runtime/test_query_prompt_contract.py"
+         "::test_real_full_slots_and_pending_conclusion_use_the_same_tool_refusal",
+         "tests/unit/life/test_shared_observation_contract.py"
+         "::test_tool_layer_rows_take_availability_from_the_private_binding_note")),
+    SourceMutation("unconsolidated_view_keeps_the_cursor_episode",
+        "worldmock.agents.life_memory_store::WorldMockMemoryStore.unconsolidated_view",
+        "return records[index + 1:]", "return records[index:]",
+        ("tests/integration/as2/test_worldmock_memory_boundaries.py"
+         "::test_cache_reads_equal_the_copying_reads_at_every_cursor",)),
+    SourceMutation("step_end_copies_every_memory_again",
+        "worldmock.agents.life_memory::WorldMockMemoryRuntime.after_step",
+        "known = store.episode_ids()", 'known = {str(item["id"]) for item in store.iter_episodes()}',
+        ("tests/integration/as2/test_worldmock_life_hooks.py"
+         "::test_step_end_below_the_threshold_reads_memory_without_copying_it",)),
+    SourceMutation("fitted_count_includes_the_output_reserve", "worldmock.life.prompt_capacity::fit_request",
+        "return FittedRequest(request, measured - reserve)\n    if budget",
+        "return FittedRequest(request, measured)\n    if budget",
+        ("tests/unit/life/test_native_environment_contract.py"
+         "::test_capacity_uses_verified_actual_context_and_enforces_verified_output_limit",)),
+    SourceMutation("usage_estimate_of_another_request_accepted", "custom.agents.life_agent::LifeAgent._usage_estimate",
+        "if fitted is None or fitted.request is not request:", "if fitted is None:",
+        ("tests/integration/runtime/test_life_agent_protocol.py"
+         "::test_usage_check_refuses_a_count_taken_for_another_request",)),
+    SourceMutation("history_turn_counted_as_fresh", "worldmock.footprints.quality::_call_class",
+        'if _message_roles(request) == ["system", "user"] else', "if len(_message_roles(request)) >= 2 else",
+        ("tests/unit/footprints/test_quality.py"
+         "::test_model_usage_lists_every_call_class_from_the_recorded_request_shape",)),
+    SourceMutation("truncation_retry_not_recognized", "worldmock.footprints.quality::_call_class",
+        'if START_TOOLS[0] in names and request.get("extra_body") == RETRY_THINKING:', "if False:",
+        ("tests/unit/footprints/test_quality.py"
+         "::test_model_usage_lists_every_call_class_from_the_recorded_request_shape",)),
+    SourceMutation("truncation_retry_matched_without_its_switch", "worldmock.footprints.quality::_call_class",
+        'if START_TOOLS[0] in names and request.get("extra_body") == RETRY_THINKING:',
+        "if START_TOOLS[0] in names:",
+        ("tests/unit/footprints/test_quality.py"
+         "::test_a_start_tool_request_without_the_retry_switch_is_unrecognized",)),
+    SourceMutation("report_status_reads_the_open_activities_of_the_committed_world",
+        "worldmock.life.session_actions::ActionHandlers._admission_context",
+        "activity_control.open_activities(state, agent_id)",
+        "activity_control.open_activities(self.context.state, agent_id)",
+        ("tests/integration/start_interfaces/test_start_group.py"
+         "::test_resuming_two_paused_activities_checks_the_second_against_the_first_resumed",)),
+    SourceMutation("peak_share_ignores_the_price_band", "worldmock.footprints.quality::_call_class_usage",
+        'peak = sum(item["price_band"] == "peak" for item in priced)', "peak = 0",
+        ("tests/unit/footprints/test_quality.py"
+         "::test_model_usage_lists_every_call_class_from_the_recorded_request_shape",)),
 )

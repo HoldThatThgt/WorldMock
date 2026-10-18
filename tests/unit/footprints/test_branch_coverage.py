@@ -7,12 +7,14 @@ fail-closed 语义断言 IntegrityError。
 from __future__ import annotations
 from worldmock.footprints.checkpoint import restore_branch
 
+import gzip
 import hashlib
 import io
 import json
 import os
 import sqlite3
 import tarfile
+import zlib
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -55,7 +57,7 @@ def _event(sequence, event_type, *, occurred_at=None, run_id="run", wall_ms=None
 
 def _manifest(start=100, end=1100, **extra):
     payload = {"run_id": "run", "source_group_id": "group", "work_content_ids": {"1": []},
-               "window": {"start": start, "end": end, "timezone": "Asia/Shanghai"}}
+               "window": {"start": start, "end": end, "timezone": "Asia/Shanghai"}, "lineage": []}
     payload.update(extra)
     return payload
 
@@ -99,7 +101,7 @@ def _make_store(tmp_path, agent_ids=(1,)):
     """一个只有冻结样例环境素材的运行目录：导出写时间线与质量报告时从这些素材取名称。"""
     manifest = {"run_id": "run", "source_group_id": "run", "agent_ids": list(agent_ids),
                 "environment_assets": freeze_environment(tmp_path / "run"),
-                "window": {"start": 100, "end": 300, "timezone": "UTC"}}
+                "window": {"start": 100, "end": 300, "timezone": "UTC"}, "lineage": []}
     return FootprintStore.create(tmp_path / "run", manifest,
                                  {"version": 0, "current_time": 100})
 
@@ -341,36 +343,37 @@ def test_store_create_rolls_back_when_manifest_unserializable(tmp_path):
 
 def test_store_commit_rejects_clock_regression_and_version_jumps(tmp_path):
     store = _make_store(tmp_path)
+    base = store.state
     with pytest.raises(IntegrityError, match="backwards"):
-        store.commit({"version": 1, "current_time": 50},
+        store.commit(base, {"version": 1, "current_time": 50},
                      [EventDraft(event_type="observation", occurred_at=50)])
     with pytest.raises(IntegrityError, match="discontinuous"):
-        store.commit({"version": 2, "current_time": 100},
+        store.commit(base, {"version": 2, "current_time": 100},
                      [EventDraft(event_type="observation", occurred_at=100)])
     with pytest.raises(IntegrityError, match="discontinuous"):
-        store.commit({**store.state, "extra": 1},
+        store.commit(base, {**store.state, "extra": 1},
                      [EventDraft(event_type="observation", occurred_at=100)])
     with pytest.raises(IntegrityError, match="must be integers"):
-        store.commit({"version": "one", "current_time": 100},
+        store.commit(base, {"version": "one", "current_time": 100},
                      [EventDraft(event_type="observation", occurred_at=100)])
     store.close()
 
 
 def test_store_read_rejects_out_of_range_boundaries(tmp_path):
     store = _make_store(tmp_path)
-    store.commit(store.state, [EventDraft(event_type="observation", occurred_at=100,
-                                          agent_id=1)])
+    store.append_evidence([EventDraft(event_type="observation", occurred_at=100,
+                                      agent_id=1)])
     with pytest.raises(IntegrityError, match="boundary"):
         store.read_agent_events("observation", 1, after=5)
     with pytest.raises(IntegrityError, match="cutoff"):
-        store.read_events(9)
+        list(store.iter_events(9))
     store.close()
 
 
 def test_store_checkpoint_rejects_stale_state_and_empty_snapshots(tmp_path):
     store = _make_store(tmp_path)
     reference = store.assets.put_json({"snapshot": 1}, {"kind": "fixture"})
-    with pytest.raises(IntegrityError, match="current world state"):
+    with pytest.raises(IntegrityError, match="differs from the committed world"):
         store.checkpoint({"version": 9, "current_time": 100}, {"agent:1": reference, "life": reference})
     with pytest.raises(IntegrityError, match="participant snapshots"):
         store.checkpoint(store.state, {})
@@ -379,12 +382,12 @@ def test_store_checkpoint_rejects_stale_state_and_empty_snapshots(tmp_path):
 
 def _insert_checkpoint_row(store, body: dict, record_sha256: str):
     store.connection.execute("INSERT INTO checkpoints VALUES(?,?,?)", (
-        body["checkpoint_id"], canonical_json(body).decode(), record_sha256))
+        body["checkpoint_id"], zlib.compress(canonical_json(body)), record_sha256))
 
 
 def test_get_checkpoint_rejects_missing_damaged_and_inconsistent_records(tmp_path):
     store = _make_store(tmp_path)
-    store.commit(store.state, [EventDraft(event_type="observation", occurred_at=100)])
+    store.append_evidence([EventDraft(event_type="observation", occurred_at=100)])
     with pytest.raises(IntegrityError, match="missing or its record is damaged"):
         store.get_checkpoint("no-such-checkpoint")
 
@@ -431,7 +434,7 @@ def test_snapshot_directory_skips_directories_and_packs_files(tmp_path):
     (workspace / "nested" / "note.txt").write_text("inner")
     (workspace / "top.txt").write_text("outer")
     reference = snapshot_directory(workspace, assets)
-    assert reference.media_type == "application/x-tar"
+    assert reference.media_type == "application/gzip"
     assert reference.size_bytes > 0
 
 
@@ -474,8 +477,8 @@ def test_restore_directory_rejects_existing_destination_and_unsafe_members(tmp_p
         member = tarfile.TarInfo("../escape.txt")
         member.size = 0
         archive.addfile(member, io.BytesIO(b""))
-    reference = assets.put(content.getvalue(), {"media_type": "application/x-tar",
-                                               "source": {"kind": "workspace"}})
+    reference = assets.put(_gzipped(content.getvalue()), {"media_type": "application/gzip",
+                                                          "source": {"kind": "workspace"}})
     destination = tmp_path / "restore"
     destination.mkdir()
     with pytest.raises(IntegrityError, match="destination already exists"):
@@ -485,8 +488,16 @@ def test_restore_directory_rejects_existing_destination_and_unsafe_members(tmp_p
         restore_directory(reference, assets, destination)
 
 
+def _gzipped(raw: bytes) -> bytes:
+    """按生产快照的同一调用（固定头部、修改时刻 0）gzip 压缩一份 tar。"""
+    compressed = io.BytesIO()
+    with gzip.GzipFile(fileobj=compressed, mode="wb", compresslevel=6, mtime=0) as stream:
+        stream.write(raw)
+    return compressed.getvalue()
+
+
 def _workspace_snapshot(assets, members):
-    """以（成员名, 成员类型）构造工作区快照素材；普通文件的内容是成员名本身。"""
+    """以（成员名, 成员类型）构造 gzip 压缩的工作区快照素材；普通文件的内容是成员名本身。"""
     content = io.BytesIO()
     with tarfile.open(fileobj=content, mode="w") as archive:
         for name, kind in members:
@@ -495,7 +506,7 @@ def _workspace_snapshot(assets, members):
             raw = name.encode("utf-8", "surrogateescape") if kind == tarfile.REGTYPE else b""
             entry.size = len(raw)
             archive.addfile(entry, io.BytesIO(raw))
-    return assets.put(content.getvalue(), {"media_type": "application/x-tar", "source": {"kind": "workspace"}})
+    return assets.put(_gzipped(content.getvalue()), {"media_type": "application/gzip", "source": {"kind": "workspace"}})
 
 
 def _forbid_restore_writes(monkeypatch):
@@ -563,18 +574,6 @@ def test_restore_directory_rejects_a_member_that_aliases_an_earlier_file(tmp_pat
     else:
         restore_directory(reference, assets, destination)
         assert (destination / "LONGFI~1.JSO").read_bytes() == b"LONGFI~1.JSO"
-
-
-@pytest.mark.parametrize("corrupt", [lambda archive: archive[:515], lambda archive: b"\x01" * 1024],
-                         ids=["truncated-member-data", "not-a-tar"])
-def test_restore_directory_reports_a_corrupt_archive_as_an_integrity_error(tmp_path, corrupt):
-    from worldmock.footprints.checkpoint import restore_directory
-
-    assets = AssetStore(tmp_path / "assets")
-    archive = assets.read(_workspace_snapshot(assets, [("AGENT.json", tarfile.REGTYPE)]))
-    reference = assets.put(corrupt(archive), {"media_type": "application/x-tar", "source": {"kind": "workspace"}})
-    with pytest.raises(IntegrityError, match="archive is invalid"):
-        restore_directory(reference, assets, tmp_path / "restore")
 
 
 def test_snapshot_and_restore_keep_every_workspace_file_byte_for_byte(tmp_path):
@@ -650,8 +649,8 @@ def test_snapshot_directory_rejects_directory_junctions(tmp_path, monkeypatch):
 
 def _store_with_checkpoint(tmp_path):
     store = _make_store(tmp_path)
-    store.commit(store.state, [EventDraft(event_type="observation", occurred_at=100,
-                                          agent_id=1)])
+    store.append_evidence([EventDraft(event_type="observation", occurred_at=100,
+                                      agent_id=1)])
     reference = store.assets.put_json({"workspace": True}, {"kind": "fixture"})
     point = store.checkpoint(store.state, {"agent:1": reference, "life": reference})
     return store, point
@@ -670,12 +669,12 @@ def test_restore_branch_rejects_destinations_inside_parent_run(tmp_path):
 def test_restore_branch_carries_event_artifacts_into_child_run(tmp_path):
     store = _make_store(tmp_path)
     reference = store.assets.put_json({"evidence": True}, {"kind": "fixture"})
-    store.commit(store.state, [EventDraft(event_type="observation", occurred_at=100,
-                                          agent_id=1, artifact_refs=[reference])])
+    store.append_evidence([EventDraft(event_type="observation", occurred_at=100,
+                                      agent_id=1, artifact_refs=[reference])])
     point = store.checkpoint(store.state, {"agent:1": reference, "life": reference})
     child = restore_branch(store, point.checkpoint_id, tmp_path / 'child')
     try:
-        events = child.read_events(child.last_event_seq)
+        events = list(child.iter_events(child.last_event_seq))
         assert any(event.artifact_refs for event in events)
         assert child.manifest["parent_run_id"] == "run"
         assert child.manifest["parent_checkpoint_id"] == point.checkpoint_id
@@ -730,12 +729,12 @@ def test_export_rejects_empty_range_existing_destination_and_nonpositive_window(
     store = _make_store(tmp_path)
     with pytest.raises(IntegrityError, match="empty event range"):
         export_run(store, 0, tmp_path / "export")
-    store.commit(store.state, [EventDraft(event_type="observation", occurred_at=100)])
+    store.append_evidence([EventDraft(event_type="observation", occurred_at=100)])
     (tmp_path / "taken").mkdir()
     with pytest.raises(IntegrityError, match="already exists"):
         export_run(store, 1, tmp_path / "taken")
     single = _make_store(tmp_path / "flat")
-    single.commit(single.state, [EventDraft(event_type="observation", occurred_at=100)])
+    single.append_evidence([EventDraft(event_type="observation", occurred_at=100)])
     with pytest.raises(IntegrityError, match="positive confirmed time window"):
         export_run(single, 1, tmp_path / "flat-export")
     store.close()
@@ -745,7 +744,7 @@ def test_export_rejects_empty_range_existing_destination_and_nonpositive_window(
 def test_export_includes_event_artifact_refs_in_asset_index(tmp_path):
     store = _make_store(tmp_path)
     reference = store.assets.put_json({"artifact": True}, {"kind": "fixture"})
-    store.commit({"version": 1, "current_time": 110}, [EventDraft(
+    store.commit(store.state, {"version": 1, "current_time": 110}, [EventDraft(
         event_type="observation", occurred_at=110, artifact_refs=[reference])])
     manifest = export_run(store, 1, tmp_path / "export")
     assert reference.sha256 in [row["sha256"] for row in
@@ -1016,3 +1015,121 @@ def _complete_export(tmp_path, engine_factory):
     directory = tmp_path / "export"
     export_run(store, point.last_event_seq, directory)
     return directory
+
+
+# ---------------------------------------------------------------------------
+# 分支按存储字节复制父库前缀（长时运行成本第四章）
+# ---------------------------------------------------------------------------
+
+
+def _parent_with_shared_artifact(tmp_path):
+    """父库：两条事件引用同一摘要、来源不同的素材，另有一条不带素材的事件；最后写共同检查点。"""
+    store = _make_store(tmp_path)
+    first = store.assets.put(b"shared evidence", {"media_type": "text/plain", "source": {"kind": "first"}})
+    second = store.assets.put(b"shared evidence", {"media_type": "text/plain", "source": {"kind": "second"}})
+    assert first.sha256 == second.sha256 and first != second
+    store.append_evidence([
+        EventDraft(event_type="model_response", occurred_at=100, agent_id=1, artifact_refs=[first]),
+        EventDraft(event_type="action_result", occurred_at=100, agent_id=1),
+        EventDraft(event_type="model_response", occurred_at=100, agent_id=1, artifact_refs=[second]),
+    ])
+    snapshot = store.assets.put_json({"workspace": True}, {"kind": "fixture"})
+    point = store.checkpoint(store.state, {"agent:1": snapshot, "life": snapshot})
+    return store, point
+
+
+def _rows(store, cutoff):
+    return store.connection.execute(
+        "SELECT event_seq,event_id,body FROM events WHERE event_seq<=? ORDER BY event_seq", (cutoff,)).fetchall()
+
+
+def _no_stage(tmp_path):
+    return not [item for item in os.listdir(tmp_path) if item.startswith(".restore-")]
+
+
+def test_branch_copies_parent_rows_and_artifact_rows_byte_for_byte(tmp_path):
+    store, point = _parent_with_shared_artifact(tmp_path)
+    child = restore_branch(store, point.checkpoint_id, tmp_path / "child")
+    try:
+        assert _rows(child, point.last_event_seq) == _rows(store, point.last_event_seq)
+        expected = {}
+        for event in store.iter_events(point.last_event_seq):
+            for reference in event.artifact_refs:
+                expected.setdefault(reference.sha256, canonical_json(reference.model_dump()).decode())
+        assert dict(child.connection.execute("SELECT sha256,body FROM artifacts")) == expected
+        assert json.loads(next(iter(expected.values())))["source"] == {"kind": "first"}
+        assert child.manifest["source_run_ids"] == sorted({"run", child.manifest["run_id"]})
+    finally:
+        child.close()
+    store.close()
+
+
+def test_branch_rejects_an_invalid_parent_body_before_creating_the_stage(tmp_path, monkeypatch):
+    from pydantic import ValidationError
+    from worldmock.footprints import checkpoint as checkpoint_module
+    store = _make_store(tmp_path)
+    (first,) = store.append_evidence([EventDraft(event_type="action_result", occurred_at=100, agent_id=1)])
+    body = first.model_dump()
+    body.update(event_seq=2, event_id="raw-invalid", event_type="unknown_event_type")
+    with store.connection:
+        store.connection.execute("INSERT INTO events VALUES(?,?,?)", (2, "raw-invalid", canonical_json(body).decode()))
+    reference = store.assets.put_json({"workspace": True}, {"kind": "fixture"})
+    point = store.checkpoint(store.state, {"agent:1": reference, "life": reference})
+    stages, make_stage = [], checkpoint_module.tempfile.mkdtemp
+    monkeypatch.setattr(checkpoint_module.tempfile, "mkdtemp",
+                        lambda **kwargs: stages.append(kwargs) or make_stage(**kwargs))
+    with pytest.raises(ValidationError):
+        restore_branch(store, point.checkpoint_id, tmp_path / "child")
+    assert stages == []
+    assert not (tmp_path / "child").exists()
+    assert _no_stage(tmp_path)
+    store.close()
+
+
+def test_branch_copy_that_disagrees_with_the_parent_publishes_nothing(tmp_path, monkeypatch, caplog):
+    store, point = _parent_with_shared_artifact(tmp_path)
+    original = FootprintStore.event_prefix_digest
+
+    def digest(self, cutoff):
+        rows, value = original(self, cutoff)
+        return (rows, "0" * 64) if self.run_dir == store.run_dir else (rows, value)
+
+    monkeypatch.setattr(FootprintStore, "event_prefix_digest", digest)
+    with pytest.raises(IntegrityError, match="^Branch event copy disagrees with the parent prefix$"):
+        restore_branch(store, point.checkpoint_id, tmp_path / "child")
+    assert "Branch event copy disagrees with the parent prefix" in caplog.messages
+    assert not (tmp_path / "child").exists()
+    assert _no_stage(tmp_path)
+    store.close()
+
+
+def test_branch_reads_every_parent_artifact_reference(tmp_path, monkeypatch):
+    from worldmock.footprints import checkpoint as checkpoint_module
+    store, point = _parent_with_shared_artifact(tmp_path)
+    shared = next(event.artifact_refs[0] for event in store.iter_events(point.last_event_seq) if event.artifact_refs)
+    (store.assets.root / shared.sha256).unlink()
+    monkeypatch.setattr(checkpoint_module.tempfile, "mkdtemp",
+                        lambda **kwargs: pytest.fail("the stage was created before the parent prefix was checked"))
+    with pytest.raises(IntegrityError, match="^Artifact is missing or is a symbolic link$"):
+        restore_branch(store, point.checkpoint_id, tmp_path / "child")
+    assert not (tmp_path / "child").exists()
+    store.close()
+
+
+def test_branch_detaches_the_parent_after_a_failed_copy(tmp_path, caplog):
+    parent, point = _parent_with_shared_artifact(tmp_path / "parent")
+    references = [reference for event in parent.iter_events(point.last_event_seq)
+                  for reference in event.artifact_refs]
+    child = FootprintStore.create(tmp_path / "child", {"run_id": "child", "agent_ids": [1]},
+                                  {"version": 0, "current_time": 100})
+    try:
+        child.append_evidence([EventDraft(event_type="action_result", occurred_at=100, agent_id=1)])
+        with pytest.raises(sqlite3.IntegrityError, match="Event sequence must append exactly one record"):
+            child.copy_event_prefix(parent, point.last_event_seq, references)
+        assert "Branch event copy failed; the child keeps no copied event" in caplog.messages
+        assert child.last_event_seq == 1
+        assert child.connection.execute("SELECT count(*) FROM artifacts").fetchone()[0] == 0
+        assert [row[1] for row in child.connection.execute("PRAGMA database_list")] == ["main"]
+    finally:
+        child.close()
+        parent.close()

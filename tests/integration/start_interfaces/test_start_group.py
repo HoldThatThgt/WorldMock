@@ -6,8 +6,8 @@ import pytest
 from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import (
-    MAIN_TOOL, SIDE_TOOL, advance_until_ready, conclude_request, context, do_at, pause_request, purchase,
-    report_request, sleep, travel, use_app,
+    MAIN_TOOL, SIDE_TOOL, action_identity, advance_until_ready, conclude_request, context, do_at, pause_request,
+    purchase, report_request, sleep, stage_day_plan, travel, use_app,
 )
 from tests.life.environment_runtime import act, act_group, action_result, events
 from worldmock.errors import ProtocolError
@@ -45,7 +45,7 @@ def _frozen(engine) -> dict:
 
 def _rejected_events(engine, label: str) -> list:
     """一个被拒开始组各动作的拒绝事件（按登记次序）。"""
-    return [row for row in events(engine, "action_rejected") if row.action_id.startswith(f"action-{label}-")]
+    return [row for row in events(engine, "action_rejected") if row.action_id.startswith(f"decision-{label}-1:action:")]
 
 
 def test_two_start_calls_of_one_decision_start_two_activities_at_the_same_moment(engine_factory):
@@ -54,12 +54,14 @@ def test_two_start_calls_of_one_decision_start_two_activities_at_the_same_moment
     _, (main, side) = act_group(engine, "pair", do_at("家", "测试休息"), purchase("牛肉面", "薯片"))
     assert (main.status, side.status) == ("in_progress", "in_progress")
     assert (main.message, side.message) == ("Activities started", "Activities started")
-    requested = [row for row in events(engine, "action_requested") if row.action_id.startswith("action-pair-")]
+    requested = [row for row in events(engine, "action_requested")
+                 if row.action_id.startswith("decision-pair-1:action:")]
     assert [row.data["tool_name"] for row in requested] == [MAIN_TOOL, SIDE_TOOL]
     assert len({row.decision_id for row in requested}) == 1
     activities = engine.context.state.activities
-    assert set(activities) == {"activity-action-pair-1", "activity-action-pair-2-purchase"}
-    assert (main.activity_id, side.activity_id) == ("activity-action-pair-1", "activity-action-pair-2-purchase")
+    started = (f"activity-{action_identity('pair', 1)}", f"activity-{action_identity('pair', 2)}-purchase")
+    assert set(activities) == set(started)
+    assert (main.activity_id, side.activity_id) == started
     rest, basket = activities[main.activity_id], activities[side.activity_id]
     assert (rest.resource_claims, basket.resource_claims) == ({"first"}, {"second"})
     assert rest.started_at == basket.started_at == engine.context.state.current_time
@@ -71,8 +73,8 @@ def test_two_start_calls_of_one_decision_start_two_activities_at_the_same_moment
     assert [item["activity_id"] for item in side.data["activities"]] == [basket.activity_id]
     assert main.data["orders"] == [] and len(side.data["orders"]) == 2
     for kind in ("action_accepted", "action_result"):
-        written = [row.action_id for row in events(engine, kind) if row.action_id.startswith("action-pair-")]
-        assert written == ["action-pair-1", "action-pair-2"]
+        written = [row.action_id for row in events(engine, kind) if row.action_id.startswith("decision-pair-1:action:")]
+        assert written == [action_identity("pair", 1), action_identity("pair", 2)]
     session = engine.context.state.sessions[rest.session_ids[-1]]
     assert set(session.activity_ids) == set(activities) and basket.session_ids == rest.session_ids
 
@@ -105,26 +107,27 @@ def test_swapping_the_two_calls_gives_the_same_world(engine_factory):
         assert {item.fulfillment.value for item in deliveries} == {"delivery"}
     opened = [next(item for item in engine.context.state.sessions.values() if item.status == "active")
               .opened_by_action_id for engine in (first, second)]
-    assert opened == ["action-pair-1", "action-pair-2"]
+    assert opened == [action_identity("pair", 1), action_identity("pair", 2)]
 
 
 def test_commit_returns_one_result_per_decision_and_persists_both(engine_factory):
-    """环境向框架只返回该决策第一条动作的结果，两条结果都已落库并可按动作身份重放。"""
+    """环境向框架只返回该决策第一条动作的结果，两条结果都已落库。"""
     engine = engine_factory()
     decision = context(engine, "single")
     engine.begin_decision_round([decision])
     engine.observe(decision)
     side, main = use_app("哔哩哔哩"), do_at("家", "测试闲聊")
-    receipts = [engine.submit_action(DirectToolCall(decision, "act-side", SIDE_TOOL, side)),
-                engine.submit_action(DirectToolCall(decision, "act-main", MAIN_TOOL, main))]
-    assert [receipt.action_id for receipt in receipts] == ["act-side", "act-main"]
-    assert engine.submit_action(DirectToolCall(decision, "act-main", MAIN_TOOL, main)).action_id == "act-main"
+    side_id, main_id = action_identity("single", 1), action_identity("single", 2)
+    receipts = [engine.submit_action(DirectToolCall(decision, side_id, SIDE_TOOL, side)),
+                engine.submit_action(DirectToolCall(decision, main_id, MAIN_TOOL, main))]
+    assert [receipt.action_id for receipt in receipts] == [side_id, main_id]
+    assert engine.submit_action(DirectToolCall(decision, main_id, MAIN_TOOL, main)).action_id == main_id
     returned = engine.commit_decision_round("single")
-    assert [result.action_id for result in returned] == ["act-side"]
+    assert [result.action_id for result in returned] == [side_id]
     stored = engine.context.state.processed_actions
-    assert {"act-side", "act-main"} <= set(stored)
-    assert stored["act-main"].result["activity_id"] == "activity-act-main"
-    assert stored["act-side"].result["activity_id"] == "activity-act-side"
+    assert {side_id, main_id} <= set(stored)
+    assert stored[main_id].result["activity_id"] == f"activity-{main_id}"
+    assert stored[side_id].result["activity_id"] == f"activity-{side_id}"
     notes = [row.data["self_note"] for row in events(engine, "action_requested")]
     assert notes == [None, None]
 
@@ -143,9 +146,9 @@ def test_second_registration_outside_a_start_pair_is_a_protocol_fault(engine_fac
     decision = context(engine, code)
     engine.begin_decision_round([decision])
     engine.observe(decision)
-    engine.submit_action(DirectToolCall(decision, "first", tool_of(requests[0]), requests[0]))
+    engine.submit_action(DirectToolCall(decision, action_identity(code, 1), tool_of(requests[0]), requests[0]))
     with pytest.raises(ProtocolError, match="Agent already submitted its decision round action"):
-        engine.submit_action(DirectToolCall(decision, "second", tool_of(requests[1]), requests[1]))
+        engine.submit_action(DirectToolCall(decision, action_identity(code, 2), tool_of(requests[1]), requests[1]))
 
 
 def test_third_action_and_retired_tool_are_protocol_faults(engine_factory):
@@ -154,16 +157,17 @@ def test_third_action_and_retired_tool_are_protocol_faults(engine_factory):
     decision = context(engine, "third")
     engine.begin_decision_round([decision])
     engine.observe(decision)
-    engine.submit_action(DirectToolCall(decision, "one", MAIN_TOOL, do_at("家", "测试休息")))
-    engine.submit_action(DirectToolCall(decision, "two", SIDE_TOOL, use_app("哔哩哔哩")))
+    engine.submit_action(DirectToolCall(decision, action_identity("third", 1), MAIN_TOOL, do_at("家", "测试休息")))
+    engine.submit_action(DirectToolCall(decision, action_identity("third", 2), SIDE_TOOL, use_app("哔哩哔哩")))
     with pytest.raises(ProtocolError, match="Agent already submitted its decision round action"):
-        engine.submit_action(DirectToolCall(decision, "three", SIDE_TOOL, purchase("薯片")))
+        engine.submit_action(DirectToolCall(decision, action_identity("third", 3), SIDE_TOOL, purchase("薯片")))
     assert "start_activity" not in REQUEST_MODELS
     other = engine_factory()
     decision = context(other, "retired")
     other.begin_decision_round([decision])
     with pytest.raises(ProtocolError, match="Direct tool call request type does not match its tool"):
-        other.submit_action(DirectToolCall(decision, "old", "start_activity", do_at("家", "测试休息")))
+        other.submit_action(DirectToolCall(decision, action_identity("retired"), "start_activity",
+                                           do_at("家", "测试休息")))
 
 
 def test_side_failure_starts_neither_call_and_changes_nothing(engine_factory):
@@ -301,34 +305,18 @@ def test_unknown_goods_name_is_refused_as_supply_not_found(engine_factory):
     assert result.status == "in_progress" and [order["goods_id"] for order in result.data["orders"]] == ["online-notebook"]
 
 
-def test_group_counts_one_same_moment_round_when_accepted_rejected_or_replayed(engine_factory):
-    """同刻预算按组计：一个开始组受理、整组被拒、重放都只加一轮。"""
+def test_group_counts_one_same_moment_round_when_accepted_or_rejected(engine_factory):
+    """同刻预算按组计：一个开始组受理或整组被拒都只加一轮。"""
     engine = engine_factory()
     act_group(engine, "sleepy", sleep(60), use_app("哔哩哔哩"))
     assert engine.context.state.agents[1].same_moment_rounds == 1
     _, started = act_group(engine, "pair", do_at("家", "测试休息"), use_app("哔哩哔哩"))
     assert [item.status for item in started] == ["in_progress", "in_progress"]
     assert engine.context.state.agents[1].same_moment_rounds == 2
-    replayed = engine_factory()
-    decision = context(replayed, "first")
-    replayed.begin_decision_round([decision])
-    replayed.observe(decision)
-    calls = [DirectToolCall(decision, "act-1", MAIN_TOOL, sleep(60)),
-             DirectToolCall(decision, "act-2", SIDE_TOOL, use_app("哔哩哔哩"))]
-    for call in calls:
-        replayed.submit_action(call)
-    replayed.commit_decision_round("first")
-    assert replayed.context.state.agents[1].same_moment_rounds == 1
-    again = context(replayed, "again")
-    replayed.begin_decision_round([again])
-    replayed.observe(again)
-    for call in calls:
-        replayed.submit_action(DirectToolCall(again, call.action_id, call.tool_name, call.request))
-    returned = replayed.commit_decision_round("again")
-    assert [result.action_id for result in returned] == ["act-1"] and returned[0].status == "rejected"
-    assert replayed.context.state.agents[1].same_moment_rounds == 2
-    reused = [row for row in events(replayed, "action_rejected") if row.data.get("reused")]
-    assert [row.action_id for row in reused] == ["act-1", "act-2"]
+    refused = engine_factory()
+    _, results = act_group(refused, "refused", sleep(60), use_app("哔哩哔哩"))
+    assert [item.status for item in results] == ["rejected", "rejected"]
+    assert refused.context.state.agents[1].same_moment_rounds == 1
 
 
 def test_name_class_rejections_are_free_per_group(engine_factory):
@@ -341,23 +329,6 @@ def test_name_class_rejections_are_free_per_group(engine_factory):
     act_group(engine, "three", do_at("家", "测试休息"), purchase("不存在的商品"))
     assert engine.context.state.agents[1].same_moment_rounds == 1
     assert engine.context.state.agents[1].body.relaxation_need == pytest.approx(0.25)
-
-
-def test_inconsistent_group_replay_is_a_protocol_fault(engine_factory):
-    """一组的两条动作一条有存档结果一条没有：协议故障，运行停止。"""
-    engine = engine_factory()
-    _, first = act(engine, "solo", sleep(60), action_id="act-1")
-    assert first.status == "in_progress"
-    while engine.context.state.activities[first.activity_id].status == "active":
-        from tests.life.conftest import advance_next
-        advance_next(engine)
-    decision = context(engine, "mixed")
-    engine.begin_decision_round([decision])
-    engine.observe(decision)
-    engine.submit_action(DirectToolCall(decision, "act-1", MAIN_TOOL, sleep(60)))
-    engine.submit_action(DirectToolCall(decision, "act-new", SIDE_TOOL, use_app("哔哩哔哩")))
-    with pytest.raises(ProtocolError, match="Start group replay is inconsistent"):
-        engine.commit_decision_round("mixed")
 
 
 def test_control_tool_cannot_resume_through_a_start_tool_and_slot_blocks_resume(engine_factory):
@@ -379,7 +350,7 @@ def test_control_tool_cannot_resume_through_a_start_tool_and_slot_blocks_resume(
     assert resumed.status == "completed"
     activity = engine.context.state.activities[rest.activity_id]
     assert activity.status == "active" and activity.resource_claims == {"first"}
-    assert action_result(engine, "action-resume").data["resumed"][0]["name"] == name
+    assert action_result(engine, action_identity("resume")).data["resumed"][0]["name"] == name
 
 
 def test_travel_departs_while_an_app_is_already_in_use(engine_factory):
@@ -447,7 +418,7 @@ def test_start_without_a_frozen_observation_is_not_settled(engine_factory):
     engine = engine_factory()
     decision = context(engine, "blind")
     engine.begin_decision_round([decision])
-    engine.submit_action(DirectToolCall(decision, "blind", MAIN_TOOL, do_at("家", "测试休息")))
+    engine.submit_action(DirectToolCall(decision, action_identity("blind"), MAIN_TOOL, do_at("家", "测试休息")))
     with pytest.raises(BusinessRuleError, match="OBSERVATION_NOT_FOUND"):
         engine.commit_decision_round("blind")
     assert not engine.context.state.activities
@@ -468,3 +439,27 @@ def test_rejected_start_group_is_remembered_once_and_corrected_only_on_its_own_t
     later = engine.observe(context(engine, "later"))["progress_layer"]["rejected_today"]
     corrected = {str(row["written"]): (row["times"], row["accepted_as"]) for row in later}
     assert corrected == {"60": (1, None), str(["哔哩哔哩"]): (1, ["抖音"])}
+
+
+
+def test_resuming_two_paused_activities_checks_the_second_against_the_first_resumed(engine_factory):
+    engine = engine_factory(mutate=_attentive())
+    stage_day_plan(engine)
+    _, bilibili = act(engine, "bilibili", use_app("哔哩哔哩"))
+    assert advance_until_ready(engine)
+    bilibili_name = engine.context.state.activities[bilibili.activity_id].name
+    _, paused = act(engine, "pause-bilibili", pause_request(bilibili_name), "pause_activity")
+    assert paused.status == "completed"
+    _, rest = act(engine, "rest", do_at("家", "测试休息"))
+    assert advance_until_ready(engine)
+    rest_name = engine.context.state.activities[rest.activity_id].name
+    _, paused = act(engine, "pause-rest", pause_request(rest_name), "pause_activity")
+    assert paused.status == "completed"
+    _, douyin = act(engine, "douyin", use_app("抖音"))
+    assert advance_until_ready(engine)
+    douyin_name = engine.context.state.activities[douyin.activity_id].name
+    _, refused = act(engine, "resume-both", report_request(rest_name, bilibili_name), "report_status")
+    assert refused.status == "rejected"
+    assert refused.error_code == "SESSION_LIMIT_EXCEEDED"
+    assert rest_name in refused.message and douyin_name in refused.message
+    assert engine.context.state.activities[rest.activity_id].status == "paused"

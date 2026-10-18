@@ -17,6 +17,7 @@ from worldmock.agents.life_continuation import tool_message
 from worldmock.agents.life_persona import persona_layer, readonly_layers, write_prompt_snapshot
 from worldmock.errors import EnvironmentInputError, IntegrityError, ProtocolError
 from worldmock.life.narration import RenderBudgetExceededError
+from worldmock import model_endpoint
 from worldmock.model_endpoint import credential_value, load_model_metadata, model_context_length
 from worldmock.run_setup import validate_manifest_stage_identity, validate_stage_model_identity
 from worldmock.runtime import CounterfactualRequest, PlanDayClient, ResumeRequest, RunRequest
@@ -108,10 +109,13 @@ def test_actual_model_metadata_rejects_transport_capacity_and_service_identity(m
     frozen = inputs()
     metadata_service(monkeypatch, frozen)
     config = frozen.config.model
+    gets, waits = [], []
     if failure == "transport":
         def unavailable(*args, **kwargs):
+            gets.append(args)
             raise requests.ConnectionError("Service is offline")
         monkeypatch.setattr(requests, "get", unavailable)
+        monkeypatch.setattr(model_endpoint.time, "sleep", waits.append)
         reason = "model context metadata is unavailable"
     elif failure == "capacity":
         response = SimpleNamespace(raise_for_status=lambda: None, json=lambda: {"data": [
@@ -125,6 +129,8 @@ def test_actual_model_metadata_rejects_transport_capacity_and_service_identity(m
         load_model_metadata(config)
     assert caught.value.path == "config.toml" and caught.value.code == "RUN_CONFIG_INVALID"
     assert "test-only-key" not in str(caught.value)
+    if failure == "transport":
+        assert len(gets) == 5 and waits == [2.0, 4.0, 8.0, 16.0]
 
 
 @pytest.mark.asyncio

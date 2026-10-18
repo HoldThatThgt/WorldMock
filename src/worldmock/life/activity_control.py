@@ -15,8 +15,7 @@ from worldmock.life.activity_evidence import OUTCOME_APP_USE_ENDED, app_use_ende
 from worldmock.life.activity_titles import TitleIndex
 from worldmock.life.error_contract import ErrorItem, items_fix
 from worldmock.life.guidance import Refusal, items_refusal, refusal_for_code
-from worldmock.life.action_evidence import (_activity_terminal_draft, _activity_terminal_result,
-                                            _terminal_action_records)
+from worldmock.life.action_evidence import _activity_terminal_draft, require_origin_action
 from worldmock.life.content_select import next_episode
 from worldmock.life.models import (CONCLUDABLE_TERMINAL_STATUSES, ActivityKind, ActivityState, ActivityStatus,
                                    PendingAction, WorldState, active_activities)
@@ -73,19 +72,29 @@ def finished_at(activity: ActivityState, now: int) -> bool:
                                                and activity.status == ActivityStatus.COMPLETED)
 
 
-def pending_conclusions(state: WorldState, agent_id: int) -> tuple[ActivityState, ...]:
-    """@brief 人物全部待收尾活动，按开始时刻与身份稳定排序。"""
-    return _agent_activities(state, agent_id, is_pending_conclusion)
+def pending_conclusions(activities: Sequence[ActivityState]) -> tuple[ActivityState, ...]:
+    """@brief 这些活动里待收尾的，按开始时刻与身份稳定排序；传人物的未了活动（open_activities）。"""
+    return _in_start_order(item for item in activities if is_pending_conclusion(item))
 
 
-def slot_activities(state: WorldState, agent_id: int) -> tuple[ActivityState, ...]:
-    """@brief 占槽位的活动：进行中与待收尾（暂停的不占）。"""
-    return _agent_activities(state, agent_id, occupies_slot)
+def slot_activities(activities: Sequence[ActivityState]) -> tuple[ActivityState, ...]:
+    """@brief 这些活动里占槽位的（进行中与待收尾，暂停的不占），按开始时刻与身份稳定排序；传人物的未了活动。"""
+    return _in_start_order(item for item in activities if occupies_slot(item))
 
 
 def occupies_slot(activity: ActivityState) -> bool:
     """@brief 活动是否占一个槽位：进行中或待收尾；暂停的活动不占槽位。"""
     return activity.status == ActivityStatus.ACTIVE or is_pending_conclusion(activity)
+
+
+def open_activities(state: WorldState, agent_id: int) -> tuple[ActivityState, ...]:
+    """@brief 人物的未了活动：进行中、暂停中或待收尾（concludable 为真），按 state.activities 的次序。
+
+    只对未了活动成立的判定读它，不再逐行扫描全部活动：占槽位（occupies_slot）、待收尾（is_pending_conclusion）与睡着
+    （进行中的睡眠）。活动名（visible_names）、工具层的活动目标与私有绑定要读全部活动，不读它。一次观察只算一次
+    （observe 放进 LayerContext，再带进 admission.Context）；受理各自从所受理的那份世界算。
+    """
+    return tuple(item for item in state.activities.values() if item.agent_id == agent_id and concludable(item))
 
 
 def concludable(activity: ActivityState) -> bool:
@@ -104,9 +113,9 @@ def pausable(state: WorldState, activity: ActivityState) -> bool:
                  or activity.planned_end_at - state.current_time >= PAUSE_MIN_REMAINING_SECONDS))
 
 
-def free_slots(state: WorldState, agent_id: int) -> int:
-    """@brief 人物剩余的活动槽位。"""
-    return SLOT_LIMIT - len(slot_activities(state, agent_id))
+def free_slots(activities: Sequence[ActivityState]) -> int:
+    """@brief 人物剩余的活动槽位；传人物的未了活动。"""
+    return SLOT_LIMIT - len(slot_activities(activities))
 
 
 def resumable_here(state: WorldState, activity: ActivityState) -> bool:
@@ -188,7 +197,7 @@ def visible_names(state: WorldState, agent_id: int, taken: Iterable[str]) -> dic
     sessions = sorted((item for item in state.sessions.values() if item.agent_id == agent_id),
                       key=lambda item: (item.started_at, item.session_id))
     session_names = {item.session_id: _unique(item.name, seen) for item in sessions}
-    activities = _agent_activities(state, agent_id, lambda item: True)
+    activities = _in_start_order(item for item in state.activities.values() if item.agent_id == agent_id)
     activity_names = {item.activity_id: _unique(item.name or _kind_name(item, state.timezone), seen)
                       for item in activities}
     return {"sessions": session_names, "activities": activity_names}
@@ -308,7 +317,7 @@ def _report_refusal(context: Context, activity: ActivityState) -> Refusal | None
         return Refusal("ACTIVITY_PRECONDITION_UNMET",
                        f"Resume {name} at its start location {place}; it can be concluded elsewhere.",
                        next_step=f"Travel to {place}.", unmet=("activity_location",))
-    refusal = slot_refusal(context.state, activity.agent_id, 1, context.activity_names)
+    refusal = slot_refusal(context.state, context.open_activities, 1, context.activity_names)
     if refusal is not None:
         return refusal
     blocking = [item for item in active_activities(context.state, activity.agent_id)
@@ -376,7 +385,7 @@ def _conclude_refusal(context: Context, activity: ActivityState) -> Refusal | No
         return refusal_for_code("ACTION_REQUEST_INVALID")
     if activity.kind == ActivityKind.SLEEP and activity.status == ActivityStatus.ACTIVE:
         return refusal_for_code("ACTIVITY_PAUSE_UNAVAILABLE")
-    waiting = pending_conclusions(context.state, activity.agent_id)
+    waiting = pending_conclusions(context.open_activities)
     if waiting and activity.activity_id not in {item.activity_id for item in waiting}:
         return conclusion_refusal(waiting, dict(context.activity_names))
     if activity.status == ActivityStatus.ACTIVE and not at_decision_boundary(activity, context.state.current_time):
@@ -384,19 +393,21 @@ def _conclude_refusal(context: Context, activity: ActivityState) -> Refusal | No
     return None
 
 
-def slot_refusal(state: WorldState, agent_id: int, needed: int, names: Mapping[str, str]) -> Refusal | None:
+def slot_refusal(state: WorldState, activities: Sequence[ActivityState], needed: int,
+                 names: Mapping[str, str]) -> Refusal | None:
     """@brief 槽位判定（开始、出行与恢复暂停的活动共用）：需要的槽位多于空槽位时以 SESSION_LIMIT_EXCEEDED 拒绝，够用时为 None。
 
     原因点名占槽位的活动（进行中与待收尾）：只剩一个槽位时说明只剩一个，槽位占满时说明两个都被占着；下一步按被点名
     活动能否暂停写（docs/design/04-simulation-engine.md）。
 
+    :param activities: 人物的未了活动（open_activities）。
     :param needed: 恢复所需的活动槽位。
     :param names: 活动身份→本轮可读名称。
     """
-    free = free_slots(state, agent_id)
+    free = free_slots(activities)
     if needed <= free:
         return None
-    occupying = slot_activities(state, agent_id)
+    occupying = slot_activities(activities)
     listed = _listed(occupying, names)
     reason = (f"Only one activity slot remains because {listed} occupies a slot." if free > 0
               else f"Both activity slots are occupied by {listed}.")
@@ -420,13 +431,13 @@ def _listed(activities: Iterable[ActivityState], names: Mapping[str, str]) -> st
 
 
 def record_changes(before: WorldState, after: WorldState, pending: PendingAction,
-                   context: RecordContext) -> tuple[WorldState, list[EventDraft]]:
+                   context: RecordContext) -> list[EventDraft]:
     """@brief 本次控制改变的每项活动写一条 environment_event；活动终结时给开始它的动作写一次终态；控制请求里每条被受理
     的个人事务变更各写一条事务事件（errands.request_drafts，只在这条成功分支生成，docs/design/04-simulation-engine.md
     「唤醒、日计划与个人事务」）。"""
     drafts = _lifecycle_drafts(before, after, pending, context.snapshot)
-    changed, terminal = _terminal_records(before, after, pending.requested_event_id, context.index)
-    return changed, drafts + terminal + errands.request_drafts(before, after, pending)
+    terminal = _terminal_records(before, after, pending.requested_event_id, context.index)
+    return drafts + terminal + errands.request_drafts(before, after, pending)
 
 
 def truncation_record(activity: ActivityState, snapshot: dict, now: int) -> EventDraft:
@@ -464,25 +475,21 @@ def _lifecycle_drafts(before: WorldState, after: WorldState, pending: PendingAct
 
 
 def _terminal_records(before: WorldState, after: WorldState, request_event_id: str,
-                      index: TitleIndex) -> tuple[WorldState, list[EventDraft]]:
-    """@brief 本次新终结的活动：各自更新开始它的那条动作在 processed_actions 里的结果并写一次终态。"""
+                      index: TitleIndex) -> list[EventDraft]:
+    """@brief 本次新终结的活动各写一次终态；开始它的那条动作必须仍在 processed_actions 里。"""
     newly = [item for key, item in sorted(after.activities.items()) if item.status in _TERMINAL_STATUSES
              and key in before.activities and before.activities[key].status not in _TERMINAL_STATUSES]
     drafts = []
     for activity in newly:
-        result = _activity_terminal_result(after, activity, after.current_time, index)
-        after = after.model_copy(update={"processed_actions": _terminal_action_records(after, result)})
+        require_origin_action(after, activity)
         drafts.append(_activity_terminal_draft(after, activity, after.current_time, [request_event_id],
                                                index))
-    return after, drafts
+    return drafts
 
 
-def _agent_activities(state: WorldState, agent_id: int,
-                      predicate: Callable[[ActivityState], bool]) -> tuple[ActivityState, ...]:
-    """@brief 人物满足条件的活动，按开始时刻与身份稳定排序。"""
-    return tuple(sorted((item for item in state.activities.values()
-                         if item.agent_id == agent_id and predicate(item)),
-                        key=lambda item: (item.started_at, item.activity_id)))
+def _in_start_order(activities: Iterable[ActivityState]) -> tuple[ActivityState, ...]:
+    """@brief 活动按开始时刻与身份稳定排序。"""
+    return tuple(sorted(activities, key=lambda item: (item.started_at, item.activity_id)))
 
 
 def _unique(name: str, seen: Counter[str]) -> str:

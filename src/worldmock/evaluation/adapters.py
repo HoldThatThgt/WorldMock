@@ -15,8 +15,9 @@ from worldmock.evaluation.errors import EvaluationError
 from worldmock.errors import IntegrityError
 from worldmock.footprints.app_usage import validate_app_event_source
 from worldmock.footprints.models import Event
+from worldmock.footprints.post_run import post_run_view
 from worldmock.life.action_contract import APP_BOUND_ACTIONS
-from worldmock.evaluation.io import read_jsonl
+from worldmock.evaluation.io import iter_jsonl, read_jsonl
 from worldmock.evaluation.models import (
     ActivitySession,
     activity_intervals,
@@ -355,9 +356,9 @@ def adapt_human_reference(root: Path, scenario: EvaluationScenario) -> DatasetVi
 
 
 def _adapt_canonical(root: Path, scenario: EvaluationScenario, source_kind: str) -> DatasetView:
-    """@brief 适配 WorldMock 共同交付格式。"""
+    """@brief 适配 WorldMock 共同交付格式；事件逐行解析，内存里只留事后读取视图。"""
     delivery = validate_canonical_delivery(root, scenario, source_kind)
-    event_rows = [parse_world_event(row) for row in read_jsonl(delivery.event_path)]
+    event_rows = [post_run_view(parse_world_event(row)) for row in iter_jsonl(delivery.event_path)]
     activity_rows = read_jsonl(delivery.activity_path)
     activities = _adapt_world_activities(activity_rows, delivery, scenario)
     activity_index = {item.activity_id: item for item in activities}

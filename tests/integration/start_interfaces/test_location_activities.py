@@ -8,8 +8,8 @@ import pytest
 
 from tests.integration.runtime.current_contract_fixtures import ToolResponse, decide
 from tests.life.conftest import (
-    MAIN_TOOL, advance_until_ready, conclude_request, context, do_at, main_arguments, pause_request, progress_calls,
-    purchase, report_request, sleep, stage_day_plan, travel, use_app,
+    MAIN_TOOL, action_identity, advance_until_ready, conclude_request, context, do_at, main_arguments, pause_request,
+    progress_calls, purchase, report_request, sleep, stage_day_plan, travel, use_app,
 )
 from tests.life.environment_inputs import catalog_rows, copy_environment, meal_environment, write_catalog_rows
 from tests.footprints.recording import export_completed
@@ -189,7 +189,7 @@ def test_start_result_shows_the_content_that_actually_started(engine_factory):
 def test_naming_draws_no_random_number_and_same_seed_selects_the_same_content(engine_factory):
     """点名不消耗随机流：开始地点活动前后其他随机键的抽取结果不变；同种子两次运行选到的内容相同。"""
     first, second = engine_factory(), engine_factory()
-    keys = ("function-app:probe", "purchase-duration:probe", "activity-action-named:0")
+    keys = ("function-app:probe", "purchase-duration:probe", f"activity-{action_identity('named')}:0")
     before = [random_stream(first.context.state.random_state, key).random() for key in keys]
     seed_state = first.context.state.random_state
     for engine in (first, second):

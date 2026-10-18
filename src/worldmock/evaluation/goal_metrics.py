@@ -67,8 +67,6 @@ def _event_order(event: dict) -> tuple:
 def _action_evidence(event: dict) -> tuple[bool, str | None] | None:
     """@brief 只从明确的拒绝或动作终态读取受阻证据。"""
     data = event.get("data", {})
-    if data.get("reused"):
-        return None
     rejected = event.get("event_type") == "action_rejected" or data.get("status") == "rejected"
     terminal = event.get("event_type") == "action_result" and data.get("status") in _TERMINAL_STATUSES
     if event.get("event_type") not in {"action_rejected", "action_result"} or not (rejected or terminal):

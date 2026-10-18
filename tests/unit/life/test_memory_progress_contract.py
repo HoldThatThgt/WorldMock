@@ -276,7 +276,7 @@ def test_rejected_today_counts_only_evidence_from_local_midnight_to_now(tmp_path
     moments = {"YESTERDAY": midnight - 1, "MIDNIGHT": midnight, "MORNING": midnight + 7 * 3600, "NOW": now,
                "LATER": now + 60}
     for version, (code, moment) in enumerate(moments.items(), start=1):
-        store.commit({"version": version, "current_time": moment}, [rejected(moment, code)])
+        store.commit(store.state, {"version": version, "current_time": moment}, [rejected(moment, code)])
     context = SimpleNamespace(state=SimpleNamespace(current_time=now), agent_id=1,
                               config=SimpleNamespace(timezone="Asia/Shanghai"))
     rows = progress_layer.rejected_today(context, store)

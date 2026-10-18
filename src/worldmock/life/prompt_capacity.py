@@ -48,6 +48,16 @@ class ProgressBudget:
     chain_length: int = 0
 
 
+@dataclass(frozen=True, slots=True)
+class FittedRequest:
+    """@brief 容量预检通过、实际要发送的请求，与发送前为它计量的输入 token 数。"""
+
+    #: 实际发送的请求；低于阈值时就是传入的那个对象。
+    request: dict[str, Any]
+    #: request 的消息与工具定义的 token 数（不含预留输出），等于 prompt_token_count(request)。
+    prompt_tokens: int
+
+
 def prompt_token_count(request: dict[str, Any]) -> int:
     """@brief 计量实际发送的消息与工具定义。"""
     try:
@@ -68,8 +78,9 @@ def request_token_count(request: dict[str, Any]) -> int:
 
 
 def fit_request(request: dict[str, Any], metadata: ModelMetadata | dict,
-                budget: ProgressBudget | None = None) -> dict[str, Any]:
-    """@brief 请求低于阈值时原样返回；否则先结束本秒续接，再按第四章步骤浓缩进度层，每步重计，仍超限即容量故障。"""
+                budget: ProgressBudget | None = None) -> FittedRequest:
+    """@brief 请求低于阈值时原样放进结果；否则先结束本秒续接，再按第四章步骤浓缩进度层，每步重计，仍超限即容量故障。
+    结果带实际发送的请求与它的输入 token 数（最后一次计量减去预留输出），用量日志直接复用。"""
     frozen = metadata if isinstance(metadata, ModelMetadata) else ModelMetadata.model_validate(metadata)
     reserve = request.get("max_tokens")
     if type(reserve) is not int or not 0 < reserve <= frozen.max_output_tokens:
@@ -78,12 +89,12 @@ def fit_request(request: dict[str, Any], metadata: ModelMetadata | dict,
     limit = model_context_length(request["model"], frozen) * CONTEXT_THRESHOLD
     measured = request_token_count(request)
     if measured < limit:
-        return request
+        return FittedRequest(request, measured - reserve)
     if budget is not None and budget.fresh_messages is not None:
         request = {**request, "messages": [*budget.fresh_messages, *request["messages"][budget.chain_length:]]}
         measured = request_token_count(request)
         if measured < limit:
-            return request
+            return FittedRequest(request, measured - reserve)
     layers = list(budget.layers) if budget is not None else []
     index = next((i for i, layer in enumerate(layers) if layer.get("layer") == _PROGRESS_LAYER), None)
     if index is not None:
@@ -93,7 +104,7 @@ def fit_request(request: dict[str, Any], metadata: ModelMetadata | dict,
             request = _with_user_layers(request, layers, budget.user_index)
             measured = request_token_count(request)
             if measured < limit:
-                return request
+                return FittedRequest(request, measured - reserve)
     _log_capacity_failure(request, layers, measured, limit)
     raise RuntimeError("model request capacity exceeded")
 
@@ -163,12 +174,12 @@ def _log_capacity_failure(request: dict[str, Any], layers: list[dict], measured:
     logging.error("Model request capacity exceeded: total=%s threshold=%s parts=%s", measured, limit, counts)
 
 
-def compare_usage(request: dict[str, Any], response: dict[str, Any] | None) -> None:
-    """@brief 用供应商返回的实际输入 token 校核发送前估算。"""
+def compare_usage(estimate: int, response: dict[str, Any] | None) -> None:
+    """@brief 用供应商返回的实际输入 token 校核发送前的估算；估算是容量预检为同一请求计量的数（FittedRequest.prompt_tokens），
+    这里不再重数。"""
     usage = response.get("usage") if isinstance(response, dict) else None
     actual = usage.get("prompt_tokens") if isinstance(usage, dict) else None
     if not isinstance(actual, int):
         return
-    estimate = prompt_token_count(request)
     logging.info("Model prompt token estimate checked: estimated=%s actual=%s difference=%s",
                  estimate, actual, actual - estimate)

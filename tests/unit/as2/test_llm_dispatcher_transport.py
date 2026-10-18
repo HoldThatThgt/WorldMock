@@ -1,6 +1,10 @@
-"""传输错误重试与普通重试预算相互独立，全部使用本地脚本化 Router。"""
+"""传输错误重试与普通重试预算相互独立，计数用尽后传输与限流停放重发同一请求，单次发送有整次期限；
+除最后几个真实 Router 用例外全部使用本地脚本化 Router，脚本里带响应头的 429 取自真实 Router 对本地服务的回答。"""
 
+import asyncio
+import email.utils
 from contextlib import nullcontext
+from datetime import datetime, timedelta, timezone
 from functools import partial
 from types import SimpleNamespace
 
@@ -8,6 +12,7 @@ import pytest
 from litellm.exceptions import (
     APIConnectionError,
     AuthenticationError,
+    BadGatewayError,
     BadRequestError,
     InternalServerError,
     RateLimitError,
@@ -56,18 +61,22 @@ class _Semaphore:
         """接收时延观测。"""
 
 
-def _client(monkeypatch, script):
-    """构造真实 LLMClient，仅替换 Router、并发许可及等待。"""
+def _client(monkeypatch, script, clock: list[float] | None = None):
+    """构造真实 LLMClient，仅替换 Router、并发许可及等待；给出 clock 时调度器的单调时钟读它，等待把秒数加到它上面。"""
     client = llm_dispatcher.LLMClient("offline-model", "https://example.invalid", "test-key")
     client._router = _Router(script)
     client._sem = _Semaphore()
     monkeypatch.setattr(client, "_ensure_runtime", lambda: None)
     delays = []
+    if clock is not None:
+        monkeypatch.setattr(llm_dispatcher, "time", SimpleNamespace(monotonic=lambda: clock[0]))
 
     async def sleep(delay):
         """记录退避秒数，并验证许可已经释放。"""
         assert client._sem.acquired == 0
         delays.append(delay)
+        if clock is not None:
+            clock[0] += delay
 
     monkeypatch.setattr(llm_dispatcher.asyncio, "sleep", sleep)
     return client, delays
@@ -98,8 +107,9 @@ async def test_typed_transient_failure_recovers_with_zero_ordinary_retries(monke
 
 
 @pytest.mark.parametrize("kind", [APIConnectionError, Timeout, InternalServerError, ServiceUnavailableError])
-async def test_persistent_transport_failure_stops_after_four_attempts(monkeypatch, kind):
-    """持续暂时错误耗尽三次传输重试，准确报告四次外部请求。"""
+async def test_persistent_transport_failure_ends_when_the_park_budget_is_spent(monkeypatch, kind):
+    """不停放时（停放类别为空），持续暂时错误耗尽三次传输重试后本该停放的第一次失败即结束，准确报告四次外部请求。"""
+    monkeypatch.setattr(llm_dispatcher, "_PARKED_ERRORS", ())
     failure = _error(kind)
     client, delays = _client(monkeypatch, [failure] * 5)
     with pytest.raises(llm_dispatcher.LLMDispatchError, match="after 4 attempts") as captured:
@@ -111,10 +121,10 @@ async def test_persistent_transport_failure_stops_after_four_attempts(monkeypatc
     assert client.snapshot_token_stats() == {}
 
 
-@pytest.mark.parametrize("kind", [AuthenticationError, BadRequestError, RateLimitError])
+@pytest.mark.parametrize("kind", [AuthenticationError, BadRequestError])
 @pytest.mark.parametrize("after_transport", [False, True])
 async def test_non_transport_provider_errors_do_not_use_transport_budget(monkeypatch, kind, after_transport):
-    """认证、无效请求与限流不能使用剩余的传输重试预算。"""
+    """认证与无效请求不能使用剩余的传输重试预算（限流 429 的停放见下方用例）。"""
     script = [_error(APIConnectionError)] if after_transport else []
     script.append(_error(kind))
     client, delays = _client(monkeypatch, script + [_success()])
@@ -183,7 +193,13 @@ async def test_exhausted_ordinary_budget_does_not_borrow_transport_retries(monke
 
 
 async def test_exhausted_transport_budget_does_not_borrow_ordinary_retries(monkeypatch):
-    """传输预算独立耗尽后终止，即使普通预算尚未使用。"""
+    """传输预算用尽后停放而不借普通预算：五次超时后成功，退避 2、4、8、16、32；不停放时第四次即结束，
+    普通预算始终未用。"""
+    response = _success()
+    client, delays = _client(monkeypatch, [_error(Timeout)] * 5 + [response])
+    assert await client.call(messages=[], max_retries=2) is response
+    assert delays == [2.0, 4.0, 8.0, 16.0, 32.0]
+    monkeypatch.setattr(llm_dispatcher, "_PARKED_ERRORS", ())
     client, delays = _client(monkeypatch, [_error(Timeout)] * 5)
     with pytest.raises(llm_dispatcher.LLMDispatchError, match="after 4 attempts"):
         await client.call(messages=[], max_retries=2)
@@ -228,21 +244,28 @@ async def test_streaming_is_rejected_before_any_external_request(monkeypatch):
 
 
 async def test_dispatcher_does_not_log_provider_error_body(monkeypatch):
-    """供应商错误可能带密钥或请求片段，调度器日志和摘要只记录错误类型。"""
+    """供应商错误可能带密钥或请求片段，调度器日志和摘要只记录错误类型；停放中的重发警告写明已停放的秒数。"""
     sensitive = "fake-provider-key-in-error"
     failure = APIConnectionError(message=sensitive, llm_provider="openai", model="offline-model")
-    client, _ = _client(monkeypatch, [failure] * 4)
-    messages = []
+    warnings, errors = [], []
     logger = SimpleNamespace(
-        error=lambda template, *args: messages.append(template % args),
-        warning=lambda template, *args: messages.append(template % args),
+        error=lambda template, *args: errors.append(template % args),
+        warning=lambda template, *args: warnings.append(template % args),
     )
     monkeypatch.setattr(llm_dispatcher, "logger", logger)
+    client, _ = _client(monkeypatch, [failure] * 5 + [_success()], clock=[0.0])
+    await client.call(messages=[], max_retries=0)
+    assert len(warnings) == 5
+    assert ", parked" not in "".join(warnings[:3])
+    assert "(attempt 4, parked 0s)" in warnings[3] and "(attempt 5, parked 16s)" in warnings[4]
+    assert all(sensitive not in message for message in warnings)
+    monkeypatch.setattr(llm_dispatcher, "_PARKED_ERRORS", ())
+    client, _ = _client(monkeypatch, [failure] * 4)
     with pytest.raises(llm_dispatcher.LLMDispatchError) as captured:
         await client.call(messages=[], max_retries=0)
-    assert sensitive not in str(captured.value)
-    assert all(sensitive not in message for message in messages)
-    assert "APIConnectionError" in str(captured.value)
+    assert sensitive not in str(captured.value) and "APIConnectionError" in str(captured.value)
+    assert errors and all(sensitive not in message for message in errors)
+    assert "APIConnectionError" in errors[-1]
 
 
 def _environment_router(client):
@@ -312,7 +335,8 @@ def test_real_router_has_no_fallback_models():
 
 @pytest.mark.parametrize("budget", [0, 1, 2, 5, 10])
 async def test_configured_transport_budget_controls_actual_attempts(monkeypatch, budget):
-    """声明预算直接限定实际发送次数，首次请求不算重试。"""
+    """不停放时，声明预算直接限定实际发送次数，首次请求不算重试。"""
+    monkeypatch.setattr(llm_dispatcher, "_PARKED_ERRORS", ())
     client, delays = _client(monkeypatch, [_error(Timeout)] * (budget + 2))
     with pytest.raises(llm_dispatcher.LLMDispatchError, match=f"after {budget + 1} attempts"):
         await client.call(messages=[], max_retries=10, transport_max_retries=budget)
@@ -353,3 +377,403 @@ def test_router_disables_underlying_retries_and_preserves_declared_credential(mo
     assert calls[0]["model_list"] == [{"model_name": "configured-model", "litellm_params": {
         "model": "openai/configured-model", "api_key": "literal,credential",
         "api_base": "https://model.example/v1", "max_retries": 0}}]
+
+
+# ---------------------------------------------------------------------------
+# 停放、整次期限与失败发送收集（长时运行成本第五章）
+# ---------------------------------------------------------------------------
+
+
+#: 本地服务回 200 时的完整补全正文。
+_COMPLETION = {"id": "local", "object": "chat.completion", "created": 0, "model": "test-model",
+               "choices": [{"index": 0, "message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}],
+               "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}}
+
+
+async def _local_server(answers):
+    """本地补全服务：第 n 个请求按 answers[n]（状态, 响应头）回答，用完后重复最后一项；429 回限流正文，200 回完整补全。
+    返回 (runner, 端口, 每个收到的请求记一项的列表)。"""
+    from aiohttp import web
+
+    hits = []
+
+    async def answer(request):
+        status, headers = answers[min(len(hits), len(answers) - 1)]
+        hits.append(request.path)
+        body = _COMPLETION if status == 200 else {"error": {"message": "busy", "type": "rate_limit"}}
+        return web.json_response(body, status=status, headers=headers)
+
+    app = web.Application()
+    app.router.add_post("/v1/chat/completions", answer)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "127.0.0.1", 0)
+    await site.start()
+    return runner, site._server.sockets[0].getsockname()[1], hits
+
+
+async def _rate_limit(headers=None):
+    """真实 Router 向本地服务发送一次、服务回带给定响应头的 429 时抛出的 RateLimitError，与运行里的同形：供应商响应头
+    只在 litellm_response_headers 上，error.response 是 LiteLLM 另造的不带头的替身。不给头时没有 Retry-After。
+    须在 _client 换掉等待之前构造。"""
+    runner, port, _ = await _local_server([(429, headers or {})])
+    router = llm_dispatcher._build_router(f"http://127.0.0.1:{port}/v1", "test-only", "test-model")
+    try:
+        await router.acompletion(model="test-model", messages=[{"role": "user", "content": "hello"}], stream=False)
+    except RateLimitError as error:
+        return error
+    finally:
+        await llm_dispatcher.close_cached_async_clients()
+        router.discard()
+        await runner.cleanup()
+    raise AssertionError("the local server did not rate-limit the request")
+
+
+def _rooted_failure():
+    """一次以 ConnectionResetError 为显式原因的 InternalServerError（与运行里断网的根因同形）。"""
+    try:
+        try:
+            raise ConnectionResetError("reset by peer")
+        except ConnectionResetError as cause:
+            raise _error(InternalServerError) from cause
+    except InternalServerError as error:
+        return error
+
+
+def _recording_logger(monkeypatch):
+    """把调度器日志换成记录器，返回 (级别, 文本) 列表。"""
+    records = []
+
+    def writer(level):
+        return lambda template, *args: records.append((level, template % args))
+
+    monkeypatch.setattr(llm_dispatcher, "logger", SimpleNamespace(
+        warning=writer("warning"), error=writer("error"), exception=writer("exception")))
+    return records
+
+
+async def test_spent_transport_count_parks_and_resends_the_identical_request(monkeypatch):
+    """十次连接失败后成功、传输计数 3：计数内 2、4、8 秒，之后停放按 2·2ⁿ 封顶 120 秒；十一次发送的请求逐字相同，
+    计数与失败发送都不上线路。"""
+    response = _success()
+    client, delays = _client(monkeypatch, [_error(APIConnectionError)] * 10 + [response], clock=[0.0])
+    result = await client.call(messages=[{"role": "user", "content": "hello"}], max_retries=0,
+                               transport_max_retries=3, max_tokens=16000)
+    assert result is response
+    assert delays == [2, 4, 8, 16, 32, 64, 120, 120, 120, 120]
+    requests = client._router.requests
+    assert len(requests) == 11 and all(request == requests[0] for request in requests)
+    assert all("transport_max_retries" not in request and "transport_attempts" not in request for request in requests)
+
+
+async def test_park_gives_up_after_twelve_hours_with_the_root_cause(monkeypatch):
+    """一直断网：停放十二小时后第 366 次发送失败，耗时 43206 秒，错误写明最后的类型与根因链。"""
+    failure = _rooted_failure()
+    client, delays = _client(monkeypatch, [failure] * 400, clock=[0.0])
+    with pytest.raises(llm_dispatcher.LLMDispatchError) as captured:
+        await client.call(messages=[], max_retries=0, transport_max_retries=3)
+    assert captured.value.args[0] == (
+        "Failed to get valid response after 366 attempts in 43206.0 s. Last error type: InternalServerError. "
+        "Error chain: InternalServerError <- ConnectionResetError")
+    assert captured.value.__cause__ is failure
+    assert len(client._router.requests) == 366
+    assert sum(delays) == 43206
+
+
+async def test_rate_limit_parks_after_the_ordinary_count_and_honours_retry_after(monkeypatch):
+    """普通计数为零的 429 立即停放：Retry-After 30 秒等 30 秒；HTTP 日期约 45 秒后时等到那一刻；不带头时 1、2、4… 封顶 120。"""
+    target = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(seconds=45)
+    seconds, dated, bare = (await _rate_limit({"retry-after": "30"}),
+                            await _rate_limit({"retry-after": email.utils.format_datetime(target, usegmt=True)}),
+                            await _rate_limit())
+    client, delays = _client(monkeypatch, [seconds] * 3 + [_success()], clock=[0.0])
+    await client.call(messages=[], max_retries=0)
+    assert delays == [30, 30, 30]
+    client, delays = _client(monkeypatch, [dated] * 3 + [_success()], clock=[0.0])
+    before = datetime.now(timezone.utc)
+    await client.call(messages=[], max_retries=0)
+    after = datetime.now(timezone.utc)
+    assert len(delays) == 3
+    assert all((target - after).total_seconds() <= delay <= (target - before).total_seconds() for delay in delays)
+    client, delays = _client(monkeypatch, [bare] * 9 + [_success()], clock=[0.0])
+    await client.call(messages=[], max_retries=0)
+    assert delays == [1, 2, 4, 8, 16, 32, 64, 120, 120]
+
+
+@pytest.mark.parametrize("max_retries", [0, 2], ids=["parked", "counted"])
+async def test_retry_after_beyond_the_budget_fails_at_once(monkeypatch, max_retries):
+    """Retry-After 五万秒长于十二小时：停放中与计数内都在第一次发送后失败，不等待。"""
+    limited = await _rate_limit({"retry-after": "50000"})
+    client, delays = _client(monkeypatch, [limited, _success()], clock=[0.0])
+    with pytest.raises(llm_dispatcher.LLMDispatchError, match="after 1 attempts"):
+        await client.call(messages=[], max_retries=max_retries)
+    assert delays == [] and len(client._router.requests) == 1
+
+
+async def test_unparsable_retry_after_is_ignored_with_a_warning(monkeypatch):
+    """Retry-After 无法解析：按退避等待，写一次警告。"""
+    limited = await _rate_limit({"retry-after": "soon"})
+    records = _recording_logger(monkeypatch)
+    client, delays = _client(monkeypatch, [limited, _success()], clock=[0.0])
+    await client.call(messages=[], max_retries=0)
+    assert delays == [1]
+    assert [text for level, text in records if level == "warning"].count(
+        "Ignoring unparsable Retry-After header: 'soon'") == 1
+
+
+async def test_counted_rate_limit_waits_honour_a_longer_retry_after(monkeypatch):
+    """计数内的 429 也不短于 Retry-After：两次各等 5 秒后成功。"""
+    response, limited = _success(), await _rate_limit({"retry-after": "5"})
+    client, delays = _client(monkeypatch, [limited] * 2 + [response], clock=[0.0])
+    assert await client.call(messages=[], max_retries=2) is response
+    assert delays == [5, 5]
+
+
+@pytest.mark.parametrize("failure", [_error(AuthenticationError), _error(BadRequestError),
+                                     _error(BadGatewayError), ValueError("bad payload")],
+                         ids=["authentication", "bad-request", "bad-gateway", "ordinary"])
+async def test_fatal_and_ordinary_failures_never_park(monkeypatch, failure):
+    """鉴权、参数与普通失败不停放：普通计数为零时第一次就失败；像限流的文本只在计数内等待，用尽即失败。"""
+    client, delays = _client(monkeypatch, [failure] * 3, clock=[0.0])
+    with pytest.raises(llm_dispatcher.LLMDispatchError, match="after 1 attempts"):
+        await client.call(messages=[], max_retries=0)
+    assert delays == []
+    client, delays = _client(monkeypatch, [ValueError("try again in 3s")] * 3, clock=[0.0])
+    with pytest.raises(llm_dispatcher.LLMDispatchError, match="after 2 attempts"):
+        await client.call(messages=[], max_retries=1)
+    assert delays == [1]
+
+
+class _StallingRouter(_Router):
+    """第一次发送永远等不到回答，之后按脚本回答。"""
+
+    async def acompletion(self, **request):
+        """第一次挂起在不会被设置的事件上。"""
+        if not self.requests:
+            self.requests.append(request)
+            await asyncio.Event().wait()
+        return await super().acompletion(**request)
+
+
+async def test_deadline_expiry_resends_the_same_request_as_a_transport_retry(monkeypatch):
+    """服务卡住超过整次期限：这次发送按传输超时放弃，2 秒后重发同一请求并拿到回答；失败发送记下超时链。"""
+    monkeypatch.setattr(llm_dispatcher, "_DEADLINE_BASE_SECONDS", 0.05)
+    monkeypatch.setattr(llm_dispatcher, "_DEADLINE_SECONDS_PER_TOKEN", 0)
+    response = _success()
+    client, delays = _client(monkeypatch, [])
+    client._router = _StallingRouter([response])
+    with llm_dispatcher.collect_transport_attempts() as attempts:
+        result = await client.call(messages=[{"role": "user", "content": "hello"}], max_tokens=16000)
+    assert result is response
+    assert len(client._router.requests) == 2 and client._router.requests[0] == client._router.requests[1]
+    assert len(attempts) == 1 and attempts[0]["error"].startswith("Timeout <- TimeoutError")
+    assert attempts[0]["wait_ms"] == 2000 and delays == [2.0]
+
+
+def test_deadline_scales_with_max_tokens():
+    """整次期限是 120 秒加每个输出 token 7.5 毫秒；没有正整数 max_tokens 时为 120 秒。"""
+    assert llm_dispatcher._attempt_deadline({"max_tokens": 16000}) == 240.0
+    assert llm_dispatcher._attempt_deadline({"max_tokens": 8000}) == 180.0
+    assert llm_dispatcher._attempt_deadline({}) == 120.0
+    assert llm_dispatcher._attempt_deadline({"max_tokens": True}) == 120.0
+
+
+async def test_foreign_timeout_error_is_not_relabelled(monkeypatch):
+    """期限未到时别处抛出的 TimeoutError 不改成传输超时，按普通失败结束。"""
+    client, delays = _client(monkeypatch, [TimeoutError(), _success()])
+    with pytest.raises(llm_dispatcher.LLMDispatchError, match="after 1 attempts") as captured:
+        await client.call(messages=[], max_retries=0)
+    assert "Last error type: TimeoutError" in str(captured.value) and delays == []
+
+
+async def test_collector_records_each_failed_send_outside_the_request(monkeypatch):
+    """收集器按顺序记下每次失败发送的序号、错误链、距第一次发送的毫秒数与等待毫秒数；线路上没有这个键。"""
+    response = _success()
+    client, _ = _client(monkeypatch, [_error(APIConnectionError), _error(Timeout), response], clock=[0.0])
+    with llm_dispatcher.collect_transport_attempts() as attempts:
+        assert await client.call(messages=[], max_retries=0) is response
+    assert attempts == [
+        {"attempt": 1, "error": "APIConnectionError", "failed_after_ms": 0, "wait_ms": 2000},
+        {"attempt": 2, "error": "Timeout", "failed_after_ms": 2000, "wait_ms": 4000}]
+    assert all("transport_attempts" not in request for request in client._router.requests)
+
+
+async def test_failed_call_records_its_final_send_with_a_null_wait(monkeypatch):
+    """结束调用的那次失败也记下，等待为空。"""
+    client, _ = _client(monkeypatch, [_error(AuthenticationError)], clock=[0.0])
+    with llm_dispatcher.collect_transport_attempts() as attempts:
+        with pytest.raises(llm_dispatcher.LLMDispatchError):
+            await client.call(messages=[], max_retries=0)
+    assert attempts == [{"attempt": 1, "error": "AuthenticationError", "failed_after_ms": 0, "wait_ms": None}]
+
+
+class _PerMessageRouter:
+    """按消息正文各自计数：前 failures[正文] 次连接失败，之后回答；每次都先让出事件循环。"""
+
+    def __init__(self, failures, real_sleep):
+        self.failures, self.real_sleep, self.sent = dict(failures), real_sleep, {}
+
+    async def acompletion(self, **request):
+        """先让出循环使两个任务交错，再按正文决定失败或回答。"""
+        await self.real_sleep(0)
+        text = request["messages"][0]["content"]
+        self.sent[text] = self.sent.get(text, 0) + 1
+        if self.sent[text] <= self.failures[text]:
+            raise _error(APIConnectionError)
+        return _success()
+
+
+async def test_collectors_are_isolated_between_concurrent_tasks(monkeypatch):
+    """同一 LLMClient 上两个并发任务各有收集器（分别失败 1 次与 2 次）：各自只记下自己的失败发送。"""
+    real_sleep = asyncio.sleep
+    client, _ = _client(monkeypatch, [])
+    client._router = _PerMessageRouter({"a": 1, "b": 2}, real_sleep)
+
+    async def yielding(delay):
+        await real_sleep(0)
+
+    monkeypatch.setattr(llm_dispatcher.asyncio, "sleep", yielding)
+
+    async def one(text):
+        with llm_dispatcher.collect_transport_attempts() as attempts:
+            await client.call(messages=[{"role": "user", "content": text}], max_retries=0)
+        return attempts
+
+    first, second = await asyncio.gather(one("a"), one("b"))
+    assert [item["attempt"] for item in first] == [1]
+    assert [item["attempt"] for item in second] == [1, 2]
+    assert client._router.sent == {"a": 2, "b": 3}
+
+
+async def test_without_a_collector_nothing_is_recorded(monkeypatch):
+    """没有收集器时失败后照常重发成功，不留下任何收集器。"""
+    response = _success()
+    client, _ = _client(monkeypatch, [_error(APIConnectionError), response])
+    assert await client.call(messages=[]) is response
+    assert llm_dispatcher._TRANSPORT_ATTEMPTS.get() is None
+
+
+def _raised(build):
+    """执行一段会抛出异常的代码并返回那个异常。"""
+    try:
+        build()
+    except Exception as error:
+        return error
+    raise AssertionError("expected an exception")
+
+
+def test_error_chain_follows_cause_then_unsuppressed_context():
+    """异常链取显式原因、再取未抑制的隐式上下文；from None 截断；自环与过深的链止于重复与 16 层。"""
+    def explicit():
+        raise RuntimeError("outer") from ValueError("inner")
+
+    def implicit():
+        try:
+            raise KeyError("first")
+        except KeyError:
+            raise OSError("second")
+
+    def suppressed():
+        try:
+            raise KeyError("first")
+        except KeyError:
+            raise OSError("second") from None
+
+    assert llm_dispatcher.error_chain(_raised(explicit)) == "RuntimeError <- ValueError"
+    assert llm_dispatcher.error_chain(_raised(implicit)) == "OSError <- KeyError"
+    assert llm_dispatcher.error_chain(_raised(suppressed)) == "OSError"
+    cycle = ValueError("self")
+    cycle.__cause__ = cycle
+    assert llm_dispatcher.error_chain(cycle) == "ValueError"
+    deep = ValueError("0")
+    for index in range(1, 20):
+        outer = KeyError(str(index))
+        outer.__cause__ = deep
+        deep = outer
+    assert llm_dispatcher.error_chain(deep).split(" <- ") == ["KeyError"] * 16
+
+
+async def _closing_real_client(client):
+    """真实客户端用完后在本循环关闭 LiteLLM 缓存的客户端并释放 Router。"""
+    await llm_dispatcher.close_cached_async_clients()
+    client.close()
+
+
+def _fake_time(monkeypatch):
+    """调度器的单调时钟与等待换成假时钟，返回时钟与等待记录；零秒等待（网络库让出循环）照常让出，不记录。"""
+    clock, delays, real_sleep = [0.0], [], asyncio.sleep
+    monkeypatch.setattr(llm_dispatcher, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+
+    async def sleep(delay, *arguments):
+        if not delay:
+            return await real_sleep(0, *arguments)
+        delays.append(delay)
+        clock[0] += delay
+
+    monkeypatch.setattr(llm_dispatcher.asyncio, "sleep", sleep)
+    return clock, delays
+
+
+async def test_real_router_keeps_accepting_parked_resends(monkeypatch):
+    """真实 Router 在停放速率下不冷却：连到关闭的端口每次都是传输错误，十次发送后用完 600 秒停放预算；本地服务一律回
+    429 时每次都是 RateLimitError（不是路由层的限流），十一次发送后用完预算。"""
+    monkeypatch.setattr(llm_dispatcher, "_PARK_BUDGET_SECONDS", 600)
+    clock, delays = _fake_time(monkeypatch)
+    closed = llm_dispatcher.LLMClient("test-model", "http://127.0.0.1:9/v1", "test-only")
+    try:
+        with llm_dispatcher.collect_transport_attempts() as attempts:
+            with pytest.raises(llm_dispatcher.LLMDispatchError, match="after 10 attempts"):
+                await closed.call(messages=[{"role": "user", "content": "hello"}], max_retries=0,
+                                  transport_max_retries=0)
+    finally:
+        await _closing_real_client(closed)
+    assert delays == [2, 4, 8, 16, 32, 64, 120, 120, 120]
+    assert all(item["error"].split(" <- ")[0] in {"APIConnectionError", "InternalServerError", "Timeout"}
+               and "RouterRateLimitError" not in item["error"] for item in attempts)
+    runner, port, _ = await _local_server([(429, {})])
+    clock[0], delays[:] = 0.0, []
+    limited = llm_dispatcher.LLMClient("test-model", f"http://127.0.0.1:{port}/v1", "test-only")
+    try:
+        with llm_dispatcher.collect_transport_attempts() as attempts:
+            with pytest.raises(llm_dispatcher.LLMDispatchError, match="after 11 attempts"):
+                await limited.call(messages=[{"role": "user", "content": "hello"}], max_retries=0)
+    finally:
+        await _closing_real_client(limited)
+        await runner.cleanup()
+    assert delays == [1, 2, 4, 8, 16, 32, 64, 120, 120, 120]
+    assert [item["error"].split(" <- ")[0] for item in attempts] == ["RateLimitError"] * 11
+
+
+@pytest.mark.parametrize("max_retries", [0, 2], ids=["parked", "counted"])
+async def test_real_router_waits_exactly_the_providers_retry_after(monkeypatch, max_retries):
+    """真实 Router 对本地服务：前三次回 429 带 Retry-After: 30，之后回答；每次等待正好是服务给出的 30 秒（计数内与停放中
+    都一样），第四次发送拿到回答。"""
+    runner, port, hits = await _local_server([(429, {"Retry-After": "30"})] * 3 + [(200, {})])
+    _, delays = _fake_time(monkeypatch)
+    client = llm_dispatcher.LLMClient("test-model", f"http://127.0.0.1:{port}/v1", "test-only")
+    try:
+        with llm_dispatcher.collect_transport_attempts() as attempts:
+            result = await client.call(messages=[{"role": "user", "content": "hello"}], max_retries=max_retries)
+    finally:
+        await _closing_real_client(client)
+        await runner.cleanup()
+    assert result.choices[0].message.content == "ok"
+    assert delays == [30, 30, 30] and len(hits) == 4
+    assert [(item["error"].split(" <- ")[0], item["wait_ms"]) for item in attempts] == [("RateLimitError", 30000)] * 3
+
+
+@pytest.mark.parametrize("max_retries", [0, 2], ids=["parked", "counted"])
+async def test_real_router_retry_after_beyond_the_park_budget_ends_the_call(monkeypatch, max_retries):
+    """真实 Router 对本地服务：429 带 Retry-After: 50000，长于十二小时停放预算；停放中与计数内都在第一次发送后失败，
+    不等待也不重发。"""
+    runner, port, hits = await _local_server([(429, {"Retry-After": "50000"})])
+    _, delays = _fake_time(monkeypatch)
+    client = llm_dispatcher.LLMClient("test-model", f"http://127.0.0.1:{port}/v1", "test-only")
+    try:
+        with pytest.raises(llm_dispatcher.LLMDispatchError, match="after 1 attempts") as captured:
+            await client.call(messages=[{"role": "user", "content": "hello"}], max_retries=max_retries)
+    finally:
+        await _closing_real_client(client)
+        await runner.cleanup()
+    assert isinstance(captured.value.__cause__, RateLimitError)
+    assert delays == [] and len(hits) == 1

@@ -281,7 +281,8 @@ def _commit(engine, decision, request, tool: str | None = None, observe: bool = 
     """在已开的这一轮里取观察（还没取过时）、登记一条世界请求并结算，关上这一轮。"""
     if observe:
         engine.observe(decision)
-    engine.submit_action(DirectToolCall(decision, f"action-{decision.round_id}", tool or tool_of(request), request))
+    engine.submit_action(DirectToolCall(decision, f"{decision.decision_id}:action:0001", tool or tool_of(request),
+                                        request))
     (result,) = engine.commit_decision_round(decision.round_id)
     return result
 
@@ -421,7 +422,7 @@ def test_memory_layer_rejects_a_reflection_without_a_filing_date(engine_factory,
     state = engine.context.state
     snapshot = {"id": "m_1", "type": "reflection", "text": "想休息。", "epistemic_status": "subjective",
                 "source": "reflection"}
-    engine.context.store.commit(state.model_dump(mode="json"), [EventDraft(
+    engine.context.store.append_evidence([EventDraft(
         event_type="memory_updated", occurred_at=state.current_time, agent_id=1, decision_id="decision-old",
         visibility="system", source_kind="environment",
         data={"operation": "append_episodes", "episodes": [snapshot], "trigger": ["reflection"], "reflection": None})])

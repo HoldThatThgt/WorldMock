@@ -5,6 +5,7 @@ from worldmock.exchange.types import GoodsCategory
 
 from worldmock.base_models import StrictModel, FrozenModel
 from worldmock.errors import IntegrityError
+import copy
 import logging
 import re
 from worldmock.life.action_contract import (ACTIVITY_ACTIONS, MAIN_ACTIVITY_ACTIONS, SIDE_ACTIVITY_ACTIONS,
@@ -26,10 +27,10 @@ from worldmock.life.schedule import MAX_PLAN_GOALS, PLAN_GOAL_MAX_CHARS, DayPlan
 from worldmock.scheduling.events import ScheduledEvent
 
 #: 世界状态结构版本：版本不符的检查点与导出直接拒绝，不迁移。
-WORLD_SCHEMA_VERSION = 14
+WORLD_SCHEMA_VERSION = 15
 #: 运行清单结构版本：顶层字段集合或 stage_model_identity 的键集变了才升；版本不符的运行不能打开、恢复或重放，
 #: 导出认证同样拒绝，不迁移。
-RUN_MANIFEST_SCHEMA_VERSION = 6
+RUN_MANIFEST_SCHEMA_VERSION = 7
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -517,7 +518,8 @@ class DeliveryState(StrictModel):
 
 
 class StoredAction(StrictModel):
-    """@brief 动作幂等判断所需的请求与结果。"""
+    """@brief 一条已结算动作的回执与即时结果：本秒的拒绝计数读它，活动终结时核对开始动作仍在
+    （docs/design/04-simulation-engine.md「原子性与恢复」）。"""
 
     action_id: str = Field(min_length=1)
     tool_name: str = Field(min_length=1)
@@ -541,7 +543,6 @@ class PendingAction(StrictModel):
     request: dict[str, Any]
     request_sha256: str = Field(min_length=64, max_length=64)
     requested_event_id: str = Field(min_length=1)
-    reused: bool = False
 
 
 class DecisionRoundState(StrictModel):
@@ -563,6 +564,10 @@ class SameMomentPresentation(StrictModel):
     stamps: dict[str, int]
 
 
+#: 条目只替换、从不原地修改的两个世界集合（docs/design/09-io-formats.md「世界、人物与活动」）：深复制世界时换新字典、共享条目。
+_SHARED_ENTRY_FIELDS = frozenset({"activities", "processed_actions"})
+
+
 class WorldState(StrictModel):
     """@brief 提交到 FootprintStore 的完整世界状态。"""
 
@@ -577,10 +582,13 @@ class WorldState(StrictModel):
     config_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     agents: dict[int, AgentState]
     accounts: dict[str, int]
+    #: 活动按加入世界的先后保存；JSON 里是按这个先后排列的数组（docs/design/09-io-formats.md「世界、人物与活动」）。
     activities: dict[str, ActivityState] = Field(default_factory=dict)
     sessions: dict[str, SessionState] = Field(default_factory=dict)
     deliveries: dict[str, DeliveryState] = Field(default_factory=dict)
     pending_events: list[ScheduledEvent] = Field(default_factory=list)
+    #: 规则仍会读取的已结算动作：本秒的结果与进行中或暂停活动的开始动作
+    #: （docs/design/04-simulation-engine.md「原子性与恢复」）。
     processed_actions: dict[str, StoredAction] = Field(default_factory=dict)
     #: 呈现派生量（docs/design/09-io-formats.md「世界、人物与活动」）：按（人物, 对象标识）记录上次呈现
     #: 时刻（UTC 纪元秒），是曝光轮转的判据，不含任何偏好推断。
@@ -593,6 +601,45 @@ class WorldState(StrictModel):
     random_seed: int
     random_state: str = Field(min_length=1)
 
+    def __deepcopy__(self, memo: dict[int, Any] | None = None) -> "WorldState":
+        """@brief 深复制世界：activities 与 processed_actions 换新字典、共享条目，其余字段照常深复制。
+
+        条目是不可变值，变化一律换成新条目（docs/design/09-io-formats.md「世界、人物与活动」），所以候选世界与已提交世界
+        共享没变的条目时互不影响。model_copy(deep=True) 与 copy.deepcopy 都经过这里。条目类不定义 __deepcopy__：
+        model_copy(update=..., deep=True) 会把更新写进 __deepcopy__ 返回的对象，返回共享条目就会改坏已提交世界。
+        @param memo copy.deepcopy 的备忘表；model_copy 不传时新建一张，整份世界共用
+        @return 新的世界实例
+        """
+        memo = {} if memo is None else memo
+        copied = self.__copy__()
+        for name, value in self.__dict__.items():
+            copied.__dict__[name] = dict(value) if name in _SHARED_ENTRY_FIELDS else copy.deepcopy(value, memo)
+        return copied
+
+    @field_serializer("activities", when_used="json")
+    def serialize_activities(self, value: dict[str, ActivityState]) -> list[ActivityState]:
+        """@brief 活动按加入世界的先后写成数组：规范 JSON 只给对象的键排序，恢复后的先后与不中断的运行相同。"""
+        return list(value.values())
+
+    @field_validator("activities", mode="before")
+    @classmethod
+    def activities_from_array(cls, value: Any) -> dict[str, Any]:
+        """@brief 数组按先后还原为以 activity_id 为键的映射；不是活动对象数组或身份重复即拒绝，不接受映射写法。"""
+        if not isinstance(value, list):
+            _LOGGER.error("World activities are not an array of activity objects")
+            raise ValueError("world activities must be an array of activity objects")
+        mapping: dict[str, Any] = {}
+        for item in value:
+            identity = item.activity_id if isinstance(item, ActivityState) else (
+                item.get("activity_id") if isinstance(item, dict) else None)
+            if not isinstance(identity, str):
+                _LOGGER.error("World activities are not an array of activity objects")
+                raise ValueError("world activities must be an array of activity objects")
+            if identity in mapping:
+                _LOGGER.error("World activities repeat the activity identity %s", identity)
+                raise ValueError("world activities repeat an activity identity")
+            mapping[identity] = item
+        return mapping
 
     @model_validator(mode="after")
     def validate_world(self) -> "WorldState":

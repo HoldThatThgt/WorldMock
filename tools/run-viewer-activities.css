@@ -1,0 +1,36 @@
+/* 活动总览按真实重叠复用行，选择器和详情位于时间轴之外。 */
+.calendar-toolbar{position:sticky;top:-16px;z-index:5;background:var(--bg);padding-bottom:8px}
+.calendar-toolbar span,.calendar-range{color:var(--fg-dim);font-size:12px}
+.calendar-zoom{margin-top:8px}
+.calendar-range{margin:8px 0;overflow-wrap:anywhere}
+.calendar-scroll{container-type:inline-size;overflow:auto;max-height:320px;border:1px solid var(--line);
+  border-radius:8px;margin-bottom:12px;
+  background:var(--bg2)}
+.calendar-grid{width:100%}
+.calendar-axis{position:sticky;top:0;z-index:2;height:34px;background:var(--bg3);font:11px var(--mono)}
+.calendar-axis span{position:absolute;top:9px;color:var(--fg-dim);padding-left:3px;white-space:nowrap}
+.calendar-axis .calendar-axis-end{transform:translateX(-100%);padding-right:3px}
+.calendar-track{position:relative;background:repeating-linear-gradient(to right,
+  transparent 0,transparent calc(var(--calendar-step) - 1px),
+  var(--line) calc(var(--calendar-step) - 1px),var(--line) var(--calendar-step))}
+.calendar-track .act-lane-bar{position:absolute;height:24px;min-width:0;padding:0;border:0;border-radius:2px;
+  overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:11px;color:#fff;text-align:left}
+.calendar-track .act-lane-bar[aria-pressed="true"]{box-shadow:inset 0 0 0 2px #fff;filter:brightness(1.25)}
+.calendar-picker{display:flex;flex-wrap:wrap;gap:12px;margin:12px 0}
+.calendar-picker label{display:flex;flex-direction:column;gap:4px;flex:1 1 220px;min-width:0;font-size:12px}
+.calendar-picker input,.calendar-picker select{width:100%;min-width:0;max-width:100%}
+.calendar-detail{max-height:440px;overflow:auto;overflow-wrap:anywhere}
+.calendar-detail h3{margin-top:0;color:var(--fg);font-size:15px}
+.calendar-detail ul{padding-left:20px;margin:10px 0;color:var(--fg-dim)}
+.calendar-detail h4{margin:14px 0 6px}
+.calendar-sources{display:flex;gap:6px;flex-wrap:wrap}
+.calendar-detail pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:280px;overflow:auto;margin-top:12px;
+  padding:12px;background:var(--bg);font:12px/1.6 var(--mono);color:#a8d4ff}
+.calendar-table summary{cursor:pointer;padding:12px 0;font-size:14px;font-weight:600}
+@container(max-width:480px){
+  .calendar-axis span:nth-child(even):not(.calendar-axis-end){visibility:hidden}
+}
+@media(max-width:700px){
+  .calendar-toolbar{top:-12px}
+  .calendar-axis{font-size:9px}
+}

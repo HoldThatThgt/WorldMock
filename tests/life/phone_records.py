@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 import hashlib
 from zoneinfo import ZoneInfo
 
+from tests.life.conftest import action_identity
 from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
 from tests.life.environment_runtime import events
 from tests.life.prerequisite_inputs import add_rows
@@ -66,7 +67,7 @@ def paying_label(engine, prefix, payments):
     :param payments: 下单的内容 app（到店订单为 None）到想要的支付 app（直付为 None）。
     """
     return label_where(prefix, lambda label: all(
-        purchase_draws(engine, f"action-{label}", app)[1] == wanted for app, wanted in payments.items()))
+        purchase_draws(engine, action_identity(label), app)[1] == wanted for app, wanted in payments.items()))
 
 
 def returning_label(engine, trip_label, prefix, wanted):
@@ -74,7 +75,7 @@ def returning_label(engine, trip_label, prefix, wanted):
     state = engine.context.state.random_state
 
     def accepts(label):
-        key = f"navigation-return:activity-action-{trip_label}:activity-action-{label}"
+        key = f"navigation-return:activity-{action_identity(trip_label)}:activity-{action_identity(label)}"
         return (random_stream(state, key).getrandbits(1) == 1) is wanted
 
     return label_where(prefix, accepts)

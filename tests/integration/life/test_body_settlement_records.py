@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from tests.life.conftest import advance_next, do_at, purchase, travel
+from tests.life.conftest import action_identity, advance_next, do_at, purchase, travel
 from tests.life.environment_runtime import act, act_group, events, finish_activity, reach
 from worldmock.life.body import last_flows
 
@@ -143,7 +143,7 @@ def test_rejection_pulse_flows_are_written_on_the_first_action_result_and_not_ca
     _, refused = act(engine, "home-again", travel("家"))
     assert refused.status == "rejected", refused.error_code
     assert last_flows() == ()
-    rejected, result = rejection_events(engine, "action-home-again")
+    rejected, result = rejection_events(engine, action_identity("home-again"))
     assert result.data["resource_flows"] == [{"resource": "relaxation_need", "owner": "agent:1",
                                               "direction": "source", "amount": pytest.approx(0.05),
                                               "cause": PULSE}]
@@ -162,8 +162,8 @@ def test_a_rejected_pair_of_start_requests_writes_the_pulse_once(engine_factory)
     engine = engine_factory()
     _, results = act_group(engine, "pair", travel("家"), purchase("柠檬茶"))
     assert [item.status for item in results] == ["rejected", "rejected"]
-    first_rejected, first_result = rejection_events(engine, "action-pair-1")
-    second_rejected, second_result = rejection_events(engine, "action-pair-2")
+    first_rejected, first_result = rejection_events(engine, action_identity("pair", 1))
+    second_rejected, second_result = rejection_events(engine, action_identity("pair", 2))
     assert first_rejected.data == second_rejected.data and "resource_flows" not in first_rejected.data
     assert causes(first_result) == [PULSE] and "resource_flows" not in second_result.data
     assert last_flows() == ()
@@ -175,20 +175,6 @@ def test_a_rejection_without_a_pulse_writes_no_flows(engine_factory):
     before = engine.context.state.agents[1].body.relaxation_need
     _, results = act_group(engine, "second", travel("家"), purchase("柠檬茶"))
     assert [item.status for item in results] == ["rejected", "rejected"]
-    for action_id in ("action-second-1", "action-second-2"):
+    for action_id in (action_identity("second", 1), action_identity("second", 2)):
         assert "resource_flows" not in rejection_events(engine, action_id)[1].data
     assert engine.context.state.agents[1].body.relaxation_need == before
-
-
-def test_replaying_a_rejected_request_applies_no_pulse_and_writes_no_flows(engine_factory):
-    engine = engine_factory()
-    act(engine, "home-again", travel("家"))
-    seen = engine.context.store.last_event_seq
-    before = engine.context.state.agents[1].body.relaxation_need
-    _, replayed = act(engine, "replay", travel("家"), action_id="action-home-again")
-    assert replayed.status == "rejected"
-    written = [row for row in events(engine) if row.event_seq > seen]
-    assert any(row.data.get("reused") for row in written)
-    assert not [row for row in written if "resource_flows" in row.data]
-    assert engine.context.state.agents[1].body.relaxation_need == before
-    assert last_flows() == ()

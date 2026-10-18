@@ -10,6 +10,7 @@ import pytest
 
 from tests.life.conftest import MAIN_TOOL, SIDE_TOOL, context, purchase, tool_of, travel, use_app
 from tests.life.environment_runtime import act
+from worldmock.life.activity_control import open_activities
 from worldmock.life.action_contract import binding_action
 from worldmock.life.admission import Blocked, Call, Context, group_refusal
 from worldmock.life.guidance import Refusal
@@ -89,7 +90,7 @@ def app_call() -> Call:
 
 def refusal(state: WorldState, calls: list[Call], names: dict | None = None) -> Blocked | None:
     """手工世界不带环境输入：只有排在对象条件之前的槽位与睡眠核验能给出结论。"""
-    return group_refusal(Context(state, 1, {"home": "Home", "store": "Store"}, names or {}), calls)
+    return group_refusal(Context(state, 1, open_activities(state, 1), {"home": "Home", "store": "Store"}, names or {}), calls)
 
 
 def conflict(slot: str, step: str, name: str = "Activity") -> Refusal:
@@ -167,6 +168,10 @@ def test_sleep_requires_an_empty_second_slot(action, kind, step):
 @pytest.mark.parametrize("call", [app_call(), purchase_call("Bread")])
 def test_sleep_blocks_second_slot_start_until_its_own_end(call):
     state = occupied(running("sleep", ActivityKind.SLEEP, "first"))
+    from worldmock.life.admission import _sleep_refusal
+
+    current = Context(state, 1, open_activities(state, 1), {"home": "Home"})
+    assert _sleep_refusal(current, None, call) == Blocked(Refusal("RESOURCE_CONFLICT", _SLEEP_REASON), (SIDE_TOOL,))
     assert refusal(state, [call]) == Blocked(Refusal("RESOURCE_CONFLICT", _SLEEP_REASON), (SIDE_TOOL,))
 
 
@@ -192,7 +197,7 @@ def observed_call(observed: dict, request) -> Call:
 def engine_refusal(engine, observed: dict, calls: list[Call]) -> Blocked | None:
     """按引擎受理时的同一份上下文（真实世界、地点名、本轮活动名与环境输入）核验一组调用。"""
     names = {row["activity_id"]: row["name"] for row in observed["activity_bindings"]}
-    current = Context(engine.context.state, 1, place_names(engine.context.catalog), names, engine.context.inputs)
+    current = Context(engine.context.state, 1, open_activities(engine.context.state, 1), place_names(engine.context.catalog), names, engine.context.inputs)
     return group_refusal(current, calls)
 
 

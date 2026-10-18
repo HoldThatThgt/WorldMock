@@ -5,6 +5,7 @@ from datetime import timedelta
 
 import pytest
 
+from tests.footprints.recording import artifact_rows
 from tests.life.conftest import (
     advance_until_ready, conclude_request, context, do_at, pause_request, report_request, target_actions, use_app,
 )
@@ -116,7 +117,8 @@ def test_current_started_activity_public_result_and_complete_export(engine_facto
     point = engine.checkpoint({"agent:1": asset})
     directory = tmp_path / "export"
     export_run(engine.context.store, point.last_event_seq, directory)
-    _, exported, activities = validate_export(directory)
+    _, activities = validate_export(directory)
+    exported = artifact_rows(directory, "events")
     assert all("title" not in row for row in [*snapshots(exported), *activities])
     for row in activities:
         if row["data"].get("content_id") is not None:

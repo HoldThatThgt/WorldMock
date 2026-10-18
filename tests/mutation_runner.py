@@ -141,7 +141,10 @@ def mutated_source(mutation: SourceMutation) -> tuple[str, str]:
 
 def run_behavior(nodes: tuple[str, ...], directory: Path, mutation: SourceMutation | None,
                  settings: RunSettings) -> dict:
-    """@brief 在新解释器执行行为用例；收集失败、超时或基础失败不能冒充杀死变异。"""
+    """@brief 通过 pytest 参数文件在新解释器执行全部行为用例，避免操作系统命令行长度限制。
+
+    收集失败、超时或基础失败不能冒充杀死变异。
+    """
     command = [sys.executable, "-m", settings.entry, "--child"]
     original = changed = ""
     if mutation is not None:
@@ -151,8 +154,9 @@ def run_behavior(nodes: tuple[str, ...], directory: Path, mutation: SourceMutati
         path.write_text(json.dumps({"module": module, "path": relative, "source": changed}),
                         encoding="utf-8")
         command.extend(["--source", str(path)])
-    command.extend(nodes)
-    command.extend(["--basetemp", str(directory / "child")])
+    arguments = directory / "pytest-arguments.txt"
+    arguments.write_text("\n".join((*nodes, "--basetemp", str(directory / "child"))) + "\n", encoding="utf-8")
+    command.append(f"@{arguments}")
     environment = {**os.environ, "AGENTSOCIETY_LLM_API_KEY": "test-only",
                    "MEM0_TELEMETRY": "False", "ANONYMIZED_TELEMETRY": "False",
                    "LITELLM_LOCAL_MODEL_COST_MAP": "True", "PYTHONUTF8": "1"}

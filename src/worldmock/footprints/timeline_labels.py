@@ -44,16 +44,13 @@ def timeline_label_report(events: list[Event], manifest: dict, names: DisplayNam
     @return rows_checked、english_kind_names、internal_ids 与逐项 findings（人物、日期、起止、标签、检查项、片段）。
     """
     renderer = _load_render_day()
-    bodies = [event.model_dump(mode="json") for event in events if event.event_type in _TIMELINE_EVENT_TYPES]
-    orders = orders_by_id([body for body in bodies if body["event_type"] == "action_result"])
-    agents = sorted({body["agent_id"] for body in bodies
-                     if body["event_type"] == "activity_progress" and isinstance(body.get("agent_id"), int)})
+    progress, orders = timeline_sources(events)
+    agents = sorted({body["agent_id"] for body in progress if isinstance(body.get("agent_id"), int)})
     rows_checked, findings = 0, []
     for agent_id in agents:
-        progress = [body for body in bodies
-                    if body["event_type"] == "activity_progress" and body.get("agent_id") == agent_id]
+        agent_progress = [body for body in progress if body.get("agent_id") == agent_id]
         for day in window_days(manifest["window"]):
-            for row in renderer.day_rows(progress, orders, names, day, manifest["window"]["timezone"]):
+            for row in renderer.day_rows(agent_progress, orders, names, day, manifest["window"]["timezone"]):
                 rows_checked += 1
                 findings.extend({"agent_id": agent_id, "date": day.isoformat(), "interval": row["interval"],
                                  "label": row["label"], "item": item, "text": text}
@@ -62,6 +59,16 @@ def timeline_label_report(events: list[Event], manifest: dict, names: DisplayNam
             "english_kind_names": sum(item["item"] == ENGLISH_KIND_NAME for item in findings),
             "internal_ids": sum(item["item"] == INTERNAL_ID for item in findings),
             "findings": findings}
+
+
+def timeline_sources(events: list[Event]) -> tuple[list[dict], dict]:
+    """@brief 时间线的两份输入：全部 activity_progress 正文（按事件序号）与 action_result 给出的订单记录。
+
+    导出的时间线文件与质量报告的标签检查从同一份已认证事件取，取的都是 model_dump(mode="json") 的正文。
+    """
+    bodies = [event.model_dump(mode="json") for event in events if event.event_type in _TIMELINE_EVENT_TYPES]
+    progress = [body for body in bodies if body["event_type"] == "activity_progress"]
+    return progress, orders_by_id([body for body in bodies if body["event_type"] == "action_result"])
 
 
 def label_findings(label: str) -> list[tuple[str, str]]:

@@ -7,9 +7,10 @@ from dataclasses import dataclass, field
 
 from worldmock.environment import EnvironmentInputs
 from worldmock.errors import IntegrityError
+from worldmock.footprints.models import Event, EventDraft
 from worldmock.footprints.store import FootprintStore
 from worldmock.life.body_config import BodyConfig, assemble_body_config
-from worldmock.life.models import WorldState
+from worldmock.life.models import WorldState, validated_payload
 from worldmock.life.run_identity import require_environment_identity
 from worldmock.opslog import OpsLogger
 
@@ -22,7 +23,7 @@ class EngineContext:
     inputs: EnvironmentInputs
     #: 唯一持久化存储。
     store: FootprintStore
-    #: 当前已提交状态。
+    #: 当前已提交状态；只由 commit_step 在一步世界推进成功后替换。
     state: WorldState = field(init=False)
     #: 固定身体规则视图。
     body: BodyConfig = field(init=False)
@@ -69,3 +70,17 @@ class EngineContext:
         from worldmock.life.callbacks import validate_callback_states
 
         validate_callback_states(self.state, self.catalog)
+
+    def commit_step(self, staged: WorldState, drafts: list[EventDraft]) -> list[Event]:
+        """@brief 提交一步世界推进并换上新世界。
+
+        存储先核对本上下文的当前世界与已提交世界逐字节相同（暂存时原地修改共享条目而漏进当前世界的改动在此拒绝），
+        再与 drafts 同一事务写入复校过的 staged；成功后 staged 成为当前世界，失败时当前世界不变。
+        @param staged 版本已加一的候选世界
+        @param drafts 本步的因果事件
+        @return 已提交事件
+        @exception IntegrityError 当前世界与已提交世界不同、候选世界违反不变量，或版本、时钟、账本、事件核对失败
+        """
+        events = self.store.commit(self.state.model_dump(mode="json"), validated_payload(staged), drafts)
+        self.state = staged
+        return events

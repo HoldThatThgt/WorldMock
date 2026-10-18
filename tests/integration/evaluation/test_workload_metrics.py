@@ -14,6 +14,7 @@ from tests.engine_fixture import engine_factory  # noqa: F401
 from tests.life.conftest import (activity_name, advance_next, conclude_request, context,
                                  MAIN_TOOL, SIDE_TOOL, report_request, travel, use_app)
 from agentsociety2.society import DirectToolCall
+from worldmock.life.activity_control import open_activities
 from worldmock.life.models import ActivityStatus, active_activities
 from worldmock.life.activity_control import pending_conclusions
 STANDARD_SHIFT = {"starts": 540, "ends": 1080, "breaks": [[720, 810]]}
@@ -366,7 +367,7 @@ def _decide(engine, name, tool, request):
     decision = context(engine, name)
     engine.begin_decision_round([decision])
     observed = engine.observe(decision)
-    engine.submit_action(DirectToolCall(decision, f"action-{name}", tool,
+    engine.submit_action(DirectToolCall(decision, f"{decision.decision_id}:action:0001", tool,
                                        request(observed) if callable(request) else request))
     return engine.commit_decision_round(name)[0]
 
@@ -376,7 +377,7 @@ def _drive(engine, name, done):
         if done():
             return
         if engine.scheduling_state().ready_agent_ids:
-            pending = pending_conclusions(engine.context.state, 1)
+            pending = pending_conclusions(open_activities(engine.context.state, 1))
             running = active_activities(engine.context.state, 1)
             if pending:
                 tool, request = "conclude_activity", conclude_request(
@@ -416,7 +417,7 @@ def test_a_real_run_leaving_on_duty_is_recomputed_as_early_leave(engine_factory)
     engine = engine_factory(mutate=_workday_run)
     engine.register_day_plan(1, PlanDayRequest(goals=()), [], [])
     departure = _leave_on_duty_at_three(engine)
-    events = [event.model_dump(mode="json") for event in engine.context.store.read_events(engine.context.store.last_event_seq)]
+    events = [event.model_dump(mode="json") for event in list(engine.context.store.iter_events(engine.context.store.last_event_seq))]
     inputs = workday_inputs(engine.context.inputs)
     [group] = behavior_metrics_report(events, workday=inputs).values()
     reports = group["reports"]
@@ -486,7 +487,7 @@ def _walk_to(engine, name: str, location_id: str) -> None:
 
 def _recomputed(engine) -> dict:
     """从 SQLite 读回全部事件，用运行自己的场景文档打包输入（没有卡片），经 behavior_metrics_report 重算 reports。"""
-    events = [event.model_dump(mode="json") for event in engine.context.store.read_events(engine.context.store.last_event_seq)]
+    events = [event.model_dump(mode="json") for event in list(engine.context.store.iter_events(engine.context.store.last_event_seq))]
     [group] = behavior_metrics_report(events, workday=workday_inputs(engine.context.inputs)).values()
     return group["reports"]
 

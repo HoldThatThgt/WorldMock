@@ -41,8 +41,8 @@ def _object_prefix(object_id: str) -> str:
 def stage_presentation(state: WorldState, pending: dict[int, SameMomentPresentation]) -> WorldState:
     """@brief 把本轮各人物观察的呈现留痕写入世界状态中的本秒暂存（决策轮提交路径）。
 
-    观察边界不允许同版本改状态（`store._validate_state` 只允许同版本追加事件），因此观察先把留痕
-    记在引擎内存，随本轮提交按人物写入 `same_moment_presentation`；同一秒已有暂存的人物合并对象时刻，
+    观察只追加证据、不写世界（`FootprintStore.append_evidence` 不接收世界），因此观察先把留痕记在引擎内存，
+    随本轮提交按人物写入 `same_moment_presentation`；同一秒已有暂存的人物合并对象时刻，
     保留该秒首轮置顶的浏览结果（docs/design/04-simulation-engine.md「原子性与恢复」）。
 
     @param state 本轮提交的世界状态。

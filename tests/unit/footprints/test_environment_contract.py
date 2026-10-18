@@ -137,14 +137,15 @@ def _paid_order_events(purchase="purchase", identity="order", first=1, at=110):
                           "summary": "商品 10.00 元"}, at=at, visibility="system", cause=[payment.event_id])
     payment = payment.model_copy(update={"state_version_after": progress.state_version_after})
     notification = notification.model_copy(update={"state_version_after": progress.state_version_after})
-    state = {"deliveries": {identity: order}, "activities": {purchase: activity}}
+    state = {"deliveries": {identity: order}, "activities": [activity]}
     return state, [row.model_dump() for row in (start, progress, payment, notification)]
 
 
 def _two_purchases_on_one_route():
     state, events = _paid_order_events()
     later, again = _paid_order_events("purchase-again", "order-again", first=5, at=120)
-    merged = {key: {**state[key], **later[key]} for key in state}
+    merged = {"deliveries": {**state["deliveries"], **later["deliveries"]},
+              "activities": state["activities"] + later["activities"]}
     assert len({(order["group_key"], order["app_id"]) for order in merged["deliveries"].values()}) == 1
     return merged, events + again
 
@@ -169,7 +170,8 @@ def test_each_purchase_activity_requires_its_own_complete_order_payment(fault, m
         extra = {**state["deliveries"]["order-again"], "order_id": "order-unpaid", "paid_at": None,
                  "group_key": "another-group"}
         state["deliveries"]["order-unpaid"] = extra
-        state["activities"]["purchase-again"]["data"]["order_ids"].append("order-unpaid")
+        again = next(row for row in state["activities"] if row["activity_id"] == "purchase-again")
+        again["data"]["order_ids"].append("order-unpaid")
     with pytest.raises(IntegrityError, match=f"^{message}$"):
         _payment_invariants(events, state, {event["event_id"]: event for event in events})
 
@@ -179,7 +181,8 @@ def _one_order_over_two_delivery_groups():
     state, events = _paid_order_events()
     state["deliveries"]["order-b"] = {**state["deliveries"]["order"], "order_id": "order-b",
                                       "group_key": "another-group", "total_price_fen": 700}
-    state["activities"]["purchase"]["data"]["order_ids"].append("order-b")
+    purchase = next(row for row in state["activities"] if row["activity_id"] == "purchase")
+    purchase["data"]["order_ids"].append("order-b")
     for event in events[2:]:
         event["data"].update(order_ids=["order", "order-b"], amount_fen=1700)
     events[2]["resource_changes"] = {"account:agent:1": -1700, "account:external:scenario": 1700}

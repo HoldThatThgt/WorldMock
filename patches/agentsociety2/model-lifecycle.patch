@@ -1,11 +1,12 @@
 diff --git a/agentsociety2/agent/runner.py b/agentsociety2/agent/runner.py
-index 961aef5..adcd37b 100644
+index 961aef5..5b50919 100644
 --- a/agentsociety2/agent/runner.py
 +++ b/agentsociety2/agent/runner.py
-@@ -43,6 +43,11 @@ from datetime import datetime
+@@ -43,6 +43,12 @@ from datetime import datetime
  from pathlib import Path
  from typing import TYPE_CHECKING, Any, Callable, TypeVar
  
++from agentsociety2.config.llm_dispatcher import close_cached_async_clients
 +from agentsociety2.society.decision_round import (
 +    AgentCreateBatchRequest,
 +    AgentStepBatchRequest,
@@ -14,7 +15,7 @@ index 961aef5..adcd37b 100644
  if TYPE_CHECKING:
      from agentsociety2.agent.service_proxy import ServiceProxy
  
-@@ -58,6 +63,7 @@ def _ray_remote(fn: _F) -> _F:
+@@ -58,6 +64,7 @@ def _ray_remote(fn: _F) -> _F:
  
  __all__ = [
      "step_agent_batch",
@@ -22,7 +23,7 @@ index 961aef5..adcd37b 100644
      "create_agents_batch",
      "questionnaire_agent_batch",
      "query_agent_task",
-@@ -107,28 +113,41 @@ def _workspace_for(workspace_root: str, agent_id: int) -> Path:
+@@ -107,28 +114,41 @@ def _workspace_for(workspace_root: str, agent_id: int) -> Path:
  # Async cores (testable in-process, driven by the sync Ray wrappers below)
  # ---------------------------------------------------------------------------
  async def _step_agent_batch_async(
@@ -81,7 +82,7 @@ index 961aef5..adcd37b 100644
  
      # Run all agents in the batch CONCURRENTLY. Each agent is LLM-bound — its
      # step() is a sequence of `await`-ed LLM/tool calls — so overlapping them
-@@ -137,7 +156,68 @@ async def _step_agent_batch_async(
+@@ -137,7 +157,68 @@ async def _step_agent_batch_async(
      # is still gated by the dispatcher's semaphore; per-agent workspaces and the
      # injected service_proxy are concurrency-safe, so there is no shared mutable
      # state to protect. gather() preserves input order in the returned list.
@@ -151,7 +152,7 @@ index 961aef5..adcd37b 100644
  
  
  async def _create_agents_batch_async(
-@@ -264,16 +344,34 @@ async def _query_agent_task_async(
+@@ -264,16 +345,49 @@ async def _query_agent_task_async(
  # ---------------------------------------------------------------------------
  # Public Ray Tasks (sync wrappers — Ray 2.x forbids `@ray.remote` on async def)
  # ---------------------------------------------------------------------------
@@ -163,13 +164,28 @@ index 961aef5..adcd37b 100644
 +        service_proxy.close_llm_clients()
 +
 +
++async def _closing_llm_clients(coroutine: Any) -> Any:
++    """@brief 在任务自己的事件循环里运行协程，返回前在同一循环关闭并移出本循环缓存的 LiteLLM 异步客户端；任务与关闭都失败时保留两者。"""
++    try:
++        result = await coroutine
++    except BaseException as failure:
++        try:
++            await close_cached_async_clients()
++        except Exception as close_error:
++            raise BaseExceptionGroup("Agent task and LiteLLM client close both failed",
++                                     [failure, close_error]) from failure
++        raise
++    await close_cached_async_clients()
++    return result
++
++
 +def _run_worker_coroutine(
 +    coroutine: Any,
 +    service_proxy: "ServiceProxy",
 +) -> tuple[Any, dict[str, dict[str, int]]]:
 +    """@brief 在独立事件循环运行协程并保证所有退出路径释放 LLM。"""
 +    try:
-+        result = asyncio.run(coroutine)
++        result = asyncio.run(_closing_llm_clients(coroutine))
 +    finally:
 +        token_stats = _finish_llm_task(service_proxy)
 +    return result, token_stats
@@ -192,7 +208,7 @@ index 961aef5..adcd37b 100644
  
      For each id: ``from_workspace`` → ``step`` → ``to_workspace``. Agents in a
      batch run CONCURRENTLY via ``asyncio.gather`` — each is LLM-bound (a chain
-@@ -283,11 +381,7 @@ def step_agent_batch(
+@@ -283,11 +397,7 @@ def step_agent_batch(
      population comes from the driver submitting multiple such tasks.
  
      Args:
@@ -205,7 +221,7 @@ index 961aef5..adcd37b 100644
          service_proxy: Shared service handles (env / llm / trace / replay).
              Injected — never re-created inside the task.
  
-@@ -301,14 +395,20 @@ def step_agent_batch(
+@@ -301,14 +411,20 @@ def step_agent_batch(
          Also carries this task process's token-usage delta back to the driver
          (``token_stats``) so the driver can aggregate it across all batches.
      """
@@ -233,7 +249,7 @@ index 961aef5..adcd37b 100644
  
  
  @_ray_remote
-@@ -370,11 +470,13 @@ def query_agent_task(
+@@ -370,11 +486,13 @@ def query_agent_task(
      Returns:
          Op result dict.
      """
@@ -249,7 +265,7 @@ index 961aef5..adcd37b 100644
  
  
  @_ray_remote
-@@ -415,7 +517,7 @@ def questionnaire_agent_batch(
+@@ -415,7 +533,7 @@ def questionnaire_agent_batch(
          ``token_stats`` carries this process's token-usage delta back to the
          driver for aggregation (no actor, no extra RPC).
      """
@@ -258,7 +274,7 @@ index 961aef5..adcd37b 100644
          _questionnaire_agent_batch_async(
              agent_ids,
              workspace_root,
-@@ -424,6 +526,7 @@ def questionnaire_agent_batch(
+@@ -424,6 +542,7 @@ def questionnaire_agent_batch(
              t,
              step_count,
              service_proxy,
@@ -297,10 +313,24 @@ index 9081ddb..a275aa9 100644
  # ═══════════════════════════════════════════════════════════
  # Factory
 diff --git a/agentsociety2/config/llm_dispatcher.py b/agentsociety2/config/llm_dispatcher.py
-index 22cefd4..5406e8a 100644
+index 22cefd4..41aa281 100644
 --- a/agentsociety2/config/llm_dispatcher.py
 +++ b/agentsociety2/config/llm_dispatcher.py
-@@ -25,7 +25,18 @@ from pathlib import Path
+@@ -17,15 +17,32 @@ no global aggregate, no actor).
+ from __future__ import annotations
+ 
+ import asyncio
++import email.utils
++import inspect
+ import os
+ import time
+ from collections import deque
++from collections.abc import Iterator
++from contextlib import contextmanager
++from contextvars import ContextVar
+ from dataclasses import dataclass
++from datetime import datetime, timezone
+ from pathlib import Path
  from typing import Any
  
  from litellm import AllMessageValues
@@ -320,7 +350,17 @@ index 22cefd4..5406e8a 100644
  from litellm.types.utils import ModelResponse
  
  from agentsociety2.config.config import Config
-@@ -54,6 +65,11 @@ logger = get_logger()
+@@ -40,6 +57,9 @@ __all__ = [
+     "AdaptiveSemaphore",
+     "LLMClient",
+     "LLMDispatchError",
++    "close_cached_async_clients",
++    "collect_transport_attempts",
++    "error_chain",
+     "init_dispatchers",
+     "is_rate_limit_like_error",
+     "merge_token_stats",
+@@ -54,6 +74,22 @@ logger = get_logger()
  # hard requirement, not a diagnostic — removing it reintroduces the stall at the
  # per-process level (verified). litellm raises on expiry; the dispatcher retries.
  _LLM_REQUEST_TIMEOUT = float(os.getenv("AGENTSOCIETY_LLM_REQUEST_TIMEOUT", "60"))
@@ -329,10 +369,138 @@ index 22cefd4..5406e8a 100644
 +#: 凭据、权限和请求参数错误不会因服务重试预算而重复发送。
 +_FATAL_ERRORS = (AuthenticationError, BadRequestError, NotFoundError, PermissionDeniedError,
 +                 UnprocessableEntityError)
++#: 计数用尽后停放而不失败的类别：传输错误与限流 429（按类型判定，不按文本猜测）。
++_PARKED_ERRORS = (*_TRANSPORT_ERRORS, RateLimitError)
++#: 停放的总时长（秒），从停放开始计；引擎常量，不是配置字段或命令行参数。
++_PARK_BUDGET_SECONDS = 12 * 60 * 60
++#: 停放期间两次发送之间的等待上限（秒）。
++_PARK_MAX_WAIT_SECONDS = 120.0
++#: 单次发送的整次期限：基础秒数加请求 max_tokens 每个的秒数（16000 时 240 秒）。
++_DEADLINE_BASE_SECONDS = 120.0
++_DEADLINE_SECONDS_PER_TOKEN = 0.0075
++#: 当前 asyncio 任务里登记失败发送的收集器；只由 collect_transport_attempts 设置，不是 LLMClient 上的共享状态。
++_TRANSPORT_ATTEMPTS: ContextVar[list[dict[str, Any]] | None] = ContextVar("transport_attempts", default=None)
  
  # Disable Ray's uv-runtime-env packaging (see comment below in init_dispatchers).
  os.environ.setdefault("RAY_ENABLE_UV_RUN_RUNTIME_ENV", "0")
-@@ -294,28 +310,12 @@ class AdaptiveSemaphore:
+@@ -88,6 +124,116 @@ def is_rate_limit_like_error(error: Exception) -> bool:
+     )
+ 
+ 
++def error_chain(error: BaseException) -> str:
++    """@brief 异常及其原因链的类型名，自外向内以「 <- 」连接：显式原因优先，未抑制时取隐式上下文，至多 16 层；
++    只含类型名，不含可能带凭据或请求片段的异常正文。"""
++    names: list[str] = []
++    seen: set[int] = set()
++    current: BaseException | None = error
++    while current is not None and id(current) not in seen and len(names) < 16:
++        seen.add(id(current))
++        names.append(type(current).__name__)
++        if current.__cause__ is not None:
++            current = current.__cause__
++        else:
++            current = None if current.__suppress_context__ else current.__context__
++    return " <- ".join(names)
++
++
++@contextmanager
++def collect_transport_attempts() -> Iterator[list[dict[str, Any]]]:
++    """@brief 在当前任务上下文收集其间模型调用的失败发送，供证据信封写入 transport_attempts；退出时恢复外层收集器。
++
++    收集器属于调用方所在的 asyncio 任务；同一 worker 里并发的人物任务各有各的，调用方每次只包住一次模型调用。
++    """
++    attempts: list[dict[str, Any]] = []
++    token = _TRANSPORT_ATTEMPTS.set(attempts)
++    try:
++        yield attempts
++    finally:
++        _TRANSPORT_ATTEMPTS.reset(token)
++
++
++def _attempt_record(attempt: int, chain: str, elapsed: float, wait: float | None) -> dict[str, Any]:
++    """@brief 一次失败发送的证据：发送序号、错误链、距第一次发送的毫秒数、到下一次发送的等待毫秒数（结束调用时为空）。"""
++    return {"attempt": attempt, "error": chain, "failed_after_ms": int(elapsed * 1000),
++            "wait_ms": None if wait is None else int(wait * 1000)}
++
++
++def _retry_after_seconds(error: Exception) -> float | None:
++    """@brief 429 响应头 Retry-After 给出的等待秒数（整数秒或 HTTP 日期，不小于 0）；没有或无法解析时为空。
++
++    供应商响应头只在 LiteLLM 映射异常时设置的 litellm_response_headers 上（litellm_core_utils/exception_mapping_utils.py）；
++    error.response 是 LiteLLM 另造的不带头的替身。耦合点随锁定的 LiteLLM 版本核对。
++    """
++    headers = getattr(error, "litellm_response_headers", None)
++    value = headers.get("retry-after") if headers is not None else None
++    if value is None:
++        return None
++    text = value.strip()
++    if text.isdigit():
++        return float(text)
++    try:
++        moment = email.utils.parsedate_to_datetime(text)
++    except (TypeError, ValueError):
++        logger.warning("Ignoring unparsable Retry-After header: %r", value)
++        return None
++    moment = moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
++    return max(0.0, (moment - datetime.now(timezone.utc)).total_seconds())
++
++
++def _backoff(error: Exception, index: int, counted: bool) -> float:
++    """@brief 同类第 index 次失败后的等待秒数：传输 2·2^n，限流与其他过载 2^n（计数内封顶 60），其余 0；
++    停放时一律封顶 120；429 不短于 Retry-After。计数内的值与原规则相同。"""
++    exponent = min(index, 16)
++    if isinstance(error, _TRANSPORT_ERRORS):
++        wait = 2.0 * 2.0 ** exponent
++    elif is_rate_limit_like_error(error):
++        wait = min(2.0 ** exponent, 60.0) if counted else 2.0 ** exponent
++    else:
++        wait = 0.0
++    if not counted:
++        wait = min(wait, _PARK_MAX_WAIT_SECONDS)
++    retry_after = _retry_after_seconds(error) if isinstance(error, RateLimitError) else None
++    return wait if retry_after is None else max(wait, retry_after)
++
++
++def _attempt_deadline(kwargs: dict[str, Any]) -> float:
++    """@brief 单次发送的整次期限：120 秒加 max_tokens 每个 7.5 毫秒；没有正整数 max_tokens 时为 120 秒。"""
++    tokens = kwargs.get("max_tokens")
++    tokens = tokens if type(tokens) is int and tokens > 0 else 0
++    return _DEADLINE_BASE_SECONDS + _DEADLINE_SECONDS_PER_TOKEN * tokens
++
++
++async def close_cached_async_clients() -> int:
++    """@brief 在当前事件循环里关闭并移出 LiteLLM 客户端缓存中属于本循环的全部条目，返回处理的条目数。
++
++    LiteLLM 以「键-事件循环 id」缓存 AsyncOpenAI 与 AsyncHTTPHandler（litellm/caching/llm_caching_handler.py）；
++    循环结束前在本循环里关闭，避免 aiohttp 的 Unclosed client session；移出缓存使后续任务不会拿到已关闭的客户端。
++    耦合点：litellm.in_memory_llm_clients_cache.cache_dict 与键后缀格式，随锁定的 LiteLLM 版本核对。
++    关闭失败逐个记录，全部移出后抛出第一个。
++    """
++    import litellm
++
++    cache = litellm.in_memory_llm_clients_cache
++    suffix = f"-{id(asyncio.get_running_loop())}"
++    keys = [key for key in cache.cache_dict if key.endswith(suffix)]
++    failures: list[Exception] = []
++    for key in keys:
++        client = cache.cache_dict[key]
++        cache.delete_cache(key)
++        close = getattr(client, "close", None)
++        if inspect.iscoroutinefunction(close):
++            try:
++                await close()
++            except Exception as error:
++                logger.exception("Failed to close cached LiteLLM client %s", type(client).__name__)
++                failures.append(error)
++    if failures:
++        raise failures[0]
++    return len(keys)
++
++
+ # ═══════════════════════════════════════════════════════════
+ # Adaptive concurrency (AIMD) — per-process flow control
+ # ═══════════════════════════════════════════════════════════
+@@ -294,28 +440,12 @@ class AdaptiveSemaphore:
  
  
  def _build_router(base_url: str, api_key: str, model: str) -> Any:
@@ -365,7 +533,46 @@ index 22cefd4..5406e8a 100644
  
  
  def merge_token_stats(*deltas: dict[str, dict[str, int]]) -> dict[str, dict[str, int]]:
-@@ -408,6 +408,20 @@ class LLMClient:
+@@ -360,6 +490,38 @@ def build_client_for_role(role: str) -> "LLMClient":
+ # ═══════════════════════════════════════════════════════════
+ 
+ 
++@dataclass
++class _Retries:
++    """@brief 一次 call 的两类重试计数与停放起点；只在这次调用内存在，不跨调用共享。"""
++
++    max_retries: int
++    transport_max_retries: int
++    ordinary: int = 0
++    transport: int = 0
++    parked_since: float | None = None
++
++    def next_wait(self, error: Exception, now: float) -> float | None:
++        """@brief 下一次发送前的等待秒数；None 表示这次调用失败。计数用尽后传输与限流停放，十二小时为限；
++        任何一次等待长于十二小时也立即失败。"""
++        if isinstance(error, _FATAL_ERRORS):
++            return None
++        transport = isinstance(error, _TRANSPORT_ERRORS)
++        index = self.transport if transport else self.ordinary
++        counted = index < (self.transport_max_retries if transport else self.max_retries)
++        if transport:
++            self.transport += 1
++        else:
++            self.ordinary += 1
++        if not counted and not isinstance(error, _PARKED_ERRORS):
++            return None
++        wait = _backoff(error, index, counted)
++        if counted:
++            return None if wait > _PARK_BUDGET_SECONDS else wait
++        if self.parked_since is None:
++            self.parked_since = now
++        return None if now + wait - self.parked_since > _PARK_BUDGET_SECONDS else wait
++
++
+ @dataclass
+ class LLMClient:
+     """Serializable LLM connection config that builds its runtime per-loop.
+@@ -408,6 +570,20 @@ class LLMClient:
          self._token_stats = {}
          self._loop = None
  
@@ -386,7 +593,7 @@ index 22cefd4..5406e8a 100644
      def _ensure_runtime(self) -> None:
          """Build (or rebuild) the Router + semaphore for the current event loop."""
          try:
-@@ -416,6 +430,7 @@ class LLMClient:
+@@ -416,6 +592,7 @@ class LLMClient:
              loop = None
          if self._loop is loop and self._router is not None:
              return
@@ -394,7 +601,7 @@ index 22cefd4..5406e8a 100644
          self._router = _build_router(self.base_url, self.api_key, self.model_name)
          initial = max(1, Config.LLM_RAY_CONCURRENCY)
          # No hard cap: AIMD probes the real API ceiling freely and backs off
-@@ -456,91 +471,72 @@ class LLMClient:
+@@ -456,91 +633,83 @@ class LLMClient:
          """Return a copy of this client's token stats without clearing."""
          return {model: dict(s) for model, s in self._token_stats.items()}
  
@@ -412,7 +619,8 @@ index 22cefd4..5406e8a 100644
 -        if stream:
 +    async def call(self, model: str | None = None, messages: list[AllMessageValues] | None = None,
 +                   max_retries: int = 0, transport_max_retries: int = 3, **kwargs: Any) -> ModelResponse:
-+        """@brief 发送模型请求；配置中的普通重试与传输重试分别计数，失败报告实际请求次数。"""
++        """@brief 发送模型请求；普通与传输重试分别计数，计数内退避不变；计数用尽后传输失败与限流 429 原样重发同一请求停放至多十二小时；
++        每次失败发送登记到当前收集器；失败报告发送次数、耗时、最后错误类型与根因异常链。"""
 +        if kwargs.pop("stream", False):
 +            logger.error("Streaming completion is not supported")
              raise NotImplementedError(
@@ -437,7 +645,8 @@ index 22cefd4..5406e8a 100644
 -            await sem.acquire()
 -            t0 = time.monotonic()
 -            overloaded = False
-+        ordinary_retries = transport_retries = attempts = 0
++        retries, collector = _Retries(max_retries, transport_max_retries), _TRANSPORT_ATTEMPTS.get()
++        first_send, attempts = time.monotonic(), 0
 +        while True:
 +            attempts += 1
              try:
@@ -459,27 +668,10 @@ index 22cefd4..5406e8a 100644
 -                last_error = e
 -                last_error_was_rate_limit = overloaded
 -                if attempt >= max_retries:
-+                return await self._complete_once(effective_model, messages or [], kwargs)
-+            except Exception as error:
-+                overloaded = is_rate_limit_like_error(error)
-+                error_name = type(error).__name__
-+                if isinstance(error, _FATAL_ERRORS):
-+                    exhausted, delay = True, 0.0
-+                elif isinstance(error, _TRANSPORT_ERRORS):
-+                    exhausted = transport_retries >= transport_max_retries
-+                    delay = 2.0 * (2**transport_retries)
-+                    transport_retries += 1
-+                else:
-+                    exhausted = ordinary_retries >= max_retries
-+                    delay = min(2.0**ordinary_retries, 60.0) if overloaded else 0.0
-+                    ordinary_retries += 1
-+                if exhausted:
-+                    logger.error("Model request failed after %d attempts: %s", attempts, error_name)
-                     raise LLMDispatchError(
+-                    raise LLMDispatchError(
 -                        f"Failed to get valid response after {max_retries + 1} "
 -                        f"attempts. Last error: {e!s}",
-+                        f"Failed to get valid response after {attempts} attempts. Last error type: {error_name}",
-                         rate_limit_like=overloaded,
+-                        rate_limit_like=overloaded,
 -                    ) from e
 -                if overloaded:
 -                    delay = min(base_delay * (2**attempt), max_delay)
@@ -493,13 +685,7 @@ index 22cefd4..5406e8a 100644
 -                        delay,
 -                        e,
 -                    )
-+                    ) from error
-+                logger.warning(
-+                    "Request failed for '%s' via LLMClient(%s) (attempt %d). Backoff %.1fs. Error: %s",
-+                    effective_model, self.model_type, attempts, delay, error_name,
-+                )
-+                if delay:
-                     await asyncio.sleep(delay)
+-                    await asyncio.sleep(delay)
 -                else:
 -                    logger.warning(
 -                        "Request failed for '%s' via LLMClient(%s) (attempt %d/%d). "
@@ -512,23 +698,39 @@ index 22cefd4..5406e8a 100644
 -                    )
 -            finally:
 -                await sem.release(overloaded=overloaded)
- 
--        raise LLMDispatchError(
--            f"Failed to get valid response after {max_retries + 1} attempts. "
--            f"Last error: {last_error!s}",
--            rate_limit_like=last_error_was_rate_limit,
--        )
++                return await self._complete_once(effective_model, messages or [], kwargs)
++            except Exception as error:
++                now = time.monotonic()
++                wait, chain = retries.next_wait(error, now), error_chain(error)
++                if collector is not None:
++                    collector.append(_attempt_record(attempts, chain, now - first_send, wait))
++                if wait is None:
++                    raise self._dispatch_error(error, attempts, now - first_send) from error
++                parked = "" if retries.parked_since is None else f", parked {now - retries.parked_since:.0f}s"
++                logger.warning("Request failed for '%s' via LLMClient(%s) (attempt %d%s). Backoff %.1fs. Error: %s",
++                               effective_model, self.model_type, attempts, parked, wait, chain)
++                if wait:
++                    await asyncio.sleep(wait)
++
++    def _dispatch_error(self, error: Exception, attempts: int, elapsed: float) -> LLMDispatchError:
++        """@brief 记录并构造最终失败：发送次数、耗时、最后错误类型与根因异常链，不含供应商错误正文。"""
++        chain = error_chain(error)
++        logger.error("Model request failed after %d attempts in %.1f s: %s", attempts, elapsed, chain)
++        return LLMDispatchError(
++            f"Failed to get valid response after {attempts} attempts in {elapsed:.1f} s. "
++            f"Last error type: {type(error).__name__}. Error chain: {chain}",
++            rate_limit_like=is_rate_limit_like_error(error))
++
 +    async def _complete_once(self, model: str, messages: list[AllMessageValues],
 +                             kwargs: dict[str, Any]) -> ModelResponse:
-+        """@brief 执行一次底层请求；释放并发许可后由调用者判断重试，成功时记录用量。"""
++        """@brief 整次期限内执行一次底层请求；释放并发许可后由调用者判断重试，成功时记录用量。"""
 +        sem = self._sem
 +        assert sem is not None  # _ensure_runtime 已建立并发许可。
 +        await sem.acquire()
 +        started = time.monotonic()
 +        overloaded = False
 +        try:
-+            response = await self._router.acompletion(
-+                model=model, messages=messages, stream=False, timeout=_LLM_REQUEST_TIMEOUT, **kwargs)
++            response = await self._send_within(_attempt_deadline(kwargs), model, messages, kwargs)
 +            sem.record_latency((time.monotonic() - started) * 1000, is_error=False)
 +            self._record_tokens(model, response)
 +            return response
@@ -539,6 +741,25 @@ index 22cefd4..5406e8a 100644
 +            raise
 +        finally:
 +            await sem.release(overloaded=overloaded)
+ 
+-        raise LLMDispatchError(
+-            f"Failed to get valid response after {max_retries + 1} attempts. "
+-            f"Last error: {last_error!s}",
+-            rate_limit_like=last_error_was_rate_limit,
+-        )
++    async def _send_within(self, deadline: float, model: str, messages: list, kwargs: dict) -> ModelResponse:
++        """@brief 整次期限包住一次底层发送；期限触发时改抛 LiteLLM 传输超时（以原 TimeoutError 为原因），别处的
++        TimeoutError 原样传播；日志由调用层统一记录。"""
++        scope = asyncio.timeout(deadline)
++        try:
++            async with scope:
++                return await self._router.acompletion(
++                    model=model, messages=messages, stream=False, timeout=_LLM_REQUEST_TIMEOUT, **kwargs)
++        except TimeoutError as error:
++            if not scope.expired():
++                raise
++            raise Timeout(message=f"Model call exceeded its {deadline:.1f} s deadline", model=model,
++                          llm_provider="openai") from error
  
  
  # ═══════════════════════════════════════════════════════════

@@ -24,7 +24,7 @@ from worldmock.life import (
     sessions,
 )
 from worldmock.life.action_evidence import (_activity_terminal_draft, _activity_terminal_result,
-                                            _terminal_action_records)
+                                            prune_processed_actions, require_origin_action)
 from worldmock.life.activities import (
     ActivityAdvance,
     advance_activity_shared,
@@ -51,7 +51,6 @@ from worldmock.life.rhythm import (
     settle_engine_rhythm,
 )
 from worldmock.life.schedule import DayPlan, expired_plan_agent_ids
-from worldmock.life.models import validated_payload
 from worldmock.life.navigation_foreground import settle_navigation
 from worldmock.life.presentation import flush_presentation, stage_presentation
 from worldmock.life.purchase_phases import advance_phases, foreground_events, phase_boundaries
@@ -103,6 +102,7 @@ class TimeAdvanceCoordinator:
         staged = flush_presentation(stage_presentation(self.context.state, self.observations.pending_presentation))
         staged = staged.model_copy(update={"current_time": target_epoch}, deep=True)
         staged = same_moment.reset_same_moment(staged)
+        staged = prune_processed_actions(staged)
         (drafts, results) = self._advance_activities(staged, target_epoch)
         (staged, background, arrivals) = self._process_scheduled(staged, target_epoch)
         drafts.extend(background)
@@ -143,8 +143,7 @@ class TimeAdvanceCoordinator:
         drafts = [*drafts, *outcome.drafts, *navigation, *foreground_events(self.context.state, staged),
                   *stay_events(self.context.state, staged, drafts)]
         staged.version = self.context.state.version + 1
-        self.context.store.commit(validated_payload(staged), drafts)
-        self.context.state = staged
+        self.context.commit_step(staged, drafts)
         self.observations.pending_presentation = {}
 
     def _run_stop(self, state: WorldState) -> tuple[WorldState, list[EventDraft]]:
@@ -214,8 +213,7 @@ class TimeAdvanceCoordinator:
             self.context.state, agent_id, request, (sources, causes), self.context.config.timezone
         )
         staged.version = self.context.state.version + 1
-        self.context.store.commit(validated_payload(staged), [*evidence, draft])
-        self.context.state = staged
+        self.context.commit_step(staged, [*evidence, draft])
         return plan
 
     def _require_midnight_decided(self) -> None:
@@ -303,13 +301,10 @@ class TimeAdvanceCoordinator:
             ActivityStatus.TRUNCATED,
         }:
             return None
-        if activity.origin_action_id not in state.processed_actions:
-            raise ProtocolError("Activity origin action is missing from processed actions")
+        require_origin_action(state, activity)
         index = title_index(self.context.catalog)
-        result = _activity_terminal_result(state, activity, target, index)
-        state.processed_actions = _terminal_action_records(state, result)
         return (
-            result,
+            _activity_terminal_result(state, activity, target, index),
             _activity_terminal_draft(state, activity, target, [], index),
         )
 
@@ -323,7 +318,7 @@ class TimeAdvanceCoordinator:
         if activity.kind==ActivityKind.TRAVEL:
             trip=persisted_trip(self.context.catalog,activity)
             changed,agent=update_travel(activity,trip,state.agents[activity.agent_id])
-            record_arrival(changed,agent)
+            changed=record_arrival(changed,agent)
             state.activities[activity.activity_id],state.agents[agent.agent_id]=changed,agent
         elif activity.kind==ActivityKind.PURCHASE:
             from worldmock.life.storefront_runtime import StorefrontRuntime
@@ -371,7 +366,7 @@ class TimeAdvanceCoordinator:
         return (state, drafts, arrivals)
 
     def _truncate(self, state: WorldState, now: int) -> list[EventDraft]:
-        """@brief 在实验终点截断仍进行或暂停的活动并保留实际进度：逐项写截断快照，并给开始它的动作写一次终态。"""
+        """@brief 在实验终点截断仍进行或暂停的活动并保留实际进度：逐项写截断快照，并给开始它的动作写一次终态事件。"""
         drafts = []
         for activity_id, activity in state.activities.items():
             if activity.status not in {ActivityStatus.ACTIVE, ActivityStatus.PAUSED}:
@@ -390,8 +385,7 @@ class TimeAdvanceCoordinator:
                 )
             )
             index = title_index(self.context.catalog)
-            result = _activity_terminal_result(state, activity, now, index)
-            state.processed_actions = _terminal_action_records(state, result)
+            require_origin_action(state, activity)
             drafts.append(_activity_terminal_draft(state, activity, now, [], index))
         return drafts
 

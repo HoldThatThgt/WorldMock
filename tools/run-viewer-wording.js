@@ -1,7 +1,7 @@
 'use strict';
 
 /** @brief 查看器的显示写法：src/worldmock/footprints/display_wording.py 的镜像，两份实现由
- *  tests/fixtures/display-wording-cases.json 约束。名称只取本库运行清单登记的冻结目录文件；另算出查看器独有的
+ *  tests/fixtures/display-wording-cases.json 约束。名称只取本导出所属运行的运行清单登记的冻结目录文件；另算出查看器独有的
  *  同一 app 连续使用（docs/design/05-recording-engine.md「显示写法与检查工具」）。查看器是容错的阅读工具，
  *  取不到名称时显示「名称缺失（身份）」并写英文错误，不像 Python 一侧那样报运行故障。一串内容标题与 Python 一侧同一上限：
  *  多于三条时只写前三条再接「等 K 条」，活动表的目标、泳道标签和连续使用的条块文字都经这一处。 */
@@ -33,7 +33,7 @@ const ViewerWording = {};
   /* 一串内容标题照列的最多条数：worldmock.footprints.display_wording.TITLE_LIST_LIMIT 的镜像。 */
   const TITLE_LIST_LIMIT = 3;
 
-  /** @brief 同一个键只写一次英文错误的报告函数；页面传入它自己的（随换库清空），单独加载时用这一个。 */
+  /** @brief 同一个键只写一次英文错误的报告函数；页面传入它自己的（随换一份导出清空），单独加载时用这一个。 */
   function onceReporter() {
     const seen = new Set();
     return (key, ...message) => {
@@ -59,10 +59,10 @@ const ViewerWording = {};
     };
   }
 
-  /* 当前的名称表与缺名报告函数：读目录文件时建立，换一个数据库时清空。 */
+  /* 当前的名称表与缺名报告函数：读目录文件时建立，换一份导出时清空。 */
   let current = {names: namesFrom({}), report: onceReporter()};
 
-  /** @brief 清空名称表（只剩步行）并换上缺名报告函数；换一个数据库时调用。 */
+  /** @brief 清空名称表（只剩步行）并换上缺名报告函数；换一份导出时调用。 */
   function reset(report = onceReporter()) {
     current = {names: namesFrom({}), report};
   }
@@ -104,16 +104,11 @@ const ViewerWording = {};
     return parseLines(await file.text()) ?? failed('Frozen catalog file is unreadable:', catalog.asset);
   }
 
-  /** @brief 读本库运行清单（运行清单本身或导出清单里的 frozen_run_manifest）登记的冻结目录，建好当前的名称表。
+  /** @brief 读本导出所属运行的运行清单（运行清单本身或导出清单里的 frozen_run_manifest）登记的冻结目录，建好当前的名称表。
    *  assets 是文件名到「取得 File」的函数，记的是同一次拖入的素材；返回没有读到的必需目录的素材名（可选的出行方式文件
-   *  读不到时只写英文错误）。没有属于本库的运行清单时写一次英文错误，四份必需目录都算没有读到，全部名称缺失。 */
+   *  读不到时只写英文错误）。 */
   async function loadCatalog(manifest, assets, report) {
     reset(report);
-    const required = CATALOGS.filter(catalog => catalog.required).map(catalog => catalog.asset);
-    if (manifest == null) {
-      console.error('Frozen catalog is unavailable: no run manifest for this database');
-      return required;
-    }
     const rows = {};
     for (const catalog of CATALOGS) {
       rows[catalog.table] = await readCatalog(catalog, manifest.environment_assets ?? {}, assets);

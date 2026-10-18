@@ -1,5 +1,6 @@
 """真实单人生命周期的严格拒绝、只读回看与因果证据。"""
 
+import logging
 from dataclasses import replace
 from datetime import timedelta
 from types import SimpleNamespace
@@ -73,7 +74,7 @@ def test_only_typed_mutations_can_enter_the_real_action_queue(engine_factory, to
     engine.observe(frozen)
     sequence = engine.context.store.last_event_seq
     with pytest.raises(ProtocolError):
-        engine.submit_action(DirectToolCall(frozen, "invalid-action", tool, payload))
+        engine.submit_action(DirectToolCall(frozen, f"{frozen.decision_id}:action:0001", tool, payload))
     assert engine.context.store.last_event_seq == sequence
     assert not engine.decisions.round.pending_actions
 
@@ -90,16 +91,19 @@ def test_removed_query_world_cannot_be_registered_as_a_world_action(engine_facto
     engine.observe(frozen)
     sequence = engine.context.store.last_event_seq
     with pytest.raises(ProtocolError, match=message):
-        engine.submit_action(DirectToolCall(frozen, "removed-action", tool, RecallTaskSummaryRequest(task_name="家")))
+        engine.submit_action(DirectToolCall(frozen, f"{frozen.decision_id}:action:0001", tool,
+                                            RecallTaskSummaryRequest(task_name="家")))
     assert engine.context.store.last_event_seq == sequence
     assert not engine.decisions.round.pending_actions
 
 
-def test_duplicate_submission_reuses_receipt_and_commits_one_actual_activity(engine_factory):
+def test_duplicate_submission_reuses_receipt_and_commits_one_actual_activity(engine_factory, caplog):
+    """同一开放轮里重复登记同一动作返回第一次的回执；同一身份换了参数是协议故障并写英文错误日志；只结算一项活动。"""
     engine = engine_factory()
     frozen = context(engine, "duplicate")
     request = do_at("家", "测试休息")
-    call = DirectToolCall(frozen, "same-action", MAIN_TOOL, request)
+    same = f"{frozen.decision_id}:action:0001"
+    call = DirectToolCall(frozen, same, MAIN_TOOL, request)
     with pytest.raises(ProtocolError, match="open decision round"):
         engine.submit_action(call)
     engine.begin_decision_round([frozen])
@@ -107,14 +111,16 @@ def test_duplicate_submission_reuses_receipt_and_commits_one_actual_activity(eng
     first = engine.submit_action(call)
     assert engine.submit_action(call) == first
     assert len(engine.decisions.round.pending_actions) == 1
+    caplog.set_level(logging.ERROR)
     with pytest.raises(ProtocolError, match="different parameters"):
-        engine.submit_action(DirectToolCall(frozen, "same-action", MAIN_TOOL, do_at("家", "测试闲聊")))
+        engine.submit_action(DirectToolCall(frozen, same, MAIN_TOOL, do_at("家", "测试闲聊")))
+    assert f"Action identity {same} was reused with different parameters" in caplog.text
     with pytest.raises(ProtocolError, match="different parameters"):
-        engine.submit_action(DirectToolCall(frozen, "same-action", SIDE_TOOL, use_app("哔哩哔哩")))
+        engine.submit_action(DirectToolCall(frozen, same, SIDE_TOOL, use_app("哔哩哔哩")))
     with pytest.raises(ProtocolError, match="already submitted"):
-        engine.submit_action(DirectToolCall(frozen, "another-action", MAIN_TOOL, request))
+        engine.submit_action(DirectToolCall(frozen, f"{frozen.decision_id}:action:0002", MAIN_TOOL, request))
     with pytest.raises(ProtocolError, match="another decision round"):
-        engine.submit_action(DirectToolCall(replace(frozen, round_id="foreign"), "same-action", MAIN_TOOL, request))
+        engine.submit_action(DirectToolCall(replace(frozen, round_id="foreign"), same, MAIN_TOOL, request))
     [result] = engine.commit_decision_round("duplicate")
     assert result.status == "in_progress"
     assert len(engine.context.state.activities) == 1
@@ -143,7 +149,7 @@ def test_model_response_requires_one_request_and_keeps_its_actual_cause(engine_f
     engine.begin_decision_round([frozen])
     engine.observe(frozen)
     request = ModelCallEvidence(frozen, "call", "request", 1, {"messages": []})
-    response = replace(request, phase="response", response={"protocol_feedback": {"code": "invalid"}})
+    response = replace(request, phase="response", response={"protocol_feedback": {"error_code": "TOOL_CALL_REQUIRED"}})
     with pytest.raises(ProtocolError, match="no recorded request"):
         engine.record_model_exchange(response)
     engine.record_model_exchange(request)
@@ -153,7 +159,9 @@ def test_model_response_requires_one_request_and_keeps_its_actual_cause(engine_f
     [stored_request] = events(engine, "model_request")
     [stored_response] = events(engine, "model_response")
     assert stored_response.caused_by == [stored_request.event_id]
-    assert stored_response.data["protocol_feedback"] == {"code": "invalid"}
+    assert stored_response.data["protocol_feedback"] == {"error_code": "TOOL_CALL_REQUIRED"}
+    assert stored_request.data["request"] == {"messages": []}
+    assert stored_response.data["request"] is None
     assert not engine.evidence.request_events
     assert not engine.context.state.activities
 
@@ -169,7 +177,8 @@ def test_memory_evidence_cannot_claim_another_observation_or_source_window(engin
 
     def requested() -> str:
         """同一人物、同一决策但不是观察的事件：本决策的行动请求。"""
-        engine.submit_action(DirectToolCall(frozen, "memory-action", MAIN_TOOL, do_at("家", "测试休息")))
+        engine.submit_action(DirectToolCall(frozen, f"{frozen.decision_id}:action:0001", MAIN_TOOL,
+                                            do_at("家", "测试休息")))
         return events(engine, "action_requested")[-1].event_id
 
     claims = {"missing": lambda: "missing-observation",
@@ -221,8 +230,7 @@ def test_failure_is_one_durable_fact_and_empty_failure_is_rejected(engine_factor
         engine.fail_run("")
     engine.fail_run("actual failure")
     engine.fail_run("a repeated failure")
-    [failed] = events(engine, "run_failed")
-    assert failed.data["error"] == "actual failure"
+    assert [failed.data["error"] for failed in events(engine, "run_failed")] == ["actual failure"]
     assert engine.context.state.current_time == int(engine.context.config.start_time.timestamp())
 
 

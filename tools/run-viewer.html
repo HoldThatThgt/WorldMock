@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>WorldMock 运行数据查看器</title>
 <link rel="stylesheet" href="run-viewer-context.css">
+<link rel="stylesheet" href="run-viewer-activities.css">
 <style>
 :root{
   --bg:#0f1115; --bg2:#161a22; --bg3:#1d232e; --line:#2a3140;
@@ -105,14 +106,6 @@ td.num,th.num{text-align:right;font-family:var(--mono)}
 .act-table th:hover{color:var(--fg)}
 .act-table th .arrow{font-size:10px;margin-left:3px;color:var(--accent)}
 .act-kind{display:inline-block;padding:1px 8px;border-radius:3px;font-size:11px}
-.act-lanes{overflow:auto;margin-bottom:14px}
-.act-lanes-inner{min-width:900px}
-.act-lane{display:flex;align-items:center;min-height:30px;border-top:1px solid var(--line)}
-.act-lane-label{width:240px;flex:none;padding:4px 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.act-lane-track{position:relative;flex:1;height:28px;background:repeating-linear-gradient(to right,
-  transparent 0,transparent calc(25% - 1px),var(--line) calc(25% - 1px),var(--line) 25%)}
-.act-lane-bar{position:absolute;top:6px;height:16px;min-width:2px;border-radius:3px}
-.act-lane-axis{display:flex;margin-left:240px;justify-content:space-between;color:var(--fg-dim);font:11px var(--mono)}
 .memory-entry{border-left:3px solid var(--accent);padding:8px 12px;margin:8px 0;background:var(--bg3);border-radius:3px}
 .memory-entry .meta{color:var(--fg-dim);font-size:11px;margin-bottom:4px}
 .memory-entry .text{white-space:pre-wrap;overflow-wrap:anywhere}
@@ -160,11 +153,14 @@ td.num,th.num{text-align:right;font-family:var(--mono)}
 <!-- ============ 拖放区 ============ -->
 <div id="drop-zone">
   <div id="drop-box" role="button" tabindex="0">
-    <h1>拖入 footprints.sqlite</h1>
-    <p>将运行产生的 SQLite 足迹文件拖到此处，或点击选择文件。<br>
-       记忆正文从 SQLite 事件读取；拖入整个 run 目录还可读取人物的 <code>MEMORY.md</code> 总结。<br>
-       同一 run 目录的运行清单 <code>manifest.json</code> 一起拖入或选择时，总览列出运行输入警告。<br>
-       对象名称取自这次运行冻结的环境目录：拖入整个 run 目录或导出目录才读得到，只拖数据库时显示为「名称缺失」。<br>
+    <h1>拖入导出目录</h1>
+    <p>把 <code>worldmock export</code> 写出的导出目录拖到此处，或点击选择其中的 <code>events.jsonl</code> 与
+       <code>manifest.json</code>。<br>
+       没有导出的运行（包括运行中和中途停下的）先导出：<code>worldmock export --run-dir &lt;运行目录&gt; --output
+       &lt;新目录&gt;</code>，加 <code>--cutoff</code> 只导出到某个事件。<br>
+       查看器在页面里从 events.jsonl 建索引（下方显示读取进度），展开一行时按字节区间读这一行的全文。<br>
+       对象名称取自导出目录 assets 里冻结的环境目录，没有 assets 时显示为「名称缺失」；人物的 <code>MEMORY.md</code>
+       总结要同时拖入运行目录（或整个执行目录）。<br>
        所有数据只在本地浏览器内解析，不会上传。</p>
   </div>
   <input type="file" id="file-input" multiple>
@@ -189,7 +185,7 @@ td.num,th.num{text-align:right;font-family:var(--mono)}
       <section class="view" data-view="overview"><h2>总览</h2><div id="ov-body"></div></section>
       <section class="view" data-view="timeline"><h2>时间线</h2><div id="tl-body"></div></section>
       <section class="view" data-view="day"><h2>一天</h2><div id="day-body"></div></section>
-      <section class="view" data-view="activities"><h2>活动泳道</h2><div id="act-body"></div></section>
+      <section class="view" data-view="activities"><h2>活动日历</h2><div id="act-body"></div></section>
       <section class="view" data-view="body"><h2>身体曲线</h2><div id="bd-body"></div></section>
       <section class="view" data-view="economy"><h2>经济流水</h2><div id="eco-body"></div></section>
       <section class="view" data-view="memory"><h2>记忆</h2><div id="mem-body"></div></section>
@@ -203,12 +199,13 @@ td.num,th.num{text-align:right;font-family:var(--mono)}
 <script src="run-viewer-context.js"></script>
 <script src="run-viewer-wording.js"></script>
 <script src="run-viewer-context-view.js"></script>
+<script src="run-viewer-index.js"></script>
+<script src="run-viewer-activities.js"></script>
 <script>
 'use strict';
 /* ================================================================
- * WorldMock 运行数据查看器 —— 纯前端页面，sql.js 读取 footprints.sqlite
- * 两级数据策略：SQL 投影建立轻量索引（json_extract 在 SQLite C 层完成，
- * 不把 140MB+ 的事件 body 拉进 JS），行内全文按 event_seq 懒加载缓存。
+ * WorldMock 运行数据查看器 —— 纯前端页面：打开导出目录，从 events.jsonl 在页面里建 sql.js 索引（run-viewer-index.js），
+ * 按类型投影摘要字段，事件全文按字节区间从同一文件懒加载缓存。
  * ================================================================ */
 
 /* ---------- sql.js 加载（多 CDN 回退，均经 verify 200） ---------- */
@@ -241,24 +238,27 @@ async function loadSqlJs(){
 
 /* ---------- 全局状态 ---------- */
 const S = {
-  SQL: null, db: null, fileName: '',
+  SQL: null, db: null,
+  fileName: '',          // 拖入的 events.jsonl 的路径
+  eventsFile: null,      // 导出的 events.jsonl（File）：事件全文按 event_lines 的字节区间从这里读
+  loading: false,        // 正在加载一份导出时为 true，期间的拖入被拒绝
   events: [],            // {seq,t,agent,type,sum} 按 seq 升序
   summaries: new Map(),  // seq -> 摘要字段对象
   typeCounts: {},
   agents: {}, agentIds: [],
-  t0: 0, t1: 0, runId: '', tz: 'Asia/Shanghai',
+  t0: 0, t1: 0,
+  runId: '', tz: '',     // 取自导出清单的 run_id 与 window.timezone
   world: null,
   obs: [],               // {seq,t,agent,bal,en,sl,et}
   acts: [],              // 合并后的活动段
   uses: null,            // ViewerWording.continuousUses 的结果：同一 app 首尾相接的连续使用与两张索引
   orders: new Map(),     // 订单身份 -> 商品履约记录 {goods_id, app_id}，取自动作结果
-  memFiles: {},          // agentId -> {memoryMd, episodes:[]}
-  runManifest: null,     // {path, frozen, manifest}：随库提供的本运行冻结清单（frozen 表示取自导出清单）
-  ignoredManifests: 0,   // 随库提供、却不是本库所属运行清单的 manifest.json 个数
+  memFiles: {},          // agentId -> {memoryMd}
+  runManifest: null,     // {path, frozen, manifest}：本导出所属运行的运行清单（frozen 表示取自导出清单）
   catalogMissing: [],    // 没有读到的必需冻结目录的素材名（名称表在 ViewerWording 里）
   missingNames: new Set(), // 已报告名称缺失的对象
   reminded: new Map(),   // 「人物@时刻」-> [{seq,name}]：事务提醒事件，供唤醒原因写事务名称
-  fmt: null, tzOff: 28800,
+  fmt: null, tzOff: 0,
   view: 'overview',
   day: null,             // {title, rows[], source} 解析后的 render_day timeline markdown
   bodyCache: new Map(),  // seq -> body 文本（FIFO 上限）
@@ -385,7 +385,7 @@ function errandName(name, id){
   return typeof name==='string' && name.trim() && name.trim()!==String(id??'') ? name : null;
 }
 
-/** @brief 同一缺失只输出一次英文错误日志（key 区分缺失的对象，更换数据库时随缺失记录清空）。 */
+/** @brief 同一缺失只输出一次英文错误日志（key 区分缺失的对象，换一份导出时随缺失记录清空）。 */
 function reportMissing(key, ...message){
   if (S.missingNames.has(key)) return;
   console.error(...message);
@@ -454,7 +454,8 @@ function buildOrders(){
 /* ================================================================
  * 索引构建
  * ================================================================ */
-/** @brief 建索引：事件索引、各类摘要字段、世界状态与时区、订单表；摘要文字等读完运行文件之后再生成（summarize）。 */
+/** @brief 建索引：事件索引、各类摘要字段、订单表、世界状态（导出带最终存档时）；运行身份与时区已由 openExport 取自导出清单；
+ *  摘要文字等读完运行文件之后再生成（summarize）。 */
 function buildIndex(log){
   log('· 读取事件索引 …');
   const evRows = q(`SELECT event_seq AS seq, json_extract(body,'$.event_type','$.agent_id','$.occurred_at') AS k
@@ -577,22 +578,16 @@ function buildIndex(log){
 
   buildOrders();
 
-  const rid = q(`SELECT json_extract(body,'$.run_id') AS r FROM events LIMIT 1`)[0];
-  S.runId = rid?.r || '';
-
-  try{
-    const w = q('SELECT body FROM world_state LIMIT 1')[0];
-    if (w) S.world = JSON.parse(w.body);
-  }catch(e){ /* 无 world_state 时基础视图仍可用 */ }
+  const w = q('SELECT body FROM world_state LIMIT 1')[0];
+  if (w) S.world = JSON.parse(w.body);
   if (S.world){
-    if (S.world.timezone){ S.tz = S.world.timezone; }
     S.agents = {};
     for (const [id,a] of Object.entries(S.world.agents||{})) S.agents[id]=a.name||('agent '+id);
   }
   S.agentIds = [...new Set(S.events.map(e=>e.agent).filter(a=>a!=null))].sort((a,b)=>a-b);
   if (!Object.keys(S.agents).length) S.agentIds.forEach(id=>S.agents[id]='agent '+id);
   S.fmt = makeFmt(S.tz);
-  try{ S.tzOff = tzOffsetSec(S.tz, S.t0||Math.floor(Date.now()/1000)); }catch(e){ S.tzOff = 28800; }
+  S.tzOff = tzOffsetSec(S.tz, S.t0||Math.floor(Date.now()/1000));
 }
 
 /** @brief 读完运行文件之后：合并活动，算出同一 app 的连续使用，最后一次生成各行摘要文字（受理行要读连续使用）。 */
@@ -810,25 +805,29 @@ function buildActivities(){
   S.uses = ViewerWording.continuousUses(S.acts);
 }
 
-/* 懒加载事件全文（FIFO 缓存） */
-function fetchBody(seq){
+/** @brief 事件全文：按 event_lines 的字节区间从导出的 events.jsonl 读出原行（FIFO 缓存）；索引的 events.body 可能已裁剪，
+ *  不作全文。读之前取定缓存与文件，换一份导出时还在读的结果只进旧缓存。事件不在索引里时抛错。 */
+async function fetchBody(seq){
   if (S.bodyCache.has(seq)) return S.bodyCache.get(seq);
-  const r = q('SELECT body FROM events WHERE event_seq=?',[seq]);
-  const text = r[0]?.body || '';
-  if (S.bodyCache.size >= BODY_CACHE_MAX){
-    const first = S.bodyCache.keys().next().value;
-    S.bodyCache.delete(first);
-  }
-  S.bodyCache.set(seq, text);
+  const cache = S.bodyCache, file = S.eventsFile;
+  const line = q('SELECT offset, length FROM event_lines WHERE event_seq=?',[seq])[0];
+  if (!line) throw new Error(`Event ${seq} is not in the loaded export`);
+  const text = await file.slice(line.offset, line.offset+line.length).text();
+  if (cache.size >= BODY_CACHE_MAX) cache.delete(cache.keys().next().value);
+  cache.set(seq, text);
   return text;
 }
-function prettyBody(seq){
-  const text = fetchBody(seq);
+/** @brief 事件全文的缩进 JSON（超过 400000 字符截断并注明全文长度）；全文不是 JSON 时写英文错误日志、照原文截断显示。 */
+async function prettyBody(seq){
+  const text = await fetchBody(seq);
   try{
     let pretty = JSON.stringify(JSON.parse(text),null,2);
     if (pretty.length > 400000) pretty = pretty.slice(0,400000)+`\n…（已截断，全文 ${pretty.length} 字符）`;
     return pretty;
-  }catch(_){ return text.slice(0,400000); }
+  }catch(error){
+    console.error('Event body is not JSON:', seq, error.message);
+    return text.slice(0,400000);
+  }
 }
 
 /* ================================================================
@@ -838,7 +837,7 @@ const VIEWS = [
   {id:'overview', name:'总览'},
   {id:'timeline', name:'时间线'},
   {id:'day', name:'一天'},
-  {id:'activities', name:'活动泳道'},
+  {id:'activities', name:'活动日历'},
   {id:'body', name:'身体曲线'},
   {id:'economy', name:'经济流水'},
   {id:'memory', name:'记忆'},
@@ -860,7 +859,7 @@ function switchView(id){
   S.view = id;
   $$('.nav-item').forEach(b=>b.classList.toggle('on', b.dataset.view===id));
   $$('.view').forEach(v=>v.classList.toggle('on', v.dataset.view===id));
-  ({overview:renderOverview, timeline:renderTimeline, day:renderDay, activities:renderActivities,
+  return ({overview:renderOverview, timeline:renderTimeline, day:renderDay, activities:renderActivities,
     body:renderBodyCurves, economy:renderEconomy, memory:renderMemory,
     reasoning:renderReasoning, context:ContextView.render, sql:renderSqlConsole}[id])();
 }
@@ -948,40 +947,30 @@ function renderOverview(){
 }
 
 /* ---------- 运行输入警告 ---------- */
-/** @brief 本库所属运行的冻结运行清单：清单本身，或导出清单 frozen_run_manifest 中的那一份。以世界状态的 run_id 认定
- *  （引擎打开运行时核对二者一致；恢复分支的库以父运行的事件开头，首个事件的 run_id 不是本运行）；带 agent_ids 才是
- *  运行清单，同一 run 目录里 LabelKit 输入、手机来源等清单也写着同一个 run_id。 */
+/** @brief 本导出所属运行的冻结运行清单：清单本身，或导出清单 frozen_run_manifest 中的那一份。以导出清单的 run_id 认定
+ *  （恢复链的导出以祖先运行的事件开头，首个事件的 run_id 不是本运行）；带 agent_ids 才是运行清单，同一 run 目录里
+ *  LabelKit 输入、手机来源等清单也写着同一个 run_id。 */
 function ownRunManifest(value){
-  const runId = S.world?.run_id;
+  const runId = S.runId;
   const own = m => runId!=null && m!==null && typeof m==='object' && m.run_id===runId && Array.isArray(m.agent_ids);
   if (own(value)) return {manifest:value, frozen:false};
   if (own(value?.frozen_run_manifest)) return {manifest:value.frozen_run_manifest, frozen:true};
   return null;
 }
-/** @brief 在随库提供的 manifest.json 中找出本库所属运行的运行清单；运行清单本身优先于导出清单中冻结的副本（导出逐字
- *  复制，内容相同）。读不出或解析失败的文件记英文错误日志，与其余不属于本库运行的清单一起计入忽略数。 */
-async function loadRunManifest(candidates){
-  let found = null, ignored = 0;
-  for (const candidate of candidates){
-    let own = null;
-    try{ own = ownRunManifest(JSON.parse(await candidate.read())); }
-    catch(error){ console.error('Unreadable manifest file:', candidate.path, error.message); }
-    if (!own){ ignored++; continue; }
-    if (!found || (found.frozen && !own.frozen)) found = {...own, path:candidate.path};
+/** @brief 在已解析的清单中认定本导出所属运行的运行清单：运行清单本身优先于导出清单中冻结的副本（导出逐字复制，内容
+ *  相同）；导出清单的冻结副本已在加载时核对，总能认定。 */
+function loadRunManifest(manifests){
+  let found = null;
+  for (const {path, value} of manifests){
+    const own = ownRunManifest(value);
+    if (own && (!found || (found.frozen && !own.frozen))) found = {...own, path};
   }
   S.runManifest = found;
-  S.ignoredManifests = ignored;
 }
-/** @brief 运行输入警告卡片（docs/dev/SPEC-dayrun-fidelity.md 1.3、九）：来源清单与警告；没有读到清单时说明怎样提供。 */
+/** @brief 运行输入警告卡片（docs/dev/SPEC-dayrun-fidelity.md 1.3、九）：来源清单与警告。 */
 function renderInputWarnings(agent){
   const head = '<h3 style="margin-top:0">运行输入警告</h3>';
   const found = S.runManifest;
-  if (!found){
-    const ignored = S.ignoredManifests
-      ? `随库提供的 ${S.ignoredManifests} 个 manifest.json 都不是本库所属运行的运行清单。` : '';
-    return `<div class="card">${head}<div class="hint">未读取本库所属运行的运行清单：与 footprints.sqlite 一起拖入或选择` +
-      `同一 run 目录的 <code>manifest.json</code>（也可拖入导出目录），即可列出运行输入警告。${ignored}</div></div>`;
-  }
   return `<div class="card">${head}
     <div class="kv"><span class="k">来源</span><span class="v">${esc(found.path)}${found.frozen?' · frozen_run_manifest':''}</span></div>
     ${inputWarningBody(found.manifest, agent)}</div>`;
@@ -1017,7 +1006,7 @@ function inputWarningBody(manifest, agent){
 function renderCatalogCard(){
   if (!S.catalogMissing.length) return '';
   return `<div class="card"><h3 style="margin-top:0">对象名称</h3><div class="hint">未读到这次运行冻结的环境目录（缺 ` +
-    `${esc(S.catalogMissing.join('、'))}），对象名称显示为「名称缺失（身份）」。请把整个 run 目录或导出目录拖入：` +
+    `${esc(S.catalogMissing.join('、'))}），对象名称显示为「名称缺失（身份）」。请把整个导出目录拖入：` +
     `其中的 manifest.json 与 assets 目录都要在。</div></div>`;
 }
 /* ---------- 时间线 ---------- */
@@ -1112,7 +1101,9 @@ function tlRow(e){
   row.onclick = ()=>toggleDetail(row, e.seq);
   return row;
 }
-function toggleDetail(row, seq){
+/** @brief 展开或收起一行事件的全文：第一次展开时插入详情（模型请求带「查看上下文」按钮），再按字节区间读入全文；
+ *  读不到时在详情里写读取失败并写英文错误日志。 */
+async function toggleDetail(row, seq){
   let det = row.nextElementSibling;
   if (det && det.classList.contains('tl-detail')){
     det.classList.toggle('on');
@@ -1127,13 +1118,18 @@ function toggleDetail(row, seq){
     det.appendChild(button);
   }
   const pre = document.createElement('pre');
-  pre.textContent = prettyBody(seq);
+  pre.textContent = '读取中 …';
   det.appendChild(pre);
   row.after(det);
+  try{ pre.textContent = await prettyBody(seq); }
+  catch(error){
+    console.error('Event body could not be read:', seq, error.message);
+    pre.textContent = '读取失败：'+error.message;
+  }
 }
 
-/* ---------- 活动表格（替代甘特图） ---------- */
-const AT = { sortKey:'start', sortDir:1, page:0, pageSize:50, filtered:[] };
+/* ---------- 共用所选日期的活动日历、活动表与地点会话 ---------- */
+const AT = { sortKey:'start', sortDir:1, page:0, pageSize:50, filtered:[], tableOpen:false };
 /** @brief 活动表「目标」：互动、购买与查询是这项活动全部受理与进度事件（按序号）的统一写法；出行写出行方式名称、
  *  目的地与路径；其余种类（睡眠和没有专门写法的种类）显示「—」。 */
 function actTargetText(a){
@@ -1146,64 +1142,55 @@ function actTargetText(a){
   }
   return [methodLabel(a.method), route].filter(Boolean).join(' · ') || '—';
 }
-/** @brief 泳道的一个条块，从 start 画到 end，悬停文字是「<起>–<止> · <说明>」。 */
-function laneBar(start, end, kind, text){
-  const span = Math.max(1,S.t1-S.t0), left = (start-S.t0)/span*100, width = (end-start)/span*100;
-  return `<span class="act-lane-bar" style="left:${left}%;width:${width}%;background:${kindColor(kind)}"
-          title="${esc(fmtT(start)+'–'+fmtT(end)+' · '+text)}"></span>`;
-}
-/** @brief 泳道的一行：独自一行的活动每个执行段一个条块，标签是写法（出行、睡眠照原格式「种类 目标」）；同一个 app
- *  首尾相接的几次使用并成的一行，标签与各条块由 ViewerWording.useLaneRows 给出。 */
-function laneRow(row){
-  const one = row.activities[0];
-  const label = row.joined ? row.label : ViewerWording.targetPhrase(one, one.contents, S.orders)
-    ?? `${actTypeLabel(one.kind,one.tg)} ${actTargetText(one)}`.trim();
-  const bars = row.joined ? row.bars.map(bar=>laneBar(bar.start, bar.end, 'interact', bar.text))
-    : one.intervals.map(([start,end])=>laneBar(start, end, one.kind, label));
-  return `<div class="act-lane"><div class="act-lane-label" title="${esc(label)}">${esc(label)}</div>
-        <div class="act-lane-track">${bars.join('')}</div></div>`;
-}
-/** @brief 按同一时间轴绘制人物的活动泳道，条块只取已结算区间；行按最早开始时刻排。 */
-function renderActivityLanes(activities){
-  const span = Math.max(1,S.t1-S.t0);
-  const ticks = [0,.25,.5,.75,1].map(f=>`<span>${fmtHM(S.t0+span*f)}</span>`).join('');
-  const agents = [...new Set(activities.map(a=>a.agent))];
-  const groups = agents.map(agent=>`<h3>${esc(agentName(agent))}</h3>` +
-    ViewerWording.useLaneRows(activities.filter(a=>a.agent===agent), S.uses).map(laneRow).join('')).join('');
-  return `<div class="card act-lanes"><div class="act-lanes-inner">
-    <div class="hint">同一时间轴上的条块表示实际执行区间；空白表示尚无结算记录。同一个 app 首尾相接的几次使用画在同一行，连成一个条块。</div>
-    <div class="act-lane-axis">${ticks}</div>${groups}</div></div>`;
-}
-/** @brief 地点会话（一段停留或一段路）只存于世界状态，按开始时刻列出其名称、种类与所含活动。 */
-function renderSessions(agent){
-  const acts = S.world?.activities||{};
+/** @brief 地点会话取与当天重叠或当天开始的记录，时间与活动成员限于当天，状态标明是最终记录。 */
+function renderSessions(agent, day){
+  const acts = new Map(Object.values(S.world?.activities||{}).map(activity=>[activity.activity_id, activity]));
+  const activityIds = new Set(AT.filtered.map(activity=>activity.aid));
   const rows = Object.values(S.world?.sessions||{})
     .filter(s=>SESSION_KIND_LABELS[s.kind] && (!agent || String(s.agent_id)===agent))
+    .filter(s=>(s.started_at<day.end && (s.ended_at??S.t1)>day.start) ||
+      (s.started_at>=day.start && s.started_at<day.end))
     .sort((x,y)=>x.started_at-y.started_at);
   if (!rows.length) return '';
-  const members = s => (s.activity_ids||[]).map(id=>acts[id]?.name).filter(Boolean).join('、')
-    || `${(s.activity_ids||[]).length} 项活动`;
-  return `<h3>地点会话</h3><div class="card" style="padding:0">
+  const members = s => {
+    const ids = (s.activity_ids||[]).filter(id=>activityIds.has(id));
+    return ids.map(id=>acts.get(id)?.name).filter(Boolean).join('、') || `${ids.length} 项活动`;
+  };
+  return `<h3>当天地点会话</h3><div class="card" style="padding:0">
     <table class="session-table">
-      <thead><tr><th>开始</th><th>人物</th><th>会话</th><th>种类</th><th>结束</th><th>状态</th><th>活动</th></tr></thead>
+      <thead><tr><th>当天开始</th><th>人物</th><th>会话</th><th>种类</th><th>当天结束</th>
+        <th>会话最终状态</th><th>当天活动</th></tr></thead>
       <tbody>${rows.map(s=>`<tr>
-        <td style="white-space:nowrap;font-family:var(--mono);font-size:12px">${fmtHM(s.started_at)}</td>
+        <td style="white-space:nowrap;font-family:var(--mono);font-size:12px">
+          ${fmtHM(Math.max(s.started_at,day.start))}</td>
         <td style="white-space:nowrap"><span class="tl-agent ${agentCls(s.agent_id)}">${esc(agentName(s.agent_id))}</span></td>
         <td>${esc(s.name||'')}</td><td>${SESSION_KIND_LABELS[s.kind]}</td>
-        <td style="white-space:nowrap;font-family:var(--mono);font-size:12px">${fmtHM(s.ended_at)}</td>
+        <td style="white-space:nowrap;font-family:var(--mono);font-size:12px">
+          ${fmtHM(Math.min(s.ended_at??S.t1,day.end))}</td>
         <td>${SESSION_STATUS_LABELS[s.status]||esc(s.status)}</td><td>${esc(members(s))}</td></tr>`).join('')}
       </tbody>
     </table></div>`;
 }
-/** @brief 活动表的一行：开始、人物、活动类型、目标、结束、实际时长和末尾的「连续使用」标记栏。 */
+/** @brief 当天有执行或受理记录才入表，时间与时长从实际区间裁切，保留原始活动字段。 */
+function activityOnDay(activity, day){
+  const intervals = activity.intervals.filter(([start,end])=>start<day.end && end>day.start)
+    .map(([start,end])=>[Math.max(start,day.start),Math.min(end,day.end)]);
+  const accepted = activity.start>=day.start && activity.start<day.end;
+  if (!intervals.length && !accepted) return null;
+  return {...activity,
+    dayStart:Math.min(...intervals.map(([start])=>start),...(accepted?[activity.start]:[])),
+    dayEnd:intervals.length ? Math.max(...intervals.map(([,end])=>end)) : null,
+    daySeconds:intervals.reduce((sum,[start,end])=>sum+end-start,0)};
+}
+/** @brief 活动表显示当天起止与结算时长，连续使用标记保留明确标注的完整记录。 */
 function activityRow(a){
   const mono = 'white-space:nowrap;font-family:var(--mono);font-size:12px', color = kindColor(a.kind);
   const kind = esc(actTypeLabel(a.kind,a.tg));
-  return `<tr><td style="${mono}">${fmtHM(a.start)}</td>
+  return `<tr><td style="${mono}">${fmtHM(a.dayStart)}</td>
     <td style="white-space:nowrap"><span class="tl-agent ${agentCls(a.agent)}">${esc(agentName(a.agent))}</span></td>
     <td><span class="act-kind" style="background:${color}33;color:${color}">${kind}</span></td>
-    <td>${esc(actTargetText(a))}</td><td style="${mono}">${fmtHM(a.end)}</td>
-    <td class="num">${a.actualSeconds?fmtDur(a.actualSeconds):'—'}</td>
+    <td>${esc(actTargetText(a))}</td><td style="${mono}">${fmtHM(a.dayEnd)}</td>
+    <td class="num">${a.daySeconds?fmtDur(a.daySeconds):'—'}</td>
     <td>${esc(ViewerWording.continuousUseMark(a, S.uses, fmtHM))}</td></tr>`;
 }
 /** @brief 活动表的表头排序与翻页按钮：点了之后重画整张表。 */
@@ -1220,33 +1207,38 @@ function bindActivityTable(pages){
   $('#at-prev').onclick = ()=>{ if (AT.page>0){ AT.page--; renderActivities(); } };
   $('#at-next').onclick = ()=>{ if (AT.page<pages-1){ AT.page++; renderActivities(); } };
 }
+/** @brief 日历先用完整记录构组，活动表、计数与地点会话再共用所选日期。 */
 function renderActivities(){
   const el = $('#act-body');
   const agent = agentFilterVal();
-  AT.filtered = S.acts.filter(a=>!agent || String(a.agent)===agent);
-  if (!AT.filtered.length){ el.innerHTML='<div class="empty">无活动数据</div>'; return; }
+  const activities = S.acts.filter(a=>!agent || String(a.agent)===agent);
+  const calendar = ActivityCalendar.render(activities), day = ActivityCalendar.selectedDay();
+  AT.filtered = activities.map(activity=>activityOnDay(activity,day)).filter(Boolean);
   if (AT.page >= Math.ceil(AT.filtered.length/AT.pageSize)) AT.page = 0;
   const kinds = [...new Set(AT.filtered.map(a=>a.kind))];
   const sorters = {
-    start: (x,y)=> x.start-y.start,
-    agent: (x,y)=> x.agent-y.agent || x.start-y.start,
-    kind:  (x,y)=> actTypeLabel(x.kind,x.tg).localeCompare(actTypeLabel(y.kind,y.tg),'zh') || x.start-y.start,
+    start: (x,y)=> x.dayStart-y.dayStart,
+    agent: (x,y)=> x.agent-y.agent || x.dayStart-y.dayStart,
+    kind:  (x,y)=> actTypeLabel(x.kind,x.tg).localeCompare(actTypeLabel(y.kind,y.tg),'zh') || x.dayStart-y.dayStart,
   };
   AT.filtered.sort(sorters[AT.sortKey]||sorters.start);
   if (AT.sortDir<0) AT.filtered.reverse();
-  const pages = Math.ceil(AT.filtered.length/AT.pageSize);
+  const pages = Math.max(1,Math.ceil(AT.filtered.length/AT.pageSize));
   const view = AT.filtered.slice(AT.page*AT.pageSize, (AT.page+1)*AT.pageSize);
   const arrow = k => AT.sortKey===k? `<span class="arrow">${AT.sortDir>0?'▲':'▼'}</span>`:'';
   const th = (k,label,extra) =>
     `<th data-sk="${k}" class="${extra||''}">${label}${arrow(k)}</th>`;
   el.innerHTML = `
-  ${renderActivityLanes(AT.filtered)}
-  <div class="legend" style="margin-bottom:10px">${kinds.map(k=>`<span><span class="sw" style="background:${kindColor(k)}"></span>${esc(actTypeLabel(k,null))}</span>`).join('')}
-    <span style="margin-left:auto;color:var(--fg-faint)">共 ${AT.filtered.length} 段活动 · 点击表头排序</span></div>
+  ${calendar}
+  <details class="calendar-table" id="activity-table" ${AT.tableOpen?'open':''}>
+    <summary>当天活动表 · ${day.date}</summary>
+  <div class="legend" style="margin-bottom:10px">${kinds.map(k=>
+    `<span><span class="sw" style="background:${kindColor(k)}"></span>${esc(actTypeLabel(k,null))}</span>`).join('')}
+    <span style="margin-left:auto;color:var(--fg-faint)">当天共 ${AT.filtered.length} 项活动 · 点击表头排序</span></div>
   <div class="card" style="padding:0 0 0 0">
     <table class="act-table">
-      <thead><tr>${th('start','开始')}${th('agent','人物')}${th('kind','活动类型')}
-        <th>目标</th><th>结束</th><th class="num">实际时长</th><th>连续使用</th></tr></thead>
+      <thead><tr>${th('start','当天开始')}${th('agent','人物')}${th('kind','活动类型')}
+        <th>目标</th><th>当天结束</th><th class="num">当天已结算</th><th>连续使用（完整记录）</th></tr></thead>
       <tbody>${view.map(activityRow).join('')}</tbody>
     </table>
     <div class="pager">
@@ -1255,8 +1247,10 @@ function renderActivities(){
       <button id="at-next" ${AT.page>=pages-1?'disabled':''}>下一页</button>
     </div>
   </div>
-  ${renderSessions(agent)}`;
+  ${renderSessions(agent,day)}</details>`;
   bindActivityTable(pages);
+  $('#activity-table').ontoggle = event=>{ AT.tableOpen=event.target.open; };
+  ActivityCalendar.bind();
 }
 
 /* ---------- 折线图（Canvas 手绘 + 悬停读数） ---------- */
@@ -1534,7 +1528,7 @@ function renderSqlConsole(){
   el.innerHTML = `
   <div class="card">
     <p style="color:var(--fg-dim);margin-bottom:8px;line-height:1.8">只读查询（仅允许 SELECT / WITH / PRAGMA / EXPLAIN），最多返回 200 行。<br>
-    表：<code>events(event_seq, event_id, body)</code> · <code>world_state(singleton, version, body)</code> · <code>artifacts(sha256, body)</code> · <code>checkpoints(checkpoint_id, body, record_sha256)</code>。body 为 JSON，可用 <code>json_extract</code> 取字段。</p>
+    ${ViewerIndex.pruningNote()}</p>
     <textarea id="sql-input" spellcheck="false">SELECT event_seq, json_extract(body,'$.event_type') AS type, json_extract(body,'$.occurred_at') AS t
 FROM events ORDER BY event_seq DESC LIMIT 20</textarea>
     <button class="primary" id="sql-run">运行 (Ctrl+Enter)</button>
@@ -1655,29 +1649,29 @@ function bindDayInput(){
  * 文件加载与入口
  * file-input 同时承担点击选择与自动化测试（set_input_files）入口。
  * ================================================================ */
-async function handleFiles(fileList, dirEntries){
-  const logEl = $('#drop-log'); logEl.style.display='block'; logEl.textContent='';
+/** @brief 拖放区与文件选择框的加载：同一时间只加载一份导出；加载 sql.js 后经 openExport 打开，成功后显示总览，
+ *  失败时写英文错误日志、清空半成品、回到拖放区并显示原因。 */
+async function handleFiles(fileList, droppedItems){
+  const logEl = $('#drop-log'), errEl = $('#drop-err');
+  if (S.loading){
+    const text = 'Another export is still loading; drop again after it finishes';
+    console.error('Run viewer load refused:', text);
+    errEl.style.display='block';
+    errEl.textContent = text;
+    return;
+  }
+  const started = performance.now();
+  S.loading = true;
+  logEl.style.display='block'; logEl.textContent=''; errEl.style.display='none';
   const log = m => { logEl.textContent += m+'\n'; logEl.scrollTop = logEl.scrollHeight; };
-  const errEl = $('#drop-err'); errEl.style.display='none';
   try{
+    // drop 的数据存储只在本轮事件中可读：先同步调用全部句柄接口，再等待它们完成。
+    const handles = await Promise.all(Array.from(droppedItems||[]).filter(item=>item.kind==='file')
+      .map(item=>item.getAsFileSystemHandle()));
     log('· 加载 sql.js 引擎（CDN）…');
     if (!S.SQL) S.SQL = await loadSqlJs();
     log('· 引擎就绪');
-
-    const files = Array.from(fileList||[]);
-    let file = null;
-    for (const f of files) if (/\.(sqlite3?|db)$/i.test(f.name)){ file = f; break; }
-    if (!file && files.length===1) file = files[0];
-    if (!file) throw new Error('未找到 .sqlite 文件 —— 请拖入 footprints.sqlite（可与 run 目录一起拖入）');
-    S.fileName = file.name;
-    log(`· 读取 ${file.name}（${(file.size/1048576).toFixed(1)} MB）…`);
-    const buf = new Uint8Array(await file.arrayBuffer());
-    log('· 打开数据库（大文件约需数秒）…');
-    await new Promise(r=>setTimeout(r,30));
-    S.db = new S.SQL.Database(buf);
-    log('· 数据库已打开');
-    await indexRun(files, dirEntries||[]);
-
+    await openExport(fileList||[], handles, log);
     $('#run-meta').textContent = `${S.runId.slice(0,8)} · ${fmtT(S.t0)} ~ ${fmtT(S.t1)} · ${nf(S.events.length)} 事件`;
     const sel = $('#agent-filter');
     sel.innerHTML = '<option value="">全部</option>' +
@@ -1688,68 +1682,145 @@ async function handleFiles(fileList, dirEntries){
     $('#drop-zone').classList.add('hidden');
     $('#app').classList.add('on');
     switchView('overview');
+    $('#run-meta').textContent += ` · 载入 ${((performance.now()-started)/1000).toFixed(1)} 秒`;
   }catch(e){
+    console.error('Run viewer load failed:', e.message);
+    resetRun();
+    $('#app').classList.remove('on');
+    $('#drop-zone').classList.remove('hidden');
     errEl.style.display='block';
     errEl.textContent = '加载失败：'+e.message;
     log('× 失败');
+  }finally{
+    S.loading = false;
   }
 }
 
-/** @brief 页面与测试共用的加载入口（S.db 已打开）：建索引，读随库提供的运行文件与冻结目录，再合并活动、算出连续使用并
- *  生成各行摘要文字。 */
-async function indexRun(files, dirEntries){
-  const log = m => { const el=$('#drop-log'); el.textContent += m+'\n'; el.scrollTop = el.scrollHeight; };
+/** @brief 页面与测试共用的加载入口（S.SQL 已就绪）：清空上一份运行，收集拖入的文件，认定唯一的导出清单与它的
+ *  events.jsonl，运行身份与时区取自导出清单，建索引，再读运行清单与冻结目录、合并活动并生成摘要。 */
+async function openExport(files, handles, log){
+  resetRun();
+  const dropped = await collectDropped(files, handles);
+  const manifests = await parseManifests(dropped.manifests);
+  const exported = exportManifestOf(manifests, dropped.databases);
+  S.runId = exported.value.run_id;
+  S.tz = exported.value.window.timezone;
+  if (!ownRunManifest(exported.value)?.frozen)
+    throw new Error(`Export manifest frozen_run_manifest is not the run manifest of run ${S.runId}`);
+  const events = eventsFileOf(dropped.events, exported);
+  S.eventsFile = await events.open();
+  S.fileName = events.path;
+  log(`· 导出 ${exported.path} · ${S.runId.slice(0,8)} · ${nf(exported.value.artifacts.events.rows)} 条事件` +
+    ` · ${(S.eventsFile.size/1048576).toFixed(1)} MB${exported.value.checkpoint? '' : ' · 没有最终存档'}`);
+  S.db = await ViewerIndex.build(S.SQL, S.eventsFile, exported.value, log);
+  log('· 事件索引已建好');
+  await indexRun(manifests, dropped.assets, log);
+}
+
+/** @brief 索引建好之后：读事件索引与摘要字段，认定运行清单并读冻结目录建名称表，合并活动、算出连续使用并生成摘要。 */
+async function indexRun(manifests, assets, log){
   buildIndex(log);
-  log('· 读取随库提供的记忆文件、运行清单与冻结目录 …');
-  await loadRunFiles(files, dirEntries);
-  log(`· 记忆文件：${Object.keys(S.memFiles).length} 个 agent · 运行清单：${S.runManifest?.path||'未读取'}`);
+  log('· 读取运行清单与冻结目录 …');
+  loadRunManifest(manifests);
+  S.catalogMissing = await ViewerWording.loadCatalog(S.runManifest.manifest, assets, reportMissing);
+  log(`· 记忆文件：${Object.keys(S.memFiles).length} 个 agent · 运行清单：${S.runManifest.path}`);
   summarize(log);
 }
 
-/** @brief 读入与足迹库一起拖入或选择的运行文件：目录中的人物记忆文件；顶层与各层目录中的 manifest.json 作运行清单候选；
- *  顶层文件名恰为 64 位十六进制摘要的文件与直接位于 assets 目录下的文件记作素材（只记句柄，同名取先遇到的）。
- *  认定本库的运行清单后按它读冻结的目录文件。 */
-async function loadRunFiles(files, dirEntries){
-  const manifests = Array.from(files).filter(file=>file.name==='manifest.json')
-    .map(file=>({path:file.name, read:()=>file.text()}));
-  const assets = new Map();
-  for (const file of Array.from(files))
-    if (/^[0-9a-f]{64}$/.test(file.name) && !assets.has(file.name)) assets.set(file.name, async ()=>file);
-  if (dirEntries.length) await loadDirFiles(dirEntries, manifests, assets);
-  await loadRunManifest(manifests);
-  S.catalogMissing = await ViewerWording.loadCatalog(S.runManifest?.manifest ?? null, assets, reportMissing);
+/** @brief 收集同一次拖入或选中的文件：manifest.json、events.jsonl 与数据库文件经 noteFile 记下；顶层文件名恰为 64 位
+ *  十六进制摘要的文件记作素材（只记句柄，同名取先遇到的）；拖入的句柄交给 loadDirFiles。顶层文件的路径就是文件名。 */
+async function collectDropped(files, handles){
+  const dropped = {manifests:[], events:[], databases:[], assets:new Map()};
+  for (const file of Array.from(files)){
+    noteFile(dropped, file.name, async ()=>file);
+    if (/^[0-9a-f]{64}$/.test(file.name) && !dropped.assets.has(file.name))
+      dropped.assets.set(file.name, async ()=>file);
+  }
+  await loadDirFiles(handles, dropped);
+  return dropped;
 }
 
-/* 目录拖入 → MEMORY.md / episodes.jsonl；各层的 manifest.json 记入 manifests（运行清单候选，见 loadRunManifest）；
- * 直接位于 assets 目录下的文件按文件名记入 assets（只记句柄，不读内容） */
-async function loadDirFiles(entries, manifests, assets){
-  const walk = async (entry, path='')=>{
-    if (entry.isFile){
-      const file = ()=>new Promise((res,rej)=>entry.file(res,rej));
-      if (path.split('/').at(-1)==='assets' && !assets.has(entry.name)) assets.set(entry.name, file);
-      if (entry.name==='manifest.json')
-        manifests.push({path:(path+'/'+entry.name).slice(1), read:async ()=>(await file()).text()});
-      if (entry.name==='MEMORY.md' || entry.name==='episodes.jsonl'){
-        const m = (path+'/'+entry.name).match(/agent_?0*(\d+)/i);
+/** @brief 按文件名记下一个拖入的文件：manifest.json 记作清单候选，events.jsonl 记下路径与取得 File 的函数，数据库文件
+ *  （.sqlite、.sqlite3、.db）只记路径，供拒绝时说明。 */
+function noteFile(dropped, path, open){
+  const name = path.split('/').at(-1);
+  if (name==='manifest.json') dropped.manifests.push({path, read:async ()=>(await open()).text()});
+  if (name==='events.jsonl') dropped.events.push({path, open});
+  if (/\.(sqlite3?|db)$/i.test(name)) dropped.databases.push(path);
+}
+
+/** @brief 逐个读取并解析拖入的 manifest.json；读不出或不是 JSON 的写英文错误日志后跳过。 */
+async function parseManifests(candidates){
+  const parsed = [];
+  for (const candidate of candidates){
+    try{ parsed.push({path:candidate.path, value:JSON.parse(await candidate.read())}); }
+    catch(error){ console.error('Unreadable manifest file:', candidate.path, error.message); }
+  }
+  return parsed;
+}
+
+/** @brief 已解析清单中带 frozen_run_manifest 对象的那一份是导出清单，须恰有一份，且带加载要读的 run_id、
+ *  window.timezone 与 artifacts.events；一份都没有而拖入了数据库文件时，说明要先用 worldmock export 导出。 */
+function exportManifestOf(manifests, databases){
+  const isObject = value => value!==null && typeof value==='object' && !Array.isArray(value);
+  const found = manifests.filter(item=>isObject(item.value) && isObject(item.value.frozen_run_manifest));
+  if (!found.length && databases.length) throw new Error(`${databases[0]} is not opened directly: export the run ` +
+    'with "worldmock export --run-dir <run directory> --output <new directory>" (--cutoff <event_seq> exports part ' +
+    'of it) and drop the export directory');
+  if (!found.length) throw new Error('No export manifest was dropped: drop the directory written by ' +
+    '"worldmock export", or select its manifest.json and events.jsonl');
+  if (found.length>1) throw new Error('More than one export manifest was dropped: ' +
+    `${found.map(item=>item.path).join(', ')}; drop one export directory`);
+  const value = found[0].value;
+  if (typeof value.run_id!=='string' || typeof value.window?.timezone!=='string'
+      || typeof value.artifacts?.events?.path!=='string' || !Number.isInteger(value.artifacts.events.rows))
+    throw new Error('Export manifest lacks run_id, window.timezone or artifacts.events');
+  return found[0];
+}
+
+/** @brief 导出清单所在目录下 artifacts.events.path 指的那个 events.jsonl：拖入目录时按路径找，顶层选中时路径就是文件名。 */
+function eventsFileOf(candidates, exported){
+  const expected = exported.path.slice(0, exported.path.lastIndexOf('/')+1) + exported.value.artifacts.events.path;
+  const found = candidates.find(item=>item.path===expected);
+  if (!found) throw new Error(`The export's events file was not dropped: ${expected}`);
+  return found;
+}
+
+/** @brief 递归读取用户拖入的文件句柄：素材与事件只记取得 File 的函数，人物 MEMORY.md 读进 S.memFiles。 */
+async function loadDirFiles(handles, dropped){
+  const walk = async (handle, path='')=>{
+    if (!handle) throw new Error('Could not access a dropped file or directory');
+    const full = path ? path+'/'+handle.name : handle.name;
+    if (handle.kind==='file'){
+      const file = ()=>handle.getFile();
+      const asset = path.split('/').at(-1)==='assets' || (!path && /^[0-9a-f]{64}$/.test(handle.name));
+      if (asset && !dropped.assets.has(handle.name)) dropped.assets.set(handle.name, file);
+      noteFile(dropped, full, file);
+      if (handle.name==='MEMORY.md'){
+        const m = full.match(/agent_?0*(\d+)/i);
         const aid = m? String(+m[1]) : String(Object.keys(S.memFiles).length+1);
-        const text = await (await file()).text();
-        S.memFiles[aid] = S.memFiles[aid] || {};
-        if (entry.name==='MEMORY.md') S.memFiles[aid].memoryMd = text;
-        else S.memFiles[aid].episodes = text.split('\n').filter(Boolean)
-          .map(l=>{ try{return JSON.parse(l);}catch(_){return null;} }).filter(Boolean);
+        S.memFiles[aid] = {memoryMd: await (await file()).text()};
       }
       return;
     }
-    if (entry.isDirectory){
-      const reader = entry.createReader();
-      let batch;
-      do {
-        batch = await new Promise((res,rej)=>reader.readEntries(res,rej));
-        for (const c of batch) await walk(c, path+'/'+entry.name);
-      } while (batch.length);
-    }
+    if (handle.kind==='directory') for await (const child of handle.values()) await walk(child, full);
   };
-  for (const e of entries) await walk(e);
+  for (const handle of handles) await walk(handle);
+}
+
+/** @brief 清空上一份运行：关闭索引库，丢掉事件、摘要、名称表、订单表、缓存、缺失记录与各视图状态；sql.js 引擎与加载标志保留。 */
+function resetRun(){
+  if (S.db) S.db.close();
+  S.db=null; S.eventsFile=null; S.fileName=''; S.events=[]; S.summaries=new Map(); S.typeCounts={}; S.obs=[]; S.acts=[];
+  S.memFiles={}; S.bodyCache=new Map(); S.world=null; S.runId=''; S.tz=''; S.agents={}; S.agentIds=[];
+  S.runManifest=null; S.orders=new Map(); S.uses=null; S.catalogMissing=[];
+  ViewerWording.reset(); S.missingNames=new Set(); S.reminded=new Map(); S.day=null;
+  AT.page=0; AT.sortKey='start'; AT.sortDir=1; AT.tableOpen=false;
+  TL.inited=false; TL.types=new Set(); TL.kw=''; TL.rendered=0;
+  RS.loaded=false; RS.items=[]; RS.kw='';
+  ContextView.reset();
+  ActivityCalendar.reset();
+  const sqlBody = $('#sql-body'); sqlBody.dataset.inited=''; sqlBody.innerHTML='';
 }
 
 /* 拖放与入口绑定 */
@@ -1767,26 +1838,11 @@ function bindDnd(){
   zone.addEventListener('drop', ev=>{
     ev.preventDefault();
     box.classList.remove('dragover');
-    const dirEntries = [];
-    if (ev.dataTransfer.items)
-      for (const it of ev.dataTransfer.items){
-        const entry = it.webkitGetAsEntry && it.webkitGetAsEntry();
-        if (entry && entry.isDirectory) dirEntries.push(entry);
-      }
-    handleFiles(ev.dataTransfer.files, dirEntries);
+    return handleFiles([], ev.dataTransfer.items);
   });
-  input.onchange = ()=>{ if (input.files.length) handleFiles(input.files, null); };
+  input.onchange = ()=>{ if (input.files.length) return handleFiles(input.files, null); };
   $('#btn-reload').onclick = ()=>{
-    if (S.db) S.db.close();
-    S.db=null; S.events=[]; S.summaries=new Map(); S.typeCounts={}; S.obs=[]; S.acts=[];
-    S.memFiles={}; S.bodyCache=new Map(); S.world=null; S.runId='';
-    S.runManifest=null; S.ignoredManifests=0; S.orders=new Map(); S.uses=null; S.catalogMissing=[];
-    ViewerWording.reset(); S.missingNames=new Set(); S.reminded=new Map(); S.day=null;
-    AT.page=0; AT.sortKey='start'; AT.sortDir=1;
-    TL.inited=false; TL.types=new Set(); TL.kw=''; TL.rendered=0;
-    RS.loaded=false; RS.items=[]; RS.kw='';
-    ContextView.reset();
-    const sqlBody = $('#sql-body'); sqlBody.dataset.inited=''; sqlBody.innerHTML='';
+    resetRun();
     $('#app').classList.remove('on');
     $('#drop-zone').classList.remove('hidden');
     input.value='';

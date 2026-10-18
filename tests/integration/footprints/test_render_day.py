@@ -7,12 +7,14 @@ from zoneinfo import ZoneInfo
 from scripts import inspect_run, render_day
 from tests.footprints.display_fixtures import freeze_environment, sample_display_names
 from tests.life.conftest import (
-    advance_next, conclude_request, do_at, pause_request, purchase, query, report_request, travel, use_app,
+    action_identity, advance_next, conclude_request, do_at, pause_request, purchase, query, report_request, travel,
+    use_app,
 )
 from tests.life.environment_inputs import (
     catalog_rows, copy_environment, replace_travel_methods, travel_method_row, write_catalog_rows,
 )
 from tests.life.environment_runtime import act, conclude_app_use, events, finish_activity, settle_decision
+from tests.life.phone_records import label_where, purchase_draws
 from tests.life.prerequisite_inputs import add_rows
 from worldmock.footprints.models import EventDraft
 from worldmock.footprints.store import FootprintStore
@@ -56,8 +58,8 @@ def _build_store(tmp_path, events, agent_ids=(1, 2), environment=None):
         "run_id": "run", "agent_ids": list(agent_ids), "environment_assets": assets,
         "window": {"start": DAY0, "end": DAY0 + 86400, "timezone": "Asia/Shanghai"},
     }, {"version": 0, "current_time": DAY0})
-    store.commit({"version": 1,
-                  "current_time": max((item.occurred_at for item in events), default=DAY0)}, events)
+    store.commit(store.state, {"version": 1,
+                               "current_time": max((item.occurred_at for item in events), default=DAY0)}, events)
     store.close()
     return tmp_path / "run" / "footprints.sqlite"
 
@@ -258,7 +260,10 @@ def test_purchase_row_is_split_by_order_with_its_channel(engine_factory, tmp_pat
         persona["initial_location"] = "四季便利"
 
     engine = engine_factory(mutate=at_store)
-    for label, goods in (("pickup", ("纸巾", "饭团")), ("split", ("纸巾", "牛肉面"))):
+    for prefix, goods, apps in (("pickup", ("纸巾", "饭团"), (None,)), ("split", ("纸巾", "牛肉面"), (None, "meituan"))):
+        # 按固定种子挑请求身份：这次购买的每张订单都抽到经付款 app 付款，不是直付。
+        label = label_where(prefix, lambda item: all(
+            purchase_draws(engine, action_identity(item), app)[1] is not None for app in apps))
         _, bought = act(engine, label, purchase(*goods))
         assert bought.status == "in_progress", bought.error_code
         finish_activity(engine, bought, label)
@@ -473,3 +478,23 @@ def test_inspect_run_body_reads_values_and_levels(tmp_path, capsys):
     assert "能量=  350.0" in lines[0] and "饥饿=饿得难受" in lines[0] and "困意=困" in lines[0]
     assert "睡眠不足= 1.50h" in lines[0]
     assert "饥饿=饿得发慌" in lines[1]
+
+
+def test_result_bodies_through_the_index_equal_the_full_scan(tmp_path):
+    """订单记录的来源经类型表达式索引取序号再读正文：与以前逐条读正文判断类型的整表扫描逐条相同。"""
+    events = [_progress("a", _watching("a", "c-article"), _at(9, 0), _at(9, 30)),
+              EventDraft(event_type="action_result", occurred_at=_at(9, 30), agent_id=1, data={"status": "completed"}),
+              _progress("b", _watching("b", "c-article"), _at(9, 30), _at(10, 0), agent=2),
+              EventDraft(event_type="action_result", occurred_at=_at(10, 0), agent_id=2, data={"status": "accepted"}),
+              EventDraft(event_type="action_result", occurred_at=_at(10, 0), data={"status": "in_progress"})]
+    sqlite_path = _build_store(tmp_path, events)
+    conn = render_day._connect(sqlite_path)
+    try:
+        old = "SELECT body FROM events WHERE json_extract(body,'$.event_type')='action_result' ORDER BY event_seq"
+        expected = [json.loads(body) for (body,) in conn.execute(old)]
+        assert len(expected) == 3
+        assert render_day._result_bodies(conn) == expected
+        plan = " | ".join(row[-1] for row in conn.execute(f"EXPLAIN QUERY PLAN {render_day._RESULT_BODIES_SQL}"))
+        assert "USING COVERING INDEX events_agent_type" in plan
+    finally:
+        conn.close()

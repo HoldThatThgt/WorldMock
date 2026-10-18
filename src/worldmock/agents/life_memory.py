@@ -103,7 +103,7 @@ class WorldMockMemoryRuntime(PersonMemoryRuntime):
             return MemoryStepOutcome((), (), None)
         facts, observation_id = self._current_facts()
         before = hashlib.sha256(store.memory_md_path.read_bytes()).hexdigest()
-        known = {str(item["id"]) for item in store.iter_episodes()}
+        known = store.episode_ids()
         memories = self._validate_subjective_memories(finish_memories)
         written = await self._append_subjective(memories, tick=tick, t=t, step_count=step_count)
         should, reason = await asyncio.to_thread(self._consolidation_due)
@@ -130,7 +130,7 @@ class WorldMockMemoryRuntime(PersonMemoryRuntime):
         if store is None:
             return MemoryStepOutcome((), (), None)
         before = hashlib.sha256(store.memory_md_path.read_bytes()).hexdigest()
-        known = {str(item["id"]) for item in store.iter_episodes()}
+        known = store.episode_ids()
         consolidated = await self._consolidate_subjective(tick, t, step_count, "daily reflection")
         written = [item for item in await self._run_reflection(tick=tick, t=t, step_count=step_count)
                    if item.get("source") == _REFLECTION_SOURCE]
@@ -197,9 +197,9 @@ class WorldMockMemoryRuntime(PersonMemoryRuntime):
     def _consolidation_due(self) -> tuple[bool, str]:
         """@brief 步尾的阈值巩固判定：只按未巩固条目中来源不是就寝反思的条目计条数与重要度。
 
-        宿主固定阈值为十条、重要度合计三；反思条目不计入这两个触发条件。
+        宿主固定阈值为十条、重要度合计三；反思条目不计入这两个触发条件。读缓存的只读视图，不复制条目。
         """
-        pending = [item for item in self._require_store().unconsolidated() if item.get("source") != "reflection"]
+        pending = [item for item in self._require_store().unconsolidated_view() if item.get("source") != "reflection"]
         if sum(float(item.get("importance") or 0.0) for item in pending) >= _IMPORTANCE_THRESHOLD:
             return True, "importance accumulation threshold"
         if len(pending) >= _PENDING_THRESHOLD:
@@ -237,7 +237,7 @@ class WorldMockMemoryRuntime(PersonMemoryRuntime):
     ) -> bool:
         """@brief 模型仅归纳主观 episode，绝不接收事实视图作为可重写正文。"""
         store = self._require_store()
-        episodes = store.unconsolidated()
+        episodes = store.unconsolidated_view()
         if not episodes:
             return False
         payload = {"reason": reason, "tick": tick, "time": t.isoformat(),

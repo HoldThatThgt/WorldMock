@@ -10,7 +10,7 @@ import pytest
 from tests.engine_fixture import engine_factory_at
 from tests.footprints.recording import (artifact_rows, export_completed, read_export, reproject, write_manifest,
                                         write_rows)
-from tests.life.conftest import advance_until_ready, purchase, sleep, travel, use_app
+from tests.life.conftest import action_identity, advance_until_ready, purchase, sleep, travel, use_app
 from tests.life.environment_inputs import copy_environment, write_catalog_rows
 from tests.life.environment_runtime import act, finish_activity
 from tests.life.phone_records import (label_where, moment, paying_label, phone_environment, phone_window,
@@ -36,8 +36,8 @@ def phone_day(engine):
     finish_activity(engine, watching, "watch")
     finish_activity(engine, trip, "commute")
     assert engine.context.state.current_time == ARRIVE
-    label = label_where("desk", lambda item: (purchase_draws(engine, f"action-{item}", "luckin")[1],
-                                              purchase_draws(engine, f"action-{item}", "bilibili")[1])
+    label = label_where("desk", lambda item: (purchase_draws(engine, action_identity(item), "luckin")[1],
+                                              purchase_draws(engine, action_identity(item), "bilibili")[1])
                         == ("alipay", None))
     _, bought = act(engine, label, purchase("冰美式", "平台笔记本"))
     assert bought.status == "in_progress", bought.error_code
@@ -82,7 +82,7 @@ def of_kind(events, kind):
 
 def test_day_with_every_phone_record_exports_six_artifacts_and_certifies(phone_export):
     manifest, events = phone_export["manifest"], phone_export["events"]
-    assert manifest["schema_version"] == 7 and manifest["experiment_completed"] is True
+    assert manifest["schema_version"] == 8 and manifest["experiment_completed"] is True
     assert set(manifest["artifacts"]) == {"events", "activities", "verified_experiences", "purchases", "app_usage",
                                           "location_stays"}
     directory, ids = phone_export["directory"], phone_export["activities"]
@@ -159,7 +159,7 @@ def test_exported_stays_match_the_stay_sessions_of_the_final_checkpoint(phone_ex
 
 def test_quality_report_gains_nothing_from_the_phone_records(phone_export):
     quality = json.loads((phone_export["directory"] / "quality.json").read_bytes())
-    assert quality["schema_version"] == 8
+    assert quality["schema_version"] == 9
     assert not [key for key in quality if any(word in key for word in ("stay", "navigation", "notification"))]
 
 
@@ -288,7 +288,7 @@ def test_rewritten_foreground_intervals_are_refused(exported, phone_export, faul
     elif fault == "interval_of_the_app_activity":
         ordering["activity_id"] = ids["watching"]
     else:
-        second["activity_id"] = "activity-action-ghost"
+        second["activity_id"] = f"activity-{action_identity('ghost')}"
     rejected(exported, reason, events)
 
 
@@ -317,7 +317,7 @@ def test_rewritten_artifacts_and_the_old_manifest_are_refused(exported, fault, r
         usage[0]["segments"][0]["ended_at"] -= 1
         write_rows(exported, manifest, "app_usage", usage)
     elif fault == "old_manifest":
-        manifest["schema_version"] = 6
+        manifest["schema_version"] = 7
     else:
         del manifest["artifacts"]["location_stays"]
     write_manifest(exported, manifest)

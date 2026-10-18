@@ -13,7 +13,8 @@ def act(engine, label, request, tool=None, action_id=None):
     decision = context(engine, label)
     engine.begin_decision_round([decision])
     observed = engine.observe(decision)
-    engine.submit_action(DirectToolCall(decision, action_id or f"action-{label}", tool or tool_of(request), request))
+    identity = action_id or f"{decision.decision_id}:action:0001"
+    engine.submit_action(DirectToolCall(decision, identity, tool or tool_of(request), request))
     return observed, engine.commit_decision_round(label)[0]
 
 
@@ -25,7 +26,7 @@ def act_group(engine, label, *requests):
     decision = context(engine, label)
     engine.begin_decision_round([decision])
     observed = engine.observe(decision)
-    identities = [f"action-{label}-{index}" for index, _ in enumerate(requests, start=1)]
+    identities = [f"{decision.decision_id}:action:{index:04d}" for index, _ in enumerate(requests, start=1)]
     for identity, request in zip(identities, requests, strict=True):
         engine.submit_action(DirectToolCall(decision, identity, tool_of(request), request))
     returned = engine.commit_decision_round(label)
@@ -44,7 +45,7 @@ def action_result(engine, action_id):
 
 def events(engine, kind=None):
     """只读取已提交的真实事实。"""
-    rows = engine.context.store.read_events(engine.context.store.last_event_seq)
+    rows = list(engine.context.store.iter_events(engine.context.store.last_event_seq))
     return rows if kind is None else [row for row in rows if row.event_type == kind]
 
 
@@ -149,6 +150,46 @@ def conclude_app_use(engine, activity_id, label, items=1):
 def observe_only(engine, label):
     """人物此刻的一次观察（只读，不登记请求）；轮次身份带上此刻，同一标签可以在不同时刻重复使用。"""
     return engine.observe(context(engine, f"{label}-{engine.context.state.current_time}"))
+
+
+def check_every_step(monkeypatch, engine, check) -> None:
+    """在引擎实例上包住 commit_decision_round、advance 与 decide_midnight_rhythm：调用原方法之后（零点判定未完成时除外）
+    执行 check(engine, origins)；origins 是最近一次 advance 调用之前进行中或暂停活动的 origin_action_id 集合。"""
+    origins = [frozenset()]
+
+    def wrapped(name):
+        """包住引擎实例上的一个方法。"""
+        original = getattr(engine, name)
+
+        def step(*args, **kwargs):
+            """推进之前记下 origins，调用原方法后核对。"""
+            if name == "advance":
+                origins[0] = _unfinished_origins(engine.context.state)
+            result = original(*args, **kwargs)
+            if not engine.midnight_rhythm_pending:
+                check(engine, origins[0])
+            return result
+
+        return step
+
+    for name in ("commit_decision_round", "advance", "decide_midnight_rhythm"):
+        monkeypatch.setattr(engine, name, wrapped(name))
+
+
+def ledger_holds_only_readable_entries(state, origins: frozenset[str]) -> None:
+    """processed_actions 只含规则还会读的条目：本秒结算的结果与最近一次推进前未终结活动的开始动作。"""
+    keys = set(state.processed_actions)
+    for key in keys:
+        assert key in origins or state.processed_actions[key].result["occurred_at"] == state.current_time, key
+    assert origins <= keys, sorted(origins - keys)
+    live = _unfinished_origins(state)
+    assert live <= keys, sorted(live - keys)
+
+
+def _unfinished_origins(state) -> frozenset[str]:
+    """此刻进行中或暂停的活动的 origin_action_id。"""
+    return frozenset(activity.origin_action_id for activity in state.activities.values()
+                     if activity.status in {"active", "paused"})
 
 
 def every_five_minutes(persona, config):

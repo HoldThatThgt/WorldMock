@@ -183,7 +183,7 @@ def test_store_revalidates_decision_started_before_persisting_mutated_draft(tmp_
         draft.data["decision_statement"] = "我想先歇一会儿。"
         previous = store.last_event_seq
         with pytest.raises(ValueError, match="retired field decision_statement"):
-            store.commit(store.state, [draft])
+            store.append_evidence([draft])
         assert store.last_event_seq == previous
     finally:
         store.close()

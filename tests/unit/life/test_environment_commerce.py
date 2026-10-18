@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from worldmock.life.activity_control import open_activities
 from worldmock.catalog.models import Goods, Location, OpeningHours
 from worldmock.environment import load_environment
 from worldmock.errors import BusinessRuleError, IntegrityError, PreconditionError
@@ -54,7 +55,8 @@ def world(inputs, location="home", balance=200000, random_state="commerce-tests"
 
 def runtime(inputs):
     event = SimpleNamespace(action_id="buy", event_id="accepted-result", data={"status": "in_progress"})
-    store = SimpleNamespace(read_agent_events=lambda event_type, agent_id: [event])
+    store = SimpleNamespace(read_agent_events=lambda event_type, agent_id, after=0: [event],
+                            last_event_seq_before=lambda occurred_at: 0)
     context = SimpleNamespace(inputs=inputs, catalog=inputs.catalog, persona=inputs.persona,
                               config=inputs.config, body=assemble_body_config(inputs.persona), store=store, callback_causes={})
     return StorefrontRuntime(context)
@@ -200,7 +202,7 @@ def _basket_refusal(environment, state, goods):
     names = {key: row.display_name for key, row in environment.catalog.locations.items()}
     rows = tuple({"object": environment.catalog.goods[key].name, "kind": "supply", "object_id": key,
                   "selected_action": binding_action("purchase")} for key in goods)
-    return group_refusal(Context(state, 1, names, {}, environment), [Call("start_side_activity", "purchase", rows)])
+    return group_refusal(Context(state, 1, open_activities(state, 1), names, {}, environment), [Call("start_side_activity", "purchase", rows)])
 
 
 def test_basket_precheck_merges_delivery_fee_once(environment):

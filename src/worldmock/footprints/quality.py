@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from worldmock.agents.life_reflection import REFLECTION_TOOL
+from worldmock.agents.life_truncation import RETRY_THINKING
+from worldmock.life.action_contract import START_TOOLS
+from worldmock.life.decision_start import PLAN_DAY_PURPOSE, is_action_request, request_tool_names
 from worldmock.footprints.intervals import valid_interval, body_settlements
 from worldmock.life.memory_evidence import MEMORY_WRITE_POINTS, valid_subjective_snapshots
 from worldmock.footprints.models import is_sha256
@@ -37,8 +41,17 @@ _INTERRUPTED_STATUSES = {"cancelled", "failed", "truncated"}
 #: 记忆写入点闭集（memory_updated.data.trigger 的取值与顺序）：结束活动与就寝反思。
 #: 协议错误与运行故障文本中表示记忆的词：记忆本身，以及结束工具里记忆与看法的两个字段名（memories、views）。
 _MEMORY_ERROR_WORDS = ("memory", "memories", "views")
-#: 模型用量按用途分列时，无 purpose 的请求（人物决策的行动请求与记忆巩固、反思）的分组名。
+#: 输出截断按用途分列时，无 purpose 的请求的分组名。
 _DECISION_PURPOSE = "decision"
+
+#: 模型调用按请求形状分的六类，model_usage.by_call_class 按这个次序逐类列出
+#: （docs/design/05-recording-engine.md「完整导出认证」）。
+CALL_CLASSES = ("fresh_decision_turn", "turn_with_history", "truncation_retry", "consolidation", "reflection",
+                "plan_day")
+#: 请求形状不属于六类、或终态响应没有对应请求事件的调用的分组名；只在出现时列在六类之后。
+_UNRECOGNIZED_CLASS = "unrecognized"
+#: 可计价响应按计价拆开的三种 token。
+_PRICED_TOKEN_KEYS = ("cache_hit_input_tokens", "cache_miss_input_tokens", "output_tokens")
 _PRICING = {
     "source": "https://api-docs.deepseek.com/quick_start/pricing/",
     "checked_at": "2026-09-15",
@@ -56,8 +69,8 @@ _PRICING = {
 def build_quality_report(events: list[Event], activities: list[dict], manifest: dict, names: DisplayNames) -> dict:
     """@brief 汇总完成、异常、内容、效率、记忆、模型用量、实测加速比、当日目标、个人事务与收尾记忆、运行输入警告与输出截断。
 
-    报告结构 8（docs/design/05-recording-engine.md「完整导出认证」）：input_warnings.code_counts 的键恰为运行输入警告码
-    闭集的两个值。两个只报告分组 errand_metrics、conclusion_memories 紧随 day_plan_metrics；三者读同一份事件字典，
+    报告结构 9（docs/design/05-recording-engine.md「完整导出认证」）：input_warnings.code_counts 的键恰为运行输入警告码
+    闭集的两个值；lineage 节报告父运行各段的结束原因与停机秒数。两个只报告分组 errand_metrics、conclusion_memories 紧随 day_plan_metrics；三者读同一份事件字典，
     按事件模型的 JSON 形状只构造一次。
 
     @param events 已经认证且按 event_seq 排序的完整事件。
@@ -70,7 +83,7 @@ def build_quality_report(events: list[Event], activities: list[dict], manifest: 
     _validate_inputs(events, activities, manifest)
     rows = [{**event.model_dump(mode="json"), "code_sha256": manifest.get("code_sha256")} for event in events]
     return {
-        "schema_version": 8,
+        "schema_version": 9,
         "run_id": manifest["run_id"],
         "source_group_id": manifest["source_group_id"],
         "event_range": {
@@ -88,6 +101,7 @@ def build_quality_report(events: list[Event], activities: list[dict], manifest: 
         "memory_references": _memory_quality(events, manifest["window"]["timezone"]),
         "model_usage": _model_quality(events),
         "acceleration": _acceleration(events, manifest),
+        "lineage": _lineage_quality(manifest),
         "day_plan_metrics": day_plan_metrics(rows, manifest["window"]["timezone"]),
         "errand_metrics": errand_metrics(rows, manifest["window"]["timezone"]),
         "conclusion_memories": conclusion_memories(rows),
@@ -112,6 +126,8 @@ def _validate_inputs(events: list[Event], activities: list[dict], manifest: dict
     start, end = window.get("start"), window.get("end")
     if not _is_int(start) or not _is_int(end) or end <= start:
         raise IntegrityError("Quality report run window is invalid")
+    if not isinstance(manifest.get("lineage"), list):
+        raise IntegrityError("Quality report manifest has no lineage")
     sequences = [event.event_seq for event in events]
     if sequences != sorted(sequences) or len(set(sequences)) != len(sequences):
         raise IntegrityError("Quality report events are not in a strict sequence")
@@ -122,6 +138,24 @@ def _validate_inputs(events: list[Event], activities: list[dict], manifest: dict
         raise IntegrityError("Quality report activity identity is invalid")
     if len(set(identities)) != len(identities):
         raise IntegrityError("Quality report activity identity is duplicated")
+
+
+def _lineage_quality(manifest: dict) -> dict:
+    """@brief 父运行各段的结束原因、丢弃事件数与停机秒数（分出时刻减父运行最后一条事件的落盘时刻），只读冻结清单的
+    lineage，不计入 transport_or_terminal_failures。"""
+    parents = []
+    for entry in manifest["lineage"]:
+        downtime = (datetime.fromisoformat(entry["branched_at"])
+                    - datetime.fromisoformat(entry["last_recorded_at"])).total_seconds()
+        parents.append({"run_id": entry["run_id"], "checkpoint_id": entry["checkpoint_id"],
+                        "end_reason": entry["end_reason"], "end_error": entry["end_error"],
+                        "discarded_events": entry["discarded_events"], "downtime_seconds": round(downtime, 3)})
+    reasons = Counter(row["end_reason"] for row in parents)
+    return {"segment_count": len(parents) + 1, "parents": parents,
+            "end_reason_counts": {reason: reasons[reason] for reason in sorted(reasons)},
+            "downtime_seconds": round(sum((row["downtime_seconds"] for row in parents), 0.0), 3),
+            "method": "Parent segments read from the frozen run manifest lineage; downtime is branched_at minus "
+                      "the parent's last recorded event"}
 
 
 def _run_outcome(events: list[Event]) -> dict:
@@ -585,12 +619,15 @@ def _model_quality(events: list[Event]) -> dict:
     requests = [event for event in events if event.event_type == "model_request"]
     request_times = {event.data["call_id"]: event.recorded_at for event in requests
                      if isinstance(event.data.get("call_id"), str)}
+    classes = {event.data["call_id"]: _call_class(event.data) for event in requests
+               if isinstance(event.data.get("call_id"), str)}
     terminals: dict[str, list[Event]] = defaultdict(list)
     for event in events:
         if event.event_type == "model_response" and isinstance(event.data.get("call_id"), str):
             terminals[event.data["call_id"]].append(event)
     selected = [_select_terminal(rows) for _, rows in sorted(terminals.items())]
-    usage = [_usage_entry(event, request_times.get(event.data["call_id"])) for event in selected
+    usage = [_usage_entry(event, request_times.get(event.data["call_id"]),
+                          classes.get(event.data["call_id"], _UNRECOGNIZED_CLASS)) for event in selected
              if isinstance(event.data.get("response"), dict)]
     reported = [item for item in usage if item["tokens"] is not None]
     estimated = [item for item in usage if item["estimated_cost_usd"] is not None]
@@ -613,7 +650,7 @@ def _model_quality(events: list[Event]) -> dict:
         "token_usage": _aggregate_tokens(usage, reported, missing_responses + len(pending)),
         "estimated_cost": _aggregate_cost(usage, estimated, missing_responses, pending),
         "by_actual_model": _usage_by_model(usage),
-        "by_purpose": _usage_by_purpose(requests, usage),
+        "by_call_class": _usage_by_call_class(requests, usage),
         "pricing_snapshot": _PRICING,
     }
 
@@ -624,8 +661,8 @@ def _select_terminal(events: list[Event]) -> Event:
     return min(with_response or events, key=lambda event: event.event_seq)
 
 
-def _usage_entry(event: Event, request_recorded_at: str | None) -> dict:
-    """@brief 提取一次提供商响应的实际模型、实报 token 和可核价格估算。"""
+def _usage_entry(event: Event, request_recorded_at: str | None, call_class: str) -> dict:
+    """@brief 提取一次提供商响应的调用类、实际模型、实报 token、按计价拆开的 token 和可核价格估算。"""
     response = event.data["response"]
     usage = response.get("usage") if isinstance(response, dict) else None
     tokens = _token_fields(usage)
@@ -633,9 +670,13 @@ def _usage_entry(event: Event, request_recorded_at: str | None) -> dict:
     cost, band, reason = _estimate_cost(model, usage, request_recorded_at)
     return {
         "event_id": event.event_id,
-        "purpose": event.data.get("purpose") or _DECISION_PURPOSE,
+        "call_class": call_class,
         "model": model,
         "tokens": tokens,
+        "priced_tokens": None if cost is None else {
+            "cache_hit_input_tokens": usage["prompt_cache_hit_tokens"],
+            "cache_miss_input_tokens": usage["prompt_cache_miss_tokens"],
+            "output_tokens": usage["completion_tokens"]},
         "estimated_cost_usd": cost,
         "price_band": band,
         "price_timestamp": request_recorded_at,
@@ -750,26 +791,72 @@ def _usage_by_model(usage: list[dict]) -> list[dict]:
     return result
 
 
-def _usage_by_purpose(requests: list[Event], usage: list[dict]) -> list[dict]:
-    """@brief 按请求用途分列：人物决策（无 purpose）与零点计划 plan_day 各自的请求、响应与已知 token。"""
-    counts = Counter(event.data.get("purpose") or _DECISION_PURPOSE for event in requests)
+def _call_class(data: dict) -> str:
+    """@brief 一次模型调用的类，只凭它的 model_request 事件判定，不读响应里的请求副本：purpose 为 plan_day 是零点计划；
+    没有 purpose 时，行动请求（decision_start.is_action_request）消息恰为 system、user 两条是新决策回合，更多是带历史的
+    回合；工具含 start_main_activity 且思考开关是截断重试的那一个（life_truncation.RETRY_THINKING）是截断重试；不带
+    工具是记忆巩固；工具恰为 submit_reflection 是就寝反思；其余为 unrecognized。"""
+    purpose, request = data.get("purpose"), data.get("request")
+    if purpose == PLAN_DAY_PURPOSE:
+        return "plan_day"
+    if purpose is not None or not isinstance(request, dict):
+        return _UNRECOGNIZED_CLASS
+    if is_action_request(request):
+        return "fresh_decision_turn" if _message_roles(request) == ["system", "user"] else "turn_with_history"
+    names = request_tool_names(request)
+    if START_TOOLS[0] in names and request.get("extra_body") == RETRY_THINKING:
+        return "truncation_retry"
+    if not names:
+        return "consolidation"
+    return "reflection" if names == [REFLECTION_TOOL] else _UNRECOGNIZED_CLASS
+
+
+def _message_roles(request: dict) -> list:
+    """@brief 请求消息逐条的 role；消息不是列表时为空列表，不是对象的消息记为 None。"""
+    messages = request.get("messages")
+    if not isinstance(messages, list):
+        return []
+    return [message.get("role") if isinstance(message, dict) else None for message in messages]
+
+
+def _usage_by_call_class(requests: list[Event], usage: list[dict]) -> list[dict]:
+    """@brief 按调用类分列：六类按 CALL_CLASSES 次序总是列出，unrecognized 只在出现时列在最后；每类给出请求事件数、
+    提供商响应数、已知 token、可计价响应按计价拆开的 token、峰时占比与估算成本。"""
+    counts = Counter(_call_class(event.data) for event in requests)
     groups: dict[str, list[dict]] = defaultdict(list)
     for item in usage:
-        groups[item["purpose"]].append(item)
-    return [{"purpose": purpose, "request_events": counts[purpose], "provider_responses": len(groups[purpose]),
-             "token_usage": _aggregate_tokens(groups[purpose],
-                                              [item for item in groups[purpose] if item["tokens"] is not None])}
-            for purpose in sorted(set(counts) | set(groups))]
+        groups[item["call_class"]].append(item)
+    seen = counts[_UNRECOGNIZED_CLASS] or groups[_UNRECOGNIZED_CLASS]
+    names = (*CALL_CLASSES, _UNRECOGNIZED_CLASS) if seen else CALL_CLASSES
+    return [_call_class_usage(name, counts[name], groups[name]) for name in names]
 
 
+def _call_class_usage(name: str, request_events: int, rows: list[dict]) -> dict:
+    """@brief 一类调用的用量行：峰时占比是峰时可计价响应占可计价响应的比例（六位小数）；没有可计价响应时按计价拆开的
+    token、峰时占比与估算成本为 null，不记为零。"""
+    reported = [item for item in rows if item["tokens"] is not None]
+    priced = [item for item in rows if item["priced_tokens"] is not None]
+    peak = sum(item["price_band"] == "peak" for item in priced)
+    return {
+        "call_class": name,
+        "request_events": request_events,
+        "provider_responses": len(rows),
+        "token_usage": _aggregate_tokens(rows, reported),
+        "estimated_responses": len(priced),
+        "priced_tokens": {key: sum(item["priced_tokens"][key] for item in priced)
+                          for key in _PRICED_TOKEN_KEYS} if priced else None,
+        "peak_responses": peak,
+        "peak_share": round(peak / len(priced), 6) if priced else None,
+        "known_estimated_cost_usd": round(sum(item["estimated_cost_usd"] for item in priced), 12) if priced else None,
+    }
 
 
 def _name_rejection_quality(events: list[Event]) -> dict:
     """@brief 名称类拒绝与其余协议错误分开计数（docs/design/05-recording-engine.md）。
 
     宿主一侧取人物决策（没有 purpose 的模型调用，按调用身份去重后的终态响应）的 protocol_feedback 错误码：
-    名称类纠错码（error_contract.HOST_NAME_CODES）逐码计数，其余协议错误另计；环境一侧取 action_rejected（不含
-    重放）按名称类拒绝码（ENVIRONMENT_NAME_CODES）逐码计数，并按同一人物同一模拟秒的结算先后用同刻规则分出免计（不计同刻
+    名称类纠错码（error_contract.HOST_NAME_CODES）逐码计数，其余协议错误另计；环境一侧取 action_rejected
+    按名称类拒绝码（ENVIRONMENT_NAME_CODES）逐码计数，并按同一人物同一模拟秒的结算先后用同刻规则分出免计（不计同刻
     轮数、不施加脉冲）的次数。只报告，不放行。
     """
     from worldmock.life.same_moment import free_rejection_flags
@@ -780,8 +867,7 @@ def _name_rejection_quality(events: list[Event]) -> dict:
         if isinstance(report, dict) and not event.data.get("purpose"):
             code = report["error_code"]
             (host if code in HOST_NAME_CODES else other)[code] += 1
-    rejected = [event for event in events
-                if event.event_type == "action_rejected" and event.data.get("reused") is not True]
+    rejected = [event for event in events if event.event_type == "action_rejected"]
     codes = Counter(event.data.get("error_code") for event in rejected)
     moments: dict[tuple, list] = defaultdict(list)
     for event in rejected:

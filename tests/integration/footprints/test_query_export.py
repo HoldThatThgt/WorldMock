@@ -17,10 +17,10 @@ from tests.footprints.recording import artifact_rows, export_completed
 from tests.life.conftest import (advance_next, conclude_request, do_at, purchase, query, report_request)
 from tests.life.environment_runtime import act, act_group, events
 
-#: 质量报告的顶层键：结构号 8 的完整键集，查询不增不减。
+#: 质量报告的顶层键：结构号 9 的完整键集，查询不增不减。
 QUALITY_KEYS = {"schema_version", "run_id", "source_group_id", "event_range", "run_outcome", "actions", "activities",
                 "content_contact", "app_pushes", "conversion_efficiency", "decision_rhythm", "memory_references",
-                "model_usage", "acceleration", "day_plan_metrics", "errand_metrics", "conclusion_memories",
+                "model_usage", "acceleration", "lineage", "day_plan_metrics", "errand_metrics", "conclusion_memories",
                 "input_warnings", "timeline_labels", "name_rejections", "truncations"}
 
 
@@ -125,7 +125,7 @@ def test_query_is_exported_as_the_fifth_activity_type(query_export):
     assert segment["ended_at"] - segment["started_at"] == row["elapsed_seconds"] > 0
     assert row["data"]["action"] == "query" and row["data"]["answer"]["rows"]
     assert (rows[ids["rest"]]["activity_type"], rows[ids["rest"]]["resource_claims"]) == ("interact", ["first"])
-    assert query_export["manifest"]["schema_version"] == 7
+    assert query_export["manifest"]["schema_version"] == 8
     assert sum(item["activity_type"] == "query" for item in rows.values()) == 4
 
 
@@ -188,7 +188,7 @@ def test_query_leaves_no_foreground_event_order_attempt_experience_or_content_co
     assert not [row for row in artifact_rows(directory, "app_usage")
                 if row["fact_kind"] == "content_consumed" and row.get("activity_id") in queries]
     quality = json.loads((directory / "quality.json").read_bytes())
-    assert quality["schema_version"] == 8 and set(quality) == QUALITY_KEYS
+    assert quality["schema_version"] == 9 and set(quality) == QUALITY_KEYS
 
 
 def test_query_line_of_the_timeline_is_chinese(query_export):

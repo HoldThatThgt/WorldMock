@@ -43,7 +43,7 @@ def world(now, *activities, foreground=None):
     return WorldState(schema_version=WORLD_SCHEMA_VERSION, version=0, current_time=now, end_time=DEPART + 86400,
                       run_id="navigation", timezone="Asia/Shanghai", persona_sha256="0" * 64,
                       config_sha256="1" * 64, agents={1: agent}, accounts={"agent:1": 0, "external:scenario": 0},
-                      activities={item.activity_id: item for item in activities}, random_seed=7,
+                      activities=list(activities), random_seed=7,
                       random_state="navigation-tests")
 
 

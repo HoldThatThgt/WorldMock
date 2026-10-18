@@ -31,7 +31,7 @@ async def test_real_agent_registers_current_action_and_persists_complete_wire(en
     assert schemas[SIDE_TOOL]["properties"]["action"]["enum"] == ["purchase", "interact", "query"]
     assert schemas[SIDE_TOOL]["properties"]["target"]["type"] == "array"
     assert set(observed["environment_layer"]["body"]) == {"appetite", "sleepiness", "relaxation", "social"}
-    events = engine.context.store.read_events(engine.context.store.last_event_seq)
+    events = list(engine.context.store.iter_events(engine.context.store.last_event_seq))
     wire = [event.data["request"] for event in events if event.event_type == "model_request"]
     assert wire == requests
     advance_next(engine)
@@ -60,7 +60,7 @@ async def test_host_corrects_retired_or_unknown_action_without_partial_registrat
     feedback = requests[1]["messages"][-1]
     assert feedback["role"] == "tool"
     assert json.loads(feedback["content"])["error_code"] == code
-    events = engine.context.store.read_events(engine.context.store.last_event_seq)
+    events = list(engine.context.store.iter_events(engine.context.store.last_event_seq))
     registered = [event for event in events if event.event_type == "action_requested"]
     assert len(registered) == 1
     assert (registered[0].data["tool_name"], registered[0].data["request"]) == (MAIN_TOOL, _REST)
@@ -119,7 +119,7 @@ async def test_removed_query_world_reply_is_refused_as_a_tool_that_is_not_offere
                    "expected": "A tool offered in this round is required.",
                    "why": "The tool is not offered in this round.", "candidates": []}],
         "unmet": [], "instruction": "No world action was registered. Correct the reported parameters and submit again."}
-    requested = [event for event in engine.context.store.read_events(engine.context.store.last_event_seq)
+    requested = [event for event in list(engine.context.store.iter_events(engine.context.store.last_event_seq))
                  if event.event_type == "action_requested"]
     assert [event.data["tool_name"] for event in requested] == [MAIN_TOOL]
     assert results[0].status == "in_progress"
@@ -140,6 +140,7 @@ async def test_dataset_travel_method_name_is_the_one_wording_from_the_prompt_to_
     名称就是活动名、环境层路上的位置和到达句里的那个名称。"""
     from tests.life.conftest import context
     from tests.life.environment_runtime import finish_activity
+    from worldmock.life.activity_control import open_activities
     from worldmock.footprints.experiences import recent_verified_experiences
     from worldmock.life.prompt_schemas import validate_layer
     from worldmock.life.settled_text import experience_sentence
@@ -169,7 +170,7 @@ async def test_dataset_travel_method_name_is_the_one_wording_from_the_prompt_to_
     names = {"activities": {key: row.name for key, row in engine.context.state.activities.items()}, "sessions": {}}
     arrivals = [fact for fact in recent_verified_experiences(engine.context.store, 1, engine.context.store.last_event_seq)
                 if fact["kind"] == "arrived"]
-    assert [experience_sentence(LayerContext(engine.context, 1, names, []), fact)[6:] for fact in arrivals] == [
+    assert [experience_sentence(LayerContext(engine.context, 1, names, [], open_activities(engine.context.state, 1)), fact)[6:] for fact in arrivals] == [
         "电动车到了公司"]
 
 
@@ -189,7 +190,7 @@ async def test_host_corrects_a_travel_detail_that_names_no_method_and_never_defa
     [item] = feedback["items"]
     assert item["path"][-1] == "detail" and item["written"] == detail
     assert item["allowed_values"] == ([] if detail is None else ["步行", "电动车", "划船"])
-    events = engine.context.store.read_events(engine.context.store.last_event_seq)
+    events = list(engine.context.store.iter_events(engine.context.store.last_event_seq))
     registered = [event.data["request"] for event in events if event.event_type == "action_requested"]
     assert registered == [main_arguments("travel", "公司", "划船")]
     assert results[0].status == "in_progress"

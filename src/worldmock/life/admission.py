@@ -33,6 +33,8 @@ class Context:
     state: WorldState
     #: 唯一人物身份。
     agent_id: int
+    #: 本人在 state 里的未了活动；槽位、睡着与待收尾的判定只读它。
+    open_activities: tuple[ActivityState, ...]
     #: 完整地点显示名。
     place_names: Mapping[str, str]
     #: 本轮活动显示名。
@@ -104,10 +106,9 @@ def planned_trip(context: Context, row: Mapping[str, Any]) -> Trip:
 
 
 def _occupant(context: Context, slot: str) -> ActivityState | None:
-    """@brief 占着这个槽位的本人活动：进行中和待收尾占槽位，暂停的活动让出槽位。"""
-    return next((activity for activity in context.state.activities.values()
-                 if activity.agent_id == context.agent_id and slot in activity.resource_claims
-                 and activity_control.occupies_slot(activity)), None)
+    """@brief 占着这个槽位的本人活动：进行中和待收尾占槽位，暂停的活动让出槽位；只看本人的未了活动，次序同世界。"""
+    return next((activity for activity in context.open_activities
+                 if slot in activity.resource_claims and activity_control.occupies_slot(activity)), None)
 
 
 def _name(context: Context, activity: ActivityState) -> str:
@@ -146,8 +147,8 @@ def _sleep_refusal(context: Context, main: Call | None, side: Call | None) -> Bl
         if occupant is not None:
             step = f"{_release_step(context, occupant)} the second activity first."
             return Blocked(Refusal("RESOURCE_CONFLICT", _SLEEP_SLOT_REASON, step), (main.tool,))
-    asleep = any(activity.agent_id == context.agent_id and activity.kind == ActivityKind.SLEEP
-                 and activity.status == ActivityStatus.ACTIVE for activity in context.state.activities.values())
+    asleep = any(activity.kind == ActivityKind.SLEEP and activity.status == ActivityStatus.ACTIVE
+                 for activity in context.open_activities)
     if asleep and side is not None:
         return Blocked(Refusal("RESOURCE_CONFLICT", _SLEEP_SLOT_REASON), (side.tool,))
     return None

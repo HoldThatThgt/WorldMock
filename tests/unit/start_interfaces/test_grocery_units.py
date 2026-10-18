@@ -12,6 +12,7 @@ import pytest
 from tests.life.conftest import MAIN_TOOL, advance_until_ready, context, do_at, pause_request, travel
 from tests.life.environment_inputs import grocery_environment
 from tests.life.environment_runtime import act
+from worldmock.life.activity_control import open_activities
 from worldmock.life.action_contract import binding_action
 from worldmock.life.admission import Blocked, Call, Context, group_refusal
 from worldmock.life.guidance import Refusal
@@ -136,7 +137,7 @@ def _refusal(engine, request) -> Blocked | None:
     observed = engine.observe(context(engine, f"check-{engine.context.state.current_time}"))
     outcome = resolve_start(name_book(observed), MAIN_TOOL, request)
     names = {row["activity_id"]: row["name"] for row in observed["activity_bindings"]}
-    current = Context(engine.context.state, 1, place_names(engine.context.catalog), names, engine.context.inputs)
+    current = Context(engine.context.state, 1, open_activities(engine.context.state, 1), place_names(engine.context.catalog), names, engine.context.inputs)
     return group_refusal(current, [Call(MAIN_TOOL, request.action, outcome.rows)])
 
 

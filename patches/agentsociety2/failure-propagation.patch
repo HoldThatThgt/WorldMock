@@ -1662,10 +1662,10 @@ index e8bd80d..df90c75 100644
 -        return ReactToolResult(False, f"unknown action: {action}", {"action": action})
 diff --git a/agentsociety2/agent/base/agent_runtime.py b/agentsociety2/agent/base/agent_runtime.py
 new file mode 100644
-index 0000000..decdee7
+index 0000000..e784c95
 --- /dev/null
 +++ b/agentsociety2/agent/base/agent_runtime.py
-@@ -0,0 +1,1415 @@
+@@ -0,0 +1,1414 @@
 +"""@brief AgentBase 的工具执行、ReAct 循环与待办运行职责。"""
 +
 +from __future__ import annotations
@@ -1684,6 +1684,7 @@ index 0000000..decdee7
 +    ReactToolResult,
 +)
 +from agentsociety2.agent.base.todo import TodoStateStore
++from agentsociety2.config.llm_dispatcher import collect_transport_attempts
 +from agentsociety2.agent.base.tool_schema import react_tool_schemas
 +from agentsociety2.logger import get_logger
 +
@@ -2313,6 +2314,7 @@ index 0000000..decdee7
 +        self._model_call_sequence = 0
 +        self._last_model_call_id = ""
 +        self._last_model_request: dict[str, Any] = {}
++        self._last_transport_attempts: tuple[dict[str, Any], ...] = ()
 +        self._react_messages: list[dict[str, Any]] = []
 +
 +    async def _run_react_turn(
@@ -2600,7 +2602,7 @@ index 0000000..decdee7
 +        tools: list[dict[str, Any]],
 +        attempt: int,
 +    ) -> Any:
-+        """@brief 调用一次人物模型并保存请求、响应或传输失败证据。
++        """@brief 调用一次人物模型并保存请求、响应或传输失败证据；失败发送随响应或失败证据一并登记。
 +
 +        :param messages: 实际提示消息。
 +        :param tools: 实际闭集工具 Schema。
@@ -2616,20 +2618,16 @@ index 0000000..decdee7
 +        await self._record_model_evidence(
 +            ModelCallEvidence(context, call_id, "request", attempt, request)
 +        )
-+        try:
-+            response = await self._dispatcher.call(**request)
-+        except Exception as exc:
-+            await self._record_model_evidence(
-+                ModelCallEvidence(
-+                    context,
-+                    call_id,
-+                    "failure",
-+                    attempt,
-+                    request,
-+                    error=repr(exc),
++        with collect_transport_attempts() as transport_attempts:
++            try:
++                response = await self._dispatcher.call(**request)
++            except Exception as exc:
++                await self._record_model_evidence(
++                    ModelCallEvidence(context, call_id, "failure", attempt, request, error=repr(exc),
++                                      transport_attempts=tuple(transport_attempts))
 +                )
-+            )
-+            raise
++                raise
++        self._last_transport_attempts = tuple(transport_attempts)
 +        return response
 +
 +    def _next_model_call_id(self, attempt: int) -> str:
@@ -2704,6 +2702,7 @@ index 0000000..decdee7
 +                self._last_model_request,
 +                response=self._serialize_model_response(response),
 +                error=error or None,
++                transport_attempts=self._last_transport_attempts,
 +            )
 +        )
 +
@@ -3082,10 +3081,10 @@ index 0000000..decdee7
 +            data,
 +        )
 diff --git a/agentsociety2/agent/base/react.py b/agentsociety2/agent/base/react.py
-index f666968..0283f7f 100644
+index f666968..5e1e75f 100644
 --- a/agentsociety2/agent/base/react.py
 +++ b/agentsociety2/agent/base/react.py
-@@ -1,53 +1,124 @@
+@@ -1,53 +1,126 @@
 -"""Base ReAct loop data structures and scaffolding.
 +"""@brief 定义原生 ReAct 循环共享的数据合同。
  
@@ -3190,6 +3189,7 @@ index f666968..0283f7f 100644
 +    :param request: 实际模型请求参数。
 +    :param response: 可序列化模型响应。
 +    :param error: 英文调用或验证错误。
++    :param transport_attempts: 这次调用在结果之前失败的发送（llm_dispatcher.collect_transport_attempts 收集）；请求证据恒为空。
 +    """
 +
 +    context: Any
@@ -3199,6 +3199,7 @@ index f666968..0283f7f 100644
 +    request: dict[str, Any]
 +    response: dict[str, Any] | None = None
 +    error: str | None = None
++    transport_attempts: tuple[dict[str, Any], ...] = ()
 +
 +
 +@dataclass(frozen=True, slots=True)

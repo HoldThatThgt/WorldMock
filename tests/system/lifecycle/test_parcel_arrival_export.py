@@ -3,6 +3,7 @@
 from datetime import timedelta
 import json
 
+from tests.footprints.recording import artifact_rows
 from tests.integration.runtime_fixtures import write_agent_workspace
 from tests.life.conftest import advance_next, do_at, main_arguments, purchase, stage_day_plan, travel
 from tests.life.environment_runtime import act, events, finish_activity, reach, run_to_end, settle_decision
@@ -83,7 +84,8 @@ def export_completed_run(engine, directory):
     workspace = write_agent_workspace(directory / "agent")
     engine.checkpoint({"agent:1": snapshot_directory(workspace, engine.context.store.assets)})
     export_run(engine.context.store, engine.context.store.last_event_seq, directory / "export")
-    manifest, exported, _ = validate_export(directory / "export")
+    manifest, _ = validate_export(directory / "export")
+    exported = artifact_rows(directory / "export", "events")
     assert manifest["experiment_completed"] is True
     facts = [json.loads(line) for line in (directory / "export/purchases.jsonl").read_bytes().splitlines()]
     return {row["event_id"]: row for row in exported}, facts

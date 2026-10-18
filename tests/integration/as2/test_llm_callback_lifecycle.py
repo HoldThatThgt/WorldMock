@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import gc
+import json
 import logging
+import threading
 import weakref
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 import litellm
@@ -274,3 +277,163 @@ def test_close_logs_discard_failure_and_clears_runtime(
     assert client._sem is None
     assert client._loop is None
     assert "Failed to discard LiteLLM router" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# LiteLLM 缓存的异步客户端在本循环关闭并移出（长时运行成本第五章）
+# ---------------------------------------------------------------------------
+
+
+class _CachedClient:
+    """假的缓存客户端：异步 close 记下运行它的事件循环，可按需抛出。"""
+
+    def __init__(self, failure: Exception | None = None) -> None:
+        self.closed_in: list[Any] = []
+        self.failure = failure
+
+    async def close(self) -> None:
+        """记下当前循环；给定失败时抛出。"""
+        self.closed_in.append(asyncio.get_running_loop())
+        if self.failure is not None:
+            raise self.failure
+
+
+def _cache() -> Any:
+    """LiteLLM 的进程级客户端缓存。"""
+    return litellm.in_memory_llm_clients_cache
+
+
+def _forget(*keys: str) -> None:
+    """用例结束时移出放进缓存的条目。"""
+    for key in keys:
+        _cache().delete_cache(key)
+
+
+def test_close_cached_async_clients_closes_and_evicts_only_this_loop() -> None:
+    """只处理键以本循环 id 结尾的条目：在本循环里关闭并移出，返回 1；别的循环的条目留着、不关闭。"""
+    other = _CachedClient()
+    keys: list[str] = []
+
+    async def scenario() -> tuple[int, Any, _CachedClient]:
+        loop = asyncio.get_running_loop()
+        own = _CachedClient()
+        keys.extend([f"k-{id(loop)}", "k-1"])
+        _cache().cache_dict[keys[0]] = own
+        _cache().cache_dict[keys[1]] = other
+        return await llm_dispatcher.close_cached_async_clients(), loop, own
+
+    try:
+        handled, loop, own = asyncio.run(scenario())
+        assert handled == 1
+        assert own.closed_in == [loop] and keys[0] not in _cache().cache_dict
+        assert _cache().cache_dict.get("k-1") is other and other.closed_in == []
+    finally:
+        _forget(*keys)
+
+
+def test_cached_client_close_failure_evicts_all_then_raises_the_first(caplog: pytest.LogCaptureFixture) -> None:
+    """两个本循环条目关闭都失败：两个都移出，抛出第一个失败，每个失败一条错误日志。"""
+    keys: list[str] = []
+
+    async def scenario() -> None:
+        loop = asyncio.get_running_loop()
+        keys.extend([f"a-{id(loop)}", f"b-{id(loop)}"])
+        _cache().cache_dict[keys[0]] = _CachedClient(RuntimeError("a"))
+        _cache().cache_dict[keys[1]] = _CachedClient(RuntimeError("b"))
+        await llm_dispatcher.close_cached_async_clients()
+
+    caplog.set_level(logging.ERROR)
+    try:
+        with pytest.raises(RuntimeError, match="^a$"):
+            asyncio.run(scenario())
+        assert not any(key in _cache().cache_dict for key in keys)
+        assert caplog.text.count("Failed to close cached LiteLLM client _CachedClient") == 2
+    finally:
+        _forget(*keys)
+
+
+def test_worker_coroutine_closes_cached_clients_inside_its_loop() -> None:
+    """worker 协程在自己的循环里登记的缓存客户端，在同一循环结束前关闭并移出；收尾仍是先统计再关闭。"""
+    client, seen, keys = _CachedClient(), [], []
+
+    async def task() -> str:
+        loop = asyncio.get_running_loop()
+        seen.append(loop)
+        keys.append(f"worker-{id(loop)}")
+        _cache().cache_dict[keys[0]] = client
+        return "done"
+
+    proxy = _TaskProxy()
+    try:
+        result, _ = runner._run_worker_coroutine(task(), proxy)
+        assert result == "done"
+        assert client.closed_in == seen and keys[0] not in _cache().cache_dict
+        assert proxy.events == ["stats", "close"]
+    finally:
+        _forget(*keys)
+
+
+def test_worker_task_failure_and_close_failure_are_both_kept() -> None:
+    """任务失败且关闭缓存客户端也失败：异常组同时保留两者，收尾照常执行。"""
+    keys: list[str] = []
+
+    async def task() -> None:
+        loop = asyncio.get_running_loop()
+        keys.append(f"worker-{id(loop)}")
+        _cache().cache_dict[keys[0]] = _CachedClient(RuntimeError("close"))
+        raise RuntimeError("task")
+
+    proxy = _TaskProxy()
+    try:
+        with pytest.raises(BaseExceptionGroup, match="Agent task and LiteLLM client close both failed") as caught:
+            runner._run_worker_coroutine(task(), proxy)
+        assert [str(item) for item in caught.value.exceptions] == ["task", "close"]
+        assert proxy.events == ["stats", "close"]
+    finally:
+        _forget(*keys)
+
+
+class _CompletionHandler(BaseHTTPRequestHandler):
+    """本地 OpenAI 兼容服务：每个补全请求回一个内容为 ok 的回答。"""
+
+    def do_POST(self) -> None:  # noqa: N802 - 标准库回调名
+        """读完请求体后回答固定的补全响应。"""
+        self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        body = json.dumps({"id": "chatcmpl-local", "object": "chat.completion", "created": 0, "model": "test-model",
+                           "choices": [{"index": 0, "finish_reason": "stop",
+                                        "message": {"role": "assistant", "content": "ok"}}],
+                           "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *arguments: Any) -> None:
+        """不写访问日志。"""
+
+
+def test_five_real_worker_tasks_leave_no_unclosed_client_records(caplog: pytest.LogCaptureFixture) -> None:
+    """五个 worker 任务各用真实 Router 请求本地服务：全部回答 ok，垃圾回收后没有 Unclosed 客户端记录。"""
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _CompletionHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}/v1"
+    caplog.set_level(logging.DEBUG)
+    answers = []
+    try:
+        for _ in range(5):
+            client = LLMClient("test-model", base_url, "test-only")
+            proxy = ServiceProxy(env=object(), llm=LLMClients(coder=client, default=client), trace=None, replay=None)
+
+            async def ask(target: LLMClient = client) -> str:
+                response = await target.call(messages=[{"role": "user", "content": "hello"}], max_retries=0)
+                return response.choices[0].message.content
+
+            answers.append(runner._run_worker_coroutine(ask(), proxy)[0])
+        gc.collect()
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert answers == ["ok"] * 5
+    assert not [record for record in caplog.records if "Unclosed" in record.getMessage()]

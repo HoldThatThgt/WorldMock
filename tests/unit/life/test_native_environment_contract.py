@@ -128,7 +128,9 @@ def metadata(window=262144, output=8000):
 def test_capacity_uses_verified_actual_context_and_enforces_verified_output_limit(monkeypatch):
     monkeypatch.setattr("worldmock.life.prompt_capacity.prompt_token_count", lambda request: 220000)
     payload = {"model": "contract-model", "messages": [], "max_tokens": 8000}
-    assert fit_request(payload, metadata(window=500000)) is payload
+    fitted = fit_request(payload, metadata(window=500000))
+    assert fitted.request is payload
+    assert fitted.prompt_tokens == 220000
     with pytest.raises(RuntimeError, match="capacity exceeded"):
         fit_request(payload, metadata())
     with pytest.raises(RuntimeError, match="output reserve exceeds"):

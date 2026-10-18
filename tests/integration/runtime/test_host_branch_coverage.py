@@ -378,7 +378,7 @@ def test_write_status_rejects_unknown_status_and_phase(tmp_path):
     """状态写入只接受封闭集合。"""
     write_status(tmp_path, "created", "stopped")
     document = json.loads((tmp_path / "status.json").read_text())
-    assert document == {"status": "created", "phase": "stopped", "error_type": None}
+    assert document == {"status": "created", "phase": "stopped", "error_type": None, "error_message": None}
     with pytest.raises(IntegrityError, match="Unknown run status"):
         write_status(tmp_path, "exploded", "stopped")
     with pytest.raises(IntegrityError, match="Unknown run phase"):
@@ -391,7 +391,7 @@ def _status_store(tmp_path, agents_state=None, current_time=100):
                 "agent_ids": [1], "model_identity": {"name": "fixture"},
                 "window": {"start": 100, "end": 200, "timezone": "UTC"}}
     state = {"version": 0, "current_time": current_time, "end_time": 200,
-             "activities": {}, "agents": agents_state or {}}
+             "activities": [], "agents": agents_state or {}}
     store = FootprintStore.create(tmp_path / "run", manifest, state)
     return store, tmp_path / "run"
 
@@ -409,7 +409,7 @@ def test_read_status_reports_empty_world_and_wall_time(tmp_path):
     result = read_status(run_dir)
     assert result["run_id"] == "probe" and result["state_version"] == 0
     assert result["wall_time"] == {"started_at": None, "last_event_at": None,
-                                   "elapsed_seconds": None}
+                                   "elapsed_seconds": None, "last_event_age_seconds": None}
     assert result["people"] == [] and result["recent_checkpoints"] == []
     assert result["observed_model_usage"] == []
     assert result["token_stats"] is None and result["runtime"] is None
@@ -458,7 +458,7 @@ def test_read_status_decision_boundaries(tmp_path):
 
 def test_replay_reads_its_intervention_file_as_utf8(tmp_path, monkeypatch, caplog):
     """进程内经真实命令入口重放：带中文假设的干预文件按 UTF-8 读，期间没有依赖系统默认编码的文本读取；
-    凭据未设置时环境加载失败，日志里是环境的拒绝原因。"""
+    父运行不存在时在加载环境之前失败，日志里是存储的拒绝原因。"""
     from tests.text_encoding import default_encoding_reads
     from worldmock.cli import main
 
@@ -474,7 +474,7 @@ def test_replay_reads_its_intervention_file_as_utf8(tmp_path, monkeypatch, caplo
                      "--parent", str(tmp_path / "parent"), "--checkpoint", "checkpoint",
                      "--intervention", str(intervention)])
     assert code == 1 and calls == []
-    assert "model context metadata is unavailable" in caplog.text
+    assert "Footprint database does not exist" in caplog.text
     assert not (tmp_path / "child").exists()
 
 
@@ -515,15 +515,15 @@ def test_read_status_reports_event_wall_time_and_runtime(tmp_path):
                 "window": {"start": 100, "end": 200, "timezone": "UTC"}}
     store = FootprintStore.create(tmp_path / "run", manifest,
                                   {"version": 0, "current_time": 100, "end_time": 200,
-                                   "activities": {}, "agents": {}})
-    store.commit(store.state, [EventDraft(event_type="observation", occurred_at=100,
-                                          agent_id=1, decision_id="d1",
-                                          data={"balance_fen": 800})])
+                                   "activities": [], "agents": {}})
+    store.append_evidence([EventDraft(event_type="observation", occurred_at=100,
+                                      agent_id=1, decision_id="d1",
+                                      data={"balance_fen": 800})])
     store.close()
     write_status(tmp_path / "run", "completed", "stopped")
     result = read_status(tmp_path / "run")
     assert result["runtime"] == {"status": "completed", "phase": "stopped",
-                                 "error_type": None}
+                                 "error_type": None, "error_message": None}
     assert result["wall_time"]["started_at"] == result["wall_time"]["last_event_at"]
     assert result["wall_time"]["elapsed_seconds"] == 0.0
     write_status(tmp_path / "run", "running", "deciding")

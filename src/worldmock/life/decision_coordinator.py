@@ -34,7 +34,6 @@ from worldmock.life.models import (
     REQUEST_MODELS,
     rejection_reason_text,
     SameMomentStage,
-    StoredAction,
     WorldState,
     active_activities,
 )
@@ -44,7 +43,6 @@ from worldmock.life.purchase_phases import foreground_events
 from worldmock.life.rhythm import consume_progress_report_opportunity, next_decision_at
 from worldmock.life.session_actions import ActionHandlers
 from worldmock.life.stay_records import stay_events
-from worldmock.life.models import validated_payload
 from worldmock.life.presentation import stage_presentation
 
 from worldmock.life.engine_context import EngineContext
@@ -89,20 +87,17 @@ class DecisionCoordinator:
         )
 
     def submit_action(self, call: "DirectToolCall") -> ActionReceipt:
-        """@brief 严格登记宿主绑定的有类型工具调用，尚不改变生活状态。"""
+        """@brief 严格登记宿主绑定的有类型工具调用，尚不改变生活状态；同一开放轮内重复登记同一动作返回第一次的回执。"""
         self._validate_call(call)
         request_sha = _request_sha(call.tool_name, call.request)
-        existing = self._existing_action(call.action_id, call.tool_name, request_sha)
-        if existing is not None:
-            receipt = ActionReceipt.model_validate(existing.receipt)
-            if existing.result is None:
-                return receipt
-            self._queue_action(call, request_sha, reused=True)
-            return receipt
-        return self._queue_action(call, request_sha, reused=False)
+        registered = self._registered_action(call.action_id, call.tool_name, request_sha)
+        if registered is not None:
+            return ActionReceipt(action_id=registered.action_id, round_id=registered.round_id,
+                                 decision_id=registered.decision_id, request_sha256=request_sha)
+        return self._queue_action(call, request_sha)
 
-    def _queue_action(self, call: "DirectToolCall", request_sha: str, reused: bool) -> ActionReceipt:
-        """@brief 追加请求证据并加入当前轮，重放动作仍不再次执行。
+    def _queue_action(self, call: "DirectToolCall", request_sha: str) -> ActionReceipt:
+        """@brief 追加请求证据并加入当前轮。
 
         action_requested.data.self_note 取本决策最近一次已落库模型响应的正文（去空白；空或缺失为 null），只记在本决策的
         第一条动作上；开始组的第二条为 null。
@@ -126,12 +121,12 @@ class DecisionCoordinator:
                 "tool_name": call.tool_name,
                 "request": call.request.model_dump(mode="json"),
                 "request_sha256": request_sha,
-                "reused": reused,
+                # 没有跨轮重放：reused 恒为 false，只为事件格式不变而写
+                "reused": False,
                 "self_note": self._decision_self_note(call.context) if first else None,
             },
         )
-        event = self.context.store.commit(
-            validated_payload(self.context.state), [item for item in (start, draft) if item is not None])[-1]
+        event = self.context.store.append_evidence([item for item in (start, draft) if item is not None])[-1]
         pending = PendingAction(
             run_id=call.context.run_id,
             round_id=call.context.round_id,
@@ -145,7 +140,6 @@ class DecisionCoordinator:
             request=call.request.model_dump(mode="json"),
             request_sha256=request_sha,
             requested_event_id=event.event_id,
-            reused=reused,
         )
         self.round.pending_actions.append(pending)
         return receipt
@@ -167,8 +161,7 @@ class DecisionCoordinator:
             staged, settled, action_drafts = self._resolve(staged, group)
             for pending, result in zip(group, settled, strict=True):
                 self._ops_action(pending, result)
-                if not pending.reused:
-                    staged = _remember_action(staged, pending, result)
+                staged = _remember_action(staged, pending, result)
             results.append(settled[0])
             drafts.extend(action_drafts)
         staged, settled = errands.settle(staged, drafts)
@@ -185,8 +178,7 @@ class DecisionCoordinator:
         failed = any(draft.data.get("kind") == same_moment.BUDGET_EXHAUSTED_KIND for draft in drafts)
         if failed:
             drafts.append(_failure_draft(staged.current_time, "decision_budget_exhausted", round_id))
-        events = self.context.store.commit(validated_payload(staged), drafts)
-        self.context.state = staged
+        events = self.context.commit_step(staged, drafts)
         self.observations.pending_presentation = {}
         self.round = None
         self._ops_committed(round_id, results, events)
@@ -219,10 +211,10 @@ class DecisionCoordinator:
             "detail": f"Action {pending.tool_name} resulted in {result.status.value}",
             "agent_id": pending.agent_id, "decision_id": pending.decision_id, "round_id": pending.round_id,
             "action_id": pending.action_id, "tool_name": pending.tool_name,
-            "error_code": result.error_code, "reused": pending.reused})
+            "error_code": result.error_code})
 
     def abort_decision_round(self, round_id: str, error: Exception | str) -> None:
-        """@brief 保存失败结果和幂等身份，不执行本轮生活动作。"""
+        """@brief 保存失败结果，不执行本轮生活动作。"""
         current = self.require_round(round_id)
         staged = self.context.state.model_copy(deep=True)
         drafts = flush_decision_starts(self.pending_decision_starts, self.context.state.current_time)
@@ -235,8 +227,7 @@ class DecisionCoordinator:
                 error_code="DECISION_ROUND_ABORTED",
                 message=str(error),
             )
-            if not pending.reused:
-                staged = _remember_action(staged, pending, result)
+            staged = _remember_action(staged, pending, result)
             drafts.append(_result_draft(pending, result, "action_result"))
         staged.version = self.context.state.version + 1
         drafts.append(
@@ -248,8 +239,7 @@ class DecisionCoordinator:
             )
         )
         drafts.append(_failure_draft(self.context.state.current_time, error, round_id))
-        self.context.store.commit(validated_payload(staged), drafts)
-        self.context.state = staged
+        self.context.commit_step(staged, drafts)
         self.round = None
         self.context.ops.log(
             self.context.state.current_time,
@@ -274,7 +264,7 @@ class DecisionCoordinator:
             raise ProtocolError("Decision context world version is stale")
 
     def _validate_call(self, call: "DirectToolCall") -> None:
-        """@brief 拒绝任意字典请求、错误工具类型和非当前决策轮。"""
+        """@brief 拒绝任意字典请求、错误工具类型、非当前决策轮和不由本决策身份形成的动作身份。"""
         from agentsociety2.society import DirectToolCall
 
         if not isinstance(call, DirectToolCall) or self.round is None:
@@ -285,6 +275,10 @@ class DecisionCoordinator:
         self.validate_context(call.context)
         if call.context.round_id != self.round.round_id:
             raise ProtocolError("Direct tool call belongs to another decision round")
+        if not _formed_action_identity(call.action_id, call.context.decision_id):
+            logging.error("Action identity %s is not formed from decision %s",
+                          call.action_id, call.context.decision_id)
+            raise ProtocolError("Action identity must have the form <decision_id>:action:<four digits>")
         owned = [item for item in self.round.pending_actions if item.agent_id == call.context.agent_id]
         if owned and all((item.action_id != call.action_id for item in owned)) and not _start_pair(owned, call):
             raise ProtocolError("Agent already submitted its decision round action")
@@ -292,28 +286,13 @@ class DecisionCoordinator:
         if expected is None or type(call.request) is not expected:
             raise ProtocolError("Direct tool call request type does not match its tool")
 
-    def _existing_action(self, action_id: str, tool_name: str, request_sha: str) -> StoredAction | None:
-        """@brief 对持久和本轮动作执行严格参数一致的幂等判断。"""
-        stored = self.context.state.processed_actions.get(action_id)
+    def _registered_action(self, action_id: str, tool_name: str, request_sha: str) -> PendingAction | None:
+        """@brief 本开放轮已登记的同一动作（请求身份只在开放轮内复用）；身份相同而参数不同是协议故障。"""
         pending = next((item for item in self.round.pending_actions if item.action_id == action_id), None)
-        if stored and (stored.tool_name != tool_name or stored.request_sha256 != request_sha):
+        if pending is not None and (pending.tool_name != tool_name or pending.request_sha256 != request_sha):
+            logging.error("Action identity %s was reused with different parameters", action_id)
             raise ProtocolError("Action identity was reused with different parameters")
-        if pending and (pending.tool_name != tool_name or pending.request_sha256 != request_sha):
-            raise ProtocolError("Action identity was reused with different parameters")
-        if pending:
-            receipt = ActionReceipt(
-                action_id=action_id,
-                round_id=pending.round_id,
-                decision_id=pending.decision_id,
-                request_sha256=request_sha,
-            )
-            return StoredAction(
-                action_id=action_id,
-                tool_name=tool_name,
-                request_sha256=request_sha,
-                receipt=receipt.model_dump(mode="json"),
-            )
-        return stored
+        return pending
 
     def require_round(self, round_id: str) -> DecisionRoundState:
         """@brief 返回指定开放轮，否则作为协议故障终止。"""
@@ -323,16 +302,7 @@ class DecisionCoordinator:
 
     def _resolve(self, state: WorldState,
                  group: list[PendingAction]) -> tuple[WorldState, list[ActionResult], list[EventDraft]]:
-        """@brief 将一个决策登记的动作（一条，或一个开始组的两条）结算为业务成功或同一份稳定拒绝。
-
-        重放：一组的动作要么都已有存档结果、要么都没有；一条有一条没有属于协议故障。
-        """
-        replayed = {pending.reused for pending in group}
-        if replayed == {True}:
-            return self._reused_results(state, group)
-        if len(replayed) != 1:
-            logging.error("Start group replay is inconsistent")
-            raise ProtocolError("Start group replay is inconsistent")
+        """@brief 将一个决策登记的动作（一条，或一个开始组的两条）结算为业务成功或同一份稳定拒绝。"""
         try:
             (changed, results) = self.actions.dispatch(state, group)
             return self._accept_results(state, changed, group, results)
@@ -345,7 +315,7 @@ class DecisionCoordinator:
         first = group[0]
         changed = self._consume_report_opportunity(state, changed, first.agent_id)
         changed = self._after_success(changed, first.agent_id, first.tool_name)
-        (changed, records) = activity_control.record_changes(state, changed, first, self.actions.record_context)
+        records = activity_control.record_changes(state, changed, first, self.actions.record_context)
         index = title_index(self.context.catalog)
         drafts, result_drafts = [], []
         for pending, result in zip(group, results, strict=True):
@@ -361,9 +331,10 @@ class DecisionCoordinator:
             result_draft = _result_draft(pending, result, "action_result")
             result_draft = result_draft.model_copy(
                 update={"resource_changes": self.actions.resource_changes.pop(pending.action_id, {})})
-            for activity in changed.activities.values():
+            for activity_id, activity in list(changed.activities.items()):
                 if activity.origin_action_id == pending.action_id:
-                    activity.data["accepted_event_id"] = result_draft.event_id
+                    data = {**activity.data, "accepted_event_id": result_draft.event_id}
+                    changed.activities[activity_id] = activity.model_copy(update={"data": data})
             drafts.extend((accepted, result_draft))
             result_drafts.append(result_draft)
         result_draft = result_drafts[0]
@@ -510,7 +481,7 @@ class DecisionCoordinator:
 
         六轮耗尽仍需再决策时，随本动作结果记录真实预算故障，提交后停止，时间不推进。
 
-        :param rejection: 本轮业务拒绝的错误码（重放按存档结果），受理时为 None。
+        :param rejection: 本轮业务拒绝的错误码，受理时为 None。
         :param free: 本轮的拒绝是免计的名称类拒绝（docs/design/04-simulation-engine.md，不计同刻轮数）。
         """
         now = state.current_time
@@ -519,12 +490,13 @@ class DecisionCoordinator:
             """@brief 节律候选以本次决策时刻为上次决策时刻（规则 7）；无候选取结算间隔。"""
             return next_decision_at(self.context, state, agent.model_copy(update={"last_decision_time": now}))
 
+        current = activity_control.open_activities(state, agent.agent_id)
         outcome = same_moment.RoundOutcome(
             now=now,
             agent=agent,
             active=bool(active_activities(state, agent.agent_id)),
             rejected=rejection is not None,
-            pending=bool(activity_control.pending_conclusions(state, agent.agent_id)),
+            pending=bool(activity_control.pending_conclusions(current)),
         )
         if same_moment.budget_exhausted(outcome):
             code = (None if free else rejection) or same_moment.latest_rejection_code(state, agent.agent_id)
@@ -577,27 +549,10 @@ class DecisionCoordinator:
         )
         return (changed, result)
 
-    def _reused_results(
-        self, state: WorldState, group: list[PendingAction]
-    ) -> tuple[WorldState, list[ActionResult], list[EventDraft]]:
-        """@brief 返回持久终态结果并只记录本次重放证据；重放计入同刻轮数（一组只加一次），按存档结果排期，
-        不重做领域动作与脉冲（规则 9）。"""
-        results = [ActionResult.model_validate(state.processed_actions[pending.action_id].result) for pending in group]
-        drafts = [draft for pending, result in zip(group, results, strict=True)
-                  for draft in _replay_drafts(state, pending, result)]
-        agent = same_moment.count_round(state.agents[group[0].agent_id])
-        rejection = results[0].error_code if results[0].status == ActionStatus.REJECTED else None
-        (next_at, reasons, stage) = self._round_schedule(state, agent, rejection)
-        agent = agent.model_copy(
-            update={"next_decision_at": next_at, "pending_wake_reasons": reasons, "same_moment_stage": stage}, deep=True
-        )
-        changed = _put_agent(state, agent)
-        return (changed, results, [*drafts, *self.actions.drain_drafts()])
-
     def _decision_self_note(self, context: "DecisionContext") -> str | None:
         """@brief 本决策最近一次已落库模型响应（phase=response）的正文，作为世界请求的 self_note；没有则为 None。
 
-        从持久化模型证据读取（本人最近一次观察之后、同一决策身份），恢复后重放登记同样得到一致结果。
+        从持久化模型证据读取（本人最近一次观察之后、同一决策身份）。
         """
         after = self.context.store.last_agent_event_seq("observation", context.agent_id)
         responses = [
@@ -622,14 +577,7 @@ def _start_pair(owned: list[PendingAction], call: "DirectToolCall") -> bool:
             and {owned[0].tool_name, call.tool_name} == set(START_TOOLS))
 
 
-def _replay_drafts(state: WorldState, pending: PendingAction, result: ActionResult) -> list[EventDraft]:
-    """@brief 一条重放动作的两条证据事件：按存档结果的受理或拒绝，以及带 reused 标记的结果。"""
-    accepted_statuses = {ActionStatus.ACCEPTED, ActionStatus.IN_PROGRESS, ActionStatus.COMPLETED}
-    data = result.model_dump(mode="json")
-    data["reused"] = True
-    shared = {"occurred_at": state.current_time, "agent_id": pending.agent_id, "decision_id": pending.decision_id,
-              "action_id": pending.action_id, "activity_id": result.activity_id,
-              "caused_by": [pending.requested_event_id]}
-    kind = "action_accepted" if result.status in accepted_statuses else "action_rejected"
-    return [EventDraft(event_type=kind, data=data, **shared),
-            EventDraft(event_type="action_result", data=dict(data), **shared)]
+def _formed_action_identity(action_id: str, decision_id: str) -> bool:
+    """@brief 动作身份恰为 {decision_id}:action:{四位序号}（docs/design/06-agent.md「宿主模型协议」）。"""
+    number = action_id.removeprefix(f"{decision_id}:action:")
+    return number != action_id and len(number) == 4 and number.isascii() and number.isdigit()

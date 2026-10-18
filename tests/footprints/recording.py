@@ -4,7 +4,7 @@ from datetime import timedelta
 import hashlib
 import json
 
-from tests.life.conftest import purchase, use_app
+from tests.life.conftest import advance_next, conclude_request, errand_add, purchase, use_app
 from tests.life.environment_runtime import act, conclude_app_use, finish_activity, run_to_end
 
 #: 导出清单 artifacts 的键与各自的文件名。
@@ -35,6 +35,28 @@ def recorded_engine(engine_factory, *, purchases=True, content=True):
     return engine, final_checkpoint(engine)
 
 
+def errand_engine(engine_factory):
+    """个人事务场景（test_errand_export 的同一场景）：用 Keep 时记下「买纸巾」，随后真实买到纸巾、事务完成，运行到截止
+    并写最终检查点；途中的观察带着待办里的事务与它的商品绑定。"""
+    def setup(persona, config):
+        short_window(persona, config)
+        config["progress_report_interval_seconds"] = 60
+    engine = engine_factory(mutate=setup)
+    _, using = act(engine, "note-keep", use_app("Keep"))
+    while not engine.scheduling_state().ready_agent_ids:
+        advance_next(engine)
+    activity = engine.context.state.activities[using.activity_id]
+    _, noted = act(engine, "note", conclude_request(activity.name, errands=[errand_add("买纸巾", "纸巾")]),
+                   "conclude_activity")
+    assert noted.status == "completed", noted.error_code
+    _, bought = act(engine, "buy", purchase("纸巾"))
+    assert engine.context.state.agents[1].errands
+    finish_activity(engine, bought, "buy")
+    assert engine.context.state.agents[1].errands == {}
+    run_to_end(engine)
+    return engine, final_checkpoint(engine)
+
+
 def final_checkpoint(engine):
     """运行截止后写最终共同检查点；人物快照用一份明确的测试素材。"""
     store = engine.context.store
@@ -43,14 +65,15 @@ def final_checkpoint(engine):
 
 
 def export_completed(engine, directory):
-    """运行到截止、写最终检查点、导出并认证；返回（清单，事件行，活动行）。"""
+    """运行到截止、写最终检查点、导出并认证；返回（清单，事件行，活动行），事件行取导出文件里的完整事件。"""
     from worldmock.footprints.export import export_run
     from worldmock.footprints.validation import validate_export
 
     run_to_end(engine)
     point = final_checkpoint(engine)
     export_run(engine.context.store, point.last_event_seq, directory)
-    return validate_export(directory)
+    manifest, activities = validate_export(directory)
+    return manifest, artifact_rows(directory, "events"), activities
 
 
 def artifact_rows(directory, name):

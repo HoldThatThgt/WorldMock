@@ -84,7 +84,7 @@ def _receipt(order: dict, event: dict, provided, applied) -> dict:
 
 
 def _order_attempts(events: list[dict]) -> list[dict]:
-    """@brief 统一购买请求保留首个结果状态，重放和非法结构不重复计尝试。"""
+    """@brief 统一购买请求保留首个结果状态，非法结构不重复计尝试。"""
     results = {}
     for event in events:
         if event["event_type"] == "action_result":
@@ -103,9 +103,8 @@ def _order_attempts(events: list[dict]) -> list[dict]:
 
 
 def _order_action(event: dict) -> str | None:
-    """@brief 只把未重放的当前购买请求归为尝试，不解析已退役方式。"""
+    """@brief 只把当前购买请求归为尝试，不解析已退役方式。"""
     data = event["data"]
-    if (event["event_type"] != "action_requested" or data.get("tool_name") != "start_side_activity"
-            or data.get("reused")):
+    if event["event_type"] != "action_requested" or data.get("tool_name") != "start_side_activity":
         return None
     return "purchase" if data["request"]["action"] == "purchase" else None

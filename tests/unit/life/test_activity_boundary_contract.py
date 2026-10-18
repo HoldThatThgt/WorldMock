@@ -2,6 +2,7 @@
 
 import pytest
 
+from worldmock.life.activity_control import open_activities
 from worldmock.errors import BusinessRuleError
 from worldmock.life import activity_control, same_moment, sessions
 from worldmock.life.activities import (
@@ -92,14 +93,14 @@ def test_slot_feedback_describes_real_occupants_and_distinguishes_pauseability(e
     app = _activity(engine).model_copy(update={"name": "内容活动"})
     travel = _activity(engine, "travel").model_copy(update={"activity_id": "travel", "name": "步行"})
     state.activities = {app.activity_id: app}
-    one = activity_control.slot_refusal(state, 1, 2, {})
+    one = activity_control.slot_refusal(state, open_activities(state, 1), 2, {})
     assert one.code == "SESSION_LIMIT_EXCEEDED" and "Only one" in one.reason
     assert "pause" in one.next_step
     state.activities[travel.activity_id] = travel
-    two = activity_control.slot_refusal(state, 1, 1, {})
+    two = activity_control.slot_refusal(state, open_activities(state, 1), 1, {})
     assert "Both" in two.reason and "内容活动" in two.next_step and "步行" in two.next_step
     state.activities = {travel.activity_id: travel}
-    travel_only = activity_control.slot_refusal(state, 1, 2, {})
+    travel_only = activity_control.slot_refusal(state, open_activities(state, 1), 2, {})
     assert "pause" not in travel_only.next_step
     assert activity_control.ending_phrase(travel.model_copy(update={"status": ActivityStatus.FAILED})) == "失败"
 

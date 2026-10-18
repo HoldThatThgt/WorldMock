@@ -12,6 +12,7 @@ from tests.life.conftest import MAIN_TOOL, SIDE_TOOL
 from tests.unit.test_environment_engine_admission import (
     app_call, conflict, occupied, place_call, refusal, running, sleep_call, travel_call, world,
 )
+from worldmock.life.activity_control import open_activities
 from worldmock.life import activity_control
 from worldmock.life.admission import Blocked, Context
 from worldmock.life.guidance import Refusal, refusal_for_code
@@ -35,7 +36,8 @@ def _ending_in(seconds: int, *, presence: bool = True, **update) -> ActivityStat
 
 def _control(activity: ActivityState, tool: str, *, inputs=None) -> Refusal | None:
     """只有这一项活动的手工世界里，控制工具点名它时的准入结论；本轮活动名是 _NAME，inputs 是准入上下文的环境输入。"""
-    context = Context(occupied(activity), 1, _PLACES, {activity.activity_id: _NAME}, inputs)
+    state = occupied(activity)
+    context = Context(state, 1, open_activities(state, 1), _PLACES, {activity.activity_id: _NAME}, inputs)
     return activity_control.control_refusal(context, tool, activity)
 
 
@@ -129,11 +131,11 @@ def test_slot_limit_next_step_only_names_occupants_that_can_still_be_paused():
     lasting = _ending_in(900, presence=False).model_copy(update={"activity_id": "other", "name": "还早"})
     state = world()
     state.activities = {ending.activity_id: ending}
-    assert activity_control.slot_refusal(state, 1, 2, {}).next_step == "Conclude one of 快做完 first."
+    assert activity_control.slot_refusal(state, open_activities(state, 1), 2, {}).next_step == "Conclude one of 快做完 first."
     state.activities = {lasting.activity_id: lasting}
-    assert activity_control.slot_refusal(state, 1, 2, {}).next_step == "Conclude or pause one of 还早 first."
+    assert activity_control.slot_refusal(state, open_activities(state, 1), 2, {}).next_step == "Conclude or pause one of 还早 first."
     state.activities = {ending.activity_id: ending, lasting.activity_id: lasting}
-    both = activity_control.slot_refusal(state, 1, 1, {})
+    both = activity_control.slot_refusal(state, open_activities(state, 1), 1, {})
     assert both.next_step == "Conclude one of 快做完、还早, or pause 还早, first."
 
 
@@ -143,6 +145,6 @@ def test_resume_conflict_offers_pausing_only_while_the_running_activity_can_stil
     for seconds, step in ((179, "Conclude"), (180, "Conclude or pause")):
         state = occupied(_ending_in(seconds))
         state.activities[held.activity_id] = held
-        blocked = activity_control.control_refusal(Context(state, 1, _PLACES, {}), "report_status", held)
+        blocked = activity_control.control_refusal(Context(state, 1, open_activities(state, 1), _PLACES, {}), "report_status", held)
         assert blocked == Refusal("RESOURCE_CONFLICT", "This activity conflicts with the running activities Activity.",
                                   f"{step} Activity first.", ("resource_claims",))

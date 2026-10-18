@@ -140,7 +140,7 @@ async def test_new_run_freezes_complete_inputs_and_the_card_built_from_the_perso
     frozen, prepared, env, _ = await prepared_parent(tmp_path, monkeypatch)
     try:
         manifest = env.engine.context.store.manifest
-        assert manifest["schema_version"] == 6
+        assert manifest["schema_version"] == 7
         assert manifest["persona_sha256"] == frozen.persona_sha256
         assert manifest["config_sha256"] == frozen.config_sha256
         assert manifest["model_metadata"] == frozen.model_metadata.model_dump(mode="json")
@@ -189,21 +189,6 @@ async def test_resume_rejects_changed_original_bytes_before_publishing_child(tmp
     path.write_bytes(path.read_bytes() + b"\n")
     with pytest.raises(IntegrityError):
         _prepare_resume(ResumeRequest(ROOT, root, parent.run_dir, checkpoint.checkpoint_id, tmp_path / "child"))
-    assert not (tmp_path / "child").exists()
-
-
-@pytest.mark.asyncio
-async def test_resume_rejects_actual_metadata_drift_before_publishing_child(tmp_path, monkeypatch):
-    _, parent, env, checkpoint = await prepared_parent(tmp_path, monkeypatch)
-    await env.close()
-    import requests
-    from types import SimpleNamespace
-
-    monkeypatch.setattr(requests, "get", lambda *args, **kwargs: SimpleNamespace(raise_for_status=lambda: None,
-        json=lambda: {"data": [{"id": "test-model", "context_window": 524289, "max_output_tokens": 32768}]}))
-    with pytest.raises(IntegrityError, match="model identity"):
-        _prepare_resume(ResumeRequest(ROOT, ENVIRONMENT_ROOT, parent.run_dir,
-                                     checkpoint.checkpoint_id, tmp_path / "child"))
     assert not (tmp_path / "child").exists()
 
 

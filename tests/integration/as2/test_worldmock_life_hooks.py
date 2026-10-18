@@ -779,3 +779,20 @@ async def test_reflection_rejects_more_than_five_insights(tmp_path: Path) -> Non
 
     with pytest.raises(RuntimeError, match="one to five insights"):
         await runtime._run_reflection(tick=60, t=_T0, step_count=2)
+
+
+
+@pytest.mark.asyncio
+async def test_step_end_below_the_threshold_reads_memory_without_copying_it(tmp_path, monkeypatch):
+    runtime, store = _runtime(tmp_path)
+
+    def boom(*args, **kwargs):
+        raise AssertionError("copying memory read")
+
+    monkeypatch.setattr(AgentMemoryStore, "iter_episodes", boom)
+    monkeypatch.setattr(AgentMemoryStore, "unconsolidated", boom)
+    outcome = await runtime.after_step(tick=60, t=_T0, step_count=1,
+        finish_memories=[_memory("我喜欢午后的阳光", importance=0.2), _memory("明天给朋友打电话", importance=0.2)])
+    assert {item["id"] for item in outcome.created_episodes} == store.episode_ids()
+    assert len(outcome.created_episodes) == 2
+    assert outcome.consolidated is False

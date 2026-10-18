@@ -13,7 +13,7 @@ from worldmock.footprints.models import (
 )
 from tests.footprints.display_fixtures import sample_catalog_rows, sample_display_names
 from worldmock.footprints.display_wording import display_names
-from worldmock.footprints.quality import build_quality_report
+from worldmock.footprints.quality import CALL_CLASSES, _estimate_cost, _model_quality, build_quality_report
 from worldmock.life.error_contract import ErrorItem, ErrorReport
 
 
@@ -33,7 +33,7 @@ def _event(sequence, event_type, *, occurred_at=None, run_id="run", wall_ms=None
 
 def _manifest(start=100, end=1100):
     return {"run_id": "run", "source_group_id": "group", "work_content_ids": {"1": []},
-            "window": {"start": start, "end": end, "timezone": "Asia/Shanghai"}}
+            "window": {"start": start, "end": end, "timezone": "Asia/Shanghai"}, "lineage": []}
 
 
 def _memory(text="我以为自己已经吃过一顿饭。"):
@@ -215,24 +215,6 @@ def test_missing_measurements_remain_unknown_instead_of_becoming_zero():
     assert report["conversion_efficiency"]["food"]["weighted_mean"] is None
 
 
-def test_model_usage_counts_plan_day_and_lists_it_by_purpose():
-    """model_usage 计入零点计划 plan_day 的请求与响应，并按 purpose 与人物决策、工作验收分列。"""
-    plan = {"phase": "response", "purpose": "plan_day", "call_id": "plan", "attempt": 1, "error": None,
-            "response": {"model": "deepseek-flash", "usage": _usage(), "choices": []}}
-    events = [_event(1, "model_request", data={"call_id": "decision", "phase": "request"}),
-              _event(2, "model_response", data=_tool_response("decision", _usage())),
-              _event(3, "model_request", data={"call_id": "plan", "phase": "request", "purpose": "plan_day"}),
-              _event(4, "model_response", data=plan),
-              _event(5, "run_ended", occurred_at=200)]
-
-    usage = build_quality_report(events, [], _manifest(end=200), sample_display_names())["model_usage"]
-
-    assert usage["request_events"] == 2 and usage["provider_responses"] == 2
-    assert usage["token_usage"]["complete_tokens"]["total_tokens"] == 240
-    assert [(row["purpose"], row["request_events"], row["provider_responses"],
-             row["token_usage"]["known_tokens"]["total_tokens"]) for row in usage["by_purpose"]] == [
-        ("decision", 1, 1, 120), ("plan_day", 1, 1, 120)]
-
 
 def test_plan_day_response_naming_memories_is_no_memory_problem():
     """零点计划不是记忆写入点：它的输出多带 memories 字段时，本地校验错误不记为记忆协议问题；
@@ -373,15 +355,13 @@ def test_a_conclusion_that_only_changes_errands_is_no_memory_write_point():
     assert memory["problems"] == [{"code": "conclusion_without_memory_update", "event_id": "event-2", "agent_id": 1}]
 
 
-def test_a_replayed_conclusion_recorded_without_errands_is_an_integrity_fault():
+def test_a_conclusion_recorded_without_errands_is_an_integrity_fault():
     """质量报告经 control_items 读每一条 conclude_activity 请求（docs/design/04-simulation-engine.md、2.3）：带 items 而缺
-    请求级 errands 的旧形状记录是完整性故障，重放（reused）的请求也不例外——收尾记忆的计数不读重放的请求，拒绝它的是记忆
-    核对这一处读取。同一条重放请求带着 errands（空列表）时报告照常生成、没有记忆问题。引擎只在原请求之后才写重放，这样
-    单独一条重放只能以已认证事件的形状构造。"""
+    请求级 errands 的旧形状记录是完整性故障。同一条请求带着 errands（空列表）时报告照常生成、没有记忆问题。"""
     def report(request: dict) -> dict:
-        """只有这一条重放的收尾请求与运行终点的事件集的质量报告。"""
+        """只有这一条收尾请求与运行终点的事件集的质量报告。"""
         events = [_event(1, "action_requested", agent_id=1, decision_id="decision", action_id="action",
-                         data={"tool_name": "conclude_activity", "reused": True, "request": request}),
+                         data={"tool_name": "conclude_activity", "request": request}),
                   _event(2, "run_ended", occurred_at=200)]
         return build_quality_report(events, [], _manifest(end=200), sample_display_names())
 
@@ -617,7 +597,7 @@ def test_decision_rhythm_counts_silent_boundaries_and_wake_reasons():
     report = build_quality_report(events, [], _manifest(), sample_display_names())
     rhythm = report["decision_rhythm"]
 
-    assert report["schema_version"] == 8
+    assert report["schema_version"] == 9
     assert "decision_budget_exhausted_events" not in rhythm
     assert rhythm["body_settlement_events"] == 4
     assert rhythm["boundaries_with_decision_field"] == 3
@@ -633,21 +613,22 @@ def test_decision_rhythm_counts_silent_boundaries_and_wake_reasons():
 
 
 def test_report_sections_are_the_documented_grouping_without_a_language_count():
-    """报告的分组恰是记录引擎设计「质量报告」登记的十八组（docs/design/05-recording-engine.md），顺序相同，另有版本与
-    运行身份；报告结构为 8：个人事务与工作安排规格的两个新组 errand_metrics、conclusion_memories
+    """报告的分组恰是记录引擎设计「质量报告」登记的十九组（docs/design/05-recording-engine.md），顺序相同，另有版本与
+    运行身份；报告结构为 9：父运行各段的 lineage 紧随 acceleration；个人事务与工作安排规格的两个新组
+    errand_metrics、conclusion_memories
     在报告与登记句里都紧随 day_plan_metrics（docs/design/01-architecture.md），没有任何事务事件与收尾记忆时两组
     都为 null。其中没有语言计数：一日运行保真裁决 D18 不作语言要求，人物写的正文、总结与记忆用中文还是英文不在报告里
     计数（docs/design/06-agent.md），一日运行保真新增的五节是输入警告、时间线标签、联系人回复守卫、名称类
     拒绝与截断。"""
     report = build_quality_report([_event(1, "run_ended", occurred_at=200)], [], _manifest(end=200), sample_display_names())
-    documented = ['event_range', 'run_outcome', 'actions', 'activities', 'content_contact', 'app_pushes', 'conversion_efficiency', 'decision_rhythm', 'memory_references', 'model_usage', 'acceleration', 'day_plan_metrics', 'errand_metrics', 'conclusion_memories', 'input_warnings', 'timeline_labels', 'name_rejections', 'truncations']
-    assert len(documented) == len(set(documented)) == 18
+    documented = ['event_range', 'run_outcome', 'actions', 'activities', 'content_contact', 'app_pushes', 'conversion_efficiency', 'decision_rhythm', 'memory_references', 'model_usage', 'acceleration', 'lineage', 'day_plan_metrics', 'errand_metrics', 'conclusion_memories', 'input_warnings', 'timeline_labels', 'name_rejections', 'truncations']
+    assert len(documented) == len(set(documented)) == 19
     assert documented[-4:] == ["input_warnings", "timeline_labels", "name_rejections", "truncations"]
     plan = documented.index("day_plan_metrics")
     assert documented[plan:plan + 3] == ["day_plan_metrics", "errand_metrics", "conclusion_memories"]
     assert list(report)[3:] == documented
     assert set(report) == {"schema_version", "run_id", "source_group_id", *documented}
-    assert report["schema_version"] == 8
+    assert report["schema_version"] == 9
     assert (report["errand_metrics"], report["conclusion_memories"]) == (None, None)
     assert [key for key in report if any(word in key for word in ("language", "english", "chinese"))] == []
 
@@ -869,7 +850,8 @@ def test_truncations_match_the_recorded_day_runs(label, count, tokens):
     run = _TRUNCATION_RUNS[label]
     events = [Event.model_validate(row) for row in run["events"]]
 
-    section = build_quality_report(events, [], {"run_id": run["run_id"], "source_group_id": run["run_id"], "work_content_ids": {}, "window": run["window"]}, sample_display_names())["truncations"]
+    section = build_quality_report(events, [], {"run_id": run["run_id"], "source_group_id": run["run_id"], "work_content_ids": {}, "window": run["window"],
+                                            "lineage": []}, sample_display_names())["truncations"]
 
     assert section["truncated_responses"] == run["summary"]["truncated_responses"] == count < len(events)
     assert section["purpose_counts"] == {"decision": count}
@@ -981,17 +963,17 @@ def _protocol_error(sequence, call_id, code, purpose=None):
     return _event(sequence, "model_response", agent_id=1, decision_id=f"decision-{call_id}", data=response)
 
 
-def _rejected(sequence, code, occurred_at, reused=False):
-    """一条业务拒绝事件（action_rejected，重放带 reused）。"""
-    data = {"error_code": code, **({"reused": True} if reused else {})}
+def _rejected(sequence, code, occurred_at):
+    """一条业务拒绝事件（action_rejected）。"""
+    data = {"error_code": code}
     return _event(sequence, "action_rejected", occurred_at=occurred_at, agent_id=1, action_id=f"action-{sequence}",
                   data=data)
 
 
 def test_name_rejections_are_counted_apart_from_other_protocol_errors():
     """名称类拒绝一节（docs/design/03-resource-engine.md、第九章）：宿主的名称类纠错按 protocol_feedback 的码逐码计数，
-    其余协议错误（非法 JSON、没有工具调用、参数形状）另计，工作验收等有 purpose 的调用不算；环境的名称类拒绝按码计数（不含
-    重放），同一人物同一秒的前两次记为免计；名称类以外的拒绝码不进这一节。"""
+    其余协议错误（非法 JSON、没有工具调用、参数形状）另计，工作验收等有 purpose 的调用不算；环境的名称类拒绝按码计数，
+    同一人物同一秒的前两次记为免计；名称类以外的拒绝码不进这一节。"""
     events = [
         _protocol_error(1, "c1", "NAME_NOT_FOUND"),
         _protocol_error(2, "c2", "ACTION_NOT_OFFERED"),
@@ -1002,7 +984,7 @@ def test_name_rejections_are_counted_apart_from_other_protocol_errors():
         _protocol_error(7, "c7", "NAME_NOT_FOUND", purpose="plan_day"),
         _rejected(8, "SUPPLY_NOT_FOUND", 500), _rejected(9, "SUPPLY_NOT_FOUND", 500),
         _rejected(10, "ACTION_REQUEST_INVALID", 500), _rejected(11, "TASK_NOT_FOUND", 500),
-        _rejected(12, "SUPPLY_NOT_FOUND", 600), _rejected(13, "SUPPLY_NOT_FOUND", 600, reused=True),
+        _rejected(12, "SUPPLY_NOT_FOUND", 600),
     ]
     report = build_quality_report(events, [], _manifest(end=1100), sample_display_names())["name_rejections"]
     assert (report["host_protocol_errors"], report["other_protocol_errors"]) == (3, 3)
@@ -1058,3 +1040,86 @@ def test_old_wake_name_does_not_prove_reflection_without_sleep_completion():
                      data=_memory_update("r1", "event-1", "decision", trigger=("reflection",)))]
     problems = build_quality_report(events, [], _manifest(), sample_display_names())["memory_references"]["problems"]
     assert [item["code"] for item in problems] == ["memory_update_without_source"]
+
+
+
+def _class_request(name):
+    request = {"messages": [{"role": "system"}, {"role": "user"}]}
+    if name in {"fresh_decision_turn", "turn_with_history", "truncation_retry"}:
+        request["tools"] = [{"function": {"name": "start_main_activity"}}]
+        request["extra_body"] = {"thinking": {"type": "disabled" if name == "truncation_retry" else "enabled"}}
+        if name != "fresh_decision_turn":
+            request["messages"] += [{"role": "assistant"}, {"role": "tool"}]
+    if name in {"reflection", "plan_day"}:
+        request["tools"] = [{"function": {"name": "submit_reflection" if name == "reflection" else "submit_day_plan"}}]
+    data = {"call_id": name, "request": request}
+    if name == "plan_day":
+        data["purpose"] = "plan_day"
+    return data
+
+
+def test_model_usage_lists_every_call_class_from_the_recorded_request_shape():
+    events = []
+    for index, name in enumerate((*CALL_CLASSES, "unrecognized")):
+        data = {"call_id": name} if name == "unrecognized" else _class_request(name)
+        stamp = "2026-09-15T07:00:00+00:00" if name in {"fresh_decision_turn", "plan_day"} else "2026-09-15T12:00:00+00:00"
+        events += [_event(index * 2 + 1, "model_request", data=data, recorded_at=stamp),
+                   _event(index * 2 + 2, "model_response", data=_tool_response(name, _usage()))]
+    usage = _model_quality(events)
+    rows = usage["by_call_class"]
+    assert [row["call_class"] for row in rows] == [*CALL_CLASSES, "unrecognized"]
+    for row in rows:
+        peak = row["call_class"] in {"fresh_decision_turn", "plan_day"}
+        assert row["request_events"] == row["provider_responses"] == row["estimated_responses"] == 1
+        assert row["priced_tokens"] == {"cache_hit_input_tokens": 40, "cache_miss_input_tokens": 60, "output_tokens": 20}
+        assert row["peak_responses"] == int(peak)
+        assert row["peak_share"] == float(peak)
+        stamp = "2026-09-15T07:00:00+00:00" if peak else "2026-09-15T12:00:00+00:00"
+        assert row["known_estimated_cost_usd"] == _estimate_cost("deepseek-flash", _usage(), stamp)[0]
+    assert sum(row["request_events"] for row in rows) == usage["request_events"]
+    assert sum(row["provider_responses"] for row in rows) == usage["provider_responses"]
+    assert sum(row["known_estimated_cost_usd"] for row in rows) == pytest.approx(usage["estimated_cost"]["known_estimate_usd"])
+    assert "by_purpose" not in usage
+
+
+def test_call_class_comes_from_the_request_event_not_the_response():
+    events = []
+    for index, copied in enumerate((None, _class_request("reflection")["request"])):
+        identity = f"call-{index}"
+        events += [_event(index * 2 + 1, "model_request", data={**_class_request("fresh_decision_turn"), "call_id": identity}),
+                   _event(index * 2 + 2, "model_response", data={**_tool_response(identity, _usage()), "request": copied})]
+    rows = {row["call_class"]: row for row in _model_quality(events)["by_call_class"]}
+    assert "unrecognized" not in rows
+    assert rows["fresh_decision_turn"]["provider_responses"] == 2
+    assert rows["reflection"]["provider_responses"] == 0
+
+
+def test_a_start_tool_request_without_the_retry_switch_is_unrecognized():
+    events = []
+    for index, switch in enumerate((None, {"thinking": {"type": "enabled", "budget": 1}})):
+        data = _class_request("fresh_decision_turn")
+        data["request"].pop("extra_body")
+        if switch is not None:
+            data["request"]["extra_body"] = switch
+        events.append(_event(index + 1, "model_request", data=data))
+    rows = {row["call_class"]: row for row in _model_quality(events)["by_call_class"]}
+    assert "unrecognized" in rows
+    assert rows["unrecognized"]["request_events"] == 2
+    assert rows["truncation_retry"]["request_events"] == 0
+
+
+def test_call_classes_without_priced_responses_stay_unknown():
+    first, second = _tool_response("consolidation", _usage()), _tool_response("reflection", _usage())
+    first["response"]["model"] = "another-model"
+    del second["response"]["usage"]["prompt_cache_hit_tokens"]
+    events = [_event(1, "model_request", data=_class_request("consolidation")),
+              _event(2, "model_response", data=first),
+              _event(3, "model_request", data=_class_request("reflection")),
+              _event(4, "model_response", data=second)]
+    for row in _model_quality(events)["by_call_class"]:
+        assert row["estimated_responses"] == 0
+        assert row["priced_tokens"] is row["peak_share"] is row["known_estimated_cost_usd"] is None
+        if row["call_class"] in {"reflection", "consolidation"}:
+            assert row["token_usage"]["known_tokens"] == {"input_tokens": 100, "output_tokens": 20, "total_tokens": 120}
+        else:
+            assert row["request_events"] == row["provider_responses"] == row["peak_responses"] == 0

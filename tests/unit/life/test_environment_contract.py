@@ -50,7 +50,7 @@ def world(activities=(), **changes):
         schema_version=WORLD_SCHEMA_VERSION, version=0, current_time=100, end_time=10000,
         run_id="run", timezone="UTC", persona_sha256="a" * 64, config_sha256="b" * 64,
         agents={1: agent()}, accounts={"agent:1": 100, "external:scenario": -100},
-        activities={item.activity_id: item for item in activities}, random_seed=3, random_state="frozen",
+        activities=list(activities), random_seed=3, random_state="frozen",
     )
     return WorldState.model_validate({**payload, **changes})
 

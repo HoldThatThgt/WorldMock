@@ -5,9 +5,12 @@ from copy import deepcopy
 import pytest
 
 from tests.life.conftest import (
-    MAIN_TOOL, SIDE_TOOL, advance_until_ready, conclude_request, context, do_at, errand_add, travel,
+    MAIN_TOOL, SIDE_TOOL, advance_until_ready, conclude_request, context, do_at, errand_add, stage_day_plan, travel, use_app,
 )
-from tests.life.environment_runtime import act, reach
+from tests.life.environment_runtime import act, act_group, reach
+from worldmock.life import activity_control, tool_layer
+from worldmock.life.action_contract import start_tool
+from worldmock.life.activity_control import open_activities
 from worldmock.errors import IntegrityError
 from worldmock.life.continuation import continuation_enabled
 from worldmock.life.control_items import control_errands, control_items
@@ -28,7 +31,7 @@ from worldmock.life.models import SameMomentStage
 
 def _context(engine):
     names = {"activities": {key: row.name for key, row in engine.context.state.activities.items()}, "sessions": {}}
-    return LayerContext(engine.context, 1, names, [])
+    return LayerContext(engine.context, 1, names, [], open_activities(engine.context.state, 1))
 
 
 def test_continuation_requires_the_actual_frozen_stage_identity():
@@ -220,3 +223,47 @@ def test_actual_conclusion_views_update_persona_without_duplicate_memory_prose(e
     assert observed["persona_views"]["relationships"] == [{"person": "林舟", "view": "提醒自己做事认真。"}]
     assert observed["persona_views"]["preferences"][0]["preference"] == "喜欢柔软的纸巾。"
     assert "喜欢柔软的纸巾。" not in str(observed["memory_layer"])
+
+
+
+def test_observation_computes_open_activities_once(engine_factory, monkeypatch):
+    engine = engine_factory()
+    stage_day_plan(engine)
+    act(engine, "app", use_app("哔哩哔哩"))
+    calls, original = [], activity_control.open_activities
+
+    def count(state, agent_id):
+        calls.append(agent_id)
+        return original(state, agent_id)
+
+    monkeypatch.setattr(activity_control, "open_activities", count)
+    engine.observations._observation_data(engine.context.state.agents[1])
+    assert calls == [1]
+
+
+def test_tool_layer_rows_take_availability_from_the_private_binding_note(engine_factory, monkeypatch):
+    engine = engine_factory()
+    stage_day_plan(engine)
+    act_group(engine, "both-slots", use_app("Keep"), travel("公司"))
+    calls, original = [], tool_layer.availability
+
+    def count(layer, candidate):
+        calls.append(candidate)
+        return original(layer, candidate)
+
+    monkeypatch.setattr(tool_layer, "availability", count)
+    observed = engine.observe(context(engine, "slots-full"))
+    bindings = observed["interaction_bindings"]
+    targets = observed["tool_layer"]["targets"]
+    expected = sum(len(row["actions"]) for row in bindings)
+    expected += sum(len(target["tools"]) for target in targets if target["kind"] == "activity")
+    assert len(calls) == expected
+    layer = engine.observations._layer_context(engine.context.state.agents[1], bindings)
+    for binding, target in zip(bindings, targets):
+        actions = [action for action in binding["actions"] if not action.get("locked")]
+        for action, row in zip(actions, target["actions"], strict=True):
+            assert row["available"] is (action["note"] is None)
+            assert row["reason"] == action["note"]
+            candidate = Candidate(start_tool(binding["kind"], action["action"]), binding, action)
+            fresh = original(layer, candidate)
+            assert fresh == {"available": row["available"], "reason": row["reason"]}

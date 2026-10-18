@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 from worldmock.errors import IntegrityError
-from worldmock.life.models import validated_payload
 from worldmock.life import world_ops
 
 from datetime import datetime
@@ -73,10 +72,10 @@ class LifeEngine:
         return cls(*open_world(environment, run_dir))
 
     def observe(self, context: "DecisionContext") -> dict:
-        """@brief 提交一次真实观察并附当前同秒续接。"""
+        """@brief 提交一次真实观察并附当前同秒续接；返回的观察与存储层解码后的观察（去掉只给宿主的键）逐字节相同。"""
         self.decisions.validate_context(context)
         data = self.observations._observation_data(self.context.state.agents[context.agent_id])
-        stored = {key: value for key, value in data.items() if key not in {"progress_layer", "progress_meta"}}
+        stored, parts = self.observations.stored_observation(data)
         draft = EventDraft(
             event_type="observation",
             occurred_at=self.context.state.current_time,
@@ -85,8 +84,8 @@ class LifeEngine:
             observed_at=self.context.state.current_time,
             data=stored,
         )
-        data["observation_event_id"] = self.context.store.commit(
-            validated_payload(self.context.state), [draft])[0].event_id
+        self.context.store.require_committed(self.context.state.model_dump(mode="json"))
+        data["observation_event_id"] = self.context.store.append_observation(draft, parts)
         data[CONTINUATION_KEY] = same_second_chain(
             self.context.store, self.context.state, self.observations, context.agent_id, data["observation_event_id"]
         )
@@ -162,11 +161,9 @@ class LifeEngine:
         """@brief 追加唯一 run_failed，使后续故障覆盖先前完成候选。"""
         if not error:
             raise ProtocolError("Run failure error must not be empty")
-        events = self.context.store.read_events(self.context.store.last_event_seq)
-        if any((event.event_type == "run_failed" for event in events)):
+        if self.context.store.has_event("run_failed"):
             return
-        self.context.store.commit(validated_payload(self.context.state),
-                                  [world_ops._failure_draft(self.context.state.current_time, error, None)])
+        self.context.store.append_evidence([world_ops._failure_draft(self.context.state.current_time, error, None)])
         self.context.ops.log(self.context.state.current_time, "engine", "error",
                              {"code": "RUN_FAILED", "detail": f"Run failed: {error}"})
 
@@ -180,7 +177,7 @@ class LifeEngine:
         reference = self.context.store.assets.put_json(receipt, {"kind": "life_checkpoint"})
         snapshots = dict(agent_snapshots)
         snapshots["life"] = reference
-        committed = self.context.store.checkpoint(validated_payload(self.context.state), snapshots)
+        committed = self.context.store.checkpoint(self.context.state.model_dump(mode="json"), snapshots)
         self.context.ops.log(
             self.context.state.current_time,
             "checkpoint",

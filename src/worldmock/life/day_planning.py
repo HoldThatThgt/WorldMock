@@ -21,13 +21,12 @@ from worldmock.input_models import ModelMetadata
 
 from worldmock.errors import ProtocolError
 from worldmock.footprints.models import EventDraft
+from worldmock.life.decision_start import PLAN_DAY_PURPOSE
 from worldmock.life.models import PlanDayRequest, WorldState, deepseek_strict_schema
 from worldmock.life.prompt_capacity import CONTEXT_THRESHOLD, model_context_length, request_token_count
 from worldmock.life.schedule import (DayPlan, RemindTimeInvalid, day_end_seconds, initial_day_plan,
                                      registered_goals)
 
-#: 零点计划请求与响应的用途标记；交付窗口、决策 token 统计与行为指标的决策请求按它排除。
-PLAN_DAY_PURPOSE = "plan_day"
 #: 零点计划的生成上限（docs/design/06-agent.md「宿主模型协议」）。
 PLAN_DAY_MAX_TOKENS = 8000
 #: 提交当日目标清单的唯一工具名。
@@ -175,22 +174,23 @@ def request_draft(now: int, agent_id: int, link: tuple[str, int, str | None],
                       source_kind="model", data=data)
 
 
-def response_draft(now: int, agent_id: int, link: tuple[str, int, str],
+def response_draft(now: int, agent_id: int, link: tuple[str, int, str, tuple[dict, ...]],
                    raw: dict[str, Any], error: BaseException | None) -> EventDraft:
-    """@brief 一次零点计划模型响应的证据：原始响应、用量与本地校验错误（合法时为空）。"""
-    call_id, attempt, request_event_id = link
+    """@brief 一次零点计划模型响应的证据：原始响应、用量与本地校验错误（合法时为空）及这次调用的失败发送。"""
+    call_id, attempt, request_event_id, transport_attempts = link
     data = {"phase": "response", "purpose": PLAN_DAY_PURPOSE, "call_id": call_id, "attempt": attempt,
             "request": None, "response": raw, "usage": raw.get("usage"),
-            "error": str(error) if error is not None else None}
+            "error": str(error) if error is not None else None, "transport_attempts": list(transport_attempts)}
     return EventDraft(event_type="model_response", occurred_at=now, agent_id=agent_id,
                       caused_by=[request_event_id], visibility="system", source_kind="model", data=data)
 
 
-def failure_draft(now: int, agent_id: int, link: tuple[str, int, str], error: BaseException) -> EventDraft:
-    """@brief 零点计划的传输或配置失败证据（运行故障前先保存）。"""
-    call_id, attempt, request_event_id = link
+def failure_draft(now: int, agent_id: int, link: tuple[str, int, str, tuple[dict, ...]],
+                  error: BaseException) -> EventDraft:
+    """@brief 零点计划的传输或配置失败证据（运行故障前先保存）及这次调用的失败发送。"""
+    call_id, attempt, request_event_id, transport_attempts = link
     data = {"phase": "failure", "purpose": PLAN_DAY_PURPOSE, "call_id": call_id, "attempt": attempt,
-            "request": None, "response": None, "error": repr(error)}
+            "request": None, "response": None, "error": repr(error), "transport_attempts": list(transport_attempts)}
     return EventDraft(event_type="model_response", occurred_at=now, agent_id=agent_id,
                       caused_by=[request_event_id], visibility="system", source_kind="model", data=data)
 

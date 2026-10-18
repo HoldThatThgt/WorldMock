@@ -11,6 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from agentsociety2.config.llm_dispatcher import close_cached_async_clients
 from agentsociety2.env import EnvBase
 from agentsociety2.society import SocietyCheckpointRequest
 
@@ -283,15 +284,18 @@ class LifeEnv(EnvBase):
         return module
 
     async def close(self) -> None:
-        """@brief 关闭持久连接并释放环境实例。"""
-        if self.engine is not None:
-            try:
-                self.engine.close()
-            except Exception as close_error:
-                self._record_close_failure(close_error)
-                raise
-            else:
-                self.engine = None
+        """@brief 在本 actor 的事件循环里关闭并移出 LiteLLM 缓存的异步客户端（零点计划用过的），再关闭持久连接并释放环境实例。"""
+        try:
+            await close_cached_async_clients()
+        finally:
+            if self.engine is not None:
+                try:
+                    self.engine.close()
+                except Exception as close_error:
+                    self._record_close_failure(close_error)
+                    raise
+                else:
+                    self.engine = None
 
     def _record_close_failure(self, close_error: Exception) -> None:
         """@brief close 失败后尝试记录；双重故障保留两项异常。"""

@@ -28,7 +28,7 @@ def test_checkpoint_restores_identical_errands_and_todo_without_renoting(engine_
         parent_view = engine.observe(context(engine, "parent-view"))
         child_view = child.observe(context(child, "child-view"))
         assert child_view["todo_layer"] == parent_view["todo_layer"]
-        noted = [row for row in child.context.store.read_events(child.context.store.last_event_seq)
+        noted = [row for row in list(child.context.store.iter_events(child.context.store.last_event_seq))
                  if row.event_type == "environment_event" and row.data.get("kind") == "errand_registered"]
         assert len(noted) == 1
     finally:

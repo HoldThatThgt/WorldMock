@@ -13,9 +13,10 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from tests.life.conftest import (SIDE_TOOL, action_rows, advance_next, advance_until_ready, conclude_request, context,
-                                 do_at, pause_request, progress_calls, purchase, query, sleep, target_tools,
-                                 tool_targets, travel, use_app)
+from tests.life.conftest import (
+    SIDE_TOOL, action_identity, action_rows, advance_next, advance_until_ready, conclude_request, context, do_at,
+    pause_request, progress_calls, purchase, query, sleep, target_tools, tool_targets, travel, use_app,
+)
 from tests.life.current_world import stage_moment
 from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
 from tests.life.environment_runtime import act, act_group, events, finish_activity, run_to_end, settle_decision
@@ -47,7 +48,8 @@ def _started(engine, label, *targets, prefer=None):
 
 def _drawn_seconds(engine, label) -> int:
     """测试里独立算出的查询时长：按 query-duration:<动作身份> 的随机流在 300 到 600 秒之间取整数。"""
-    return random_stream(engine.context.state.random_state, f"query-duration:action-{label}").randint(300, 600)
+    key = f"query-duration:{action_identity(label)}"
+    return random_stream(engine.context.state.random_state, key).randint(300, 600)
 
 
 def _label_lasting(engine, seconds: int) -> str:
@@ -267,7 +269,8 @@ def _app_and_scope(engine, label, *targets, prefer=None):
 
 def _drawn_app(engine, label, candidates) -> str:
     """测试里独立算出的 app：候选按 app_id 升序，按 query-app:<动作身份> 等概率取一个。"""
-    return random_stream(engine.context.state.random_state, f"query-app:action-{label}").choice(sorted(candidates))
+    key = f"query-app:{action_identity(label)}"
+    return random_stream(engine.context.state.random_state, key).choice(sorted(candidates))
 
 
 @pytest.mark.parametrize("prefer", [None, "不存在的 app", "支付宝", "饿了么"])

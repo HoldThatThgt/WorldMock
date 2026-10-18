@@ -42,7 +42,7 @@ def test_selected_environment_runs_relocates_and_exports_its_actual_input(engine
         assert inputs.config_sha256 == original_inputs.config_sha256
         checkpoint = _complete_run(reopened, moved / "completed")
         export_run(reopened.context.store, checkpoint.last_event_seq, moved / "export")
-        manifest, _, activities = validate_export(moved / "export")
+        manifest, activities = validate_export(moved / "export")
         assert manifest["experiment_completed"] is True
         assert any(row["activity_id"] == started.activity_id for row in activities)
     finally:

@@ -13,7 +13,7 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from worldmock.input_models import PersonaConfig
 from tests.integration.runtime.current_contract_fixtures import inputs, profile as current_profile
-from tests.integration.runtime.test_native_dataset_lifecycle import native_runtime  # noqa: F401
+from tests.integration.runtime.native_runtime_fixtures import native_runtime  # noqa: F401
 from worldmock.run_setup import creation_inputs
 
 
@@ -207,7 +207,7 @@ async def _created_run(tmp_path, native_runtime, run_id: str, **declared):
     result = await run_world(RunRequest(ROOT, root, tmp_path / run_id, run_id, run_id))
     store = FootprintStore(result.run_dir)
     try:
-        events = store.read_events(store.last_event_seq)
+        events = list(store.iter_events(store.last_event_seq))
         manifest = store.manifest
     finally:
         store.close()

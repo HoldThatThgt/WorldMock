@@ -57,7 +57,7 @@ def _world_state() -> WorldState:
         config_sha256="b" * 64,
         agents={1: agent},
         accounts={"agent:1": 0, "external:scenario": 0},
-        activities={activity.activity_id: activity},
+        activities=[activity],
         presentation_state={1: {"product-z": 1_700_000_000, "product-a": 1_700_000_600}},
         random_seed=1,
         random_state="random-state",
@@ -67,7 +67,7 @@ def _world_state() -> WorldState:
 def _set_arrays(payload: dict) -> list[list[str]]:
     """按模型声明顺序取得全部持久集合的 JSON 数组。"""
     agent = payload["agents"]["1"]
-    activity = payload["activities"]["activity-1"]
+    activity = payload["activities"][0]
     return [
         agent["callback_once_keys"],
         activity["resource_claims"],
@@ -99,7 +99,8 @@ from worldmock.life.models import WorldState
 store = FootprintStore(sys.argv[1])
 state = WorldState.model_validate(store.state)
 payload = state.model_dump(mode="json")
-store.commit(payload, [EventDraft(event_type="environment_event", occurred_at=1,
+store.require_committed(payload)
+store.append_evidence([EventDraft(event_type="environment_event", occurred_at=1,
                                   visibility="system", data={"kind": "readonly_probe"})])
 sys.stdout.buffer.write(canonical_json(payload))
 store.close()
@@ -179,15 +180,15 @@ def test_readonly_commit_is_identical_across_python_hash_seeds(tmp_path: Path) -
     assert _set_arrays(json.loads(first_payload)) == _set_arrays(state)
 
 
-def test_world_state_schema_is_fourteen_and_the_previous_version_is_refused() -> None:
-    """世界状态结构版本是 14；结构号 13 的世界状态由严格字面量拒绝，不迁移、不读取。"""
+def test_world_state_schema_is_fifteen_and_the_previous_version_is_refused() -> None:
+    """世界状态结构版本是 15；结构号 14 的世界状态由严格字面量拒绝，不迁移、不读取。"""
     import pytest
     from pydantic import ValidationError
 
-    assert WORLD_SCHEMA_VERSION == 14
+    assert WORLD_SCHEMA_VERSION == 15
     payload = _world_state().model_dump(mode="json")
-    assert WorldState.model_validate(payload).schema_version == 14
-    for retired in (13, "14", None):
+    assert WorldState.model_validate(payload).schema_version == 15
+    for retired in (14, "15", None):
         with pytest.raises(ValidationError, match="schema_version"):
             WorldState.model_validate({**payload, "schema_version": retired})
     missing = {key: value for key, value in payload.items() if key != "schema_version"}
@@ -223,3 +224,103 @@ def test_world_state_with_a_running_query_round_trips(engine_factory, tmp_path: 
         assert again.data["answer"] == done.data["answer"] and done.data["answer"]["rows"]
     finally:
         child.close()
+
+
+def _two_activities() -> WorldState:
+    """先加入 activity-z（进行中）、再加入 activity-a（暂停）的世界：身份的字典序与加入先后相反。"""
+    payload = _world_state().model_dump(mode="json")
+    first = {**payload["activities"][0], "activity_id": "activity-z"}
+    second = {**payload["activities"][0], "activity_id": "activity-a", "status": "paused"}
+    return WorldState.model_validate({**payload, "activities": [first, second]})
+
+
+def test_activities_are_an_array_in_insertion_order() -> None:
+    """活动在 JSON 里是按加入世界的先后排列的数组：Python 与 JSON 两条读回路径都按数组先后还原映射，规范 JSON 只给对象的
+    键排序、不改数组次序；Python 模式的导出仍是以身份为键的映射。"""
+    state = _two_activities()
+    payload = state.model_dump(mode="json")
+    assert isinstance(payload["activities"], list)
+    assert [row["activity_id"] for row in payload["activities"]] == ["activity-z", "activity-a"]
+    assert list(WorldState.model_validate(payload).activities) == ["activity-z", "activity-a"]
+    assert list(WorldState.model_validate_json(json.dumps(payload)).activities) == ["activity-z", "activity-a"]
+    encoded = json.loads(canonical_json(payload))
+    assert [row["activity_id"] for row in encoded["activities"]] == ["activity-z", "activity-a"]
+    python_mode = state.model_dump()["activities"]
+    assert isinstance(python_mode, dict) and list(python_mode) == ["activity-z", "activity-a"]
+
+
+def test_repeated_or_malformed_activity_arrays_are_refused(caplog) -> None:
+    """活动只接受活动对象的数组：两项身份相同、以身份为键的映射、缺 activity_id 的一项和不是对象的一项都拒绝，并写英文
+    错误日志。"""
+    import logging
+
+    import pytest
+    from pydantic import ValidationError
+
+    payload = _world_state().model_dump(mode="json")
+    activity = payload["activities"][0]
+    caplog.set_level(logging.ERROR)
+    with pytest.raises(ValidationError, match="world activities repeat an activity identity"):
+        WorldState.model_validate({**payload, "activities": [activity, dict(activity)]})
+    assert "World activities repeat the activity identity activity-1" in caplog.text
+    malformed = ({activity["activity_id"]: activity},
+                 [{key: value for key, value in activity.items() if key != "activity_id"}],
+                 ["activity-1"])
+    for value in malformed:
+        caplog.clear()
+        with pytest.raises(ValidationError, match="world activities must be an array of activity objects"):
+            WorldState.model_validate({**payload, "activities": value})
+        assert "World activities are not an array of activity objects" in caplog.text
+
+
+def _stored_activity_ids(run_dir: Path) -> list[str]:
+    """运行库 world_state 行里活动数组的身份，按存储先后。"""
+    import sqlite3
+
+    with sqlite3.connect(run_dir / "footprints.sqlite") as connection:
+        body = connection.execute("SELECT body FROM world_state WHERE singleton=1").fetchone()[0]
+    return [row["activity_id"] for row in json.loads(body)["activities"]]
+
+
+def _started_pair(engine) -> list[str]:
+    """同一决策里在家开始「测试休息」并打开哔哩哔哩，返回两项活动的身份（主、副）。"""
+    from tests.life.conftest import do_at, use_app
+    from tests.life.environment_runtime import act_group
+
+    _, results = act_group(engine, "pair", do_at("家", "测试休息"), use_app("哔哩哔哩"))
+    assert [item.status for item in results] == ["in_progress", "in_progress"]
+    return [item.activity_id for item in results]
+
+
+def test_restored_world_keeps_the_live_activity_order(engine_factory, tmp_path: Path) -> None:
+    """开始组先开始副活动、再开始主活动，所以活动先后与身份的字典序不同；从检查点恢复的分支世界保持不中断运行的先后，
+    分支库里的世界行也按这个先后存数组。"""
+    from tests.integration.runtime_fixtures import branch_of
+
+    parent = engine_factory()
+    main, side = _started_pair(parent)
+    live = list(parent.context.state.activities)
+    assert live == [side, main] and live != sorted(live)
+    child = branch_of(parent, tmp_path, "resume", "-")
+    try:
+        assert list(child.context.state.activities) == live
+        assert _stored_activity_ids(tmp_path / "branch") == live
+    finally:
+        child.close()
+
+
+def test_same_version_commit_after_an_activity_update_keeps_the_stored_order(engine_factory) -> None:
+    """开始组之后用 report_status 播报主活动（这一步原位换掉主活动的条目），再取一次观察：观察之前与已提交世界的逐字节
+    比较通过，世界行里活动的先后与引擎世界相同。"""
+    from tests.life.conftest import advance_until_ready, context, report_request
+    from tests.life.environment_runtime import act, every_five_minutes
+
+    engine = engine_factory(mutate=every_five_minutes)
+    main, side = _started_pair(engine)
+    assert advance_until_ready(engine)
+    name = engine.context.state.activities[main].name
+    _, reported = act(engine, "report", report_request(name), "report_status")
+    assert reported.status == "completed", reported.error_code
+    assert list(engine.context.state.activities) == [side, main]
+    engine.observe(context(engine, "look"))
+    assert _stored_activity_ids(engine.context.store.run_dir) == list(engine.context.state.activities)

@@ -19,6 +19,7 @@ continuation 只读给出 docs/design/05-recording-engine.md的逐决策指标�
 两份清单（同一提交、同一环境输入、同一模型身份），不可比即拒绝比较。
 workday 只读打印 docs/design/05-recording-engine.md 的 {run_id, workload, routine_deviation, notes}（JSON，只报告）：
 班次、住处、播报间隔与下班、到家窗口都取自 --environment 完整输入（原文字节身份须等于运行清单，否则拒绝、不打印）。
+event 与 events 打印的观察已把观察分件换回原表（docs/design/05-recording-engine.md「检查工具」）。
 """
 from __future__ import annotations
 
@@ -27,6 +28,7 @@ import json
 import sqlite3
 import sys
 from collections import Counter, defaultdict
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -39,7 +41,10 @@ from worldmock.footprints.display_wording import (  # noqa: E402
     DisplayNames, activity_phrase, event_content_id, phone_phrase,
 )
 from worldmock.footprints.frozen_environment import frozen_display_names  # noqa: E402
+from worldmock.footprints.observation_parts import rehydrate_observation  # noqa: E402
 from worldmock.footprints.purchases import orders_by_id  # noqa: E402
+from worldmock.footprints.store import EVENT_PAGE_SIZE  # noqa: E402
+from worldmock.status import event_type_counts  # noqa: E402
 from worldmock.life.felt import APETITE_BASE_LEVEL, APPETITE_BANDS, APPETITE_STARVING_LEVEL  # noqa: E402
 
 #: 饥饿分级由轻到重（与体感分级同源）：「最低饥饿分级」取观察中出现过的最重一档。
@@ -74,13 +79,28 @@ def _connect(run_dir: Path) -> sqlite3.Connection:
     return conn
 
 
+def _paged(conn: sqlite3.Connection, sql: str, args: tuple = ()) -> Iterator[tuple]:
+    """@brief 按事件序号窗口 (after, after+EVENT_PAGE_SIZE] 逐页执行 sql（前两个参数是窗口两端），按页先后给出各行。
+
+    窗口只覆盖开始时已提交的事件；每页一个语句并一次取完，至多读 EVENT_PAGE_SIZE 条事件，页间不持有读锁。
+    """
+    last = conn.execute("SELECT COALESCE(MAX(event_seq),0) FROM events").fetchone()[0]
+    for after in range(0, last, EVENT_PAGE_SIZE):
+        yield from conn.execute(sql, (after, after + EVENT_PAGE_SIZE, *args)).fetchall()
+
+
 def _rows(conn: sqlite3.Connection, where: str = "", args: tuple = ()) -> list[dict]:
-    """@brief 读取事件体并解析为字典列表。"""
-    sql = "SELECT event_seq, body FROM events"
-    if where:
-        sql += f" WHERE {where}"
-    sql += " ORDER BY event_seq"
-    return [dict(json.loads(b), seq=s) for s, b in conn.execute(sql, args)]
+    """@brief 按事件序号窗口分页读取匹配的事件体并解析为字典列表（按 event_seq）；每页一个短语句。"""
+    sql = "SELECT event_seq, body FROM events WHERE event_seq>? AND event_seq<=?"
+    sql += (f" AND ({where})" if where else "") + " ORDER BY event_seq"
+    return [dict(json.loads(body), seq=seq) for seq, body in _paged(conn, sql, args)]
+
+
+def _rehydrated(conn: sqlite3.Connection, row: dict) -> dict:
+    """@brief 观察行的分件引用换回原表（与存储层解码相同），其余事件原样；event 与 events 打印的都是完整事件。"""
+    if row["event_type"] != "observation":
+        return row
+    return {**row, "data": rehydrate_observation(row["data"], conn)}
 
 
 def _t(epoch: int, zone: ZoneInfo) -> str:
@@ -96,24 +116,23 @@ def _zone(run_dir: Path) -> ZoneInfo:
 def display_context(conn: sqlite3.Connection, run_dir: Path) -> Display:
     """@brief 读一次冻结名称与全库订单记录，取运行时区；名称取不到时照运行故障失败。"""
     manifest = _manifest(run_dir)
-    results = _rows(conn, "json_extract(body,'$.event_type')='action_result'")
+    results = _rows(conn, "event_seq IN (SELECT event_seq FROM events "
+                          "WHERE json_extract(body,'$.event_type')='action_result')")
     return Display(frozen_display_names(run_dir, manifest), orders_by_id(results),
                    ZoneInfo(manifest["window"]["timezone"]))
 
 
 def cmd_summary(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
-    """@brief 打印运行摘要；运行目录里的两份 JSON 一律按 UTF-8 读。"""
-    rows = _rows(conn)
+    """@brief 打印运行摘要；运行目录里的两份 JSON 一律按 UTF-8 读；条数走类型表达式索引，不读事件正文。"""
+    total = conn.execute("SELECT count(*) FROM events").fetchone()[0]
+    counts = sorted(event_type_counts(conn), key=lambda item: (-item[1], item[2]))
     manifest = _manifest(a.run_dir)
     status = json.loads((a.run_dir / "status.json").read_text(encoding="utf-8"))
     print(f"run_id     : {manifest.get('run_id')}")
     print(f"状态       : {status.get('status')} ({status.get('phase')})")
-    print(f"事件总数   : {len(rows)}")
-    counts: dict[str, int] = {}
-    for r in rows:
-        counts[r["event_type"]] = counts.get(r["event_type"], 0) + 1
-    for k, v in sorted(counts.items(), key=lambda x: -x[1]):
-        print(f"  {k:24s} {v}")
+    print(f"事件总数   : {total}")
+    for name, count, _ in counts:
+        print(f"  {name:24s} {count}")
 
 
 def cmd_events(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
@@ -129,7 +148,7 @@ def cmd_events(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
     rows = _rows(conn, " AND ".join(where), tuple(args))
     if a.tail:
         rows = rows[-a.tail:]
-    for r in rows:
+    for r in (_rehydrated(conn, row) for row in rows):
         agent = f"a{r['agent_id']}" if r.get("agent_id") else "  "
         if a.full:
             print(json.dumps(r, ensure_ascii=False, indent=1))
@@ -183,7 +202,7 @@ def _environment_brief(d: dict, display: Display) -> str:
 
 def cmd_event(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
     """@brief 打印单个事件全文。"""
-    rows = _rows(conn, "event_seq=?", (a.seq,))
+    rows = [_rehydrated(conn, row) for row in _rows(conn, "event_seq=?", (a.seq,))]
     print(json.dumps(rows[0], ensure_ascii=False, indent=1) if rows else f"seq {a.seq} 不存在")
 
 
@@ -191,7 +210,7 @@ def cmd_money(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
     """@brief 打印全部资金流水与期末余额。"""
     zone = _zone(a.run_dir)
     balances: dict[str, int] = {}
-    for r in _rows(conn, "json_extract(body,'$.resource_changes') IS NOT NULL"):
+    for r in _rows(conn, "json_extract(body,'$.resource_changes')!='{}'"):
         changes = r["resource_changes"]
         if not changes:
             continue
@@ -239,12 +258,13 @@ def cmd_flows(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
 
 def _select(conn: sqlite3.Connection, event_type: str, columns: str, kind: str | None = None) -> list[tuple]:
     """@brief 只取某类事件的指定列（SQL 表达式，不解析整条事件体），按序号升序；环境事件可再按 data.kind 过滤。"""
-    sql = f"SELECT {columns} FROM events WHERE json_extract(body, '$.event_type') = ?"
+    sql = (f"SELECT {columns} FROM events WHERE event_seq>? AND event_seq<=? "
+           "AND json_extract(body, '$.event_type') = ?")
     args: list = [event_type]
     if kind is not None:
         sql += " AND json_extract(body, '$.data.kind') = ?"
         args.append(kind)
-    return list(conn.execute(sql + " ORDER BY event_seq", args))
+    return list(_paged(conn, sql + " ORDER BY event_seq", tuple(args)))
 
 
 def _merged(intervals: list[tuple[int, int]]) -> list[list[int]]:

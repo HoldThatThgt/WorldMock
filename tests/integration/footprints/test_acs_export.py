@@ -9,7 +9,7 @@ import pytest
 
 from tests.footprints.recording import (artifact_rows, final_checkpoint, read_export, recorded_engine, reproject,
                                         short_window, write_manifest, write_rows)
-from tests.life.conftest import purchase
+from tests.life.conftest import action_identity, purchase
 from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
 from tests.life.environment_runtime import act, finish_activity, run_to_end
 from worldmock.errors import IntegrityError
@@ -27,9 +27,10 @@ def real_export(engine_factory, tmp_path):
 
 
 def test_actual_purchase_content_and_current_artifacts_are_authenticated(real_export):
-    manifest, events, activities = validate_export(real_export)
-    assert manifest["schema_version"] == 7
-    assert manifest["checkpoint"]["state"]["schema_version"] == 14
+    manifest, activities = validate_export(real_export)
+    events = artifact_rows(real_export, "events")
+    assert manifest["schema_version"] == 8
+    assert manifest["checkpoint"]["state"]["schema_version"] == 15
     assert {name: row["path"] for name, row in manifest["artifacts"].items()} == {
         "events": "events.jsonl", "activities": "activities.jsonl",
         "verified_experiences": "verified-experiences.jsonl", "purchases": "purchases.jsonl",
@@ -48,13 +49,15 @@ def test_actual_purchase_content_and_current_artifacts_are_authenticated(real_ex
     side = [row for row in events if row["event_type"] == "action_requested"
             and row["data"]["tool_name"] == "start_side_activity"]
     assert [(row["action_id"], row["data"]["request"]) for row in side] == [
-        ("action-recorded-basket", {"action": "purchase", "target": ["柠檬茶", "纸巾"], "prefer": None}),
-        ("action-recorded-content", {"action": "interact", "target": ["哔哩哔哩"], "prefer": None})]
+        (action_identity("recorded-basket"), {"action": "purchase", "target": ["柠檬茶", "纸巾"], "prefer": None}),
+        (action_identity("recorded-content"), {"action": "interact", "target": ["哔哩哔哩"], "prefer": None})]
     bought = artifact_rows(real_export, "purchases")
     attempts = [row for row in bought if row["fact_kind"] == "order_attempt"]
     assert [(row["action_id"], row["request_event_id"], row["action"], row["status"], row["error_code"])
-            for row in attempts] == [("action-recorded-basket", side[0]["event_id"], "purchase", "in_progress", None)]
-    assert {row["action_id"] for row in bought if row["fact_kind"] == "purchase"} == {"action-recorded-basket"}
+            for row in attempts] == [(action_identity("recorded-basket"), side[0]["event_id"], "purchase",
+                                      "in_progress", None)]
+    assert {row["action_id"] for row in bought
+            if row["fact_kind"] == "purchase"} == {action_identity("recorded-basket")}
     assert len([row for row in bought if row["fact_kind"] == "purchase"]) == 2
     facts = artifact_rows(real_export, "app_usage")
     consumed = [row for row in facts if row["fact_kind"] == "content_consumed"]
@@ -77,11 +80,11 @@ def test_actual_purchase_content_and_current_artifacts_are_authenticated(real_ex
     ("extra_artifact", "Export artifact set is invalid"),
 ])
 def test_retired_schema_is_rejected_before_consumption(real_export, version, reason):
-    """上一版导出清单（6）、上一版世界状态结构（13）、上一版运行清单（5），以及没有地点停留的五份工件集合，各自在读取前
+    """上一版导出清单（7）、上一版世界状态结构（13）、上一版运行清单（5），以及没有地点停留的五份工件集合，各自在读取前
     被拒绝，原因各是各的。"""
     manifest, _ = read_export(real_export)
     if version == "export":
-        manifest["schema_version"] = 6
+        manifest["schema_version"] = 7
     elif version == "world":
         manifest["checkpoint"]["state"]["schema_version"] = 13
     elif version == "five_artifacts":
@@ -89,7 +92,7 @@ def test_retired_schema_is_rejected_before_consumption(real_export, version, rea
     elif version == "extra_artifact":
         manifest["artifacts"]["navigation"] = dict(manifest["artifacts"]["location_stays"])
     else:
-        assert manifest["frozen_run_manifest"]["schema_version"] == 6
+        assert manifest["frozen_run_manifest"]["schema_version"] == 7
         manifest["frozen_run_manifest"]["schema_version"] = 5
     (real_export / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     with pytest.raises(IntegrityError, match=f"^{reason}$"):
@@ -97,15 +100,15 @@ def test_retired_schema_is_rejected_before_consumption(real_export, version, rea
 
 
 def test_quality_report_carrying_the_previous_structure_number_is_rejected(real_export):
-    """质量报告的结构号是 8：把导出里的报告改回上一版的 7，并把清单里它的长度与摘要重写成与新字节一致，
+    """质量报告的结构号是 9：把导出里的报告改回上一版的 8，并把清单里它的长度与摘要重写成与新字节一致，
     认证按事件重算整份报告后仍然拒绝；只改报告不改清单时先被字节摘要拦下。"""
     from worldmock.footprints.models import canonical_json
 
     manifest, _ = read_export(real_export)
     path = real_export / "quality.json"
     quality = json.loads(path.read_bytes())
-    assert quality["schema_version"] == 8
-    retired = canonical_json({**quality, "schema_version": 7})
+    assert quality["schema_version"] == 9
+    retired = canonical_json({**quality, "schema_version": 8})
     path.write_bytes(retired)
     with pytest.raises(IntegrityError, match="^Export quality report bytes do not match its manifest$"):
         validate_export(real_export)
@@ -190,7 +193,8 @@ def test_two_purchases_on_the_same_route_export_with_one_payment_per_purchase(en
     run_to_end(engine)
     point = final_checkpoint(engine)
     export_run(engine.context.store, point.last_event_seq, tmp_path / "same-route")
-    _, exported, _ = validate_export(tmp_path / "same-route")
+    validate_export(tmp_path / "same-route")
+    exported = artifact_rows(tmp_path / "same-route", "events")
     payments = [row["data"] for row in exported if row["data"].get("kind") == "purchase_payment"]
     assert [row["order_ids"] for row in payments] == [[first.order_id], [second.order_id]]
     assert len({row["activity_id"] for row in payments}) == 2
@@ -216,7 +220,8 @@ def test_one_order_over_two_delivery_groups_exports_with_a_single_payment(engine
     assert {order.status for order in engine.context.state.deliveries.values()} == {"delivered"}
     point = final_checkpoint(engine)
     export_run(engine.context.store, point.last_event_seq, tmp_path / "one-order")
-    _, exported, _ = validate_export(tmp_path / "one-order")
+    validate_export(tmp_path / "one-order")
+    exported = artifact_rows(tmp_path / "one-order", "events")
     (payment,) = [row for row in exported if row["data"].get("kind") == "purchase_payment"]
     assert payment["data"]["order_ids"] == [order.order_id for order in orders]
     assert payment["data"]["amount_fen"] == sum(order.total_price_fen for order in orders) == 5000

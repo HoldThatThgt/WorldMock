@@ -17,8 +17,9 @@ from worldmock.input_warnings import frozen_input_warnings
 from worldmock.life.models import (AgentState, RunIdentity, WorldState, RUN_MANIFEST_SCHEMA_VERSION,
                                    WORLD_SCHEMA_VERSION)
 from worldmock.life.models import validated_payload
-from worldmock.life.run_identity import open_environment_validated_store
+from worldmock.life.run_identity import require_environment_identity
 from worldmock.life.stay_records import run_start_event
+from worldmock.model_endpoint import frozen_metadata_loader
 
 
 def _initial_state(inputs: EnvironmentInputs, run_id: str) -> WorldState:
@@ -83,7 +84,7 @@ def _freeze_environment(inputs: EnvironmentInputs, assets: AssetStore) -> dict[s
 
 def _run_manifest(inputs: EnvironmentInputs, identity: RunIdentity, stages: dict,
                   options: dict, assets: dict[str, dict]) -> dict:
-    """@brief 目录、人物与配置各自保持身份，清单不再含场景文档身份。"""
+    """@brief 目录、人物与配置各自保持身份，清单不再含场景文档身份；新建运行的 lineage 为空。"""
     return {
         "schema_version": RUN_MANIFEST_SCHEMA_VERSION, "run_id": identity.run_id,
         "source_group_id": identity.source_group_id,
@@ -97,6 +98,7 @@ def _run_manifest(inputs: EnvironmentInputs, identity: RunIdentity, stages: dict
         "persona_habit_responses": options.get("persona_habit_responses"),
         "window": {"start": int(inputs.config.start_time.timestamp()),
                    "end": int(inputs.config.stop_time.timestamp()), "timezone": inputs.config.timezone},
+        "lineage": [],
     }
 
 
@@ -123,7 +125,8 @@ def create_world(environment: EnvironmentInputs | Path, run_dir: Path, identity:
     state.pending_events = compile_schedule(inputs)
     assets = _freeze_environment(inputs, AssetStore(Path(run_dir) / "assets"))
     manifest = _run_manifest(inputs, identity, stage_identity, options, assets)
-    store = FootprintStore.create(Path(run_dir), manifest, validated_payload(state))
+    initial = validated_payload(state)
+    store = FootprintStore.create(Path(run_dir), manifest, initial)
     injection = EventDraft(
         event_type="environment_event", occurred_at=state.current_time, visibility="evaluation",
         source_kind="scenario", data={"kind": "initial_funds_injected"},
@@ -131,7 +134,7 @@ def create_world(environment: EnvironmentInputs | Path, run_dir: Path, identity:
     )
     entered = run_start_event(state)
     state, drafts = _run_start_callbacks(state, inputs.catalog)
-    store.commit(validated_payload(state), [injection, entered, *drafts])
+    store.commit(initial, validated_payload(state), [injection, entered, *drafts])
     return inputs, store
 
 
@@ -152,9 +155,18 @@ def _validate_creation_model(inputs: EnvironmentInputs, identity: RunIdentity, s
 
 
 def open_world(environment: EnvironmentInputs | Path, run_dir: Path):
-    """@brief 已有运行核对目录及两个原文字节身份，不重建初值或重复运行开始回调。"""
-    inputs = environment if isinstance(environment, EnvironmentInputs) else load_environment(environment)
-    return inputs, open_environment_validated_store(Path(run_dir), inputs)
+    """@brief 已有运行先打开存储；从目录加载环境时模型元数据取运行清单冻结的那一份，不访问模型服务；再核对目录及两个
+    原文字节身份，不重建初值或重复运行开始回调。"""
+    store = FootprintStore(Path(run_dir))
+    try:
+        inputs = (environment if isinstance(environment, EnvironmentInputs)
+                  else load_environment(environment, metadata_loader=frozen_metadata_loader(store.manifest)))
+        require_environment_identity(store.manifest, inputs)
+    except Exception:
+        logging.error("Existing run could not be opened")
+        store.close()
+        raise
+    return inputs, store
 
 
 def _run_start_callbacks(state: WorldState, catalog) -> tuple[WorldState, list[EventDraft]]:

@@ -5,8 +5,9 @@ const {createHash} = require('node:crypto');
 const {readFileSync} = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
-const {CASES, ROOT, RUN_ID, epoch, viewer, event, droppedFile, fileEntry, directoryEntry, frozenCatalog, withCatalog,
-  runManifest, runDirectory, assetFiles, tableRows, targets} = require('./run_viewer_harness.cjs');
+const {CASES, ROOT, RUN_ID, epoch, viewer, event, droppedFile, fileHandle, directoryHandle, frozenCatalog, withCatalog,
+  runManifest, runDirectory, assetFiles, tableRows, targets, exportRun, eventsFile, Database} =
+  require('./run_viewer_harness.cjs');
 
 /** @brief 使用真实冻结的当前行动与续接请求，不重写提示结构。 */
 function contextRequest(kind = 'action') {
@@ -39,14 +40,14 @@ test('context reads current seven-layer actions and complete other requests', as
     assert.deepEqual(Array.from(items, item => item.stage), ['other', 'action', 'action']);
     assert.equal(items[0].label, '其他调用·未解析');
     assert.equal(app.state.bodyCache.size, 0, 'Index must not load complete requests');
-    const model = app.run('ContextView.read(2)');
+    const model = await app.run('ContextView.read(2)');
     assert.deepEqual(Array.from(model.current.blocks.filter(block => block.role === 'user'), block => block.key),
       ['tool', 'persona', 'memory', 'todo', 'environment', 'progress']);
     assert.ok(model.current.blocks.some(block => block.key === 'tools'));
     assert.equal(model.current.warnings.length, 0);
     const user = model.current.blocks.filter(block => block.role === 'user').map(block => block.text).join('');
     assert.equal(user, contextRequest().messages[1].content);
-    app.run('ContextView.select(2)');
+    await app.run('ContextView.select(2)');
     const html = app.get('#ctx-body').innerHTML;
     assert.ok(html.includes('结构与填充'));
     assert.ok(html.includes('层切片'));
@@ -54,12 +55,12 @@ test('context reads current seven-layer actions and complete other requests', as
     assert.ok(html.includes('self_note 未经核验'));
     assert.ok(html.includes('完整请求消息与工具'));
     assert.ok(!html.includes('形成自述'));
-    const continuation = app.run('ContextView.read(3)');
+    const continuation = await app.run('ContextView.read(3)');
     assert.deepEqual(Array.from(continuation.current.blocks.filter(block => block.messageIndex > 1),
       block => `${block.role}:${block.key}`), ['assistant:message', 'assistant:reasoning', 'tool:message']);
-    app.run('ContextView.select(1)');
+    await app.run('ContextView.select(1)');
     assert.ok(app.get('#ctx-body').innerHTML.includes('未解析'));
-    assert.equal(app.run('ContextView.read(1)').current.blocks.find(block => block.role === 'user').text,
+    assert.equal((await app.run('ContextView.read(1)')).current.blocks.find(block => block.role === 'user').text,
       otherRequest().messages[1].content);
     assert.deepEqual(app.errors, Array(2).fill(
       'Context message 1 was not segmented: the seven-layer contract was not matched.'));
@@ -81,22 +82,23 @@ test('a decision first request with extra messages is a continuation matched to 
       {event_id: 'later', decision_id: 'decision-next'}),
   ]);
   try {
-    const model = app.run('ContextView.read(3)');
+    const model = await app.run('ContextView.read(3)');
     assert.equal(model.current.continuation, true);
     const reasoning = model.current.blocks.find(block => block.key === 'reasoning');
     assert.equal(reasoning.text, continued.messages[2].reasoning_content);
     assert.ok(reasoning.label.endsWith(' · decision-head'), reasoning.label);
-    assert.equal(app.run('ContextView.read(4)').current.continuation, false, 'only a first request continues');
-    app.run('ContextView.select(3)');
+    assert.equal((await app.run('ContextView.read(4)')).current.continuation, false,
+      'only a first request continues');
+    await app.run('ContextView.select(3)');
     assert.ok(app.get('#ctx-body').innerHTML.includes('同秒续接：本决策首个请求多于两条消息'));
     assert.ok(app.get('#ctx-body').innerHTML.includes('续接 · assistant · 来源决策'));
     // 选中续接的 assistant 块：说明写每个世界请求各一条 tool 消息，开始组两条，changes 与 events 只在最后一条上。
-    app.get('button:message:2:message').onclick();
+    await app.get('button:message:2:message').onclick();
     const filled = app.get('#ctx-body').innerHTML;
     assert.ok(filled.includes('为它的每个世界请求各追加一条 tool 消息'), filled);
     assert.ok(filled.includes('一个世界请求一条，开始组两条，changes 与 events 只写在最后一条上。'));
     assert.ok(!filled.includes('与一条 tool 消息'));
-    app.run('ContextView.select(1)');
+    await app.run('ContextView.select(1)');
     const output = app.get('#ctx-body').innerHTML;
     assert.ok(output.includes('本次思考原文') && output.includes('上一决策的思考。'));
     assert.ok(output.includes('&quot;cache_hit_tokens&quot;: 640'));
@@ -116,13 +118,13 @@ test('context response matching follows caused_by across interleaved agents and 
     contextEvent('no-response', request),
   ]);
   try {
-    assert.equal(app.run('ContextView.read(1).response.seq'), 4);
-    assert.equal(app.run('ContextView.read(2).response.seq'), 3);
-    assert.equal(app.run('ContextView.read(5).response'), null);
-    app.run('ContextView.select(1)');
+    assert.equal((await app.run('ContextView.read(1)')).response.seq, 4);
+    assert.equal((await app.run('ContextView.read(2)')).response.seq, 3);
+    assert.equal((await app.run('ContextView.read(5)')).response, null);
+    await app.run('ContextView.select(1)');
     assert.ok(app.get('#ctx-body').innerHTML.includes('123'));
     assert.ok(!app.get('#ctx-body').innerHTML.includes('&quot;second&quot;'));
-    app.run('ContextView.select(5)');
+    await app.run('ContextView.select(5)');
     assert.ok(app.get('#ctx-body').innerHTML.includes('该请求尚无关联响应记录'));
   } finally { app.close(); }
 });
@@ -138,19 +140,19 @@ test('context comparison uses same agent and stage, detects same-length edits an
     contextEvent('other', otherRequest()), contextEvent('later', changed),
   ]);
   try {
-    const model = app.run('ContextView.read(4)');
+    const model = await app.run('ContextView.read(4)');
     assert.equal(model.previous.seq, 1);
     assert.ok(model.changes.some(row => row.key === 'environment' && row.status === 'changed' && row.delta === 0));
     assert.ok(model.changes.some(row => row.key === 'tool' && row.status === 'unchanged'));
-    app.run('ContextView.select(4)');
+    await app.run('ContextView.select(4)');
     app.get('#agent-filter').value = '2';
-    const filtered = app.context();
+    const filtered = await app.context();
     assert.ok(filtered.includes('事件 2'));
     assert.ok(!filtered.includes('事件 4'));
     await app.reload([contextEvent('new-run', otherRequest(), 2)]);
     assert.equal(app.run('ContextView.index().length'), 1);
-    assert.equal(app.run('ContextView.read(1).before'), null);
-    assert.ok(!app.context().includes('事件 4'));
+    assert.equal((await app.run('ContextView.read(1)')).before, null);
+    assert.ok(!(await app.context()).includes('事件 4'));
   } finally { app.close(); }
 });
 
@@ -162,7 +164,7 @@ test('context preserves unparsed inputs and escapes recorded HTML including fail
       {caused_by:['generic']}),
   ]);
   try {
-    const html = app.context();
+    const html = await app.context();
     assert.ok(html.includes('&lt;img'));
     assert.ok(html.includes('whole input'));
     assert.ok(!html.includes('<img src=x'));
@@ -174,12 +176,12 @@ test('context preserves unparsed inputs and escapes recorded HTML including fail
 test('context navigation, stage filter and all rule paths are available through the actual view', async () => {
   const app = await viewer([contextEvent('action', contextRequest())]);
   try {
-    app.run('var contextTimelineRow = document.createElement("div"); toggleDetail(contextTimelineRow, 1)');
+    await app.run('var contextTimelineRow = document.createElement("div"); toggleDetail(contextTimelineRow, 1)');
     assert.equal(app.run('contextTimelineRow.nextElementSibling.children[0].textContent'), '查看上下文');
-    app.run('contextTimelineRow.nextElementSibling.children[0].onclick()');
+    await app.run('contextTimelineRow.nextElementSibling.children[0].onclick()');
     assert.equal(app.state.view, 'context');
     assert.ok(app.get('#ctx-body').innerHTML.includes('系统层与六层输入 → 选择世界请求'));
-    app.get('#ctx-view').onchange({target:{value:'growth'}});
+    await app.get('#ctx-view').onchange({target:{value:'growth'}});
     const growth = app.get('#ctx-body').innerHTML;
     assert.ok(growth.includes('ctx-rule'));
     assert.ok(growth.includes('当前源码规则'));
@@ -191,12 +193,12 @@ test('context navigation, stage filter and all rule paths are available through 
       ['progress', '事务提醒到点（errand_reminder）与环境确认办成（errand_completed）两种记录只写事务名称，' +
         '由人物可见的事务事件派生；二者不迁入记忆层。'],
       ['tools', '去掉全部只读工具（回看任务与记忆查询），只留世界请求工具']]) {
-      app.get('#ctx-rule').onchange({target: {value: rule}});
+      await app.get('#ctx-rule').onchange({target: {value: rule}});
       assert.ok(app.get('#ctx-body').innerHTML.includes(sentence), sentence);
     }
     assert.equal(app.get('#ctx-prev').disabled, true);
     assert.equal(app.get('#ctx-next').disabled, true);
-    app.get('#ctx-stage').onchange({target:{value:'other'}});
+    await app.get('#ctx-stage').onchange({target:{value:'other'}});
     assert.ok(app.get('#ctx-body').innerHTML.includes('没有匹配的模型请求'));
     assert.ok(!app.get('#ctx-body').innerHTML.includes('形成自述'));
     assert.equal(app.errors.length, 0, app.errors.join('\n'));
@@ -211,8 +213,8 @@ test('context drills into current tools and real-shaped progress self notes', as
   request.messages[1].content = JSON.stringify(values);
   const app = await viewer([contextEvent('current', request)]);
   try {
-    app.context();
-    app.get('button:message:1:tool').onclick();
+    await app.context();
+    await app.get('button:message:1:tool').onclick();
     const options = app.get('#ctx-item').innerHTML;
     // 目标类别保持原文，动作名换成中文：用内容 app 是「使用」，在地点做事是「做」。没有内容的购物 app（美团）只用于下单和
     // 查询，不再是 app 目标行。
@@ -227,7 +229,7 @@ test('context drills into current tools and real-shaped progress self notes', as
     assert.ok(options.includes('家 · 睡觉 · 可用'));
     assert.doesNotMatch(options, / · (walk|drive|take_bus|take_taxi|interact|travel|sleep|purchase) · /);
     assert.ok(!options.includes('：进行'));
-    app.get('button:message:1:progress').onclick();
+    await app.get('button:message:1:progress').onclick();
     assert.ok(app.get('#ctx-item').innerHTML.includes('self_note（未经核验）'));
     app.get('#ctx-item').onchange({target:{value:'0'}});
     assert.ok(app.get('#ctx-body').innerHTML.includes('先浏览。'));
@@ -237,7 +239,7 @@ test('context drills into current tools and real-shaped progress self notes', as
     assert.deepEqual(request.tools.slice(0, 2).map(tool => tool.function.name),
       ['start_main_activity', 'start_side_activity']);
     assert.ok(!request.tools.some(tool => tool.function.name === 'start_activity'));
-    app.get('button:tools').onclick();
+    await app.get('button:tools').onclick();
     const filled = app.get('#ctx-body').innerHTML;
     assert.ok(filled.includes('六个世界请求工具（两个开始工具、三个活动控制工具与计划修订）、' +
       '一个回看工具（recall_task_summary）与三个记忆查询工具，共十个，严格参数结构，整次运行字节相同。'), filled);
@@ -270,8 +272,8 @@ test('context drills into an inline current tool layer and lists travel methods 
   const app = await viewer([contextEvent('current', inlineContextRequest())]);
   try {
     assert.deepEqual(Array.from(app.run('ContextView.index()'), item => item.stage), ['action']);
-    app.context();
-    app.get('button:message:1:tool').onclick();
+    await app.context();
+    await app.get('button:message:1:tool').onclick();
     const select = app.get('#ctx-item');
     const labels = Array.from(select.innerHTML.matchAll(/<option[^>]*>([^<]*)<\/option>/g), match => match[1]);
     assert.deepEqual(labels, ['整层原文',
@@ -285,7 +287,7 @@ test('context drills into an inline current tool layer and lists travel methods 
     assert.deepEqual(JSON.parse(app.get('#ctx-raw').textContent), {action: 'travel', state: '全天营业', available: true,
       name: '公司', detail: '公共交通', price: '2 元', duration: '约 8 分钟', note: '轻松', kind: 'location'});
     // 工具定义块的「填入」说明是现行工具面的定稿，不读录制样例：一个回看工具与三个记忆查询，共十个，没有世界查询工具。
-    app.get('button:tools').onclick();
+    await app.get('button:tools').onclick();
     const filled = app.get('#ctx-body').innerHTML;
     assert.ok(filled.includes('<dt>填入</dt><dd>六个世界请求工具（两个开始工具、三个活动控制工具与计划修订）、' +
       '一个回看工具（recall_task_summary）与三个记忆查询工具，共十个，严格参数结构，整次运行字节相同。</dd>'), filled);
@@ -302,7 +304,7 @@ test('context index respects the actual first message role and tools field type'
   const app = await viewer([contextEvent('wrong-role', wrongRole),contextEvent('null-tools',nullTools)]);
   try {
     assert.deepEqual(Array.from(app.run('ContextView.index()'), item => item.stage), ['other','other']);
-    assert.equal(app.run('ContextView.read(2).current.stage'), 'other');
+    assert.equal((await app.run('ContextView.read(2)')).current.stage, 'other');
   } finally { app.close(); }
 });
 
@@ -311,8 +313,8 @@ test('context comparison keeps the slicing note when only the previous input was
   current.messages[1].content = current.messages[1].content.replace('"layer":"记忆层"', '"layer":"记忆"');
   const app = await viewer([contextEvent('before',contextRequest()),contextEvent('after',current)]);
   try {
-    app.run('ContextView.select(2)');
-    app.get('#ctx-view').onchange({target:{value:'comparison'}});
+    await app.run('ContextView.select(2)');
+    await app.get('#ctx-view').onchange({target:{value:'comparison'}});
     const html = app.get('#ctx-body').innerHTML;
     assert.ok(html.includes('退出当前输入'));
     assert.ok(html.includes('按顶层数组无损切片'));
@@ -880,11 +882,11 @@ test('errand events show their Chinese wording, the errand name and the recorded
     ...kinds.map(([kind, , fields, extra]) => errandEvent(kind, errandSnapshot(fields), extra)),
   ], {catalog: MILK_CATALOG});
   t.after(() => view.close());
-  kinds.forEach(([kind, label], index) => {
+  for (const [index, [kind, label]] of kinds.entries()) {
     assert.equal(view.summary(index + 2), `世界事件 · ${label} · 「买牛奶」 · 商品 纯牛奶`, kind);
-    assert.equal(JSON.parse(view.run(`fetchBody(${index + 2})`)).data.errand.errand_id, 'action-0007:errand:0',
-      'the stored event keeps its snapshot');
-  });
+    assert.equal(JSON.parse(await view.run(`fetchBody(${index + 2})`)).data.errand.errand_id,
+      'action-0007:errand:0', 'the stored event keeps its snapshot');
+  }
   const hidden = new RegExp(`${ERRAND_IDENTITY.source}|food-milk`);
   view.state.events.forEach((entry, index) => {
     assert.doesNotMatch(entry.sum, hidden);
@@ -959,9 +961,20 @@ test('midnight plan model requests are named by their recorded purpose', async t
 
 test('activities page lists location sessions from the final world state', async t => {
   const session = (id, fields) => ({session_id: id, agent_id: 1, status: 'ended', activity_ids: [], ...fields});
+  // 世界状态的活动条目都带自己的 activity_id：今天的导出是以它为键的对象，第二章之后是同样条目的数组。按键查在数组上
+  // 查不到，按位置查两种都查不到；两种形状给出同样的会话表。
+  const entries = [{activity_id: 'act-sleep', name: '睡觉（1月5日 00:00 起）'},
+    {activity_id: 'act-walk', name: '步行前往菜饭骨头汤（1月5日 07:30 起）'},
+    {activity_id: 'act-podcast', name: '听播客<节目>（1月5日 07:30 起）'}];
+  for (const activities of [Object.fromEntries(entries.map(entry => [entry.activity_id, entry])), entries]) {
+    await sessionsOf(t, session, activities);
+  }
+});
+
+/** @brief 用给出的世界状态 activities（对象或数组）打开一份带四段地点会话的导出，核对活动页的会话表。 */
+async function sessionsOf(t, session, activities) {
   const world = {
-    activities: {'act-sleep': {name: '睡觉（1月5日 00:00 起）'}, 'act-walk': {name: '步行前往菜饭骨头汤（1月5日 07:30 起）'},
-      'act-podcast': {name: '听播客<节目>（1月5日 07:30 起）'}},
+    activities,
     sessions: {
       'session-1-0002': session('session-1-0002', {kind: 'transit', origin_id: 'home', destination_id: 'poi-1',
         name: '去菜饭骨头汤的路上（1月5日 07:30 起）', started_at: epoch + 5400, ended_at: epoch + 6000,
@@ -975,7 +988,11 @@ test('activities page lists location sessions from the final world state', async
     },
   };
   const view = await viewer([activity('action_accepted', 'act-sleep', {kind: 'sleep'}),
-    activity('action_accepted', 'act-wait-2', {kind: 'interact'}, {agent_id: 2})], {world});
+    activity('action_accepted', 'act-wait-2', {kind: 'interact'}, {agent_id: 2}),
+    ...['act-walk','act-podcast'].map(id=>activity('action_accepted',id,
+      {kind:'sleep',started_at:epoch+5400},{occurred_at:epoch+5400})),
+    activity('action_accepted','act-gone',{kind:'sleep',started_at:epoch+6000},{occurred_at:epoch+6000}),
+  ], {world});
   t.after(() => view.close());
   const rows = tableRows(view.activities(), 'session-table');
   assert.deepEqual(rows.map(cells => [cells[2], cells[3], cells[5], cells[6]]), [
@@ -988,7 +1005,7 @@ test('activities page lists location sessions from the final world state', async
   view.get('#agent-filter').value = '2';
   assert.deepEqual(tableRows(view.activities(), 'session-table').map(cells => cells[2]),
     ['李明的家（1月5日 00:00 起）']);
-});
+}
 
 test('runs without location sessions render no session table', async t => {
   const view = await viewer([activity('action_accepted', 'act-sleep', {kind: 'sleep'})]);
@@ -1057,7 +1074,7 @@ test('names are escaped in activities timeline and economy without changing stor
     assert.ok(markup.includes(escaped));
     assert.ok(!markup.includes('<img'));
   }
-  assert.equal(JSON.parse(view.run('fetchBody(1)')).data.activity.content_title, name);
+  assert.equal(JSON.parse(await view.run('fetchBody(1)')).data.activity.content_title, name);
   assert.ok(view.summary(1).includes(name));
 });
 
@@ -1148,9 +1165,10 @@ function warningRows(markup) {
   return tableRows(markup, 'warning-table').map(cells => cells.map(cell => cell.replace(/<[^>]*>/g, '').trim()));
 }
 
-/** @brief 读入随库提供的顶层文件与目录（与拖入时同一入口）；顶层另带用例文件冻结的目录素材，清单登记的正是它们。 */
-async function loadedViewer(t, files, directories = [], events = [event('observation', {})]) {
-  const view = await viewer(events, {files: [...files, ...assetFiles()], directories});
+/** @brief 打开一份导出，同时拖入给出的顶层文件与目录（与拖入时同一入口）；顶层另带用例文件冻结的目录素材，清单登记的
+ *  正是它们。options 是其余的导出选项（如导出清单里冻结的运行清单 frozen）。 */
+async function loadedViewer(t, files, directories = [], events = [event('observation', {})], options = {}) {
+  const view = await viewer(events, {...options, files: [...files, ...assetFiles()], directories});
   t.after(() => view.close());
   return view;
 }
@@ -1189,7 +1207,7 @@ test('overview lists every frozen input warning under its person or at scenario 
   assert.ok(none.includes('所选人物没有输入警告') && none.includes('当前筛选 0 条') && !none.includes('warning-table'));
 });
 
-test('warnings that were not computed or are empty are stated and a missing manifest says how to supply it', async t => {
+test('warnings that were not computed or are empty are stated, and without a dropped run manifest the export\'s frozen copy is the source', async t => {
   const states = [
     [runManifest({input_warnings: null}), '未计算：清单的 input_warnings 为 null（引擎直驱建立的运行）'],
     [runManifest(), '未计算：运行清单没有 input_warnings 键（清单早于运行输入警告）'],
@@ -1202,61 +1220,64 @@ test('warnings that were not computed or are empty are stated and a missing mani
     assert.ok(!card.includes('warning-table') && !card.includes('未读取'), statement);
   }
   const bare = warningCard((await loadedViewer(t, [])).overview());
-  assert.ok(bare.includes('未读取本库所属运行的运行清单') && bare.includes('manifest.json'));
-  assert.ok(!bare.includes('都不是本库所属运行') && !bare.includes('无输入警告'));
+  assert.ok(bare.includes('未计算：运行清单没有 input_warnings 键（清单早于运行输入警告）'), bare);
+  assert.ok(bare.includes('manifest.json · frozen_run_manifest'), bare);
+  assert.ok(!bare.includes('未读取') && !bare.includes('无输入警告'));
   const malformed = await loadedViewer(t, [droppedFile('manifest.json', runManifest({input_warnings: {}}))]);
   assert.ok(warningCard(malformed.overview()).includes('不是列表'));
   assert.ok(malformed.errors.some(error => error.includes('neither a list nor null')));
 });
 
-test('the manifest is bound to the world state run, preferred over the export copy and never another run', async t => {
+test('the run manifest is bound to the export\'s run, the run directory copy is preferred over the export copy and other runs are ignored', async t => {
   const child = runManifest({branch_kind: 'resume', parent_run_id: 'parent-run',
     input_warnings: [inputWarning('CONTENT_EMPTY_WITH_MEDIA_TASTES', 1, '子运行清单冻结的警告')]});
-  const exported = {run_id: 'viewer-test-run', frozen_run_manifest: {...child,
-    input_warnings: [inputWarning('CONTENT_EMPTY_WITH_MEDIA_TASTES', 1, '导出清单中的副本')]}};
-  // 恢复分支的库以父运行的事件开头，世界状态与清单才是本运行；同目录的 LabelKit 输入清单也写着本运行的 run_id。
-  const run = directoryEntry('resumed', [
-    directoryEntry('labelkit-input', [fileEntry('manifest.json',
+  const frozen = {...child, input_warnings: [inputWarning('CONTENT_EMPTY_WITH_MEDIA_TASTES', 1, '导出清单中的副本')]};
+  // 恢复链的导出以父运行的事件开头，导出清单与运行清单才是本运行；同目录的 LabelKit 输入清单也写着本运行的 run_id。
+  const run = directoryHandle('resumed', [
+    directoryHandle('labelkit-input', [fileHandle('manifest.json',
       {schema_version: 1, run_id: 'viewer-test-run', agent_id: 1})]),
-    directoryEntry('worldmock-export', [fileEntry('manifest.json', exported)]),
-    fileEntry('manifest.json', child),
-    directoryEntry('as2', [directoryEntry('agents', [directoryEntry('agent_0001', [
-      fileEntry('MEMORY.md', '今天把纪要交了。')])])]),
+    fileHandle('manifest.json', child),
+    directoryHandle('as2', [directoryHandle('agents', [directoryHandle('agent_0001', [
+      fileHandle('MEMORY.md', '今天把纪要交了。')])])]),
   ]);
   const parent = droppedFile('manifest.json', runManifest({input_warnings: []}, 'parent-run'));
-  const view = await loadedViewer(t, [parent], [run],
-    [event('observation', {}, {run_id: 'parent-run'}), event('observation', {})]);
-  assert.equal(view.state.runId, 'parent-run', 'the first event belongs to the parent run');
+  const resumed = [event('observation', {}, {run_id: 'parent-run'}), event('observation', {})];
+  const view = await loadedViewer(t, [parent], [run], resumed, {frozen});
+  assert.equal(view.state.runId, RUN_ID, 'the export names the run; the first event belongs to the parent run');
   const card = warningCard(view.overview());
   assert.deepEqual(warningRows(card), [['陈曦', 'CONTENT_EMPTY_WITH_MEDIA_TASTES', '子运行清单冻结的警告']]);
   assert.ok(card.includes('resumed/manifest.json') && !card.includes('frozen_run_manifest'));
-  assert.equal(view.state.ignoredManifests, 2);
   assert.equal(view.state.memFiles['1'].memoryMd, '今天把纪要交了。');
-  const exportDirectory = () => directoryEntry('worldmock-export', [fileEntry('manifest.json', exported)]);
-  // 运行清单在前、导出副本在后时同样取运行清单本身。
-  const directFirst = await loadedViewer(t, [droppedFile('manifest.json', child)], [exportDirectory()]);
-  assert.deepEqual(warningRows(warningCard(directFirst.overview())),
+  // 运行清单在前、导出清单在后时同样取运行清单本身。
+  const exported = view.exported;
+  await view.run('openExport')([droppedFile('manifest.json', child), ...exported.files, ...assetFiles()], [],
+    () => {});
+  assert.deepEqual(warningRows(warningCard(view.overview())),
     [['陈曦', 'CONTENT_EMPTY_WITH_MEDIA_TASTES', '子运行清单冻结的警告']]);
 
-  const exportOnly = await loadedViewer(t, [], [exportDirectory()]);
+  const exportOnly = await loadedViewer(t, [], [], undefined, {frozen});
   const copy = warningCard(exportOnly.overview());
   assert.deepEqual(warningRows(copy), [['陈曦', 'CONTENT_EMPTY_WITH_MEDIA_TASTES', '导出清单中的副本']]);
-  assert.ok(copy.includes('worldmock-export/manifest.json · frozen_run_manifest'));
+  assert.ok(copy.includes('manifest.json · frozen_run_manifest'));
 
+  // 别的运行的清单与读不出的清单都不采用，来源仍是导出清单里冻结的副本。
   const strangers = await loadedViewer(t, [parent, droppedFile('manifest.json', '{"run_id": "viewer-test-run"')]);
-  assert.ok(warningCard(strangers.overview()).includes('随库提供的 2 个 manifest.json 都不是本库所属运行的运行清单'));
+  const strangerCard = warningCard(strangers.overview());
+  assert.ok(strangerCard.includes('manifest.json · frozen_run_manifest'), strangerCard);
+  assert.equal(strangers.state.runManifest.frozen, true);
   assert.ok(strangers.errors.some(error => error.startsWith('Unreadable manifest file')));
   assert.ok(strangers.errors.every(error => !/[一-鿿]/.test(error)));
 });
 
-test('reloading another database drops the previous run manifest and its warnings', async t => {
+test('reloading another export drops the previous run manifest and its warnings', async t => {
   const view = await loadedViewer(t, [droppedFile('manifest.json',
     runManifest({input_warnings: [inputWarning('CONTENT_EMPTY_WITH_MEDIA_TASTES', 1, '上一份库的警告')]}))]);
   assert.equal(warningRows(warningCard(view.overview())).length, 1);
   await view.reload([event('observation', {})], {files: []});
   const card = warningCard(view.overview());
-  assert.ok(card.includes('未读取本库所属运行的运行清单') && !card.includes('上一份库的警告'));
-  assert.equal(view.state.runManifest, null);
+  assert.ok(card.includes('未计算：运行清单没有 input_warnings 键（清单早于运行输入警告）'), card);
+  assert.ok(!card.includes('上一份库的警告'));
+  assert.equal(view.state.runManifest.frozen, true);
 });
 
 test('money uses authoritative envelope changes once and allows signed external balances', async t => {
@@ -1308,7 +1329,7 @@ test('SQLite content snapshots without retired title display actual content', as
   assert.ok(view.summary(2).includes('在家：晚间阅读'));
   assert.ok(view.summary(3).includes('使用哔哩哔哩《数据分析课程》'));
   for(const sequence of [1,2,3]){
-    assert.ok(!Object.hasOwn(JSON.parse(view.run(`fetchBody(${sequence})`)).data.activity,'title'));
+    assert.ok(!Object.hasOwn(JSON.parse(await view.run(`fetchBody(${sequence})`)).data.activity,'title'));
   }
   assert.deepEqual(view.errors,[]);
 });
@@ -1323,10 +1344,10 @@ function catalogRun(texts, adjust = assets => assets) {
     const sha256 = createHash('sha256').update(text, 'utf8').digest('hex');
     assets[asset] = {sha256, size_bytes: Buffer.byteLength(text, 'utf8'), media_type: 'text/plain',
       source: {kind: 'environment_input', path: asset}};
-    entries.push(fileEntry(sha256, text));
+    entries.push(fileHandle(sha256, text));
   }
-  return directoryEntry('run', [fileEntry('manifest.json', {...runManifest(), environment_assets: adjust(assets)}),
-    directoryEntry('assets', entries)]);
+  return directoryHandle('run', [fileHandle('manifest.json', {...runManifest(), environment_assets: adjust(assets)}),
+    directoryHandle('assets', entries)]);
 }
 
 /** @brief 用例文件 catalog 冻结后的各份目录原文（素材名到文本）。 */
@@ -1352,20 +1373,23 @@ const NAMED = ['使用哔哩哔哩《测试文章》', '驾车 · → 公司', '
 /** @brief 四份必需目录的素材名。 */
 const REQUIRED_CATALOGS = ['catalog/app-catalog.jsonl', 'catalog/content-catalog.jsonl',
   'catalog/merchant-catalog.jsonl', 'catalog/location.jsonl'];
+/** @brief 用例文件冻结时运行清单登记的全部五份目录（四份必需与出行方式）。 */
+const CATALOG_FILES = [...REQUIRED_CATALOGS, 'catalog/travel-method.jsonl'];
 
-/** @brief 泳道各行：标签与行里各条块的左端、宽度和悬停文字（照页面写出的原样）。 */
-function lanes(markup) {
-  const row = new RegExp('<div class="act-lane"><div class="act-lane-label" title="[^"]*">([^<]*)</div>\\s*' +
-    '<div class="act-lane-track">([\\s\\S]*?)</div></div>', 'g');
-  const bar = /<span class="act-lane-bar" style="left:([^%]*)%;width:([^%]*)%;[^"]*"\s*title="([^"]*)"><\/span>/g;
-  return [...markup.matchAll(row)].map(([, label, track]) => ({label,
-    bars: [...track.matchAll(bar)].map(([, left, width, title]) => ({left, width, title}))}));
+/** @brief 从当天选择器及真实条块读取活动分组；分组身份与实际占用的显示行互不等同。 */
+function activityGroups(markup) {
+  const choices = [...markup.matchAll(/<option value="(\d+)"[^>]*>([^<]*)<\/option>/g)]
+    .filter(match => match[2].includes(' · '));
+  const bar = /<button class="act-lane-bar" style="left:([^%]*)%;width:([^%]*)%;[^"]*"\s*title="([^"]*)"\s*data-calendar-row="(\d+)"/g;
+  const bars = [...markup.matchAll(bar)];
+  return choices.map(([,index,text]) => ({label:text.split(' · ').slice(2).join(' · '),
+    bars:bars.filter(match=>match[4]===index).map(([,left,width,title])=>({left,width,title}))}));
 }
 
 /** @brief 总览「对象名称」卡片的完整标记，缺的素材名以「、」相连。 */
 function catalogCard(missing) {
   return `<div class="card"><h3 style="margin-top:0">对象名称</h3><div class="hint">未读到这次运行冻结的环境目录（缺 ` +
-    `${missing.join('、')}），对象名称显示为「名称缺失（身份）」。请把整个 run 目录或导出目录拖入：` +
+    `${missing.join('、')}），对象名称显示为「名称缺失（身份）」。请把整个导出目录拖入：` +
     `其中的 manifest.json 与 assets 目录都要在。</div></div>`;
 }
 
@@ -1387,18 +1411,18 @@ test('catalog names are read from the frozen assets named by the run manifest', 
   // 同一个摘要记到两次（例如运行目录和导出目录一起拖入）取先遇到的那个：这里先遇到的那份把哔哩哔哩写成同字节数的「哔哩哔哔」。
   const appsSha = frozenCatalog().assets['catalog/app-catalog.jsonl'].sha256;
   const variant = caseTexts()['catalog/app-catalog.jsonl'].replace('哔哩哔哩', '哔哩哔哔');
-  const copy = () => directoryEntry('copy', [directoryEntry('assets', [fileEntry(appsSha, variant)])]);
+  const copy = () => directoryHandle('copy', [directoryHandle('assets', [fileHandle(appsSha, variant)])]);
   assert.equal(targets((await opened({directories: [copy(), runDirectory()]})).activities())[0],
     '使用哔哩哔哔《测试文章》');
   assert.equal(targets((await opened({directories: [runDirectory(), copy()]})).activities())[0],
     '使用哔哩哔哩《测试文章》');
-  // 别的运行的清单不被采用：同样的素材也读不到名称。
-  const stranger = directoryEntry('other', [fileEntry('manifest.json', runManifest({}, 'another-run')),
-    directoryEntry('assets', frozenCatalog().files.map(file => fileEntry(file.name, file.text)))]);
+  // 别的运行的清单不被采用：名称经导出清单里冻结的本运行清单，在同一次拖入的素材里读到。
+  const stranger = directoryHandle('other', [fileHandle('manifest.json', runManifest({}, 'another-run')),
+    directoryHandle('assets', frozenCatalog().files.map(file => fileHandle(file.name, file.text)))]);
   const foreign = await opened({directories: [stranger]});
-  assert.deepEqual(targets(foreign.activities()), ['使用名称缺失（bilibili）《名称缺失（c-article）》',
-    '名称缺失（driving） · → 名称缺失（office）', '步行 · → 名称缺失（parcel-station-south）']);
-  assert.equal(foreign.errors[0], 'Frozen catalog is unavailable: no run manifest for this database');
+  assert.deepEqual(targets(foreign.activities()), NAMED);
+  assert.equal(foreign.state.runManifest.frozen, true);
+  assert.deepEqual(foreign.errors, []);
   // 环境没有出行方式目录时清单里没有这个键，不算缺失；步行仍写「步行」。
   const {travel_methods: methods, ...withoutMethods} = CASES.catalog;
   assert.ok(methods.length);
@@ -1407,19 +1431,18 @@ test('catalog names are read from the frozen assets named by the run manifest', 
   assert.deepEqual(targets(walking.activities()), ['步行 · → 快递驿站（南门）']);
   assert.ok(!walking.overview().includes('对象名称'));
   assert.deepEqual(walking.errors, []);
-  // 文件选择框不限扩展名：素材文件没有扩展名，数据库仍按文件名后缀认。
+  // 文件选择框不限扩展名：素材文件没有扩展名，导出的 manifest.json 与 events.jsonl 按文件名认。
   const page = readFileSync(path.join(ROOT, 'tools/run-viewer.html'), 'utf8');
   assert.match(page, /<input type="file" id="file-input" multiple>/);
   assert.doesNotMatch(page, /id="file-input"[^>]*accept=/);
 });
 
 test('export directories supply the same names through frozen_run_manifest', async t => {
-  const exported = directoryEntry('worldmock-export', [
-    fileEntry('manifest.json', {schema_version: 6, run_id: RUN_ID, frozen_run_manifest: runManifest()}),
-    directoryEntry('assets', frozenCatalog().files.map(file => fileEntry(file.name, file.text)))]);
-  const view = await viewer(namedActivities(), {directories: [exported]});
+  // 导出目录（events.jsonl、manifest.json 与 assets）；结构号不读，30 天那次运行的导出是 6，照样打开。
+  const view = await viewer(namedActivities(), {exportFields: {schema_version: 6}});
   t.after(() => view.close());
   assert.equal(view.state.runManifest.frozen, true);
+  assert.equal(view.state.runManifest.path, 'export/manifest.json');
   assert.deepEqual(targets(view.activities()), NAMED);
   assert.ok(!view.overview().includes('对象名称'));
   assert.deepEqual(view.errors, []);
@@ -1431,13 +1454,15 @@ test('a catalog file that is absent or has the wrong size is treated as missing 
     t.after(() => view.close());
     return view;
   };
-  // 只给数据库：全部对象名缺失，每个身份一次英文错误，总览出现「对象名称」卡片，列出四份必需目录。
+  // 只给导出清单与 events.jsonl、不带 assets：清单登记的五份目录文件（四份必需与出行方式）都写缺失，全部对象名缺失，
+  // 每个身份一次英文错误，总览出现「对象名称」卡片，列出四份必需目录。
   const bare = await opened({files: []});
   assert.deepEqual(targets(bare.activities()), ['使用名称缺失（bilibili）《名称缺失（c-article）》',
     '名称缺失（driving） · → 名称缺失（office）', '步行 · → 名称缺失（parcel-station-south）']);
-  assert.deepEqual([...bare.errors].sort(), ['Frozen catalog is unavailable: no run manifest for this database',
+  const bareErrors = [...CATALOG_FILES.map(asset => `Frozen catalog file is missing: ${asset}`),
     ...['bilibili', 'c-article', 'driving', 'office', 'parcel-station-south']
-      .map(identity => `Missing recorded object name: ${identity}`)].sort());
+      .map(identity => `Missing recorded object name: ${identity}`)].sort();
+  assert.deepEqual([...bare.errors].sort(), bareErrors);
   assert.ok(bare.overview().includes(catalogCard(REQUIRED_CATALOGS)));
   const texts = caseTexts();
   const resized = asset => assets => ({...assets,
@@ -1472,11 +1497,12 @@ test('a catalog file that is absent or has the wrong size is treated as missing 
   assert.deepEqual(methods.errors, ['Frozen catalog file is missing: catalog/travel-method.jsonl',
     'Missing recorded object name: driving']);
   assert.ok(!methods.overview().includes('对象名称'));
-  // 换一个数据库时名称表一起清空：只给下一份数据库时名称全部缺失。
+  // 换一份导出时名称表一起清空：下一份导出不带 assets 时名称全部缺失。
   const reloaded = await opened();
   assert.deepEqual(targets(reloaded.activities()), NAMED);
   await reloaded.reload(namedActivities(), {files: []});
   assert.deepEqual(targets(reloaded.activities()), targets(bare.activities()));
+  assert.deepEqual([...reloaded.errors].sort(), bareErrors);
   assert.ok(reloaded.overview().includes(catalogCard(REQUIRED_CATALOGS)));
   for (const view of [bare, reloaded]) assert.ok(view.errors.every(text => !/[一-鿿]/.test(text)));
 });
@@ -1552,7 +1578,7 @@ test('activity table lanes and timeline write the shared wording and keep the ki
   assert.deepEqual(tableRows(markup, 'act-table').map(cells => [cells[2].replace(/<[^>]*>/g, ''), cells[3]]), [
     ['互动', phrases[0]], ['互动', phrases[1]], ['购买', phrases[2]], ['出行', '驾车 · → 公司'], ['睡眠', '—'],
     ['查询', queries[0]], ['查询', queries[1]]]);
-  assert.deepEqual(lanes(markup).map(lane => lane.label), [...phrases, '出行 驾车 · → 公司', '睡眠 —', ...queries]);
+  assert.deepEqual(activityGroups(markup).map(lane => lane.label), [...phrases, '出行 驾车 · → 公司', '睡眠 —', ...queries]);
   // 查询的类型标签用它自己的颜色。
   assert.ok(markup.includes('<span class="act-kind" style="background:#5b8def33;color:#5b8def">查询</span>'));
   // 时间线：受理行和活动段行直接写写法；一集做到头的那条活动段行写的是刚做完的这一集。
@@ -1706,16 +1732,15 @@ test('touching uses of one app are drawn as one lane block labelled with every i
   const view = await viewer(nightEvents(), {catalog: NIGHT_CATALOG});
   t.after(() => view.close());
   const markup = view.activities();
-  const drawn = lanes(markup);
-  // 十二次使用画成七行、七个条块，自上而下按开始时刻；并成一行的标签把各段放过的内容依次列出。
+  const drawn = activityGroups(markup);
+  // 十二次使用合成七个可选对象、七个条块；名称把各段放过的内容依次列出，显示行另按并发复用。
   assert.deepEqual(drawn.map(lane => lane.label), [
     '使用哔哩哔哩《散步装备准备》', '使用哔哩哔哩《雨天出门准备》',
     '使用哔哩哔哩《拼图边框练习》《回家做饭长视频》《家庭合照挑选》', '使用网易云音乐《晚间歌单》',
     '使用哔哩哔哩《冰美式制作小记》《桌面物品拍摄》《自然风光长视频》', '使用微信《亲子阅读角》《旅行行李清单》',
     '使用哔哩哔哩《骑行头盔检查》']);
   assert.deepEqual(drawn.map(lane => lane.bars.length), [1, 1, 1, 1, 1, 1, 1]);
-  const {t0, t1} = view.state;
-  const span = Math.max(1, t1 - t0);
+  const t0 = at('00:00:00'), span = 86400;
   const [puzzle] = drawn[2].bars;
   assert.equal(puzzle.left, String((at('20:19:33') - t0) / span * 100));
   assert.equal(puzzle.width, String((at('20:43:33') - at('20:19:33')) / span * 100));
@@ -1725,25 +1750,25 @@ test('touching uses of one app are drawn as one lane block labelled with every i
     '使用哔哩哔哩《冰美式制作小记》《桌面物品拍摄》《自然风光长视频》 · 连续使用，共 3 段');
   assert.equal(drawn[5].bars[0].title, '2026/09/28 21:58:03–2026/09/28 22:01:03 · ' +
     '使用微信《亲子阅读角》《旅行行李清单》 · 连续使用，共 2 段');
-  assert.ok(markup.includes('<div class="hint">同一时间轴上的条块表示实际执行区间；空白表示尚无结算记录。' +
-    '同一个 app 首尾相接的几次使用画在同一行，连成一个条块。</div>'));
+  assert.ok(markup.includes('同一时间轴上的条块表示实际执行区间；空白表示尚无结算记录。' +
+    '首尾相接的同一 app 使用合成条块；先后执行的区间复用显示行，只有实际重叠时分行。'));
   assert.deepEqual(view.errors, []);
 });
 
 test('a gap, an overlap or a different app ends a continuous use', async t => {
   const view = await viewer(nightEvents(), {catalog: NIGHT_CATALOG});
   t.after(() => view.close());
-  const drawn = lanes(view.activities());
-  // 19:52:00 和 20:00:00 两次隔了 390 秒，各自一行，标签和悬停文字里没有「连续使用」。
+  const drawn = activityGroups(view.activities());
+  // 19:52:00 和 20:00:00 两次隔了 390 秒，各自保留条块，名称和悬停文字里没有「连续使用」。
   assert.deepEqual(drawn.slice(0, 2).map(lane => lane.bars[0].title), [
     '2026/09/28 19:52:00–2026/09/28 19:53:30 · 使用哔哩哔哩《散步装备准备》',
     '2026/09/28 20:00:00–2026/09/28 20:02:30 · 使用哔哩哔哩《雨天出门准备》']);
-  // 哔哩哔哩 20:43:33 结束、网易云音乐同一秒开始：两个 app 各在各的行；21:23:33 和 21:58:03 两处同理。
+  // 哔哩哔哩 20:43:33 结束、网易云音乐同一秒开始：两个 app 各自保留条块；21:23:33 和 21:58:03 两处同理。
   assert.equal(drawn[3].bars[0].title, '2026/09/28 20:43:33–2026/09/28 21:23:33 · 使用网易云音乐《晚间歌单》');
   assert.ok(drawn[2].bars[0].title.startsWith('2026/09/28 20:19:33–2026/09/28 20:43:33 · '));
   assert.ok(drawn[4].bars[0].title.startsWith('2026/09/28 21:23:33–2026/09/28 21:58:03 · '));
   assert.ok(drawn[5].bars[0].title.startsWith('2026/09/28 21:58:03–2026/09/28 22:01:03 · '));
-  // 同一个 app 相隔恰好 1 秒的两次、区间重叠 1 秒的两次：都是两行、两个条块，标记栏都是「—」。
+  // 同一个 app 相隔恰好 1 秒的两次、区间重叠 1 秒的两次：都是两个可选对象、两个条块，标记栏都是「—」。
   const apart = await viewer([
     ...appUse('gap-1', 'douyin', 'c-short', at('10:00:00'), at('10:02:00')),
     ...appUse('gap-2', 'douyin', 'c-short-2', at('10:02:01'), at('10:03:31')),
@@ -1752,8 +1777,8 @@ test('a gap, an overlap or a different app ends a continuous use', async t => {
   ]);
   t.after(() => apart.close());
   const markup = apart.activities();
-  assert.deepEqual(lanes(markup).map(lane => lane.bars.length), [1, 1, 1, 1]);
-  assert.ok(lanes(markup).every(lane => !lane.bars[0].title.includes('连续使用')));
+  assert.deepEqual(activityGroups(markup).map(lane => lane.bars.length), [1, 1, 1, 1]);
+  assert.ok(activityGroups(markup).every(lane => !lane.bars[0].title.includes('连续使用')));
   assert.deepEqual(marks(markup), ['—', '—', '—', '—']);
   assert.ok(!acceptances(apart).some(text => text.includes('接续')));
   assert.deepEqual(apart.errors, []);
@@ -1793,7 +1818,7 @@ test('only app uses of one person join, never location activities, purchases, qu
   ]);
   t.after(() => view.close());
   const markup = view.activities();
-  const drawn = lanes(markup);
+  const drawn = activityGroups(markup);
   assert.equal(drawn.length, view.state.acts.length);
   assert.equal(drawn.length, 8);
   assert.ok(drawn.every(lane => lane.bars.every(bar => !bar.title.includes('连续使用'))));
@@ -1807,14 +1832,15 @@ test('the activity table keeps one row per activity and marks its place in the c
   const markup = view.activities();
   const rows = tableRows(markup, 'act-table');
   assert.equal(rows.length, 12);
-  // 表头最后一格是「连续使用」，不能点、不带排序标记。
-  assert.ok(markup.includes('<th>目标</th><th>结束</th><th class="num">实际时长</th><th>连续使用</th></tr></thead>'));
+  // 当天时间列与完整连续使用标记明确区分，标记不能点、不带排序属性。
+  assert.ok(markup.includes('<th>目标</th><th>当天结束</th><th class="num">当天已结算</th>' +
+    '<th>连续使用（完整记录）</th></tr></thead>'));
   assert.deepEqual(rows.map(cells => cells.at(-1)), NIGHT_MARKS);
   // 第四格仍是每次使用自己的写法。
   assert.deepEqual(rows.map(cells => cells[3]), NIGHT.map(([, app, content]) =>
     `使用${NIGHT_CATALOG.apps.find(row => row.app_id === app).name}` +
     `《${NIGHT_CATALOG.contents.find(row => row.content_id === content).title}》`));
-  assert.ok(markup.includes('共 12 段活动 · 点击表头排序'));
+  assert.ok(markup.includes('当天共 12 项活动 · 点击表头排序'));
   assert.ok(view.overview().includes('<span class="k">接受</span><span class="v" style="color:var(--ok)">12</span>'));
 });
 
@@ -1846,7 +1872,7 @@ test('a paused and resumed use keeps its own row and two blocks', async t => {
     [at('21:30:00'), at('21:50:00')]));
   t.after(() => view.close());
   const markup = view.activities();
-  const drawn = lanes(markup);
+  const drawn = activityGroups(markup);
   assert.deepEqual(drawn.map(lane => lane.label), ['使用哔哩哔哩《测试长视频》']);
   assert.deepEqual(drawn[0].bars.map(bar => bar.title), [
     '2026/09/28 21:00:00–2026/09/28 21:08:00 · 使用哔哩哔哩《测试长视频》',
@@ -1865,7 +1891,7 @@ test('a use of the same app that fills a pause joins both halves', async t => {
   const view = await viewer(fill(at('21:10:30')));
   t.after(() => view.close());
   const markup = view.activities();
-  const drawn = lanes(markup);
+  const drawn = activityGroups(markup);
   assert.equal(drawn.length, 1);
   assert.equal(drawn[0].label, '使用哔哩哔哩《测试长视频》《测试图文》《测试长视频》');
   assert.deepEqual(drawn[0].bars.map(bar => bar.title), ['2026/09/28 21:00:00–2026/09/28 21:22:30 · ' +
@@ -1879,7 +1905,7 @@ test('a use of the same app that fills a pause joins both halves', async t => {
   const late = await viewer(fill(at('21:10:31')));
   t.after(() => late.close());
   const lateMarkup = late.activities();
-  const lateLanes = lanes(lateMarkup);
+  const lateLanes = activityGroups(lateMarkup);
   assert.equal(lateLanes.length, 1);
   assert.deepEqual(lateLanes[0].bars.map(bar => bar.title), [
     '2026/09/28 21:00:00–2026/09/28 21:10:30 · 使用哔哩哔哩《测试长视频》《测试图文》 · 连续使用，共 2 段',
@@ -1896,7 +1922,7 @@ test('a paused use that touches another use on each side is marked with both con
     ...appUse('later', 'bilibili', 'c-article', at('21:30:00'), at('21:38:00')), after]);
   t.after(() => view.close());
   const markup = view.activities();
-  const drawn = lanes(markup);
+  const drawn = activityGroups(markup);
   assert.equal(drawn.length, 1);
   assert.deepEqual(drawn[0].bars.map(bar => bar.title), [
     '2026/09/28 21:00:00–2026/09/28 21:10:30 · 使用哔哩哔哩《测试长视频》《测试图文》 · 连续使用，共 2 段',
@@ -1917,8 +1943,11 @@ test('midnight, time zone, paging, sorting and timeline filters never cut a cont
   t.after(() => view.close());
   const pair = [1, 2].map(index => `09/28 23:58–09/29 00:03 · 第 ${index} 段，共 2 段`);
   const markup = view.activities();
-  assert.deepEqual(lanes(markup).map(lane => lane.bars.length), [1]);
-  assert.deepEqual(marks(markup), pair);
+  assert.deepEqual(activityGroups(markup).map(lane => lane.bars.length), [1]);
+  assert.deepEqual(marks(markup), [pair[0]]);
+  // 换到次日：两项活动均有当天执行，完整连续使用的标记仍包含前一天。
+  view.get('#calendar-date').onchange({target:{value:'2026-09-29'}});
+  assert.deepEqual(marks(view.get('#act-body').innerHTML),pair);
   // 每页一行：两页各一行，标记不变。
   view.run('AT.pageSize = 1');
   assert.deepEqual(marks(view.activities()), [pair[0]]);
@@ -1935,8 +1964,8 @@ test('midnight, time zone, paging, sorting and timeline filters never cut a cont
   const shown = [...view.run('TL.filtered.map(entry => entry.sum)')];
   assert.deepEqual(shown.filter(text => text.startsWith('已受理')),
     ['已受理 · 使用哔哩哔哩《测试图文》 · 计划 2分 · 接续 09/28 23:58 起的连续使用']);
-  // 世界状态的时区换成东京：标记和半句里的时刻都晚一小时。
-  const tokyo = await viewer(events, {world: {timezone: 'Asia/Tokyo'}});
+  // 导出清单的时区换成东京：标记和半句里的时刻都晚一小时。
+  const tokyo = await viewer(events, {timezone: 'Asia/Tokyo'});
   t.after(() => tokyo.close());
   assert.deepEqual(marks(tokyo.activities()),
     [1, 2].map(index => `09/29 00:58–09/29 01:03 · 第 ${index} 段，共 2 段`));
@@ -1950,7 +1979,7 @@ test('a use cut by the run end keeps the uses that touch it', async t => {
   const view = await viewer([...done, accepted, progress]);
   t.after(() => view.close());
   const markup = view.activities();
-  assert.deepEqual(lanes(markup).map(lane => lane.bars.map(bar => bar.title)), [[
+  assert.deepEqual(activityGroups(markup).map(lane => lane.bars.map(bar => bar.title)), [[
     '2026/09/28 20:00:00–2026/09/28 20:01:30 · 使用哔哩哔哩《测试文章》《测试长视频》 · 连续使用，共 2 段']]);
   assert.deepEqual(marks(markup), [1, 2].map(index => `09/28 20:00–09/28 20:01 · 第 ${index} 段，共 2 段`));
   // 后一次受理之后没有任何进度事件：它没有执行段，前一次标记栏是「—」，后一次受理行不加半句。
@@ -1968,7 +1997,7 @@ test('an item continued in the next use is written once in the label of the cont
     ...appUse('other', 'bilibili', 'c-image', at('20:40:00'), at('20:45:00')),
   ]);
   t.after(() => view.close());
-  const drawn = lanes(view.activities());
+  const drawn = activityGroups(view.activities());
   assert.equal(drawn[0].label, '使用哔哩哔哩《测试长视频》《测试图文》');
   assert.deepEqual(drawn[0].bars.map(bar => bar.title), ['2026/09/28 20:00:00–2026/09/28 20:45:00 · ' +
     '使用哔哩哔哩《测试长视频》《测试图文》 · 连续使用，共 3 段']);
@@ -1979,7 +2008,7 @@ test('continuous uses are found without the frozen catalog', async t => {
   const view = await viewer(nightEvents(), {files: []});
   t.after(() => view.close());
   const markup = view.activities();
-  const drawn = lanes(markup);
+  const drawn = activityGroups(markup);
   // 条块、标记和「接续」只用身份和时刻，照样算出；标签里的名称显示缺失。
   assert.deepEqual(drawn.map(lane => lane.bars.length), [1, 1, 1, 1, 1, 1, 1]);
   assert.deepEqual(marks(markup), NIGHT_MARKS);
@@ -1990,7 +2019,7 @@ test('continuous uses are found without the frozen catalog', async t => {
   const identities = [...new Set(NIGHT.flatMap(([, app, content]) => [app, content]))];
   assert.deepEqual([...missing].sort(), identities.map(identity => `Missing recorded object name: ${identity}`).sort());
   assert.deepEqual(view.errors.filter(error => !missing.includes(error)),
-    ['Frozen catalog is unavailable: no run manifest for this database']);
+    CATALOG_FILES.map(asset => `Frozen catalog file is missing: ${asset}`));
 });
 
 /** @brief 一次接连放几条的 app 使用：受理事件（当前内容是第一条）与每条一段首尾相接的进度事件，进度事件的快照换成
@@ -2024,8 +2053,138 @@ test('a feed of more than three items is written with three titles and the count
   const feed = '使用抖音《测试短视频》《测试短视频二》《测试实况》等 4 条';
   assert.deepEqual(targets(markup), [feed, '使用抖音《测试长视频》']);
   // 两项并成一行：c-long 在两项之间相邻，只算一次，标签与唯一的条块都写前三条加「等 4 条」。
-  assert.deepEqual(lanes(markup).map(lane => lane.label), [feed]);
-  assert.deepEqual(lanes(markup)[0].bars.map(bar => bar.title),
+  assert.deepEqual(activityGroups(markup).map(lane => lane.label), [feed]);
+  assert.deepEqual(activityGroups(markup)[0].bars.map(bar => bar.title),
     [`2026/09/28 20:00:00–2026/09/28 21:08:30 · ${feed} · 连续使用，共 2 段`]);
   assert.deepEqual(view.errors, []);
+});
+
+/* ---------- 导出目录的加载与全文读取 ---------- */
+
+/** @brief 把页面的 S.eventsFile 换成同样字节、但起点为 offset 的那一段要等 held 兑现才读完的文件。 */
+function heldAt(view, offset, held) {
+  const file = view.state.eventsFile;
+  view.state.eventsFile = {name: file.name, size: file.size, slice(start, end) {
+    const part = file.slice(start, end);
+    if (start !== offset) return part;
+    return {arrayBuffer: part.arrayBuffer, text: async () => { await held; return part.text(); }};
+  }};
+}
+
+test('timeline detail reads the full line by byte range, and a failed read is shown and logged', async t => {
+  const view = await viewer([event('observation', {balance_fen: 1000}), event('environment_event', {kind: 'weather'}),
+    event('memory_updated', {operation: 'append_episodes', episodes: []})]);
+  t.after(() => view.close());
+  // 第一次展开先插入「读取中 …」，读完换成这一行的缩进 JSON。
+  view.run('var detailRow = document.createElement("div")');
+  const reading = view.run('toggleDetail(detailRow, 1)');
+  assert.equal(view.run('detailRow.nextElementSibling.children[0].textContent'), '读取中 …');
+  await reading;
+  assert.equal(view.run('detailRow.nextElementSibling.children[0].textContent'),
+    JSON.stringify(JSON.parse(view.exported.lines[0]), null, 2));
+  await assert.rejects(view.run('fetchBody(999)'), {message: 'Event 999 is not in the loaded export'});
+  // 文件被移走：详情里写读取失败，并写英文错误日志。
+  view.state.eventsFile = {size: 1, slice: () => ({text: async () => { throw new Error('file moved'); }})};
+  view.run('var movedRow = document.createElement("div")');
+  await view.run('toggleDetail(movedRow, 2)');
+  assert.equal(view.run('movedRow.nextElementSibling.children[0].textContent'), '读取失败：file moved');
+  assert.ok(view.errors.includes('Event body could not be read: 2 file moved'), view.errors.join('\n'));
+  // 读出的不是 JSON：照原文显示，写英文错误日志。
+  view.state.eventsFile = {size: 8, slice: () => ({text: async () => 'not json'})};
+  view.run('var textRow = document.createElement("div")');
+  await view.run('toggleDetail(textRow, 3)');
+  assert.equal(view.run('textRow.nextElementSibling.children[0].textContent'), 'not json');
+  assert.ok(view.errors.some(error => error.startsWith('Event body is not JSON: 3 ')), view.errors.join('\n'));
+});
+
+test('a body read that finishes after a reload stays out of the next export\'s cache', async t => {
+  const view = await viewer([event('observation', {balance_fen: 1}), event('observation', {balance_fen: 2})]);
+  t.after(() => view.close());
+  const first = view.exported.lines[0];
+  let release;
+  heldAt(view, 0, new Promise(resolve => { release = resolve; }));
+  const pending = view.run('fetchBody(1)');
+  await view.reload([event('environment_event', {kind: 'weather'})]);
+  release();
+  assert.equal(await pending, first);
+  assert.equal(view.state.bodyCache.has(1), false);
+  const next = view.exported.lines[0];
+  assert.notEqual(next, first);
+  assert.equal(await view.run('fetchBody(1)'), next);
+});
+
+test('a context render overtaken by a newer one does not overwrite it', async t => {
+  const view = await viewer([contextEvent('one', contextRequest()), contextEvent('two', contextRequest(), 2)]);
+  t.after(() => view.close());
+  let release;
+  heldAt(view, view.run("q('SELECT offset FROM event_lines WHERE event_seq=1')[0].offset"),
+    new Promise(resolve => { release = resolve; }));
+  const slow = view.run('ContextView.select(1)');
+  await view.run('ContextView.select(2)');
+  release();
+  await slow;
+  assert.ok(view.get('#ctx-body').innerHTML.includes('value="2" selected'));
+  assert.ok(!view.get('#ctx-body').innerHTML.includes('value="1" selected'));
+  assert.deepEqual(view.errors, []);
+});
+
+test('reloading an export without a final checkpoint keeps no person names from the previous run', async t => {
+  const view = await viewer([event('observation', {})]);
+  t.after(() => view.close());
+  assert.ok(view.overview().includes('<span class="k">Agent</span><span class="v">陈曦</span>'));
+  await view.reload([event('observation', {})], {checkpoint: false});
+  const overview = view.overview();
+  assert.ok(overview.includes('<span class="k">Agent</span><span class="v">agent 1</span>'), overview);
+  assert.ok(!overview.includes('陈曦'));
+});
+
+test('the events file is the one beside the export manifest', async t => {
+  const rows = [event('observation', {}), event('observation', {}, {occurred_at: epoch + 60})];
+  const view = await viewer(rows);
+  t.after(() => view.close());
+  const decoy = directoryHandle('other', [fileHandle('events.jsonl', eventsFile('{"x":1}\n'))]);
+  const exported = exportRun(rows, {});
+  for (const directories of [[decoy, ...exported.directories], [...exported.directories, decoy]]) {
+    await view.run('openExport')([], directories, () => {});
+    assert.equal(view.state.fileName, 'export/events.jsonl');
+    assert.equal(view.state.events.length, rows.length);
+  }
+});
+
+test('the drop zone refuses a second drop while an export loads and shows a failed load', async t => {
+  const rows = [event('observation', {})];
+  const view = await viewer(rows);
+  t.after(() => view.close());
+  const refusal = 'Another export is still loading; drop again after it finishes';
+  view.state.loading = true;
+  await view.run('handleFiles')([], null);
+  assert.equal(view.get('#drop-err').textContent, refusal);
+  assert.ok(view.errors.includes(`Run viewer load refused: ${refusal}`));
+  assert.equal(view.state.loading, true, 'the refused drop leaves the running load alone');
+  // 只拖了数据库：回到拖放区并显示原因，空的主界面不留在原因之上。
+  view.state.loading = false;
+  view.get('#app').classList.add('on');
+  view.get('#drop-zone').classList.add('hidden');
+  await view.run('handleFiles')([droppedFile('footprints.sqlite', '')], null);
+  const bare = 'footprints.sqlite is not opened directly: export the run with "worldmock export --run-dir ' +
+    '<run directory> --output <new directory>" (--cutoff <event_seq> exports part of it) and drop the export directory';
+  assert.equal(view.get('#drop-err').textContent, `加载失败：${bare}`);
+  assert.ok(view.errors.includes(`Run viewer load failed: ${bare}`));
+  assert.equal(view.get('#app').classList.contains('on'), false);
+  assert.equal(view.get('#drop-zone').classList.contains('hidden'), false);
+  assert.equal(view.state.loading, false);
+  // 导出清单的时区 Intl 不认识：索引建好之后在读事件索引时失败，handleFiles 关掉已建的索引。
+  let unknownZone = null;
+  try {
+    new Intl.DateTimeFormat('zh-CN', {timeZone: 'Mars/Olympus'});
+  } catch (error) {
+    unknownZone = error.message;
+  }
+  assert.ok(unknownZone);
+  const live = new Set(Database.live);
+  await view.run('handleFiles')(exportRun(rows, {files: [], timezone: 'Mars/Olympus'}).files, null);
+  assert.equal(view.get('#drop-err').textContent, `加载失败：${unknownZone}`);
+  assert.equal(view.state.db, null);
+  assert.ok([...Database.live].every(database => live.has(database)), 'the half-built index is closed');
+  assert.equal(view.state.loading, false);
 });

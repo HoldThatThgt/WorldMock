@@ -5,6 +5,7 @@ import json
 
 import pytest
 
+from tests.footprints.recording import artifact_rows
 from tests.life.conftest import conclude_request, do_at, errand_add, purchase, travel, use_app
 from tests.life.environment_runtime import act, finish_activity, reach, run_to_end
 from tests.life.prerequisite_inputs import OFFICE, dingtalk_environment, example_window, moment
@@ -32,7 +33,7 @@ def test_complete_run_exports_authenticated_app_use_and_frozen_inputs(completed_
     store = completed_engine[0].context.store
     output = tmp_path / "export"
     export_run(store, store.last_event_seq, output)
-    manifest, _, activities = validate_export(output)
+    manifest, activities = validate_export(output)
     assert manifest["experiment_completed"] is True
     assert all(len(row["source_event_ids"]) == len(set(row["source_event_ids"])) for row in activities)
     interactions = [row for row in activities if row["activity_type"] == "interact"]
@@ -85,7 +86,8 @@ def test_real_delivery_export_links_payment_arrival_and_one_receipt(engine_facto
     snapshot = store.assets.put_json({"completed": True}, {"kind": "test_agent_snapshot"})
     engine.checkpoint({"agent:1": snapshot})
     export_run(store, store.last_event_seq, output)
-    manifest, exported_events, _ = validate_export(output)
+    manifest, _ = validate_export(output)
+    exported_events = artifact_rows(output, "events")
     assert manifest["experiment_completed"] is True
     purchases = [json.loads(row) for row in (output / "purchases.jsonl").read_text(encoding="utf-8").splitlines()]
     bought = next(row for row in purchases if row["fact_kind"] == "purchase")
@@ -128,7 +130,7 @@ def test_clock_in_exports_one_app_use_and_one_content_consumed_row(engine_factor
     point = engine.checkpoint({"agent:1": snapshot})
     output = tmp_path / "export"
     export_run(store, point.last_event_seq, output)
-    manifest, _, activities = validate_export(output)
+    manifest, activities = validate_export(output)
     assert manifest["experiment_completed"] is True
     usage = [json.loads(row) for row in (output / "app-usage.jsonl").read_text(encoding="utf-8").splitlines()]
     rows = [{key: value for key, value in row.items() if key not in {"activity_id", "agent_id", "source_event_id"}}

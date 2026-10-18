@@ -2,7 +2,7 @@
 
 import pytest
 
-from tests.life.conftest import advance_next, query, sleep, travel
+from tests.life.conftest import action_identity, advance_next, query, sleep, travel
 from tests.life.environment_inputs import copy_environment, write_catalog_rows
 from tests.life.environment_runtime import act, events, finish_activity, run_to_end
 
@@ -129,7 +129,7 @@ def test_travel_callback_fires_only_for_trips_by_the_subscribed_travel_method(en
     effects = changes(engine)
     assert [row.data["rule_id"] for row in effects] == fired
     assert engine.context.state.agents[1].callback_states == {"driving_stock": 2 if fired == ["walk-stock"] else 3}
-    accepted = next(row for row in events(engine, "action_result") if row.action_id == "action-trip")
+    accepted = next(row for row in events(engine, "action_result") if row.action_id == action_identity("trip"))
     assert all(row.caused_by == [accepted.event_id] for row in effects)
     advance_next(engine)
     assert [row.data["rule_id"] for row in changes(engine)] == fired
@@ -152,7 +152,7 @@ def test_daily_travel_callback_settles_only_on_days_with_a_trip_by_its_travel_me
     assert engine.context.state.agents[1].callback_once_keys == {"drive-day:2026-01-05"}
     [effect] = changes(engine)
     source = next(row for row in events(engine) if row.event_id == effect.caused_by[0])
-    assert source.action_id == "action-drive-back" and source.event_type == "action_result"
+    assert source.action_id == action_identity("drive-back") and source.event_type == "action_result"
 
 
 def _navigation_world(root):

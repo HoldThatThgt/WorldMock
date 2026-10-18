@@ -19,7 +19,7 @@ from worldmock.footprints.app_usage import project_app_usage, validate_app_event
 def test_actual_content_evidence_rejects_wrong_source_without_modifying_inputs(engine_factory, fault, reason):
     engine, _ = recorded_engine(engine_factory, purchases=False)
     store = engine.context.store
-    event = next(row.model_dump(mode="json") for row in store.read_events(store.last_event_seq)
+    event = next(row.model_dump(mode="json") for row in list(store.iter_events(store.last_event_seq))
                  if row.event_type == "activity_progress" and "content" in row.data)
     baseline = project_app_usage([event])
     original = deepcopy(event)

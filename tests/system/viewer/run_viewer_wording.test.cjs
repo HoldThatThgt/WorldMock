@@ -61,7 +61,7 @@ test('the events of one activity written into SQLite give the activity table tar
 });
 
 test('app use without content has no wording', async t => {
-  // 带 app 而内容身份为空的互动经页面的加载入口：空的内容身份与别的身份一样去查名称，活动表、泳道、受理行和活动段行都写
+  // 带 app 而内容身份为空的互动经页面的加载入口：空的内容身份与别的身份一样去查名称，活动表、总览条块、受理行和活动段行都写
   // 「名称缺失（null）」，英文错误恰好一次；不写成只有 app 名的「使用美团」。
   const activity = (status, elapsed) => ({activity_id: 'bare', agent_id: 1, kind: 'interact', location_id: 'home',
     status, planned_duration_seconds: 600, elapsed_seconds: elapsed,
@@ -75,7 +75,7 @@ test('app use without content has no wording', async t => {
   const phrase = '使用美团《名称缺失（null）》';
   const markup = view.activities();
   assert.deepEqual(targets(markup), [phrase]);
-  assert.deepEqual([...markup.matchAll(/<div class="act-lane-label" title="[^"]*">([^<]*)<\/div>/g)]
+  assert.deepEqual([...markup.matchAll(/<button class="act-lane-bar"[^>]*>([^<]*)<\/button>/g)]
     .map(match => match[1]), [phrase]);
   assert.equal(view.summary(1), `已受理 · ${phrase} · 计划 10分`);
   assert.equal(view.summary(2), `活动段 · ${phrase} · 已完成 · 已进行 1分`);
