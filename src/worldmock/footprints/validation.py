@@ -118,12 +118,18 @@ def _validate_identity(manifest: dict) -> None:
         raise IntegrityError("Export artifact set is invalid")
 
 
-def _read_artifact(root: Path, descriptor: dict, name: str) -> list[dict]:
-    """@brief 固定相对文件、真实字节摘要与行数共同确定导出身份。"""
+def _artifact_path(root: Path, descriptor: dict, name: str) -> Path:
+    """@brief 导出工件必须是清单声明的固定相对文件，且是普通文件而不是符号链接。"""
     path = root / name
     if descriptor["path"] != name or path.is_symlink() or not path.is_file():
+        logging.error("Export artifact path is invalid")
         raise IntegrityError("Export artifact path is invalid")
-    raw = path.read_bytes()
+    return path
+
+
+def _read_artifact(root: Path, descriptor: dict, name: str) -> list[dict]:
+    """@brief 固定相对文件、真实字节摘要与行数共同确定导出身份。"""
+    raw = _artifact_path(root, descriptor, name).read_bytes()
     if hashlib.sha256(raw).hexdigest() != descriptor["sha256"]:
         raise IntegrityError("Export artifact hash is invalid")
     rows = [json.loads(line) for line in raw.splitlines()]
@@ -134,10 +140,7 @@ def _read_artifact(root: Path, descriptor: dict, name: str) -> list[dict]:
 
 def _authenticated_events(root: Path, descriptor: dict) -> str:
     """@brief 第一遍：只按字节流式核对 events.jsonl 的路径、摘要与行数（行按 bytes.splitlines 切分），不解析任何一行。"""
-    path = root / "events.jsonl"
-    if descriptor["path"] != "events.jsonl" or path.is_symlink() or not path.is_file():
-        logging.error("Export artifact path is invalid")
-        raise IntegrityError("Export artifact path is invalid")
+    path = _artifact_path(root, descriptor, "events.jsonl")
     digest, rows = hashlib.sha256(), 0
     with path.open("rb") as stream:
         for chunk in stream:

@@ -617,10 +617,11 @@ def _add_memory_problem(state: dict, code: str, event_id: str, agent_id: Any, re
 def _model_quality(events: list[Event]) -> dict:
     """@brief 去重调用身份，累计提供商实报 token 并估算公开标价成本。"""
     requests = [event for event in events if event.event_type == "model_request"]
-    request_times = {event.data["call_id"]: event.recorded_at for event in requests
-                     if isinstance(event.data.get("call_id"), str)}
-    classes = {event.data["call_id"]: _call_class(event.data) for event in requests
-               if isinstance(event.data.get("call_id"), str)}
+    request_classes = [_call_class(event.data) for event in requests]
+    identified = [(event, name) for event, name in zip(requests, request_classes)
+                  if isinstance(event.data.get("call_id"), str)]
+    request_times = {event.data["call_id"]: event.recorded_at for event, _ in identified}
+    classes = {event.data["call_id"]: name for event, name in identified}
     terminals: dict[str, list[Event]] = defaultdict(list)
     for event in events:
         if event.event_type == "model_response" and isinstance(event.data.get("call_id"), str):
@@ -631,7 +632,7 @@ def _model_quality(events: list[Event]) -> dict:
              if isinstance(event.data.get("response"), dict)]
     reported = [item for item in usage if item["tokens"] is not None]
     estimated = [item for item in usage if item["estimated_cost_usd"] is not None]
-    request_ids = {event.data.get("call_id") for event in requests if isinstance(event.data.get("call_id"), str)}
+    request_ids = set(classes)
     terminal_ids = set(terminals)
     failures = sum(event.data.get("phase") == "failure" for event in selected)
     pending = sorted(request_ids - terminal_ids)
@@ -650,7 +651,7 @@ def _model_quality(events: list[Event]) -> dict:
         "token_usage": _aggregate_tokens(usage, reported, missing_responses + len(pending)),
         "estimated_cost": _aggregate_cost(usage, estimated, missing_responses, pending),
         "by_actual_model": _usage_by_model(usage),
-        "by_call_class": _usage_by_call_class(requests, usage),
+        "by_call_class": _usage_by_call_class(request_classes, usage),
         "pricing_snapshot": _PRICING,
     }
 
@@ -819,10 +820,10 @@ def _message_roles(request: dict) -> list:
     return [message.get("role") if isinstance(message, dict) else None for message in messages]
 
 
-def _usage_by_call_class(requests: list[Event], usage: list[dict]) -> list[dict]:
+def _usage_by_call_class(request_classes: list[str], usage: list[dict]) -> list[dict]:
     """@brief 按调用类分列：六类按 CALL_CLASSES 次序总是列出，unrecognized 只在出现时列在最后；每类给出请求事件数、
     提供商响应数、已知 token、可计价响应按计价拆开的 token、峰时占比与估算成本。"""
-    counts = Counter(_call_class(event.data) for event in requests)
+    counts = Counter(request_classes)
     groups: dict[str, list[dict]] = defaultdict(list)
     for item in usage:
         groups[item["call_class"]].append(item)

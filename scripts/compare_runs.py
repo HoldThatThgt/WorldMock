@@ -29,6 +29,7 @@ import sqlite3
 import tarfile
 import zlib
 from collections import Counter
+from contextlib import closing
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -345,24 +346,8 @@ class Options:
 
 def _last_seq(chain: Chain) -> int:
     """@brief 最后一段库的末事件序号。"""
-    with _closing(chain.database()) as connection:
+    with closing(chain.database()) as connection:
         return connection.execute("SELECT COALESCE(MAX(event_seq),0) FROM events").fetchone()[0]
-
-
-class _closing:
-    """@brief 用完即关的只读连接（sqlite3 连接的 with 只管事务，不关连接）。"""
-
-    def __init__(self, connection: sqlite3.Connection):
-        """@brief 接管一个连接。"""
-        self.connection = connection
-
-    def __enter__(self) -> sqlite3.Connection:
-        """@brief 交出连接。"""
-        return self.connection
-
-    def __exit__(self, *_exc) -> None:
-        """@brief 关闭连接。"""
-        self.connection.close()
 
 
 _CHECKPOINT_EVENTS = ("SELECT event_seq, json_extract(body,'$.occurred_at'), "
@@ -389,7 +374,7 @@ class IdMaps:
         maps = cls()
         maps.cutoff = cutoff
         for side, chain in zip(_SIDES, (base, head)):
-            with _closing(chain.database()) as connection:
+            with closing(chain.database()) as connection:
                 rows = connection.execute("SELECT event_seq, event_id FROM events WHERE event_seq<=? "
                                           "ORDER BY event_seq", (cutoff,)).fetchall()
                 points = connection.execute(_CHECKPOINT_EVENTS, (cutoff,)).fetchall()
@@ -457,10 +442,6 @@ class Digests:
 
     def manifest(self, raw_sha: str, side: str) -> str:
         """@brief 运行清单原始摘要（即检查点里的 manifest_sha256）对应的规范化摘要；未登记时原样。"""
-        return self.maps[side].get(raw_sha, (raw_sha, 0))[0]
-
-    def artifact(self, raw_sha: str, side: str) -> str:
-        """@brief 导出工件原始摘要对应的规范化摘要；未登记时原样。"""
         return self.maps[side].get(raw_sha, (raw_sha, 0))[0]
 
 
@@ -1060,7 +1041,7 @@ def _checkpoint_row(chain: Chain, point: tuple, context: NormalizeContext) -> tu
     """
     _, _, checkpoint_id, run_id = point
     segment = chain.segment_of_run(run_id)
-    with _closing(chain.database(segment - 1)) as connection:
+    with closing(chain.database(segment - 1)) as connection:
         row = connection.execute("SELECT body, record_sha256 FROM checkpoints WHERE checkpoint_id=?",
                                  (checkpoint_id,)).fetchone()
     if row is None:
@@ -1090,11 +1071,6 @@ def _verified_record(record: dict) -> dict:
     return record
 
 
-def _compare_records(layer: _Layer, key: str, records: tuple[dict, dict], context: CompareContext) -> None:
-    """@brief 一对检查点记录：先按规则对齐状态，再各自规范化后比较。"""
-    layer.add(key, *normalize_checkpoint_pair(records, context))
-
-
 def _day_end_points(points: list[tuple], timezone: str) -> list[tuple]:
     """@brief 每个本地日期取 current_time 落在当天、序号最高的检查点事件。"""
     zone, chosen = ZoneInfo(timezone), {}
@@ -1107,8 +1083,8 @@ def compare_states(base: Side, head: Side, context: CompareContext) -> dict:
     """@brief 比较重启点、日终、终态与（可选）全部检查点。"""
     layers = {"restart_states": _Layer(), "day_end_states": _Layer()}
     for index, records in enumerate(zip(base.chain.restored[1:], head.chain.restored[1:]), start=2):
-        _compare_records(layers["restart_states"], f"segment {index}",
-                         (_verified_record(records[0]), _verified_record(records[1])), context)
+        layers["restart_states"].add(f"segment {index}", *normalize_checkpoint_pair(
+            (_verified_record(records[0]), _verified_record(records[1])), context))
     _compare_points(layers["day_end_states"], (base, head), context, every=False)
     every = None
     if context.options.every_checkpoint:
@@ -1134,7 +1110,7 @@ def _compare_points(layer: _Layer, sides: tuple[Side, Side], context: CompareCon
         if base_form != head_form and _enabled(context.options.rules, "checkpoint-zlib") is None:
             _refuse(f"Checkpoint {head_point[2]} row is {base_form} on the base and {head_form} on the head; "
                     "only rule checkpoint-zlib aligns them")
-        _compare_records(layer, f"checkpoint {base_point[0]}", (base_record, head_record), context)
+        layer.add(f"checkpoint {base_point[0]}", *normalize_checkpoint_pair((base_record, head_record), context))
 
 
 def _compare_final(base: Side, head: Side, context: CompareContext) -> dict | None:
@@ -1143,7 +1119,7 @@ def _compare_final(base: Side, head: Side, context: CompareContext) -> dict | No
         return None
     states = []
     for side in (base, head):
-        with _closing(side.chain.database()) as connection:
+        with closing(side.chain.database()) as connection:
             states.append(json.loads(connection.execute("SELECT body FROM world_state").fetchone()[0]))
     layer = _Layer()
     layer.add("final", *normalize_state_pair(states[0], states[1], context))
@@ -1475,14 +1451,14 @@ def compare_event_data(base_event: dict, head_event: dict) -> list[dict]:
 
 def _stored_event(run: Path, seq: int) -> dict:
     """@brief 读运行库里存下的一条事件正文。"""
-    with _closing(_connect(run)) as connection:
+    with closing(_connect(run)) as connection:
         row = connection.execute("SELECT body FROM events WHERE event_seq=?", (seq,)).fetchone()
     if row is None:
         _refuse(f"Run {run} has no event {seq}")
     return json.loads(row[0])
 
 
-def _write_report(path: Path, report: dict) -> None:
+def write_report(path: Path, report: dict) -> None:
     """@brief 报告写成规范 JSON 加一个换行。"""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(canonical_bytes(report) + b"\n")
@@ -1515,7 +1491,7 @@ def _runs_command(arguments: argparse.Namespace) -> int:
     base = Side(Chain.load(arguments.base_run), arguments.base_export)
     head = Side(Chain.load(arguments.head_run), arguments.head_export)
     report = compare(base, head, options)
-    _write_report(arguments.report, report)
+    write_report(arguments.report, report)
     print(summary_line(report))
     return 0 if report["verdict"] == "equal" else 1
 
@@ -1525,7 +1501,7 @@ def _events_command(arguments: argparse.Namespace) -> int:
     base = _stored_event(arguments.base_run, arguments.base_seq)
     head = _stored_event(arguments.head_run, arguments.head_seq)
     paths = compare_event_data(base, head)
-    _write_report(arguments.report, {"base": {"run": str(arguments.base_run), "seq": arguments.base_seq},
+    write_report(arguments.report, {"base": {"run": str(arguments.base_run), "seq": arguments.base_seq},
                                      "head": {"run": str(arguments.head_run), "seq": arguments.head_seq},
                                      "paths": paths, "schema_version": 1})
     print(f"Event data differ in {len(paths)} paths" if paths else "Event data are equal")

@@ -25,8 +25,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from scripts.compare_runs import Chain, ComparisonError, Options, Side, compare, parse_rules  # noqa: E402
-from scripts.recorded_response_run import as2_location  # noqa: E402
+from scripts.compare_runs import (  # noqa: E402
+    Chain, ComparisonError, Options, Side, compare, parse_rules, write_report)
+from scripts.recorded_response_run import AS2_SOURCE, as2_location, project_pythonpath  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -34,8 +35,7 @@ logger = logging.getLogger(__name__)
 KINDS = ("activity", "callback")
 #: 两侧必须逐字节相同的依赖锁。
 LOCKS = ("uv.lock", "requirements/lock.txt")
-#: 恢复出的 AS2 包目录与行为录制入口（相对检出根）。
-AS2_SOURCE = Path("vendor/agentsociety2/packages/agentsociety2/agentsociety2")
+#: 行为录制入口（相对检出根）。
 RECORDER = Path("tests/life/behaviour_day.py")
 #: 一侧录制的时限（秒）。
 RECORDING_TIMEOUT = 3600
@@ -51,9 +51,7 @@ def _refuse(message: str) -> ComparisonError:
 
 def side_environment(root: Path) -> dict[str, str]:
     """@brief 一侧子进程只导入这一侧的代码：PYTHONPATH 是这一侧的 src、根目录与 AS2 包目录。"""
-    root = Path(root).resolve()
-    paths = (root / "src", root, root / AS2_SOURCE.parent)
-    return {**os.environ, "PYTHONPATH": os.pathsep.join(str(path) for path in paths), "PYTHONUTF8": "1",
+    return {**os.environ, "PYTHONPATH": project_pythonpath(Path(root).resolve()), "PYTHONUTF8": "1",
             "PYTHONDONTWRITEBYTECODE": "1"}
 
 
@@ -154,9 +152,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     report = {"base_root": str(base), "head_root": str(head), "kinds": kinds, "rules": list(arguments.rule),
               "verdict": verdict}
-    work.mkdir(parents=True, exist_ok=True)
-    (work / "complete-day-behaviour.json").write_bytes(
-        json.dumps(report, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\n")
+    write_report(work / "complete-day-behaviour.json", report)
     print(f"Complete-day behaviour: {verdict}")
     return 1 if verdict == "different" else 0
 

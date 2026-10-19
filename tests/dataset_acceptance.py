@@ -1101,7 +1101,7 @@ MUTATIONS = (
         ("tests/unit/footprints/test_branch_coverage.py"
          "::test_branch_copy_that_disagrees_with_the_parent_publishes_nothing",)),
     SourceMutation("branch_artifact_rows_not_copied", "worldmock.footprints.store::FootprintStore.copy_event_prefix",
-        "for reference in references:", "for reference in ():",
+        "self._index_artifacts(references)", "self._index_artifacts(())",
         ("tests/unit/footprints/test_branch_coverage.py"
          "::test_branch_copies_parent_rows_and_artifact_rows_byte_for_byte",)),
     SourceMutation("branch_skips_parts", "worldmock.footprints.store::FootprintStore.copy_event_prefix",
@@ -1180,7 +1180,7 @@ MUTATIONS = (
         ("tests/integration/runtime/test_frozen_metadata_resume.py"
          "::test_engine_open_reads_the_store_manifest_metadata",)),
     SourceMutation("metadata_fetch_not_retried", "worldmock.model_endpoint::_fetch_metadata",
-        "if not _transient_metadata_error(error):", "if True:",
+        "if wait is None or not _transient_metadata_error(error):", "if True:",
         ("tests/unit/runtime/test_model_metadata_fetch.py::test_transient_failures_are_retried_whole_with_fixed_waits",)),
     SourceMutation("metadata_fetch_retries_rejections", "worldmock.model_endpoint::_transient_metadata_error",
         "response.status_code in _METADATA_RETRY_STATUSES", "response.status_code >= 400",

@@ -34,6 +34,7 @@ import time
 import tomllib
 from collections import Counter
 from collections.abc import Mapping
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -45,7 +46,7 @@ TOOL_ROOT = Path(__file__).resolve().parents[1]
 if str(TOOL_ROOT) not in sys.path:
     sys.path.insert(0, str(TOOL_ROOT))
 
-from scripts.compare_runs import Chain, ComparisonError, canonical_bytes  # noqa: E402
+from scripts.compare_runs import Chain, ComparisonError, canonical_bytes, write_report  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,8 @@ REFUSAL_WATCHDOG_SECONDS = 600
 DIFF_LINE_LIMIT = 400
 #: 项目里恢复出的 AGentSociety2 包源码的相对位置。
 AS2_PACKAGE = Path("vendor/agentsociety2/packages/agentsociety2")
+#: 恢复出的 agentsociety2 包目录本身（相对检出根）。
+AS2_SOURCE = AS2_PACKAGE / "agentsociety2"
 #: 在子进程里找 agentsociety2 包目录的代码。
 FIND_AS2 = ("import importlib.util, json; s = importlib.util.find_spec('agentsociety2'); "
             "print(json.dumps(list(s.submodule_search_locations)))")
@@ -154,13 +157,10 @@ def _boundaries(chain: Chain, calls: tuple[RecordedCall, ...]) -> tuple[Boundary
         first = next((call.index for call in calls if call.request_seq > position), None)
         if first is None:
             raise _fail(f"Segment {segment + 1} records no model call after its restart")
-        connection = _open(chain.runs[segment - 1])
-        try:
+        with closing(_open(chain.runs[segment - 1])) as connection:
             row = connection.execute("SELECT event_seq, body FROM events WHERE event_seq > ? AND "
                                      "json_extract(body,'$.event_type')='model_request' ORDER BY event_seq LIMIT 1",
                                      (position,)).fetchone()
-        finally:
-            connection.close()
         request = json.loads(row[1])["data"]["request"] if row else None
         boundaries.append(Boundary(segment, position, first, request, row[0] if row else None,
                                    chain.manifests[segment]["run_id"]))
@@ -180,11 +180,8 @@ def load_plan(sources: list[Path]) -> Plan:
     for manifest in chain.manifests:
         if not _HEX_RUN_ID.match(str(manifest["run_id"])):
             raise _fail(f"Source run id {manifest['run_id']} is not a 32-character hex identity")
-    connection = _open(chain.runs[-1])
-    try:
+    with closing(_open(chain.runs[-1])) as connection:
         calls = _recorded_calls(chain, connection)
-    finally:
-        connection.close()
     final = chain.manifests[-1]
     _, config = _frozen_config(chain.runs[-1], final)
     continuation = final["stage_model_identity"]["stages"]["action"]["same_second_continuation"]
@@ -252,12 +249,11 @@ def _diff_text(recorded: object, received: object) -> str:
     return "\n".join(list(diff)[:DIFF_LINE_LIMIT])
 
 
-def _first_index(first: list, second: list) -> int:
-    """@brief 两列首个规范字节不同的下标（一列是另一列前缀时为较短长度）。"""
-    for index, (left, right) in enumerate(zip(first, second)):
-        if canonical_bytes(left) != canonical_bytes(right):
-            return index
-    return min(len(first), len(second))
+def _first_pair(first: list, second: list) -> tuple[int, list]:
+    """@brief 两列首个规范字节不同的下标（一列是另一列前缀时为较短长度）与该下标处的一对元素（越界的一侧为 None）。"""
+    index = next((index for index, (left, right) in enumerate(zip(first, second))
+                  if canonical_bytes(left) != canonical_bytes(right)), min(len(first), len(second)))
+    return index, [items[index] if index < len(items) else None for items in (first, second)]
 
 
 def _layers(content: object) -> list | None:
@@ -278,8 +274,7 @@ def _message_layer(expected: dict | None, received: dict | None) -> tuple[str, o
     if role == "user":
         layers = [_layers((item or {}).get("content")) for item in (expected, received)]
         if layers[0] is not None and layers[1] is not None:
-            index = _first_index(layers[0], layers[1])
-            pair = [items[index] if index < len(items) else None for items in layers]
+            index, pair = _first_pair(layers[0], layers[1])
             element = pair[0] if pair[0] is not None else pair[1]
             name = element.get("layer") if isinstance(element.get("layer"), str) else f"user[{index}]"
             return name, pair[0], pair[1]
@@ -296,15 +291,13 @@ def first_difference(expected: dict, received: dict) -> dict | None:
         layer, pair = ",".join(fields), (expected.get(fields[0]), received.get(fields[0]))
         if "tools" in fields:
             tools = [expected.get("tools") or [], received.get("tools") or []]
-            index = _first_index(tools[0], tools[1])
-            pair = [items[index] if index < len(items) else None for items in tools]
+            index, pair = _first_pair(tools[0], tools[1])
             element = pair[0] if pair[0] is not None else pair[1]
             name = ((element or {}).get("function") or {}).get("name") if isinstance(element, dict) else None
             layer = f"tools:{name or f'tools[{index}]'}"
         return {"fields": fields, "layer": layer, "message_index": None, "diff": _diff_text(*pair)}
     messages = [expected.get("messages") or [], received.get("messages") or []]
-    index = _first_index(messages[0], messages[1])
-    pair = [items[index] if index < len(items) else None for items in messages]
+    index, pair = _first_pair(messages[0], messages[1])
     layer, recorded, sent = _message_layer(*pair)
     return {"fields": fields, "layer": layer, "message_index": index, "diff": _diff_text(recorded, sent)}
 
@@ -395,18 +388,18 @@ class Cassette:
             try:
                 if headers.get("Authorization") != f"Bearer {DUMMY_CREDENTIAL}":
                     logger.error("Refused a request without the recorded-response credential")
-                    return self._reject("credential", (method, path, body), "credential")
+                    return self._reject("credential", (method, path, body))
                 route = urlsplit(path).path
                 if method == "GET" and route == self.metadata_path:
                     return self._models(method, path)
                 if method == "POST" and route == self.chat_path:
                     return self._chat(method, path, body)
                 logger.error("Refused an unexpected request %s %s", method, path)
-                return self._reject("unexpected_path", (method, path, body), "unexpected_path")
+                return self._reject("unexpected_path", (method, path, body))
             except Exception:
                 logger.exception("Recorded-response cassette failed on %s %s", method, path)
                 self.error = f"Recorded-response cassette failed on {method} {path}"
-                return self._reject("cassette_error", (method, path, body), "cassette_error")
+                return self._reject("cassette_error", (method, path, body))
 
     def _models(self, method: str, path: str) -> tuple[int, bytes]:
         """@brief 模型元数据：冻结的容量，计入本段的元数据请求次数。"""
@@ -469,15 +462,12 @@ class Cassette:
         logger.info("Planned restart refusal before segment %d at call %d", boundary.segment + 1, self.next_call)
         return 400, _error_body("planned_restart", f"Planned restart before segment {boundary.segment + 1}")
 
-    def _reject(self, code: str, request: tuple[str, str, bytes], kind: str) -> tuple[int, bytes]:
-        """@brief 凭据、路径或录音带故障：写日志、记一条无调用序号的偏差、答 400。"""
+    def _reject(self, kind: str, request: tuple[str, str, bytes]) -> tuple[int, bytes]:
+        """@brief 凭据、路径或录音带故障：写日志、记一条无调用序号的偏差、答 400（错误码即 kind）。"""
         method, path, body = request
         self._log(method, path, body, None, kind)
-        self._record({"kind": kind, "call_index": None, "source_seq": None, "segment": self.segment,
-                      "simulated_time": None, "purpose": None, "fields": [], "layer": None,
-                      "message_index": None, "diff": "", "matches_discarded_request": None,
-                      "body_sha256": hashlib.sha256(body).hexdigest() if body else None})
-        return 400, _error_body(code, f"Recorded-response run refused the request: {kind}")
+        self._record({**_plain(kind, self.segment), "body_sha256": hashlib.sha256(body).hexdigest() if body else None})
+        return 400, _error_body(kind, f"Recorded-response run refused the request: {kind}")
 
     def _diverge(self, kind: str, request: tuple[str, str, bytes], difference: dict | None,
                  boundary: Boundary | None = None) -> tuple[int, bytes]:
@@ -595,14 +585,18 @@ def _routing_name(name: str) -> bool:
     return name.upper() in {"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "RAY_ADDRESS"}
 
 
+def project_pythonpath(root: Path) -> str:
+    """@brief 只导入这一检出自己的代码：它的 src、根目录与 AS2 包目录。"""
+    return os.pathsep.join(str(path) for path in (root / "src", root, root / AS2_PACKAGE))
+
+
 def child_environment(parent: Mapping[str, str], project: Path, api_key_env: str) -> dict[str, str]:
     """@brief 子进程环境：去掉凭据、代理与外部 Ray 地址，只给占位凭据，只导入项目自己的代码。"""
     variables = {name: value for name, value in parent.items() if not _secret_name(name) and not _routing_name(name)}
     project = Path(project).resolve()
     variables.update({api_key_env: DUMMY_CREDENTIAL, "NO_PROXY": "127.0.0.1,localhost",
                       "PYTHONDONTWRITEBYTECODE": "1", "PYTHONUTF8": "1", "LITELLM_LOCAL_MODEL_COST_MAP": "True",
-                      "PYTHONPATH": os.pathsep.join(str(path) for path in (project / "src", project,
-                                                                            project / AS2_PACKAGE))})
+                      "PYTHONPATH": project_pythonpath(project)})
     return variables
 
 
@@ -629,6 +623,11 @@ def judge_segment(plan: Plan, cassette: Cassette, segment: int, exit_code: int) 
     return {"ended_by": "failure", "verdict": "error", "error": message}
 
 
+def _segment_dir(work: Path, segment: int) -> Path:
+    """@brief 工具自己第 segment 段的运行目录。"""
+    return work / "segments" / f"{segment:02d}"
+
+
 def _plain(kind: str, segment: int) -> dict:
     """@brief 不来自某次请求的偏差记录。"""
     return {"kind": kind, "call_index": None, "source_seq": None, "segment": segment, "simulated_time": None,
@@ -652,11 +651,8 @@ def _resume_checkpoint(job: SegmentJob) -> str:
     previous = job.segment - 1
     control = job.cassette.control
     seq = control[1] if control is not None and control[0] == previous else job.plan.chain.positions[previous - 1]
-    connection = _open(job.work / "segments" / f"{previous:02d}")
-    try:
+    with closing(_open(_segment_dir(job.work, previous))) as connection:
         row = connection.execute("SELECT body FROM events WHERE event_seq=?", (seq,)).fetchone()
-    finally:
-        connection.close()
     event = json.loads(row[0]) if row else {}
     if event.get("event_type") != "checkpoint_created":
         raise _fail(f"Segment {previous} has no checkpoint_created event at sequence {seq}")
@@ -666,13 +662,13 @@ def _resume_checkpoint(job: SegmentJob) -> str:
 def _segment_argv(job: SegmentJob) -> tuple[str, list[str], str | None]:
     """@brief 第 k 段子进程的模式、命令参数与恢复的检查点身份。"""
     work, project = job.work, str(job.project)
-    output = str(work / "segments" / f"{job.segment:02d}")
+    output = str(_segment_dir(work, job.segment))
     if job.segment == 1:
         switch = "on" if job.plan.continuation else "off"
         return "run", ["--project-root", project, "run", "--environment", str(work / "input"), "--output", output,
                        "--same-second-continuation", switch], None
     checkpoint = _resume_checkpoint(job)
-    parent = str(work / "segments" / f"{job.segment - 1:02d}")
+    parent = str(_segment_dir(work, job.segment - 1))
     return "resume", ["--project-root", project, "resume", "--environment", str(work / "input"), "--parent", parent,
                       "--checkpoint", checkpoint, "--output", output], checkpoint
 
@@ -708,7 +704,7 @@ def _run_child(command: list[str], job: SegmentJob, log: Path) -> tuple[int, boo
 
 def _run_identity(job: SegmentJob, log: Path) -> tuple[str | None, str | None]:
     """@brief 第 k 段清单里的运行身份，与来源不同或没写清单时给出错误。"""
-    path = job.work / "segments" / f"{job.segment:02d}" / "manifest.json"
+    path = _segment_dir(job.work, job.segment) / "manifest.json"
     expected = job.plan.chain.manifests[job.segment - 1]["run_id"]
     if not path.is_file():
         message = f"Segment {job.segment} wrote no run manifest; see {log}"
@@ -744,7 +740,7 @@ def run_segment(job: SegmentJob) -> dict:
              "first_call": first if served else None, "index": segment,
              "last_call": cassette.next_call - 1 if served else None, "mode": mode,
              "models_requests": cassette.models_requests[segment], "parent_checkpoint_id": checkpoint,
-             "run_dir": str(job.work / "segments" / f"{segment:02d}"), "run_id": run_id,
+             "run_dir": str(_segment_dir(job.work, segment)), "run_id": run_id,
              "wall_seconds": round(time.monotonic() - started, 3)}
     return {"entry": entry, "verdict": judged["verdict"], "error": judged["error"]}
 
@@ -766,13 +762,10 @@ def _git_state(project: Path) -> tuple[str | None, bool | None]:
 def _days(run: Path, cutoff: int, timezone: str) -> list[dict]:
     """@brief 每个本地日期的决策、调用、事件数与同一运行相邻事件的壁钟毫秒差之和（信息性）。"""
     zone, days, last = ZoneInfo(timezone), {}, {}
-    connection = _open(run)
-    try:
+    with closing(_open(run)) as connection:
         rows = connection.execute("SELECT json_extract(body,'$.occurred_at'), json_extract(body,'$.event_type'), "
                                   "json_extract(body,'$.run_id'), json_extract(body,'$.wall_elapsed_ms') FROM events "
                                   "WHERE event_seq<=? ORDER BY event_seq", (cutoff,)).fetchall()
-    finally:
-        connection.close()
     for occurred_at, event_type, run_id, elapsed in rows:
         day = days.setdefault(datetime.fromtimestamp(occurred_at, zone).date().isoformat(),
                               {"calls": 0, "decisions": 0, "events": 0, "milliseconds": 0})
@@ -872,7 +865,7 @@ def _replay(plan: Plan, cassette: Cassette, project: Path, work: Path, count: in
         report["verdict"] = "divergence"
     report.update(calls_served=cassette.served, divergences=cassette.divergences,
                   restarts_reproduced=sum(1 for item in report["segments"] if item["mode"] == "resume"))
-    first = work / "segments" / "01" / "manifest.json"
+    first = _segment_dir(work, 1) / "manifest.json"
     if first.is_file():
         report["project"]["code_sha256"] = json.loads(first.read_text(encoding="utf-8")).get("code_sha256")
     if report["verdict"] == "zero_divergence" and cassette.control is None and report["segments"]:
@@ -896,12 +889,6 @@ def _options(arguments: argparse.Namespace, plan: Plan) -> tuple[int, tuple[int,
     return count, (int(boundary), int(seq))
 
 
-def _write_json(path: Path, value: dict) -> None:
-    """@brief 规范 JSON 加一个换行。"""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(canonical_bytes(value) + b"\n")
-
-
 def _exit_code(report: dict) -> int:
     """@brief 0 零偏差且核验通过，1 偏差，2 错误。"""
     if report["verdict"] == "divergence":
@@ -915,7 +902,7 @@ def _run(arguments: argparse.Namespace) -> int:
     if work.exists():
         raise _fail(f"Work directory {work} already exists")
     work.mkdir(parents=True)
-    as2 = project / AS2_PACKAGE / "agentsociety2"
+    as2 = project / AS2_SOURCE
     if not as2.is_dir():
         raise _fail(f"Project root has no restored AS2 source: {as2}")
     plan = load_plan(arguments.source)
@@ -928,13 +915,13 @@ def _run(arguments: argparse.Namespace) -> int:
     server = serve(cassette)
     try:
         write_input(plan, work / "input", server.server_address[1])
-        _write_json(work / "plan.json", _plan_document(plan, server.server_address[1]))
+        write_report(work / "plan.json", _plan_document(plan, server.server_address[1]))
         report = _replay(plan, cassette, project, work, count)
     finally:
         server.shutdown()
         server.server_close()
         cassette.close()
-    _write_json(work / "report.json", report)
+    write_report(work / "report.json", report)
     print(f"Recorded-response run: {report['calls_served']} calls served, {report['restarts_reproduced']} restarts "
           f"reproduced, {len(report['divergences'])} divergences")
     return _exit_code(report)
@@ -997,7 +984,7 @@ def raw_order(base: Path, head: Path, report: Path) -> int:
             _order_paths(_raw_body(Path(base), digests[0]), _raw_body(Path(head), digests[1]), "", paths)
             mismatches.append({"base_sha256": digests[0], "call": key[0], "head_sha256": digests[1],
                                "outcome": key[1], "paths": paths})
-    _write_json(Path(report), {"compared": len(set(bodies[0]) | set(bodies[1])), "mismatches": mismatches,
+    write_report(Path(report), {"compared": len(set(bodies[0]) | set(bodies[1])), "mismatches": mismatches,
                                "schema_version": 1, "verdict": "different" if mismatches else "equal"})
     print(f"Raw request order: {len(mismatches)} differing calls")
     return 1 if mismatches else 0
