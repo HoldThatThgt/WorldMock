@@ -5,8 +5,8 @@ from agentsociety2.agent.base import ReactDecision, ReactLoopRequest
 from tests.integration.runtime.current_contract_fixtures import environment, person, ScriptedModel
 from tests.life.conftest import advance_until_ready, context, do_at, use_app
 from tests.life.environment_runtime import act
-from worldmock.agents.life_feedback import feedback_report
-from worldmock.life.models import ConcludeActivityRequest
+from worldmock.agents.protocol.life_feedback import feedback_report
+from worldmock.state.interaction.requests import ConcludeActivityRequest
 
 
 def test_host_accepts_card_or_existing_relationship_and_rejects_unknown_subject(engine_factory):

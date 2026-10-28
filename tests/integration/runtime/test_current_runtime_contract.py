@@ -140,12 +140,12 @@ async def test_dataset_travel_method_name_is_the_one_wording_from_the_prompt_to_
     名称就是活动名、环境层路上的位置和到达句里的那个名称。"""
     from tests.life.conftest import context
     from tests.life.environment_runtime import finish_activity
-    from worldmock.life.activity_control import open_activities
-    from worldmock.footprints.experiences import recent_verified_experiences
-    from worldmock.life.prompt_schemas import validate_layer
-    from worldmock.life.settled_text import experience_sentence
-    from worldmock.life.tool_groups import expand_tool_layer
-    from worldmock.life.tool_layer import LayerContext
+    from worldmock.simulation_engine.activities.lifecycle.activity_control import open_activities
+    from worldmock.recording_engine.projections.activities.experiences import recent_verified_experiences
+    from worldmock.agents.prompt.prompt_schemas import validate_layer
+    from worldmock.simulation_engine.observation.wording.settled_text import experience_sentence
+    from worldmock.agents.prompt.tool_groups import expand_tool_layer
+    from worldmock.simulation_engine.observation.targets.tool_layer import LayerContext
 
     engine = engine_factory(_dataset_methods(tmp_path))
     stage_day_plan(engine, submitted=True)

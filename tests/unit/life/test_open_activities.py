@@ -1,8 +1,8 @@
 """未了活动只过滤已结清项，保持世界顺序与原有判定结果。"""
 
 from tests.unit.test_environment_engine_admission import running, world
-from worldmock.life import activity_control
-from worldmock.life.models import ActivityKind, ActivityStatus
+from worldmock.simulation_engine.activities.lifecycle import activity_control
+from worldmock.state.world.kinds import ActivityKind, ActivityStatus
 
 
 def _world():

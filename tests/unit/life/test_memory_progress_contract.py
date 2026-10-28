@@ -9,20 +9,26 @@ import pytest
 from pydantic import ValidationError
 
 from tests.unit.test_environment_engine_admission import running, world
-from worldmock.environment import load_environment
-from worldmock.errors import IntegrityError, ProtocolError
-from worldmock.footprints.models import EventDraft
-from worldmock.footprints.store import FootprintStore
-from worldmock.input_models import ModelMetadata
-from worldmock.life.errand_state import ErrandState
-from worldmock.life import errands, memory_layer, progress_layer
-from worldmock.life.memory_evidence import memory_write_points
-from worldmock.life.models import ActivityKind, ActivityStatus
-from worldmock.life.prompt_schemas import validate_layer
-from worldmock.life.readable import local_day_start
-from worldmock.life.result_projection import public_result
-from worldmock.life.schedule import DayPlan, PlanGoal, revise_day_plan
-from worldmock.life.settled_text import app_progress, experience_sentence, purchase_sentence, record_lines
+from worldmock.configuration.inputs.environment import load_environment
+from worldmock.foundation.errors import IntegrityError, ProtocolError
+from worldmock.recording_engine.events.models import EventDraft
+from worldmock.recording_engine.storage.store import FootprintStore
+from worldmock.configuration.inputs.models import ModelMetadata
+from worldmock.state.planning.errands import ErrandState
+from worldmock.simulation_engine.scheduling.plans import errands
+from worldmock.simulation_engine.observation.layers import memory_layer, progress_layer
+from worldmock.recording_engine.events.memory_evidence import memory_write_points
+from worldmock.state.world.kinds import ActivityKind, ActivityStatus
+from worldmock.agents.prompt.prompt_schemas import validate_layer
+from worldmock.foundation.time.readable import local_day_start
+from worldmock.simulation_engine.observation.layers.result_projection import public_result
+from worldmock.state.planning.schedule import DayPlan, PlanGoal, revise_day_plan
+from worldmock.simulation_engine.observation.wording.settled_text import (
+    app_progress,
+    experience_sentence,
+    purchase_sentence,
+    record_lines,
+)
 
 
 @pytest.fixture

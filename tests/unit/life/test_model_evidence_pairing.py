@@ -9,7 +9,7 @@ import pytest
 from agentsociety2.agent.base import ModelCallEvidence
 from tests.life.conftest import context
 from tests.life.environment_runtime import events
-from worldmock.errors import ProtocolError
+from worldmock.foundation.errors import ProtocolError
 
 #: 测试用的实际请求：一条用户消息。
 REQUEST = {"messages": [{"role": "user", "content": "x"}]}

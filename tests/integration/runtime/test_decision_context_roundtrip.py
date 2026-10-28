@@ -2,7 +2,7 @@ from tests.integration.runtime.current_contract_fixtures import profile as curre
 """真实人物、环境与足迹边界上的跨轮决策上下文验收。"""
 
 
-from worldmock.life.tool_groups import compact_render, expand_tool_layer
+from worldmock.agents.prompt.tool_groups import compact_render, expand_tool_layer
 
 import copy
 import json
@@ -11,8 +11,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from tests.engine_fixture import (engine_factory as _engine_factory)  # noqa: F401
-from tests.life.conftest import (advance_next, context, main_arguments, pending_names, stage_day_plan)  # noqa: F401
+from tests.engine_fixture import engine_factory as _engine_factory  # noqa: F401
+from tests.life.conftest import advance_next, context, main_arguments, pending_names, stage_day_plan  # noqa: F401
 from tests.integration.runtime.test_life_agent_protocol import _ModelResponse
 from agentsociety2.agent.base import ReactLoopRequest
 from custom.agents.life_agent import LifeAgent
@@ -98,7 +98,7 @@ def _tool_calls(observation: dict) -> list[dict]:
 async def test_real_context_roundtrip_preserves_evidence_and_delays_results(_engine_factory, monkeypatch):
     """登记留宿主、结算后调用与结果进入本段停留的进度层（带回复正文；结果取该请求的最新结果，活动结束后是终态），
     刚结束的活动当秒收尾；decision_started 与首个行动请求同批提交，观察事件只存进度层来源引用（即时与终态结果）。"""
-    monkeypatch.setattr("worldmock.life.prompt_capacity.model_context_length",
+    monkeypatch.setattr('worldmock.agents.prompt.prompt_capacity.model_context_length',
                         lambda _model, metadata: metadata.context_window)
     engine = _engine_factory()
     stage_day_plan(engine)

@@ -15,10 +15,15 @@ import pytest
 from tests.life.conftest import StubPlanDayClient, conclude_request, do_at, errand_add, settle_day_plans
 from tests.life.environment_runtime import act, observe_only, until_ended
 from tests.life.work_arrangement_inputs import (
-    holiday_monday, makeup_monday, no_work_schedule, rest_tuesday, rest_tuesday_from_midnight, shorter_monday,
+    holiday_monday,
+    makeup_monday,
+    no_work_schedule,
+    rest_tuesday,
+    rest_tuesday_from_midnight,
+    shorter_monday,
 )
-from worldmock.life.day_planning import PLAN_DAY_PROMPT
-from worldmock.life.prompt_schemas import validate_layer
+from worldmock.simulation_engine.scheduling.plans.day_planning import PLAN_DAY_PROMPT
+from worldmock.agents.prompt.prompt_schemas import validate_layer
 
 #: 环境层的键次序：明天是最后一个键。
 _ENVIRONMENT_KEYS = ["layer", "observed_at", "body", "location", "weather", "duty", "tomorrow"]

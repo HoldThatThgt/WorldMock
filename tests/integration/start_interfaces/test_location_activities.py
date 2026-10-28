@@ -8,18 +8,39 @@ import pytest
 
 from tests.integration.runtime.current_contract_fixtures import ToolResponse, decide
 from tests.life.conftest import (
-    MAIN_TOOL, action_identity, advance_until_ready, conclude_request, context, do_at, main_arguments, pause_request,
-    progress_calls, purchase, report_request, sleep, stage_day_plan, travel, use_app,
+    MAIN_TOOL,
+    action_identity,
+    advance_until_ready,
+    conclude_request,
+    context,
+    do_at,
+    main_arguments,
+    pause_request,
+    progress_calls,
+    purchase,
+    report_request,
+    sleep,
+    stage_day_plan,
+    travel,
+    use_app,
 )
 from tests.life.environment_inputs import catalog_rows, copy_environment, meal_environment, write_catalog_rows
 from tests.footprints.recording import export_completed
 from tests.life.environment_runtime import (
-    act, act_group, events, finish_activity, observe_only, one_hour, one_hour_every_five_minutes, reach, run_to_end,
+    act,
+    act_group,
+    events,
+    finish_activity,
+    observe_only,
+    one_hour,
+    one_hour_every_five_minutes,
+    reach,
+    run_to_end,
 )
-from worldmock.life.models import StartMainActivityRequest
-from worldmock.life.prompt_schemas import validate_layer
-from worldmock.life.randomness import random_stream
-from worldmock.life.tool_groups import compact_tool_layer, expand_tool_layer
+from worldmock.state.interaction.requests import StartMainActivityRequest
+from worldmock.agents.prompt.prompt_schemas import validate_layer
+from worldmock.foundation.randomness import random_stream
+from worldmock.agents.prompt.tool_groups import compact_tool_layer, expand_tool_layer
 
 _ROW_KEYS = ["action", "detail", "available", "reason", "price", "duration", "quantity", "note"]
 _SOURCE = {"kind": "synthetic", "notice": "测试用合成摘要", "url": None}

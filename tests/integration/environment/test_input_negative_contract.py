@@ -8,8 +8,8 @@ import tomlkit
 
 from tests.frozen_inputs import fixture_metadata
 from tests.life.environment_inputs import copy_environment
-from worldmock.environment import load_environment, parse_persona_file, parse_run_config_file
-from worldmock.errors import EnvironmentInputError
+from worldmock.configuration.inputs.environment import load_environment, parse_persona_file, parse_run_config_file
+from worldmock.foundation.errors import EnvironmentInputError
 
 
 def write_input(root, name, values):
@@ -128,7 +128,7 @@ def test_personal_windows_need_two_finite_hours_in_order(tmp_path, values, reaso
 ])
 def test_windows_that_contradict_each_other_or_leave_the_day_load_as_written(tmp_path, values):
     """时段之间没有先后、重叠、范围或跨度检查：这些写法通过完整环境加载，引擎的饭点窗口也照写的值装配。"""
-    from worldmock.life.world_ops import meal_windows_by_agent
+    from worldmock.simulation_engine.world.world_updates import meal_windows_by_agent
 
     root = copy_environment(tmp_path / "input")
     write_input(root, "persona.toml", values)
@@ -193,7 +193,7 @@ def test_input_files_reject_noncanonical_bytes(tmp_path, payload, name, parser):
 
 @pytest.mark.parametrize("field,name", [("home_location", "公司"), ("initial_location", "不存在的地方")])
 def test_persona_references_resolve_actual_registered_locations(tmp_path, field, name):
-    from worldmock.catalog.errors import RegistrationError
+    from worldmock.resource_engine.registration.errors import RegistrationError
 
     root = copy_environment(tmp_path / "input")
     write_input(root, "persona.toml", {field: name})
@@ -213,7 +213,7 @@ def test_persona_story_is_required_text_without_a_minimum_length(tmp_path):
 
 def test_model_metadata_rejects_output_budget_larger_than_actual_context_window():
     from pydantic import ValidationError
-    from worldmock.input_models import ModelMetadata
+    from worldmock.configuration.inputs.models import ModelMetadata
 
     with pytest.raises(ValidationError, match="model output limit exceeds the context window"):
         ModelMetadata(requested_model="test-model", metadata_url="https://example.invalid/models",

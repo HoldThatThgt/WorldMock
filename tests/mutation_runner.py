@@ -57,7 +57,7 @@ def source_location(symbol: str) -> tuple[str, str]:
         raise ValueError(f"Invalid mutation symbol: {symbol}")
     if module.startswith("worldmock."):
         return module, "src/" + module.replace(".", "/") + ".py"
-    if module.startswith(("custom.", "scripts.")):
+    if module.startswith(("custom.", "scripts.", "tools.analysis.")):
         return module, module.replace(".", "/") + ".py"
     logging.error("Mutation module is outside production roots: %s", module)
     raise ValueError(f"Mutation module is outside production roots: {module}")

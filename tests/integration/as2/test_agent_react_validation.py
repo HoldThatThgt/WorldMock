@@ -9,12 +9,7 @@ from typing import Any
 
 import pytest
 
-from agentsociety2.agent.base import (
-    AgentBase,
-    ReactDecision,
-    ReactLoopRequest,
-    ReactToolResult,
-)
+from agentsociety2.agent.base import AgentBase, ReactDecision, ReactLoopRequest, ReactToolResult
 from agentsociety2.agent.person_prompt import build_preamble
 from agentsociety2.society import DecisionContext
 
@@ -437,10 +432,7 @@ def test_ask_mode_prompt_requires_finish() -> None:
 
 
 def _memory_runtime():
-    from agentsociety2.agent.memory_runtime import (
-        MemoryRuntimeConfig,
-        PersonMemoryRuntime,
-    )
+    from agentsociety2.agent.memory_runtime import MemoryRuntimeConfig, PersonMemoryRuntime
 
     return PersonMemoryRuntime(
         agent_id=1,

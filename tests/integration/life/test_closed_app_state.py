@@ -14,11 +14,9 @@ from tests.integration.life.test_content_start_evidence import CLOCK_REFUSALS, d
 from tests.life.conftest import use_app
 from tests.life.current_world import stage_moment
 from tests.life.environment_runtime import act, events, observe_only, reach
-from tests.life.prerequisite_inputs import (
-    CLOCK, CLOCK_HOURS, OFFICE, WORKDAYS, app_content, moment, weekday_hours,
-)
-from worldmock.life.prompt_schemas import validate_layer
-from worldmock.life.tool_groups import compact_tool_layer, expand_tool_layer
+from tests.life.prerequisite_inputs import CLOCK, CLOCK_HOURS, OFFICE, WORKDAYS, app_content, moment, weekday_hours
+from worldmock.agents.prompt.prompt_schemas import validate_layer
+from worldmock.agents.prompt.tool_groups import compact_tool_layer, expand_tool_layer
 
 HOURS = "08:00–10:00, 17:00–20:00"
 TODAY = f"available {HOURS} today"

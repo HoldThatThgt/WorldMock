@@ -11,10 +11,10 @@ from tests.life.conftest import context, purchase, query, target_actions, tool_t
 from tests.life.current_world import stage_moment
 from tests.life.environment_runtime import act, act_group, conclude_app_use, events, finish_activity, reach
 from tests.life.phone_records import foreground, moment, paying_label, phone_environment, phone_window
-from worldmock.life.activity_validation import _CONTENT_FIELDS
-from worldmock.life.name_resolution import name_book
-from worldmock.life.prompt_schemas import validate_layer
-from worldmock.life.result_projection import public_result
+from worldmock.simulation_engine.activities.lifecycle.activity_validation import _CONTENT_FIELDS
+from worldmock.simulation_engine.actions.name_resolution import name_book
+from worldmock.agents.prompt.prompt_schemas import validate_layer
+from worldmock.simulation_engine.observation.layers.result_projection import public_result
 
 #: 夹具里能打开的 app，按 app_id 升序。
 APP_TARGETS = ["哔哩哔哩", "抖音", "Keep"]

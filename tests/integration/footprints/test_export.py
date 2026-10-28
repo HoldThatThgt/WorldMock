@@ -6,10 +6,10 @@ import json
 import pytest
 
 from tests.footprints.recording import recorded_engine
-from worldmock.errors import IntegrityError
-from worldmock.footprints.export import export_run
-from worldmock.footprints.models import EventDraft
-from worldmock.footprints.validation import validate_export
+from worldmock.foundation.errors import IntegrityError
+from worldmock.recording_engine.export.export import export_run
+from worldmock.recording_engine.events.models import EventDraft
+from worldmock.recording_engine.validation.validation import validate_export
 
 
 def test_final_checkpoint_completes_only_the_full_committed_cutoff(engine_factory, tmp_path):

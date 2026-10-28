@@ -7,15 +7,24 @@ import pytest
 
 from tests.data_paths import ENVIRONMENT_ROOT
 from tests.frozen_inputs import fixture_metadata
-from worldmock.environment import load_environment
-from worldmock.input_models import PersonaConfig
-from worldmock.life import sleep
-from worldmock.life.body import (
-    ActivityFactors, BoundaryClock, apply_food, hourly_burn, initial_body, next_shared_body_boundary_seconds,
-    settle_body, settle_shared_body, last_flows, body_resource_metas, apply_relaxation_change,
+from worldmock.configuration.inputs.environment import load_environment
+from worldmock.configuration.inputs.models import PersonaConfig
+from worldmock.simulation_engine.body.body import sleep
+from worldmock.simulation_engine.body.body import (
+    ActivityFactors,
+    BoundaryClock,
+    apply_food,
+    hourly_burn,
+    initial_body,
+    next_shared_body_boundary_seconds,
+    settle_body,
+    settle_shared_body,
+    last_flows,
+    body_resource_metas,
+    apply_relaxation_change,
 )
-from worldmock.life.body_config import assemble_body_config
-from worldmock.life.models import ActivityKind
+from worldmock.simulation_engine.body.body_config import assemble_body_config
+from worldmock.state.world.kinds import ActivityKind
 
 
 @pytest.fixture

@@ -9,7 +9,7 @@ from pydantic import ValidationError
 
 from tests.life.persona_inputs import persona_document, persona_with
 from tests.profile.conftest import make_card
-from worldmock.profile.models import (
+from worldmock.configuration.persona.persona_card import (
     PersonaCard,
     PersonaCardStruct,
     TimeAnchors,

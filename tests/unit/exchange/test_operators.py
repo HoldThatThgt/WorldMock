@@ -4,9 +4,13 @@ from decimal import localcontext
 
 import pytest
 
-from worldmock.exchange import operators
-from worldmock.exchange.operators import (
-    delivery_fee_fen, delivery_seconds, evaluate_goods_receipt, evaluate_purchase, evaluate_travel_fare,
+from worldmock.exchange_engine.commerce import operators
+from worldmock.exchange_engine.commerce.operators import (
+    delivery_fee_fen,
+    delivery_seconds,
+    evaluate_goods_receipt,
+    evaluate_purchase,
+    evaluate_travel_fare,
     travel_seconds,
 )
 

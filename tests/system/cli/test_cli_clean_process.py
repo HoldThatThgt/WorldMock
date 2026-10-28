@@ -1,6 +1,6 @@
 """@brief 干净的进程里照手册敲命令：在任何目录启动、不预设任何 AGENTSOCIETY_* 变量，run、resume、validate、status 都能起。
 
-只把真正起 Ray 和调模型的那一步（worldmock.runtime._execute）换成替身，其余走真实的命令入口、准入、进程配置与运行身份。
+只把真正起 Ray 和调模型的那一步（worldmock.runtime.lifecycle.runner._execute）换成替身，其余走真实的命令入口、准入、进程配置与运行身份。
 """
 
 import json
@@ -15,10 +15,10 @@ import pytest
 from tests.integration.runtime.current_contract_fixtures import aligned_process
 from tests.integration.runtime_fixtures import write_agent_workspace
 from tests.system.cli.test_cli import published_environment  # noqa: F401
-from worldmock.environment import load_environment
-from worldmock.footprints.checkpoint import snapshot_directory
-from worldmock.runtime import RunRequest, _prepare_new_run, _society_specs
-from worldmock.status import read_status, write_status
+from worldmock.configuration.inputs.environment import load_environment
+from worldmock.recording_engine.storage.checkpoint import snapshot_directory
+from worldmock.runtime.lifecycle.runner import RunRequest, _prepare_new_run, _society_specs
+from worldmock.runtime.monitoring.status import read_status, write_status
 
 ROOT = Path(__file__).resolve().parents[3]
 #: 夹具 config.toml 的 model.api_key_env 指的变量与发布服务认的凭据。
@@ -28,7 +28,7 @@ _PROCESS_ONLY = ("WORKSPACE_PATH", "LITELLM_LOCAL_MODEL_COST_MAP", "MEM0_TELEMET
 #: 入口：把 _execute 换成替身后调真实命令；替身向标准错误打一行证据，新建运行照环境自己的建库路径建好世界再关闭。
 _STUB_ENTRY = """
 import json, sys
-import worldmock.runtime as runtime
+import worldmock.runtime.lifecycle.runner as runtime
 from worldmock.cli import main
 
 async def execute(prepared):
@@ -61,7 +61,8 @@ def _clean(entry, *arguments, cwd, flags=()):
     """在临时目录起一个干净的子进程：删掉全部 AGENTSOCIETY_ 变量与进程配置会写的四个变量，PYTHONPATH 只留 src。"""
     environment = {key: value for key, value in os.environ.items()
                    if not key.startswith("AGENTSOCIETY_") and key not in _PROCESS_ONLY}
-    environment.update({API_KEY[0]: API_KEY[1], "PYTHONPATH": str(ROOT / "src")})
+    # 只固定捕获管道的编码，文件读取仍由默认编码告警检查。
+    environment.update({API_KEY[0]: API_KEY[1], "PYTHONPATH": str(ROOT / "src"), "PYTHONIOENCODING": "utf-8"})
     return subprocess.run([sys.executable, *flags, "-c", entry, *map(str, arguments)], cwd=cwd,
                           capture_output=True, text=True, encoding="utf-8", timeout=300, env=environment)
 

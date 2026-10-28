@@ -23,14 +23,22 @@ os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from agentsociety2.agent.base import ModelCallEvidence, ReactDecision, ReactLoopRequest
-from worldmock.agents.life_feedback import HostFeedback
-from tests.integration.runtime.test_life_agent_protocol import (_Environment, _GroundedCorrectionDispatcher,
-                                                        _MultipleModelResponse, _WAIT_CHOICE, _WORK_CHOICE, _context,
-                                                        _observations, _prepared, _wire_agent)
+from worldmock.agents.protocol.life_feedback import HostFeedback
+from tests.integration.runtime.test_life_agent_protocol import (
+    _Environment,
+    _GroundedCorrectionDispatcher,
+    _MultipleModelResponse,
+    _WAIT_CHOICE,
+    _WORK_CHOICE,
+    _context,
+    _observations,
+    _prepared,
+    _wire_agent,
+)
 from tests.integration.runtime.test_strict_reflection import _waking_decision
-from tests.engine_fixture import (engine_factory)  # noqa: F401
+from tests.engine_fixture import engine_factory  # noqa: F401
 from tests.life.conftest import MAIN_TOOL, SIDE_TOOL
-from worldmock.life import prompt_capacity
+from worldmock.agents.prompt import prompt_capacity
 
 
 def _assert_report(report, code, path):

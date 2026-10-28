@@ -9,16 +9,34 @@ import pytest
 
 from agentsociety2.society import DirectToolCall
 from tests.life.conftest import (
-    MAIN_TOOL, action_identity, advance_next, advance_until_ready, conclude_request, context, pause_request, purchase,
-    report_request, sleep, stage_day_plan, target_actions, tool_of, travel, use_app,
+    MAIN_TOOL,
+    action_identity,
+    advance_next,
+    advance_until_ready,
+    conclude_request,
+    context,
+    pause_request,
+    purchase,
+    report_request,
+    sleep,
+    stage_day_plan,
+    target_actions,
+    tool_of,
+    travel,
+    use_app,
 )
 from tests.life.current_world import stage_moment
 from tests.life.prerequisite_inputs import (
-    OFFICE, app_content, dingtalk_environment, example_window, moment, weekday_hours,
+    OFFICE,
+    app_content,
+    dingtalk_environment,
+    example_window,
+    moment,
+    weekday_hours,
 )
-from worldmock.errors import ProtocolError
-from worldmock.life.models import StartMainActivityRequest
-from worldmock.life.prompt_schemas import validate_layer
+from worldmock.foundation.errors import ProtocolError
+from worldmock.state.interaction.requests import StartMainActivityRequest
+from worldmock.agents.prompt.prompt_schemas import validate_layer
 
 
 from tests.life.environment_runtime import act, act_group, events, reach

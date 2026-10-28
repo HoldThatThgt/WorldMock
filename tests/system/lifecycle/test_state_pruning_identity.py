@@ -10,9 +10,9 @@ from pathlib import Path
 
 import pytest
 
-import worldmock.life.time_advance
+import worldmock.simulation_engine.scheduling.clock.time_advance
 from tests.life.day_baseline_runtime import record_complete_day
-from worldmock.footprints.store import FootprintStore
+from worldmock.recording_engine.storage.store import FootprintStore
 
 PROJECT = Path(__file__).resolve().parents[3]
 
@@ -63,7 +63,7 @@ def test_pruning_leaves_every_event_and_export_artifact_unchanged(monkeypatch, t
     processed_actions 后相同，删过的一边的条目是另一边的真子集且逐项相同，只含规则还会读取的条目。"""
     pruned, kept = tmp_path / "pruned" / kind, tmp_path / "kept" / kind
     record_complete_day(monkeypatch, pruned, PROJECT, kind)
-    monkeypatch.setattr(worldmock.life.time_advance, "prune_processed_actions", lambda state: state)
+    monkeypatch.setattr(worldmock.simulation_engine.scheduling.clock.time_advance, "prune_processed_actions", lambda state: state)
     record_complete_day(monkeypatch, kept, PROJECT, kind)
 
     assert _events(pruned) == _events(kept)

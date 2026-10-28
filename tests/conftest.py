@@ -47,7 +47,7 @@ def catalog_dir(tmp_path: Path) -> Path:
 @pytest.fixture
 def loaded_catalog(catalog_dir: Path):
     """@brief 通过生产加载器登记真实人工目录。"""
-    from worldmock.catalog.loader import load_catalog
+    from worldmock.resource_engine.catalog.loader import load_catalog
 
     return load_catalog(catalog_dir, 7)
 

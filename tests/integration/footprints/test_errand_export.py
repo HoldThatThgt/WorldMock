@@ -5,11 +5,11 @@ import json
 from tests.footprints.recording import artifact_rows, short_window
 from tests.life.conftest import advance_next, conclude_request, errand_add, purchase, use_app
 from tests.life.environment_runtime import act, finish_activity, run_to_end
-from worldmock.footprints.export import export_run
-from worldmock.footprints.models import Event
+from worldmock.recording_engine.export.export import export_run
+from worldmock.recording_engine.events.models import Event
 from tests.footprints.display_fixtures import sample_display_names
-from worldmock.footprints.quality import build_quality_report
-from worldmock.footprints.validation import validate_export
+from worldmock.recording_engine.reports.quality import build_quality_report
+from worldmock.recording_engine.validation.validation import validate_export
 
 
 def test_errand_completion_recertifies_actual_received_goods(engine_factory, tmp_path):

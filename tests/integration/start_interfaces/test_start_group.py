@@ -6,12 +6,24 @@ import pytest
 from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import (
-    MAIN_TOOL, SIDE_TOOL, action_identity, advance_until_ready, conclude_request, context, do_at, pause_request,
-    purchase, report_request, sleep, stage_day_plan, travel, use_app,
+    MAIN_TOOL,
+    SIDE_TOOL,
+    action_identity,
+    advance_until_ready,
+    conclude_request,
+    context,
+    do_at,
+    pause_request,
+    purchase,
+    report_request,
+    sleep,
+    stage_day_plan,
+    travel,
+    use_app,
 )
 from tests.life.environment_runtime import act, act_group, action_result, events
-from worldmock.errors import ProtocolError
-from worldmock.life.models import REQUEST_MODELS, StartMainActivityRequest, StartSideActivityRequest
+from worldmock.foundation.errors import ProtocolError
+from worldmock.state.interaction.requests import REQUEST_MODELS, StartMainActivityRequest, StartSideActivityRequest
 
 _SUFFIX = " Neither start request was started."
 _REST = "进行测试休息（1月5日 08:00 起）"
@@ -413,7 +425,7 @@ def test_fare_joins_the_purchase_total_and_both_calls_are_responsible(engine_fac
 
 def test_start_without_a_frozen_observation_is_not_settled(engine_factory):
     """决策没有唯一的冻结观察时不能核验名称与报价：开始组不结算，世界不变。"""
-    from worldmock.errors import BusinessRuleError
+    from worldmock.foundation.errors import BusinessRuleError
 
     engine = engine_factory()
     decision = context(engine, "blind")

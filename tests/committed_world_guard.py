@@ -5,7 +5,7 @@ from __future__ import annotations
 import functools
 import inspect
 
-from worldmock.footprints.models import canonical_json
+from worldmock.foundation.serialization import canonical_json
 
 
 def public_methods(cls) -> tuple[str, ...]:
@@ -22,7 +22,7 @@ class CommittedWorldGuard:
 
     def install(self, monkeypatch) -> None:
         """@brief 用 monkeypatch 包住 LifeEngine 类上当前的全部公开方法，用例结束时自动还原。"""
-        from worldmock.life.engine import LifeEngine
+        from worldmock.simulation_engine.engine import LifeEngine
 
         for name in public_methods(LifeEngine):
             monkeypatch.setattr(LifeEngine, name, self._guarded(getattr(LifeEngine, name)))

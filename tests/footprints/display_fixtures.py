@@ -12,8 +12,8 @@ from tests.data_paths import ENVIRONMENT_ROOT
 @lru_cache(maxsize=1)
 def sample_catalog_rows():
     """@brief 样例环境五份目录经登记时的严格行模型读出的行，次序即 display_names 的入参次序。"""
-    from worldmock.catalog.loader import read_catalog_rows
-    from worldmock.catalog.models import App, Content, Goods, Location, TravelMethod
+    from worldmock.resource_engine.catalog.loader import read_catalog_rows
+    from worldmock.resource_engine.catalog.models import App, Content, Goods, Location, TravelMethod
 
     directory = ENVIRONMENT_ROOT / "catalog"
     return tuple(tuple(read_catalog_rows(directory, name, model)) for name, model in (
@@ -24,7 +24,7 @@ def sample_catalog_rows():
 @lru_cache(maxsize=1)
 def sample_display_names():
     """@brief 样例环境五份目录建出的显示名称。"""
-    from worldmock.footprints.display_wording import display_names
+    from worldmock.recording_engine.projections.presentation.display_wording import display_names
 
     return display_names(*sample_catalog_rows())
 
@@ -35,7 +35,7 @@ def freeze_environment(run_dir: Path, root: Path = ENVIRONMENT_ROOT, replaced: d
     素材名集合与新建运行时相同：人设、配置、目录清单、文件表里的每个目录文件，加一份地图素材（这里是占位字节，
     显示名称不读它）。replaced 按素材名给出替换的字节，用来构造与当前行模型不合的冻结目录。
     """
-    from worldmock.footprints.assets import AssetStore
+    from worldmock.recording_engine.storage.assets import AssetStore
 
     store = AssetStore(Path(run_dir) / "assets")
     listed = json.loads((root / "catalog" / "manifest.json").read_bytes())["files"]

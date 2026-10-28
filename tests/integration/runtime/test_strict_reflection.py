@@ -24,20 +24,25 @@ os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
 os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
-from worldmock.agents.life_reflection import MEMORY_REFLECTION_MAX_INSIGHTS
-from worldmock.agents import life_reflection
-from worldmock.agents.life_reflection import (REFLECTION_PROMPT, ReflectionOutputError,
-                                           ReflectionRequest, reflection_correction, reflection_insights,
-                                           reflection_tool)
+from worldmock.agents.memory.life_reflection import MEMORY_REFLECTION_MAX_INSIGHTS
+from worldmock.agents.memory import life_reflection
+from worldmock.agents.memory.life_reflection import (
+    REFLECTION_PROMPT,
+    ReflectionOutputError,
+    ReflectionRequest,
+    reflection_correction,
+    reflection_insights,
+    reflection_tool,
+)
 from tests.integration.reflection_fixtures import host_run
 from tests.integration.runtime.test_life_agent_protocol import _ModelResponse, _MultipleModelResponse, _TextResponse
 from tests.integration.runtime.test_verified_memory import _TIME, _concluded, _runtime
-from tests.engine_fixture import (engine_factory)  # noqa: F401
+from tests.engine_fixture import engine_factory  # noqa: F401
 from tests.life.conftest import stage_day_plan
 from tests.integration.runtime.current_contract_fixtures import profile as current_profile
-from worldmock.errors import ProtocolError
-from worldmock.life.decision_start import is_action_request
-from worldmock.life.models import deepseek_strict_schema
+from worldmock.foundation.errors import ProtocolError
+from worldmock.state.model.exchange import is_action_request
+from worldmock.state.interaction.schema import deepseek_strict_schema
 
 _TOOL = "submit_reflection"
 _CORRECTED = "我想把和朋友的联系放在心上。"
@@ -54,7 +59,7 @@ _REFS = "insights.0.refs: Value error, Reflection references must be nonempty an
 @pytest.fixture(autouse=True)
 def _fixed_context_window(monkeypatch) -> None:
     """脚本模型使用固定供应商窗口，不请求外部模型元数据。"""
-    from worldmock.life import prompt_capacity
+    from worldmock.agents.prompt import prompt_capacity
 
     monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model, metadata: metadata.context_window)
 

@@ -9,16 +9,16 @@ import pytest
 from tests.footprints.recording import errand_engine, recorded_engine
 from tests.footprints.statement_log import StatementLog
 from tests.life.conftest import action_identity
-from worldmock.errors import IntegrityError
-from worldmock.footprints import timeline_labels
-from worldmock.footprints.app_usage import project_app_usage
-from worldmock.footprints.export import _verified_experience_rows, export_run, reconstruct_activities
-from worldmock.footprints.frozen_environment import frozen_display_names
-from worldmock.footprints.location_stays import project_location_stays
-from worldmock.footprints.models import canonical_json
-from worldmock.footprints.purchases import project_purchase_facts
-from worldmock.footprints.quality import build_quality_report
-from worldmock.footprints.timeline_labels import timeline_sources
+from worldmock.foundation.errors import IntegrityError
+from worldmock.recording_engine.projections.presentation import timeline_labels
+from worldmock.recording_engine.projections.activities.app_usage import project_app_usage
+from worldmock.recording_engine.export.export import _verified_experience_rows, export_run, reconstruct_activities
+from worldmock.recording_engine.validation.frozen_environment import frozen_display_names
+from worldmock.recording_engine.projections.activities.location_stays import project_location_stays
+from worldmock.foundation.serialization import canonical_json
+from worldmock.recording_engine.projections.commerce.purchases import project_purchase_facts
+from worldmock.recording_engine.reports.quality import build_quality_report
+from worldmock.recording_engine.projections.presentation.timeline_labels import timeline_sources
 
 #: 两个夹具运行：购买加内容使用，以及个人事务由真实收货完成。
 RUNS = {"recorded": recorded_engine, "errand": errand_engine}
@@ -116,7 +116,7 @@ def test_export_reads_the_store_one_page_at_a_time(engine_factory, tmp_path, mon
     engine, point = recorded_engine(engine_factory)
     store, cutoff = engine.context.store, point.last_event_seq
     export_run(store, cutoff, tmp_path / "default")
-    monkeypatch.setattr("worldmock.footprints.store.EVENT_PAGE_SIZE", 3)
+    monkeypatch.setattr('worldmock.recording_engine.storage.store.EVENT_PAGE_SIZE', 3)
     log = StatementLog(store.connection)
     monkeypatch.setattr(store, "connection", log)
     export_run(store, cutoff, tmp_path / "paged")

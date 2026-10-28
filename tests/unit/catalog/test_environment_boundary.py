@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from worldmock.catalog.admission import validate_environment_entries
-from worldmock.catalog.errors import RegistrationError
+from worldmock.resource_engine.registration.admission import validate_environment_entries
+from worldmock.resource_engine.registration.errors import RegistrationError
 
 
 CATALOG_FILES = (

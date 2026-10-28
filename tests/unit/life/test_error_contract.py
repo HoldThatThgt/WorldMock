@@ -5,10 +5,16 @@ from datetime import datetime
 import pytest
 
 from tests.life.prerequisite_inputs import CLOCK, add_rows, app_content, dingtalk_environment, weekday_hours
-from worldmock.catalog.loader import load_catalog
-from worldmock.life.content_prerequisite import app_prerequisite_refusal
-from worldmock.life.guidance import Refusal, default_reason, guided, refusal_for_code, rejection_guidance
-from worldmock.life.readable import interval_phrases
+from worldmock.resource_engine.catalog.loader import load_catalog
+from worldmock.simulation_engine.observation.wording.content_prerequisite import app_prerequisite_refusal
+from worldmock.simulation_engine.observation.wording.guidance import (
+    Refusal,
+    default_reason,
+    guided,
+    refusal_for_code,
+    rejection_guidance,
+)
+from worldmock.foundation.time.readable import interval_phrases
 
 
 @pytest.mark.parametrize("code,reason", [

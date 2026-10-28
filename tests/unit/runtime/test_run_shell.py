@@ -2,8 +2,8 @@
 
 import pytest
 
-from worldmock.errors import IntegrityError
-from worldmock.runtime import _require_run_shell
+from worldmock.foundation.errors import IntegrityError
+from worldmock.runtime.lifecycle.runner import _require_run_shell
 
 
 def test_run_shell_allows_only_status_file(tmp_path) -> None:

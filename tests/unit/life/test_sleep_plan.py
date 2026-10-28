@@ -8,16 +8,22 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from tests.data_paths import ENVIRONMENT_ROOT
-from worldmock.input_models import PersonaConfig
-from worldmock.life import sleep_plan
-from worldmock.life.body import initial_body
-from worldmock.life.body_config import assemble_body_config
-from worldmock.life.felt import sleep_debt_phrase
-from worldmock.life.randomness import random_stream
-from worldmock.life.sleep import initial_sleep_pressure, pressure_after_awake
-from worldmock.life.sleep_plan import (
-    SLEEP_MINUTES_REASON, assumed_sleep, oversleep_seconds, parse_sleep_minutes, sleep_seconds_in_window,
+from worldmock.configuration.inputs.models import PersonaConfig
+from worldmock.simulation_engine.body import sleep_plan
+from worldmock.simulation_engine.body.body import initial_body
+from worldmock.simulation_engine.body.body_config import assemble_body_config
+from worldmock.simulation_engine.body.felt import sleep_debt_phrase
+from worldmock.foundation.randomness import random_stream
+from worldmock.simulation_engine.body.sleep import initial_sleep_pressure, pressure_after_awake
+from worldmock.state.interaction.sleep import (
+    SLEEP_MINUTES_REASON,
 )
+from worldmock.simulation_engine.body.sleep_plan import (
+    assumed_sleep,
+    oversleep_seconds,
+    sleep_seconds_in_window,
+)
+from worldmock.state.interaction.sleep import parse_sleep_minutes
 
 _ZONE = ZoneInfo("Asia/Shanghai")
 _HOUR = 3600
@@ -162,7 +168,7 @@ def test_exactly_four_hours_wakes_on_time_without_touching_the_random_stream(mon
 def test_a_sleep_declared_at_twelve_hours_can_run_over_and_never_passes_thirteen():
     """12 小时只限制人物写的数：写满 720 分钟的一觉在此前睡得不足 4 小时时照样可能多睡，加上多睡的那段最长 780 分钟，
     两端都能取到；此前睡满 4 小时时写多长都恰好睡到写的时长。"""
-    declared = sleep_plan.SLEEP_MINUTES_MAX * 60
+    declared = 720 * 60
     short = sleep_seconds_in_window(_at(9, "20:00"), [_span(9, "01:00", "04:00")])
     lengths = {declared + oversleep_seconds(short, _STATE, f"long-{index}") for index in range(4000)}
     assert min(lengths) == 720 * 60 and max(lengths) == 780 * 60

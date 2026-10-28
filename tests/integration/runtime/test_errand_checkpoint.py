@@ -1,11 +1,11 @@
 """共同检查点保存真实个人事务，分支观察不重复登记事务。"""
 from tests.life.conftest import stage_day_plan, do_at, conclude_request, errand_add, context, advance_until_ready
 from tests.life.environment_runtime import act
-from worldmock.footprints.checkpoint import restore_branch
-from worldmock.life.engine import LifeEngine
+from worldmock.recording_engine.storage.checkpoint import restore_branch
+from worldmock.simulation_engine.engine import LifeEngine
 from tests.integration.runtime.current_contract_fixtures import profile
 from tests.integration.runtime_fixtures import write_agent_workspace
-from worldmock.footprints.checkpoint import snapshot_directory
+from worldmock.recording_engine.storage.checkpoint import snapshot_directory
 
 def test_checkpoint_restores_identical_errands_and_todo_without_renoting(engine_factory, tmp_path):
     engine = engine_factory()

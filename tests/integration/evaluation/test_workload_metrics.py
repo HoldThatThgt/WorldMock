@@ -11,19 +11,36 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from tests.engine_fixture import engine_factory  # noqa: F401
-from tests.life.conftest import (activity_name, advance_next, conclude_request, context,
-                                 MAIN_TOOL, SIDE_TOOL, report_request, travel, use_app)
+from tests.life.conftest import (
+    activity_name,
+    advance_next,
+    conclude_request,
+    context,
+    MAIN_TOOL,
+    SIDE_TOOL,
+    report_request,
+    travel,
+    use_app,
+)
 from agentsociety2.society import DirectToolCall
-from worldmock.life.activity_control import open_activities
-from worldmock.life.models import ActivityStatus, active_activities
-from worldmock.life.activity_control import pending_conclusions
+from worldmock.simulation_engine.activities.lifecycle.activity_control import open_activities
+from worldmock.state.world.kinds import ActivityStatus
+from worldmock.state.world.world import active_activities
+from worldmock.simulation_engine.activities.lifecycle.activity_control import pending_conclusions
 STANDARD_SHIFT = {"starts": 540, "ends": 1080, "breaks": [[720, 810]]}
-from worldmock.evaluation.behavior_metrics import behavior_metrics_report
-from worldmock.evaluation.workload_metrics import (MISSING_AGENT_NOTE, NO_INPUT_NOTE, WORKLOAD_KEYS, AgentWorkday,
-                                                   WorkdayInputs, workday_inputs, workday_reports)
-from worldmock.footprints.models import canonical_json
-from worldmock.input_models import WorkSchedule
-from worldmock.life.models import PlanDayRequest
+from tools.analysis.behavior.metrics import behavior_metrics_report
+from tools.analysis.behavior.workday import (
+    MISSING_AGENT_NOTE,
+    NO_INPUT_NOTE,
+    WORKLOAD_KEYS,
+    AgentWorkday,
+    WorkdayInputs,
+    workday_inputs,
+    workday_reports,
+)
+from worldmock.foundation.serialization import canonical_json
+from worldmock.configuration.inputs.models import WorkSchedule
+from worldmock.state.interaction.requests import PlanDayRequest
 
 ZONE = "Asia/Shanghai"
 CODE = "c" * 64

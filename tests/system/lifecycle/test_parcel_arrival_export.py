@@ -7,9 +7,9 @@ from tests.footprints.recording import artifact_rows
 from tests.integration.runtime_fixtures import write_agent_workspace
 from tests.life.conftest import advance_next, do_at, main_arguments, purchase, stage_day_plan, travel
 from tests.life.environment_runtime import act, events, finish_activity, reach, run_to_end, settle_decision
-from worldmock.footprints.checkpoint import snapshot_directory
-from worldmock.footprints.export import export_run
-from worldmock.footprints.validation import validate_export
+from worldmock.recording_engine.storage.checkpoint import snapshot_directory
+from worldmock.recording_engine.export.export import export_run
+from worldmock.recording_engine.validation.validation import validate_export
 
 STATION = "快递驿站"
 #: 驿站绑定的那件事的名称；人物在驿站点名它来取件。

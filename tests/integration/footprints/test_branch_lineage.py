@@ -8,13 +8,13 @@ import pytest
 
 from tests.life.conftest import advance_next
 from tests.life.environment_runtime import run_to_end, settle_decision
-from worldmock.errors import IntegrityError
-from worldmock.footprints.checkpoint import restore_branch
-from worldmock.footprints.export import export_run
-from worldmock.footprints.models import EventDraft
-from worldmock.footprints.quality import _lineage_quality
-from worldmock.footprints.validation import _validate_identity
-from worldmock.life.engine import LifeEngine
+from worldmock.foundation.errors import IntegrityError
+from worldmock.recording_engine.storage.checkpoint import restore_branch
+from worldmock.recording_engine.export.export import export_run
+from worldmock.recording_engine.events.models import EventDraft
+from worldmock.recording_engine.reports.quality import _lineage_quality
+from worldmock.recording_engine.validation.validation import _validate_identity
+from worldmock.simulation_engine.engine import LifeEngine
 
 #: lineage 每一项的键与精确类型（branched_at、last_recorded_at 是 UTC 墙钟文本）。
 ENTRY_TYPES = {"run_id": str, "simulated_from": int, "checkpoint_id": str, "checkpoint_event_seq": int,

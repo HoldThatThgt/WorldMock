@@ -10,7 +10,14 @@ from __future__ import annotations
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from worldmock.life.readable import clock_phrase, duration_phrase, iso_time, local_date, money_phrase, portion_phrase
+from worldmock.foundation.time.readable import (
+    clock_phrase,
+    duration_phrase,
+    iso_time,
+    local_date,
+    money_phrase,
+    portion_phrase,
+)
 
 ZONE = "Asia/Shanghai"
 
@@ -55,6 +62,6 @@ def test_money_and_portion_phrases_keep_at_most_two_decimals() -> None:
 
 def test_count_phrase_for_the_callable_index() -> None:
     """@brief 工具层可调用索引的计数写成「N 个」，数字与量词之间一个空格。"""
-    from worldmock.life.readable import count_phrase
+    from worldmock.foundation.time.readable import count_phrase
 
     assert [count_phrase(count) for count in (1, 3, 90, 110)] == ["1 个", "3 个", "90 个", "110 个"]

@@ -1,10 +1,7 @@
 import json
 from datetime import datetime
 
-from agentsociety2.agent.memory import (
-    AgentMemoryStore,
-    MemoryConsolidationConfig,
-)
+from agentsociety2.agent.memory import AgentMemoryStore, MemoryConsolidationConfig
 
 
 def test_memory_store_append_recent_search_and_read(tmp_path):
@@ -104,7 +101,7 @@ def test_memory_store_range_and_consolidation_triggers(tmp_path):
         tick=20,
     )
     assert store.unconsolidated() == []
-    state = json.loads((tmp_path / "memory" / "state.json").read_text())
+    state = json.loads((tmp_path / "memory" / "state.json").read_text(encoding="utf-8"))
     assert state["last_consolidated_episode_id"] == store.recent(limit=1)[0]["id"]
 
 

@@ -9,8 +9,8 @@ from litellm.exceptions import APIConnectionError, AuthenticationError
 from tests.integration.life.test_opslog import _records
 from tests.integration.runtime.test_model_exchange_attempts import ATTEMPTS, opened_exchange
 from tests.unit.as2.test_llm_dispatcher_transport import _client, _error
-from worldmock.life.day_planning import request_draft, response_draft
-from worldmock.runtime import _call_plan_day
+from worldmock.simulation_engine.scheduling.plans.day_planning import request_draft, response_draft
+from worldmock.runtime.lifecycle.runner import _call_plan_day
 
 
 @pytest.mark.parametrize("phase,code", [("response", None), ("response", "TOOL_CALL_REQUIRED"),

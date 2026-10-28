@@ -7,10 +7,10 @@ import pytest
 
 from tests.life.conftest import advance_next, context, sleep, use_app
 from tests.life.environment_runtime import act, events
-from worldmock.errors import ProtocolError
-from worldmock.life.rhythm import RhythmBoundary, _wake_snapshot, decide_engine_rhythm
-from worldmock.life.schedule import NextDecisionQuery, next_decision_time, reconsideration_interval
-from worldmock.life.settlement import inject_initial_funds
+from worldmock.foundation.errors import ProtocolError
+from worldmock.simulation_engine.scheduling.clock.rhythm import RhythmBoundary, _wake_snapshot, decide_engine_rhythm
+from worldmock.state.planning.schedule import NextDecisionQuery, next_decision_time, reconsideration_interval
+from worldmock.simulation_engine.commerce.purchase.settlement import inject_initial_funds
 
 
 def assert_unchanged(engine, before, sequence):

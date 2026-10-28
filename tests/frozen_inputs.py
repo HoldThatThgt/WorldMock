@@ -111,7 +111,7 @@ def input_digest(root):
 
 def fixture_metadata(config):
     """明确离线服务返回的权威测试容量，不访问真实模型服务。"""
-    from worldmock.input_models import ModelMetadata
+    from worldmock.configuration.inputs.models import ModelMetadata
 
     return ModelMetadata(requested_model=config.requested_model, metadata_url=config.metadata_url,
                          context_window=524288, max_output_tokens=32768)
@@ -124,7 +124,7 @@ class FrozenInputs:
         self.records = {}
 
     def record(self, root):
-        from worldmock.environment import load_environment
+        from worldmock.configuration.inputs.environment import load_environment
 
         key = (Path(root).absolute(), input_digest(root))
         if key not in self.records:

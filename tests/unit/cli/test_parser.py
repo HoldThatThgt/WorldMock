@@ -12,7 +12,7 @@ def test_current_commands_require_their_explicit_inputs():
     run = parser.parse_args(["run", "--environment", "environment", "--output", "run"])
     assert run.same_second_continuation == "on"
     commands = next(action for action in parser._actions if action.dest == "command")
-    assert set(commands.choices) == {"validate", "run", "resume", "replay", "status", "export", "evaluate"}
+    assert set(commands.choices) == {"validate", "run", "resume", "replay", "status", "export"}
 
 
 @pytest.mark.parametrize("arguments", [

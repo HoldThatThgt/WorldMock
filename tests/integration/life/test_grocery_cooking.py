@@ -14,18 +14,39 @@ from datetime import timedelta
 import pytest
 
 from tests.life.conftest import (
-    action_identity, advance_next, advance_until_ready, conclude_request, context, do_at, pause_request, purchase,
-    report_request, travel,
+    action_identity,
+    advance_next,
+    advance_until_ready,
+    conclude_request,
+    context,
+    do_at,
+    pause_request,
+    purchase,
+    report_request,
+    travel,
 )
 from tests.life.environment_inputs import (
-    DINNER_EPISODES, GROCERIES, catalog_rows, grocery_environment, set_content, write_catalog_rows,
+    DINNER_EPISODES,
+    GROCERIES,
+    catalog_rows,
+    grocery_environment,
+    set_content,
+    write_catalog_rows,
 )
 from tests.life.environment_runtime import (
-    act, act_group, events, every_five_minutes, finish_activity, one_hour, reach, settle_decision, until_ended,
+    act,
+    act_group,
+    events,
+    every_five_minutes,
+    finish_activity,
+    one_hour,
+    reach,
+    settle_decision,
+    until_ended,
 )
 from tests.integration.runtime_fixtures import write_agent_workspace
-from worldmock.footprints.checkpoint import restore_branch, snapshot_directory
-from worldmock.life.engine import LifeEngine
+from worldmock.recording_engine.storage.checkpoint import restore_branch, snapshot_directory
+from worldmock.simulation_engine.engine import LifeEngine
 
 #: 「测试休息」在副本里的时长：足够等到外卖送到。
 LONG_REST = 3 * 3600

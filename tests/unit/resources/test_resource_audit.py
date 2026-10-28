@@ -2,14 +2,8 @@
 
 import pytest
 
-from worldmock.resources import (
-    ConvertEntry,
-    FlowEntry,
-    ResourceLedgerError,
-    TransferEntry,
-    audit_closed_domain,
-    audit_level_flows,
-)
+from worldmock.exchange_engine.ledger.ledger_models import ConvertEntry, FlowEntry, ResourceLedgerError, TransferEntry
+from worldmock.recording_engine.validation.resource_audit import audit_closed_domain, audit_level_flows
 
 from tests.resources.conftest import AGENT, ANCHOR, EMPLOYER, ENERGY, MONEY, TRANSPORT
 

@@ -5,19 +5,38 @@ from datetime import timedelta
 import pytest
 
 from tests.life.conftest import (
-    action_identity, advance_next, advance_until_ready, conclude_request, context, do_at, purchase, sleep, travel,
+    action_identity,
+    advance_next,
+    advance_until_ready,
+    conclude_request,
+    context,
+    do_at,
+    purchase,
+    sleep,
+    travel,
     use_app,
 )
 from tests.life.current_world import stage_moment
 from tests.life.environment_runtime import act, act_group, events, finish_activity, reach
-from tests.life.phone_records import (foreground, label_where, moment, notices, paying_label, phone_environment,
-                                      phone_events, phone_window, purchase_draws, returning_label, stays)
-from worldmock.agents.life_prompt import life_user_layers, system_message, user_message
-from worldmock.footprints.app_usage import project_app_usage
-from worldmock.footprints.models import EventDraft
-from worldmock.footprints.purchases import project_purchase_facts
-from worldmock.life.order_notices import shipping_delay_seconds
-from worldmock.life.randomness import random_stream
+from tests.life.phone_records import (
+    foreground,
+    label_where,
+    moment,
+    notices,
+    paying_label,
+    phone_environment,
+    phone_events,
+    phone_window,
+    purchase_draws,
+    returning_label,
+    stays,
+)
+from worldmock.agents.prompt.life_prompt import life_user_layers, system_message, user_message
+from worldmock.recording_engine.projections.activities.app_usage import project_app_usage
+from worldmock.recording_engine.events.models import EventDraft
+from worldmock.recording_engine.projections.commerce.purchases import project_purchase_facts
+from worldmock.exchange_engine.commerce.shipping import shipping_delay_seconds
+from worldmock.foundation.randomness import random_stream
 
 #: 咖啡例子的各个时刻：09:05:00 开始购买，下单 185 秒、付款 15 秒，09:20:00 送达。
 BUY, PAYING, PAID = moment(9, 5), moment(9, 8, 5), moment(9, 8, 20)

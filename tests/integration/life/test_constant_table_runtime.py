@@ -10,8 +10,8 @@ import pytest
 from tests.life.conftest import do_at, purchase, target_actions
 from tests.life.environment_inputs import meal_environment
 from tests.life.environment_runtime import act, events, finish_activity, reach, until_ended
-from worldmock.exchange import constants
-from worldmock.life.purchase_offers import quote_goods
+from worldmock.exchange_engine.definitions import constants
+from worldmock.simulation_engine.commerce.purchase.purchase_offers import quote_goods
 
 #: 夹具里家到一心面馆的图上距离对应的配送行程秒数（2,524 米，每秒 5 米，向上取整）。
 RIDE_SECONDS = 505

@@ -16,10 +16,10 @@ from tests.frozen_inputs import fixture_metadata
 @contextmanager
 def engine_factory_at(directory: Path, frozen_inputs):
     """在给定目录下建真实引擎的工厂；退出时关闭全部引擎。一份导出要被多条用例各自复制篡改时，由模块级夹具直接使用。"""
-    from worldmock.environment import load_environment
-    from worldmock.life.engine import LifeEngine
+    from worldmock.configuration.inputs.environment import load_environment
+    from worldmock.simulation_engine.engine import LifeEngine
     from tests.integration.runtime_fixtures import current_run_identity
-    from worldmock.run_setup import stage_model_identity
+    from worldmock.runtime.framework.setup import stage_model_identity
 
     created = []
 

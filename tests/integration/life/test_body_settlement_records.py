@@ -7,7 +7,7 @@ import pytest
 
 from tests.life.conftest import action_identity, advance_next, do_at, purchase, travel
 from tests.life.environment_runtime import act, act_group, events, finish_activity, reach
-from worldmock.life.body import last_flows
+from worldmock.simulation_engine.body.body import last_flows
 
 #: 身体结算记录自己记账的四项资源。
 RESOURCES = ("energy_kcal", "sleep_deficit_hours", "relaxation_need", "social_need")

@@ -4,12 +4,13 @@ import pytest
 from pydantic import ValidationError
 
 from tests.life.request_fixtures import main_request, side_request
-from worldmock.life.action_contract import ACTIVITY_ACTIONS, START_TOOLS, binding_action
-from worldmock.life.name_resolution import NameBook, Option, Target, resolve_start, sleep_row
-from worldmock.life.models import StartMainActivityRequest, StartSideActivityRequest
-from worldmock.life.narration import ForbiddenObservationFieldError, render_layer_json
-from worldmock.life.prompt_capacity import fit_request
-from worldmock.life.tool_groups import compact_tool_layer, expand_tool_layer
+from worldmock.exchange_engine.conditions.activity_rules import ACTIVITY_ACTIONS
+from worldmock.state.interaction.actions import START_TOOLS, binding_action
+from worldmock.simulation_engine.actions.name_resolution import NameBook, Option, Target, resolve_start, sleep_row
+from worldmock.state.interaction.requests import StartMainActivityRequest, StartSideActivityRequest
+from worldmock.agents.prompt.narration import ForbiddenObservationFieldError, render_layer_json
+from worldmock.agents.prompt.prompt_capacity import fit_request
+from worldmock.agents.prompt.tool_groups import compact_tool_layer, expand_tool_layer
 
 MAIN_TOOL, SIDE_TOOL = START_TOOLS
 
@@ -126,7 +127,7 @@ def metadata(window=262144, output=8000):
 
 
 def test_capacity_uses_verified_actual_context_and_enforces_verified_output_limit(monkeypatch):
-    monkeypatch.setattr("worldmock.life.prompt_capacity.prompt_token_count", lambda request: 220000)
+    monkeypatch.setattr('worldmock.agents.prompt.prompt_capacity.prompt_token_count', lambda request: 220000)
     payload = {"model": "contract-model", "messages": [], "max_tokens": 8000}
     fitted = fit_request(payload, metadata(window=500000))
     assert fitted.request is payload

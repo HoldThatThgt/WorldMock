@@ -6,12 +6,15 @@ import pytest
 from pydantic import ValidationError
 
 from tests.unit.footprints.test_app_usage import START, _app, _event
-from worldmock.errors import IntegrityError
-from worldmock.footprints import invariants
-from worldmock.footprints.app_usage import project_app_usage
-from worldmock.footprints.location_stays import project_location_stays, validate_location_stays
-from worldmock.footprints.models import Event
-from worldmock.life.models import ActivityState
+from worldmock.foundation.errors import IntegrityError
+from worldmock.recording_engine.validation import invariants
+from worldmock.recording_engine.projections.activities.app_usage import project_app_usage
+from worldmock.recording_engine.projections.activities.location_stays import (
+    project_location_stays,
+    validate_location_stays,
+)
+from worldmock.recording_engine.events.models import Event
+from worldmock.state.world.activity import ActivityState
 
 
 def owner(identity, kind, status="active", ended_at=None):

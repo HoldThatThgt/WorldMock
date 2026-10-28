@@ -1,9 +1,9 @@
 import pytest
 
-from worldmock.errors import IntegrityError
-from worldmock.footprints.ledger import validate_account_history
-from worldmock.footprints.models import EventDraft
-from worldmock.footprints.store import FootprintStore
+from worldmock.foundation.errors import IntegrityError
+from worldmock.recording_engine.validation.ledger import validate_account_history
+from worldmock.recording_engine.events.models import EventDraft
+from worldmock.recording_engine.storage.store import FootprintStore
 
 
 @pytest.fixture

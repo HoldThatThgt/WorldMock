@@ -4,7 +4,7 @@ import json
 import shutil
 
 from tests.data_paths import ENVIRONMENT_ROOT
-from worldmock.catalog.identity import refresh_manifest_identity
+from worldmock.resource_engine.catalog.identity import refresh_manifest_identity
 
 
 def copy_environment(destination):

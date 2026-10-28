@@ -8,11 +8,12 @@ import sqlite3
 
 import pytest
 
-from worldmock.errors import IntegrityError
-from worldmock.footprints.checkpoint import restore_branch, snapshot_directory
-from worldmock.footprints.models import EventDraft, canonical_json, is_sha256
-from worldmock.footprints.observation_parts import split_observation
-from worldmock.footprints.store import FootprintStore
+from worldmock.foundation.errors import IntegrityError
+from worldmock.recording_engine.storage.checkpoint import restore_branch, snapshot_directory
+from worldmock.recording_engine.events.models import EventDraft
+from worldmock.foundation.serialization import canonical_json, is_sha256
+from worldmock.recording_engine.storage.observation_parts import split_observation
+from worldmock.recording_engine.storage.store import FootprintStore
 
 #: 五行活动绑定所指活动的开始本地日期：三个日期，相同日期相邻。
 START_DATES = ["2026-01-04", "2026-01-04", "2026-01-05", "2026-01-06", "2026-01-06"]

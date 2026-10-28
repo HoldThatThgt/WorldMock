@@ -11,11 +11,11 @@ from tests.integration.runtime_fixtures import write_agent_workspace
 from tests.life.conftest import advance_next, stage_day_plan, use_app
 from tests.life.environment_runtime import act, events, finish_activity, run_to_end
 from tests.life.prerequisite_inputs import dingtalk_environment, example_window, moment
-from worldmock.catalog.identity import refresh_manifest_identity
-from worldmock.footprints.checkpoint import snapshot_directory
-from worldmock.footprints.export import export_run
-from worldmock.footprints.validation import validate_export
-from worldmock.life.engine import LifeEngine
+from worldmock.resource_engine.catalog.identity import refresh_manifest_identity
+from worldmock.recording_engine.storage.checkpoint import snapshot_directory
+from worldmock.recording_engine.export.export import export_run
+from worldmock.recording_engine.validation.validation import validate_export
+from worldmock.simulation_engine.engine import LifeEngine
 
 
 def _snapshot_current(engine, root):

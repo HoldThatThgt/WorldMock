@@ -7,11 +7,11 @@ import pytest
 from tests.integration.runtime_fixtures import write_agent_workspace
 from tests.life.conftest import context, do_at, stage_day_plan
 from tests.life.environment_runtime import act, events
-from worldmock.errors import ProtocolError
-from worldmock.footprints.checkpoint import restore_branch, snapshot_directory
-from worldmock.life.engine import LifeEngine
-from worldmock.life.models import CounterfactualIntervention
-from worldmock.life.world_ops import _request_sha
+from worldmock.foundation.errors import ProtocolError
+from worldmock.recording_engine.storage.checkpoint import restore_branch, snapshot_directory
+from worldmock.simulation_engine.engine import LifeEngine
+from worldmock.state.decisions.results import CounterfactualIntervention
+from worldmock.simulation_engine.world.world_updates import _request_sha
 
 
 def _branch(parent, tmp_path, case):
@@ -95,9 +95,9 @@ def test_valid_counterfactual_transfers_equal_and_opposite_amount_once(engine_fa
 
 def test_counterfactual_source_at_or_after_the_branch_event_is_not_visible(tmp_path):
     """来源按事件身份逐条读：序号不早于分支事件的来源一律不可见（真实分支带不出子运行的来源身份，这里直接调用来源核对）。"""
-    from worldmock.footprints.models import EventDraft
-    from worldmock.footprints.store import FootprintStore
-    from worldmock.life.counterfactual_runtime import CounterfactualRuntime
+    from worldmock.recording_engine.events.models import EventDraft
+    from worldmock.recording_engine.storage.store import FootprintStore
+    from worldmock.simulation_engine.world.counterfactual import CounterfactualRuntime
 
     store = FootprintStore.create(tmp_path / "run", {"run_id": "run", "agent_ids": [1]},
                                   {"version": 0, "current_time": 100})

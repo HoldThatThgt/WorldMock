@@ -3,7 +3,7 @@
 from tests.life.conftest import conclude_request, context, stage_day_plan
 from tests.integration.life.test_acs_amended_runtime import perform, pump
 from tests.integration.life.test_acs_runtime import request
-from worldmock.life.activity_control import is_pending_conclusion
+from worldmock.simulation_engine.activities.lifecycle.activity_control import is_pending_conclusion
 
 
 def trip_to(engine, destination, label):

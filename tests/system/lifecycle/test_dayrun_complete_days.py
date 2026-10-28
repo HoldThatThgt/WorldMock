@@ -5,11 +5,11 @@ from scripts import render_day
 from tests.footprints.recording import artifact_rows
 from tests.life.conftest import MAIN_TOOL, SIDE_TOOL, do_at, purchase, stage_day_plan, travel, use_app
 from tests.life.environment_runtime import act, act_group, conclude_app_use, events, finish_activity, run_to_end
-from worldmock.footprints.export import export_run
-from worldmock.footprints.timeline_labels import label_findings
-from worldmock.footprints.validation import validate_export
+from worldmock.recording_engine.export.export import export_run
+from worldmock.recording_engine.projections.presentation.timeline_labels import label_findings
+from worldmock.recording_engine.validation.validation import validate_export
 from tests.integration.runtime_fixtures import write_agent_workspace
-from worldmock.footprints.checkpoint import snapshot_directory
+from worldmock.recording_engine.storage.checkpoint import snapshot_directory
 
 @pytest.mark.parametrize("days", [1, 2])
 def test_complete_days_reach_declared_stop_without_failure(engine_factory, tmp_path, days):

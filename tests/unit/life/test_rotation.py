@@ -13,7 +13,7 @@ from dataclasses import dataclass, fields, replace
 
 import pytest
 
-from worldmock.life.rotation import (
+from worldmock.simulation_engine.observation.targets.rotation import (
     MEASURED_DAILY_DECISION_POINTS,
     ROTATION_DEFERRED,
     ROTATION_SUBTYPE_CAP_IN_WINDOW,

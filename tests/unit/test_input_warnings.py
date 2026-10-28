@@ -7,8 +7,8 @@ from types import SimpleNamespace
 import pytest
 
 from tests.life.persona_inputs import persona_with
-from worldmock.errors import IntegrityError
-from worldmock.input_warnings import (
+from worldmock.foundation.errors import IntegrityError
+from worldmock.configuration.inputs.warnings import (
     INPUT_WARNING_CODES,
     content_empty_warnings,
     frozen_input_warnings,

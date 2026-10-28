@@ -14,9 +14,9 @@ from tests.integration.life.test_grocery_cooking import _consumed_dinner, grocer
 from tests.life.conftest import do_at, pause_request, report_request, target_tools, use_app
 from tests.life.environment_inputs import catalog_rows, meal_environment, write_catalog_rows
 from tests.life.environment_runtime import act, every_five_minutes, observe_only, reach, until_ended
-from worldmock.life import activity_control
-from worldmock.life.prompt_schemas import validate_layer
-from worldmock.life.tool_groups import compact_tool_layer, expand_tool_layer
+from worldmock.simulation_engine.activities.lifecycle import activity_control
+from worldmock.agents.prompt.prompt_schemas import validate_layer
+from worldmock.agents.prompt.tool_groups import compact_tool_layer, expand_tool_layer
 
 _DINNER = "进行做晚饭（1月5日 08:00 起）"
 #: 规格算例：开始后的秒数、正在做的内容、活动目标行的 state、家下「做晚饭」一行的 note。

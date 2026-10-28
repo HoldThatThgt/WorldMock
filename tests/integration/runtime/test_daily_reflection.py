@@ -2,6 +2,9 @@
 第一次决策，登记排在观察之前；环境对两路记忆登记的核对与记忆层按归属日期的归并。"""
 
 from __future__ import annotations
+from worldmock.recording_engine.events.memory_evidence import (
+    MEMORY_WRITE_POINTS as _memory_evidence_MEMORY_WRITE_POINTS,
+)
 
 import json
 import logging
@@ -18,17 +21,22 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 from agentsociety2.agent.base.react import MemoryUpdateEvidence
 from agentsociety2.society import DirectToolCall
 from tests.integration.reflection_fixtures import (
-    ACTION_NOTE, CONSOLIDATED, INSIGHTS, REFLECTION_NOTE, host_run, memory, memory_layer_of, submit_reflection,
+    ACTION_NOTE,
+    CONSOLIDATED,
+    INSIGHTS,
+    REFLECTION_NOTE,
+    host_run,
+    memory,
+    memory_layer_of,
+    submit_reflection,
     tool_names,
 )
-from tests.life.conftest import (
-    advance_next, conclude_request, context, do_at, sleep, stage_day_plan, tool_of, travel,
-)
+from tests.life.conftest import advance_next, conclude_request, context, do_at, sleep, stage_day_plan, tool_of, travel
 from tests.life.environment_runtime import act, finish_activity
-from worldmock.errors import IntegrityError, ProtocolError
-from worldmock.footprints.models import EventDraft
-from worldmock.life import memory_evidence
-from worldmock.life.decision_start import is_action_request
+from worldmock.foundation.errors import IntegrityError, ProtocolError
+from worldmock.recording_engine.events.models import EventDraft
+from worldmock.simulation_engine.evidence import memory as memory_evidence
+from worldmock.state.model.exchange import is_action_request
 
 _ZONE = ZoneInfo("Asia/Shanghai")
 _SHA = "a" * 64
@@ -37,7 +45,7 @@ _SHA = "a" * 64
 @pytest.fixture(autouse=True)
 def _fixed_context_window(monkeypatch) -> None:
     """脚本模型使用固定供应商窗口，不请求外部模型元数据。"""
-    from worldmock.life import prompt_capacity
+    from worldmock.agents.prompt import prompt_capacity
 
     monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model, metadata: metadata.context_window)
 
@@ -432,4 +440,4 @@ def test_memory_layer_rejects_a_reflection_without_a_filing_date(engine_factory,
         engine.observe(decision)
     assert str(failure.value) == "Bedtime reflection has no filing date"
     assert "Bedtime reflection has no filing date" in caplog.text
-    assert memory_evidence.MEMORY_WRITE_POINTS == ("activity_conclusion", "reflection")
+    assert _memory_evidence_MEMORY_WRITE_POINTS == ("activity_conclusion", "reflection")

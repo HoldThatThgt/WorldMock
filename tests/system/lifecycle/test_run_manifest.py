@@ -4,8 +4,8 @@ import pytest
 from tests.integration.runtime.current_contract_fixtures import inputs, metadata_service
 from tests.integration.runtime_fixtures import current_run_identity
 from tests.data_paths import ENVIRONMENT_ROOT
-from worldmock.errors import IntegrityError
-from worldmock.run_setup import stage_model_identity, validate_stage_model_identity
+from worldmock.foundation.errors import IntegrityError
+from worldmock.runtime.framework.setup import stage_model_identity, validate_stage_model_identity
 from custom.envs.life_env import LifeEnv
 
 @pytest.mark.parametrize("field", ["transport_max_retries", "max_react_turns", "reflection_validation_max_retries",

@@ -1,6 +1,6 @@
 """@brief 现行消费者测试共用已提交世界的时刻与人物位置。"""
 
-from worldmock.footprints.models import EventDraft
+from worldmock.recording_engine.events.models import EventDraft
 
 
 def stage_moment(engine, moment=None, location=None, agent_id=1):

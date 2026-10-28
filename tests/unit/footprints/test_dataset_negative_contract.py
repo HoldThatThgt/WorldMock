@@ -7,11 +7,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from worldmock.errors import IntegrityError
-from worldmock.footprints.environment_events import validate_environment_event
-from worldmock.footprints.frozen_environment import validate_frozen_environment
-from worldmock.footprints.ledger import validate_account_history, validate_account_transition
-from worldmock.footprints.models import EventDraft, validate_resource_flows
+from worldmock.foundation.errors import IntegrityError
+from worldmock.recording_engine.events.environment_events import validate_environment_event
+from worldmock.recording_engine.validation.frozen_environment import validate_frozen_environment
+from worldmock.recording_engine.validation.ledger import validate_account_history, validate_account_transition
+from worldmock.recording_engine.events.models import EventDraft, validate_resource_flows
 
 
 def _funding(amount=100):
@@ -110,7 +110,7 @@ REQUIRED_ASSETS = {"catalog/app-catalog.jsonl", "catalog/content-catalog.jsonl",
 def _engine_with(engine_factory, tmp_path, files):
     """在只有必需文件的夹具副本里放入可选文件并刷新清单，再由真实引擎冻结这份环境。"""
     from tests.life.environment_inputs import copy_environment, walking_only
-    from worldmock.catalog.identity import refresh_manifest_identity
+    from worldmock.resource_engine.catalog.identity import refresh_manifest_identity
 
     root = walking_only(copy_environment(tmp_path / "optional-input"))
     for name, content in files.items():

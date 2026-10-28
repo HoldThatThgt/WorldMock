@@ -10,12 +10,21 @@ from agentsociety2.agent.base import MemoryUpdateEvidence, ModelCallEvidence
 from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import (
-    action_identity, advance_until_ready, conclude_request, context, pending_names, purchase, query, stage_day_plan,
-    submit_round, travel, use_app,
+    action_identity,
+    advance_until_ready,
+    conclude_request,
+    context,
+    pending_names,
+    purchase,
+    query,
+    stage_day_plan,
+    submit_round,
+    travel,
+    use_app,
 )
 from tests.life.environment_runtime import act, act_group
-from worldmock.life.engine import LifeEngine
-from worldmock.opslog import OPS_COMPONENTS, OPS_LEVELS, OpsLogger
+from worldmock.simulation_engine.engine import LifeEngine
+from worldmock.recording_engine.storage.opslog import OPS_COMPONENTS, OPS_LEVELS, OpsLogger
 
 
 def _records(engine: LifeEngine) -> list[dict]:

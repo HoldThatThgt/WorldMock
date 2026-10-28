@@ -5,11 +5,11 @@ import json
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from worldmock.footprints.models import canonical_json, is_sha256
-from worldmock.footprints.store import FootprintStore
-from worldmock.life.continuation import CONTINUATION_KEY
-from worldmock.life.engine import LifeEngine
-from worldmock.life.observe import ObservationBuilder
+from worldmock.foundation.serialization import canonical_json, is_sha256
+from worldmock.recording_engine.storage.store import FootprintStore
+from worldmock.simulation_engine.decisions.continuation import CONTINUATION_KEY
+from worldmock.simulation_engine.engine import LifeEngine
+from worldmock.simulation_engine.observation.layers.observe import ObservationBuilder
 
 #: 整表各存为一个观察分件的六个观察键（逐字写出，不从生产模块导入）。
 WHOLE_KEYS = ("catalog_bindings", "errand_item_bindings", "known_activity_actions", "locations", "memory_layer",

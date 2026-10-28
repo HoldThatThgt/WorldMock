@@ -4,9 +4,9 @@ import pytest
 
 from tests.data_paths import ENVIRONMENT_ROOT
 from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
-from worldmock.catalog.errors import RegistrationError
-from worldmock.catalog.loader import load_catalog, validate_catalog_files
-from worldmock.catalog.models import CompletionEffects
+from worldmock.resource_engine.registration.errors import RegistrationError
+from worldmock.resource_engine.catalog.loader import load_catalog, validate_catalog_files
+from worldmock.resource_engine.catalog.models import CompletionEffects
 
 GROCERIES = {"state": "groceries", "initial": 0, "cap": 1, "reset_on_goods": ["tissue"]}
 APP_CONTENT = "c-article is an app content; consumes_state and completion_effects belong to location contents."

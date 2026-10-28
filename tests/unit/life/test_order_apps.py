@@ -6,8 +6,8 @@ import pytest
 
 from tests.data_paths import CATALOG_ROOT
 from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
-from worldmock.catalog.loader import load_catalog
-from worldmock.life.order_apps import order_app_ids, preferred_app_id, selling_app_ids
+from worldmock.resource_engine.catalog.loader import load_catalog
+from worldmock.simulation_engine.commerce.purchase.order_apps import order_app_ids, preferred_app_id, selling_app_ids
 
 
 def _catalog(root):

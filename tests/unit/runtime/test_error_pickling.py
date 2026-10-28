@@ -9,11 +9,17 @@ import pytest
 from ray import cloudpickle
 from ray.exceptions import RayError, RayTaskError
 
-import worldmock.catalog.errors  # noqa: F401  # 登记 RegistrationError 子类
-from worldmock.catalog.errors import RegistrationError
-from worldmock.errors import (BusinessRuleError, EnvironmentInputError, IntegrityError, PreconditionError,
-                              ProtocolError, WorldMockError)
-from worldmock.status import failure_message
+import worldmock.resource_engine.registration.errors  # noqa: F401  # 登记 RegistrationError 子类
+from worldmock.resource_engine.registration.errors import RegistrationError
+from worldmock.foundation.errors import (
+    BusinessRuleError,
+    EnvironmentInputError,
+    IntegrityError,
+    PreconditionError,
+    ProtocolError,
+    WorldMockError,
+)
+from worldmock.runtime.monitoring.status import failure_message
 
 ROOT = Path(__file__).resolve().parents[3]
 

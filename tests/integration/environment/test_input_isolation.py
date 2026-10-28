@@ -5,8 +5,8 @@ import shutil
 
 from tests.data_paths import ENVIRONMENT_ROOT
 from tests.frozen_inputs import fixture_metadata
-from worldmock.catalog.identity import refresh_manifest_identity
-from worldmock.environment import load_environment
+from worldmock.resource_engine.catalog.identity import refresh_manifest_identity
+from worldmock.configuration.inputs.environment import load_environment
 
 
 def test_catalog_edits_leave_source_bytes_and_inodes_unchanged(tmp_path):

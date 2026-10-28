@@ -1,8 +1,8 @@
 """系统规则与身体常数由当前行为合同冻结。"""
 
 import pytest
-from worldmock.exchange import constants as c
-from worldmock.exchange.body import BODY_CONSTANTS, RESOURCE_METAS
+from worldmock.exchange_engine.definitions import constants as c
+from worldmock.exchange_engine.definitions.body_constants import BODY_CONSTANTS, RESOURCE_METAS
 
 
 def test_fixed_travel_delivery_map_and_push_constants():

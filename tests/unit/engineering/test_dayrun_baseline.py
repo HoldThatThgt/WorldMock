@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from tests.dayrun_baseline import CODE_IDENTITY_MASK, DayBaseline, behaviour_signature, day_baseline_signature
-from worldmock.errors import IntegrityError
+from worldmock.foundation.errors import IntegrityError
 
 
 def _bytes(value):
@@ -29,9 +29,9 @@ CODE, PROMPT, TOOLS = "c" * 64, "d" * 64, "e" * 64
 def _case(root: Path, code: str = CODE, commit: str = "f" * 40, model: dict | None = None, amount: int = 2):
     """@brief 创建带完整哈希、检查点、代码身份与以代码摘要为键的质量报告的最小独立运行工件。"""
     from tests.integration.runtime.current_contract_fixtures import inputs
-    from worldmock.environment import environment_identity
-    from worldmock.footprints.assets import AssetStore
-    from worldmock.life.world_setup import _freeze_environment
+    from worldmock.configuration.inputs.environment import environment_identity
+    from worldmock.recording_engine.storage.assets import AssetStore
+    from worldmock.simulation_engine.world.world_setup import _freeze_environment
 
     for relative in ["run/assets", "export"]:
         (root / relative).mkdir(parents=True)

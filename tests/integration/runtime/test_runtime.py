@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from tests.data_paths import ENVIRONMENT_ROOT
-from worldmock.footprints.checkpoint import restore_branch
+from worldmock.recording_engine.storage.checkpoint import restore_branch
 
 import copy
 import importlib.util
@@ -24,7 +24,7 @@ os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
 os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
-import worldmock.runtime as runtime_module
+import worldmock.runtime.lifecycle.runner as runtime_module
 from tests.integration.runtime_fixtures import write_agent_workspace
 from tests.integration.as2_fixtures import (
     FAKE_AS2_FILES,
@@ -33,13 +33,26 @@ from tests.integration.as2_fixtures import (
     write_fake_as2,
     write_project,
 )
-from worldmock.errors import IntegrityError
-from worldmock.footprints.checkpoint import snapshot_directory
-from worldmock.footprints.models import canonical_json
-from worldmock.footprints.store import FootprintStore
-from worldmock.life.models import CounterfactualIntervention
-from worldmock.runtime import CounterfactualRequest, ResumeRequest, RunRequest, _build_society, _execute, _intervention_sha256, _prepare_new_run, _require_run_shell, _restore_branch, replay_world, resume_world, run_world
-from worldmock.validation import validate_environment
+from worldmock.foundation.errors import IntegrityError
+from worldmock.recording_engine.storage.checkpoint import snapshot_directory
+from worldmock.foundation.serialization import canonical_json
+from worldmock.recording_engine.storage.store import FootprintStore
+from worldmock.state.decisions.results import CounterfactualIntervention
+from worldmock.runtime.lifecycle.runner import (
+    CounterfactualRequest,
+    ResumeRequest,
+    RunRequest,
+    _build_society,
+    _execute,
+    _intervention_sha256,
+    _prepare_new_run,
+    _require_run_shell,
+    _restore_branch,
+    replay_world,
+    resume_world,
+    run_world,
+)
+from worldmock.configuration.inputs.validation import validate_environment
 from tests.integration.runtime.current_contract_fixtures import aligned_process, inputs, metadata_service
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -62,7 +75,14 @@ _AS2_REFUSAL = "AS2 runtime identity differs from the locked source"
 
 def test_imported_as2_matches_rebuildable_locked_source() -> None:
     """实际导入的 AS2 与固定基线加补丁重建的唯一源码身份一致。"""
-    from worldmock.run_setup import AS2_LOCKED_SOURCE_SHA256, _git_state, _model_identity, require_locked_as2, runtime_code_sha256, stage_model_identity
+    from worldmock.runtime.framework.setup import (
+        AS2_LOCKED_SOURCE_SHA256,
+        _git_state,
+        _model_identity,
+        require_locked_as2,
+        runtime_code_sha256,
+        stage_model_identity,
+    )
 
     files = require_locked_as2()
 
@@ -72,7 +92,14 @@ def test_imported_as2_matches_rebuildable_locked_source() -> None:
 
 def test_runtime_code_identity_is_deterministic(monkeypatch, tmp_path, tmp_path_factory) -> None:
     """同一工程与同一 AS2 包重复计算得到相同代码身份（AS2 取临时包，不依赖本机安装）。"""
-    from worldmock.run_setup import AS2_LOCKED_SOURCE_SHA256, _git_state, _model_identity, require_locked_as2, runtime_code_sha256, stage_model_identity
+    from worldmock.runtime.framework.setup import (
+        AS2_LOCKED_SOURCE_SHA256,
+        _git_state,
+        _model_identity,
+        require_locked_as2,
+        runtime_code_sha256,
+        stage_model_identity,
+    )
 
     project = write_project(tmp_path / "project")
     use_fake_as2(monkeypatch, tmp_path_factory.mktemp("as2-site"))
@@ -88,7 +115,7 @@ def test_code_identity_covers_production_python_and_the_two_dependency_files_onl
         monkeypatch, tmp_path, tmp_path_factory) -> None:
     """引擎自己的代码身份是 src 与 custom 下的全部 Python 源码加根目录的 pyproject.toml 与 uv.lock：改其中任何一份的字节、
     或在任一目录里新增一份 Python 源码都改变 code_sha256；src 下其他类型的文件不进代码身份，引擎包里没有数据目录。"""
-    from worldmock.run_setup import runtime_code_sha256
+    from worldmock.runtime.framework.setup import runtime_code_sha256
 
     project = write_project(tmp_path / "project")
     use_fake_as2(monkeypatch, tmp_path_factory.mktemp("as2-site"))
@@ -114,8 +141,15 @@ def test_code_identity_covers_every_imported_as2_file_except_pycache(
         monkeypatch, tmp_path, tmp_path_factory) -> None:
     """AS2 包内任一文件（含非 Python 文件与新增文件）字节变化都改变 code_sha256，__pycache__ 不计入；
     未改锁定摘要时字节变化即按摘要不符拒绝。"""
-    from worldmock.run_setup import AS2_LOCKED_SOURCE_SHA256, _git_state, _model_identity, require_locked_as2, runtime_code_sha256, stage_model_identity
-    import worldmock.run_setup as worldmock_run_setup_module
+    from worldmock.runtime.framework.setup import (
+        AS2_LOCKED_SOURCE_SHA256,
+        _git_state,
+        _model_identity,
+        require_locked_as2,
+        runtime_code_sha256,
+        stage_model_identity,
+    )
+    import worldmock.runtime.framework.setup as worldmock_run_setup_module
 
     project = write_project(tmp_path / "project")
     package = use_fake_as2(monkeypatch, tmp_path_factory.mktemp("as2-site"))
@@ -139,8 +173,15 @@ def test_code_identity_covers_every_imported_as2_file_except_pycache(
 
 def test_as2_identity_is_independent_of_install_location(monkeypatch, tmp_path, tmp_path_factory) -> None:
     """同一份 AS2 源码装在不同位置：find_spec 解析到哪个目录都得到相同标签、通过同一锁定摘要、code_sha256 相同。"""
-    from worldmock.run_setup import AS2_LOCKED_SOURCE_SHA256, _git_state, _model_identity, require_locked_as2, runtime_code_sha256, stage_model_identity
-    import worldmock.run_setup as worldmock_run_setup_module
+    from worldmock.runtime.framework.setup import (
+        AS2_LOCKED_SOURCE_SHA256,
+        _git_state,
+        _model_identity,
+        require_locked_as2,
+        runtime_code_sha256,
+        stage_model_identity,
+    )
+    import worldmock.runtime.framework.setup as worldmock_run_setup_module
 
     project = write_project(tmp_path / "project")
     name = f"worldmock_fake_as2_{uuid4().hex}"
@@ -163,7 +204,7 @@ def test_as2_identity_is_independent_of_install_location(monkeypatch, tmp_path, 
 
 def _break_as2(condition: str, monkeypatch, site: Path) -> None:
     """把运行身份解析到的 AS2 置为缺失（导入失败）、为空或与锁定摘要不符。"""
-    import worldmock.run_setup as worldmock_run_setup_module
+    import worldmock.runtime.framework.setup as worldmock_run_setup_module
 
     if condition == "missing":
         monkeypatch.setattr(worldmock_run_setup_module, '_AS2_PACKAGE', f'worldmock_absent_as2_{uuid4().hex}')
@@ -176,7 +217,7 @@ def _break_as2(condition: str, monkeypatch, site: Path) -> None:
 @pytest.mark.parametrize("condition", ["missing", "empty", "mismatch"])
 def test_unlocked_as2_refuses_current_runtime_identity(condition, monkeypatch, tmp_path, tmp_path_factory):
     """当前运行代码身份必须通过完整 AS2 源码校验。"""
-    from worldmock.run_setup import runtime_code_sha256
+    from worldmock.runtime.framework.setup import runtime_code_sha256
     _break_as2(condition, monkeypatch, tmp_path_factory.mktemp("as2-site"))
     with pytest.raises(IntegrityError, match=_AS2_REFUSAL):
         runtime_code_sha256(ROOT)
@@ -186,8 +227,15 @@ def test_unlocked_as2_refuses_current_runtime_identity(condition, monkeypatch, t
 @pytest.mark.parametrize("variant", ["blocked", "no_spec", "not_a_package"])
 def test_as2_lookup_failures_are_identity_refusals(variant, monkeypatch, tmp_path, tmp_path_factory) -> None:
     """导入被阻断、已导入对象没有 spec、同名对象不是包：都按 AS2 身份不符拒绝，也不给出代码身份。"""
-    from worldmock.run_setup import AS2_LOCKED_SOURCE_SHA256, _git_state, _model_identity, require_locked_as2, runtime_code_sha256, stage_model_identity
-    import worldmock.run_setup as worldmock_run_setup_module
+    from worldmock.runtime.framework.setup import (
+        AS2_LOCKED_SOURCE_SHA256,
+        _git_state,
+        _model_identity,
+        require_locked_as2,
+        runtime_code_sha256,
+        stage_model_identity,
+    )
+    import worldmock.runtime.framework.setup as worldmock_run_setup_module
 
     project = write_project(tmp_path / "project")
     name = f"worldmock_fake_as2_{uuid4().hex}"
@@ -210,8 +258,15 @@ def test_as2_lookup_failures_are_identity_refusals(variant, monkeypatch, tmp_pat
 @pytest.mark.parametrize("failure", ["vanished", "unreadable"])
 def test_as2_file_read_failure_is_an_identity_refusal(failure, monkeypatch, tmp_path) -> None:
     """核对时 AS2 文件已消失或不可读：按 AS2 身份不符拒绝，只用规格的唯一拒绝文案。"""
-    from worldmock.run_setup import AS2_LOCKED_SOURCE_SHA256, _git_state, _model_identity, require_locked_as2, runtime_code_sha256, stage_model_identity
-    import worldmock.run_setup as worldmock_run_setup_module
+    from worldmock.runtime.framework.setup import (
+        AS2_LOCKED_SOURCE_SHA256,
+        _git_state,
+        _model_identity,
+        require_locked_as2,
+        runtime_code_sha256,
+        stage_model_identity,
+    )
+    import worldmock.runtime.framework.setup as worldmock_run_setup_module
 
     path = tmp_path / "agentsociety2" / "society.py"
     if failure == "unreadable":
@@ -264,7 +319,14 @@ def _committed_project(root: Path) -> tuple[Path, str]:
 def test_git_state_records_head_and_dirty_flag_of_the_checkout(monkeypatch, tmp_path_factory) -> None:
     """git_commit 取 HEAD；git_dirty 取 git status --porcelain 是否非空（含未跟踪文件、不含忽略文件）；
     项目根在检出的子目录中时同样记录该检出，非 Git 目录时二者为 null。"""
-    from worldmock.run_setup import AS2_LOCKED_SOURCE_SHA256, _git_state, _model_identity, require_locked_as2, runtime_code_sha256, stage_model_identity
+    from worldmock.runtime.framework.setup import (
+        AS2_LOCKED_SOURCE_SHA256,
+        _git_state,
+        _model_identity,
+        require_locked_as2,
+        runtime_code_sha256,
+        stage_model_identity,
+    )
 
     _hermetic_git(monkeypatch, tmp_path_factory)
     repository, head = _committed_project(tmp_path_factory.mktemp("checkout"))
@@ -286,8 +348,15 @@ def test_git_state_records_head_and_dirty_flag_of_the_checkout(monkeypatch, tmp_
 
 def test_git_state_is_null_when_git_is_unavailable_or_status_fails(monkeypatch, tmp_path) -> None:
     """git 不可执行，或 HEAD 可读而 status 失败时，二者为 null，不阻断启动。"""
-    from worldmock.run_setup import AS2_LOCKED_SOURCE_SHA256, _git_state, _model_identity, require_locked_as2, runtime_code_sha256, stage_model_identity
-    import worldmock.run_setup as worldmock_run_setup_module
+    from worldmock.runtime.framework.setup import (
+        AS2_LOCKED_SOURCE_SHA256,
+        _git_state,
+        _model_identity,
+        require_locked_as2,
+        runtime_code_sha256,
+        stage_model_identity,
+    )
+    import worldmock.runtime.framework.setup as worldmock_run_setup_module
 
     commands = []
 
@@ -371,7 +440,7 @@ async def test_execute_applies_counterfactual_before_running(monkeypatch, tmp_pa
         return None
 
     from agentsociety2.config import llm_dispatcher
-    import worldmock.runtime as runtime
+    import worldmock.runtime.lifecycle.runner as runtime
 
     monkeypatch.setattr(llm_dispatcher, "init_dispatchers", init_dispatchers)
     async def build(prepared):
@@ -417,7 +486,7 @@ async def test_execute_never_runs_after_counterfactual_failure(monkeypatch, tmp_
         return None
 
     from agentsociety2.config import llm_dispatcher
-    import worldmock.runtime as runtime
+    import worldmock.runtime.lifecycle.runner as runtime
 
     monkeypatch.setattr(llm_dispatcher, "init_dispatchers", init_dispatchers)
     async def build(prepared):
@@ -452,7 +521,7 @@ async def test_execute_preserves_run_and_cleanup_failures(monkeypatch, tmp_path)
         return None
 
     from agentsociety2.config import llm_dispatcher
-    import worldmock.runtime as runtime
+    import worldmock.runtime.lifecycle.runner as runtime
 
     monkeypatch.setattr(llm_dispatcher, "init_dispatchers", init_dispatchers)
     async def build(prepared):

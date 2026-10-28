@@ -7,10 +7,11 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from worldmock.life.memory_evidence import due_reflection
-from worldmock.life.models import (
-    ActivityKind, ActivityState, ActivityStatus, AgentState, BodyState, WorldState, WORLD_SCHEMA_VERSION,
-)
+from worldmock.simulation_engine.evidence.memory import due_reflection
+from worldmock.state.world.kinds import ActivityKind, ActivityStatus
+from worldmock.state.world.activity import ActivityState
+from worldmock.state.world.agent import AgentState, BodyState
+from worldmock.state.world.world import WorldState, WORLD_SCHEMA_VERSION
 
 _ZONE = "Asia/Shanghai"
 #: 2026 年 10 月 5 日是周一：5、6、7、8、9 日依次是周一到周五。

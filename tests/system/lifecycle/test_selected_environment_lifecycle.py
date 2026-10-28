@@ -7,10 +7,10 @@ from tests.frozen_inputs import fixture_metadata
 from tests.life.conftest import advance_next, stage_day_plan, use_app
 from tests.life.environment_runtime import act
 from tests.system.lifecycle.test_external_environment_lifecycle import _complete_run, _snapshot_current
-from worldmock.environment import load_environment
-from worldmock.footprints.export import export_run
-from worldmock.footprints.validation import validate_export
-from worldmock.life.engine import LifeEngine
+from worldmock.configuration.inputs.environment import load_environment
+from worldmock.recording_engine.export.export import export_run
+from worldmock.recording_engine.validation.validation import validate_export
+from worldmock.simulation_engine.engine import LifeEngine
 
 
 def test_selected_environment_runs_relocates_and_exports_its_actual_input(engine_factory, tmp_path):

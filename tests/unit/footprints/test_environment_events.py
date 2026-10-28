@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from worldmock.footprints.models import EventDraft
+from worldmock.recording_engine.events.models import EventDraft
 
 
 def fact(data, **changes):

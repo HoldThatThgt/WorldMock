@@ -6,14 +6,14 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from worldmock.evaluation.behavior_metrics import (
+from tools.analysis.behavior.metrics import (
     BEDTIME_DAY_START_MINUTES,
     BEDTIME_MIN_SECONDS,
     UNREPORTED_CODE_KEY,
     behavior_metrics_report,
 )
-from worldmock.footprints.models import canonical_json
-from worldmock.evaluation.errors import EvaluationError
+from worldmock.foundation.serialization import canonical_json
+from tools.analysis.errors import EvaluationError
 
 ZONE = ZoneInfo("Asia/Shanghai")
 CODE_A = "a" * 64
@@ -425,7 +425,7 @@ def test_early_arrival_uses_actual_daily_opening() -> None:
                   snapshot_extra={"destination_id": "home", "ended_at": _clock(0, 9, 20),
                                   "data": {"arrival": {"location_id": "home"}}}),
     ]
-    from worldmock.catalog.models import Location, OpeningHours
+    from worldmock.resource_engine.catalog.models import Location, OpeningHours
     office = Location(location_id="office", name="Office", kind="office", app_ids=(),
         opens=OpeningHours(weekly={"mon": (("08:00", "18:00"),)}))
     report = _report(events, locations={"office": office})
@@ -761,7 +761,7 @@ def test_drinks_only_produce_no_food_samples():
 
 def test_behavior_metrics_reject_retired_activity_before_reporting():
     import pytest
-    from worldmock.evaluation.errors import EvaluationError
+    from tools.analysis.errors import EvaluationError
 
     event = _event("activity_progress", _clock(0, 8), data={"activity": {"kind": "work"}})
     with pytest.raises(EvaluationError, match="retired activity"):

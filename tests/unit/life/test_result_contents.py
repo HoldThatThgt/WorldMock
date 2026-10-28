@@ -6,8 +6,8 @@ from __future__ import annotations
 import pytest
 
 from tests.data_paths import ENVIRONMENT_ROOT
-from worldmock.life.prompt_schemas import validate_layer
-from worldmock.life.result_projection import public_result
+from worldmock.agents.prompt.prompt_schemas import validate_layer
+from worldmock.simulation_engine.observation.layers.result_projection import public_result
 
 _AT = "2026-01-05T08:00:00+08:00"
 _CONTENT = {"app": "Keep", "title": "测试慢跑", "summary": "测试慢跑的测试用合成摘要。", "duration": "约 20 分钟",

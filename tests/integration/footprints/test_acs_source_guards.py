@@ -5,8 +5,8 @@ from copy import deepcopy
 import pytest
 
 from tests.footprints.recording import recorded_engine
-from worldmock.errors import IntegrityError
-from worldmock.footprints.app_usage import project_app_usage, validate_app_event_source
+from worldmock.foundation.errors import IntegrityError
+from worldmock.recording_engine.projections.activities.app_usage import project_app_usage, validate_app_event_source
 
 
 @pytest.mark.parametrize("fault,reason", [

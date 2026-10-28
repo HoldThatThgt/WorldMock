@@ -4,19 +4,19 @@
 system 与六层 user 组成；可以先做记忆查询，世界请求（一个控制请求，或同一次回复里两个开始工具各至多一次的开始组）
 登记即结束本次决策，登记后不追加任何 tool 消息。原生工具
 整次运行不变，不按轮绑定名称枚举；名称只按观察私有绑定做本地校验，可用性由环境受理判定。同一秒的后续决策
-在准备阶段之后注入环境交来的续接链（第二章「同秒续接」，src/worldmock/agents/life_continuation.py）。本地校验失败写成
+在准备阶段之后注入环境交来的续接链（第二章「同秒续接」，src/worldmock/agents/protocol/life_continuation.py）。本地校验失败写成
 宿主与环境共用的错误结构回给模型，多项请求逐项报全部名称类错误（docs/design/04-simulation-engine.md，
-src/worldmock/agents/life_feedback.py）；三个控制工具请求级的个人事务变更与环境复核调用同一纯函数
+src/worldmock/agents/protocol/life_feedback.py）；三个控制工具请求级的个人事务变更与环境复核调用同一纯函数
 （worldmock.life.errands.change_issues）、读同一份冻结观察的两类私有事务绑定，问题并入同一次纠错
 （docs/design/04-simulation-engine.md）。宿主不写入事务，事务变更也不是记忆写入点。思考用尽输出上限的截断回合丢弃并
-纠错，随后以关闭思考、强制工具调用的请求重试一次（7.2，src/worldmock/agents/life_truncation.py）。
+纠错，随后以关闭思考、强制工具调用的请求重试一次（7.2，src/worldmock/agents/protocol/life_truncation.py）。
 每个本地日第一次睡醒的那一步，在取观察之前先做记忆巩固与就寝反思并登记，再做当天的第一次决策
 （docs/design/06-agent.md「宿主模型协议」）；一次决策恰有一份观察。
 """
 
 from __future__ import annotations
-from worldmock.agents.life_memory import WorldMockMemoryRuntime
-from worldmock.footprints.experiences import validate_verified_experiences
+from worldmock.agents.memory.life_memory import WorldMockMemoryRuntime
+from worldmock.recording_engine.projections.activities.experiences import validate_verified_experiences
 
 import json
 import hashlib
@@ -28,37 +28,51 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from agentsociety2.agent import PersonAgent
-from agentsociety2.agent.base import (
-    ModelCallEvidence,
-    ReactDecision,
-    ReactLoopRequest,
-    ReactToolResult,
-)
+from agentsociety2.agent.base import ModelCallEvidence, ReactDecision, ReactLoopRequest, ReactToolResult
 from agentsociety2.agent.memory_runtime import MemoryStepOutcome
 from agentsociety2.config.llm_dispatcher import collect_transport_attempts
 from agentsociety2.society import DirectToolCall
-from worldmock.agents.life_context import persona_card_text
-from worldmock.agents.life_continuation import continuation_messages, end_continuation, send_check
-from worldmock.agents.life_feedback import (HostFeedback, HostIssue, argument_feedback, feedback_content,
-                                          feedback_report, host_feedback,
-                                         merged_feedback)
-from worldmock.agents.life_memory import memory_update_evidence
-from worldmock.agents.life_persona import known_persons, persona_layer, readonly_layers, write_prompt_snapshot
-from worldmock.agents.life_prompt import (TOOL_DESCRIPTIONS, life_user_layers, readonly_messages, system_message,
-                                       user_message)
-from worldmock.agents.life_truncation import (RETRY_THINKING, RETRY_TOOL_CHOICE, retry_due, thinking_enabled, truncated,
-                                           truncation_feedback, with_feedback)
-from worldmock.life import errands
-from worldmock.life.action_contract import START_TOOLS
-from worldmock.life.continuation import CONTINUATION_KEY
-from worldmock.life.control_items import CONTROL_TOOLS, ControlItem, control_errands, control_items
-from worldmock.life.error_contract import (HOST_NAME_CODES, Candidate, ErrorItem, ErrorReport,
-                                           bind_report, host_report)
-from worldmock.life.models import (ActionReceipt, ConcludeActivityRequest, REQUEST_MODELS, deepseek_strict_schema,
-                                   purpose_only_schema)
-from worldmock.life.name_resolution import name_book, near_names, resolve_start
-from worldmock.life.object_labels import resolve_name
-from worldmock.life.prompt_capacity import FittedRequest, ProgressBudget, compare_usage, fit_request
+from worldmock.agents.prompt.life_context import persona_card_text
+from worldmock.agents.protocol.life_continuation import continuation_messages, end_continuation, send_check
+from worldmock.agents.protocol.life_feedback import (
+    HostFeedback,
+    HostIssue,
+    argument_feedback,
+    feedback_content,
+    feedback_report,
+    host_feedback,
+    merged_feedback,
+)
+from worldmock.agents.memory.life_memory import memory_update_evidence
+from worldmock.agents.prompt.life_persona import known_persons, persona_layer, readonly_layers, write_prompt_snapshot
+from worldmock.agents.prompt.life_prompt import (
+    TOOL_DESCRIPTIONS,
+    life_user_layers,
+    readonly_messages,
+    system_message,
+    user_message,
+)
+from worldmock.state.model.truncation import RETRY_THINKING
+from worldmock.agents.protocol.life_truncation import (
+    RETRY_TOOL_CHOICE,
+    retry_due,
+    thinking_enabled,
+    truncated,
+    truncation_feedback,
+    with_feedback,
+)
+from worldmock.simulation_engine.scheduling.plans import errands
+from worldmock.state.interaction.actions import START_TOOLS
+from worldmock.simulation_engine.decisions.continuation import CONTINUATION_KEY
+from worldmock.state.interaction.control_items import CONTROL_TOOLS, ControlItem, control_errands, control_items
+from worldmock.exchange_engine.conditions.rejection_codes import HOST_NAME_CODES
+from worldmock.state.interaction.errors import Candidate, ErrorItem, ErrorReport, bind_report, host_report
+from worldmock.state.decisions.results import ActionReceipt
+from worldmock.state.interaction.requests import ConcludeActivityRequest, REQUEST_MODELS
+from worldmock.state.interaction.schema import deepseek_strict_schema, purpose_only_schema
+from worldmock.simulation_engine.actions.name_resolution import name_book, near_names, resolve_start
+from worldmock.simulation_engine.observation.targets.object_labels import resolve_name
+from worldmock.agents.prompt.prompt_capacity import FittedRequest, ProgressBudget, compare_usage, fit_request
 
 
 #: 行动阶段思考开关与工具选择（思考模式拒收 required，真实探针见规格）。

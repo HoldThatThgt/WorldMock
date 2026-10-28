@@ -10,12 +10,12 @@ from types import SimpleNamespace
 import pytest
 from pydantic import ValidationError
 
-from worldmock.agents import life_reflection
-from worldmock.errors import ProtocolError
-from worldmock.life import day_planning
-from worldmock.life.models import PlanDayRequest
-from worldmock.model_feedback import schema_error_details
-from worldmock.runtime import PlanDayClient
+from worldmock.agents.memory import life_reflection
+from worldmock.foundation.errors import ProtocolError
+from worldmock.simulation_engine.scheduling.plans import day_planning
+from worldmock.state.interaction.requests import PlanDayRequest
+from worldmock.foundation.model_feedback import schema_error_details
+from worldmock.runtime.lifecycle.runner import PlanDayClient
 
 CLIENTS = ((PlanDayClient, 'Plan day'),)
 IDENTITY = {'requested_model': 'mock-model', 'base_url': 'https://example.test', 'max_retries': 0,

@@ -12,12 +12,20 @@ from __future__ import annotations
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from worldmock.evaluation.errand_metrics import conclusion_memories, errand_metrics
-from worldmock.footprints.models import Event
+from worldmock.recording_engine.reports.errand_metrics import conclusion_memories, errand_metrics
+from worldmock.recording_engine.events.models import Event
 from tests.footprints.display_fixtures import sample_display_names
-from worldmock.footprints.quality import build_quality_report
-from worldmock.life.errand_state import (AGENT_VISIBLE_KINDS, CANCELLED_KIND, COMPLETED_KIND, PROGRESSED_KIND,
-                                         REGISTERED_KIND, REMINDED_KIND, UPDATED_KIND, ErrandState)
+from worldmock.recording_engine.reports.quality import build_quality_report
+from worldmock.state.planning.errands import (
+    AGENT_VISIBLE_KINDS,
+    CANCELLED_KIND,
+    COMPLETED_KIND,
+    PROGRESSED_KIND,
+    REGISTERED_KIND,
+    REMINDED_KIND,
+    UPDATED_KIND,
+    ErrandState,
+)
 
 _ZONE = "Asia/Shanghai"
 #: 正式目录里的商品身份（纯牛奶、素炒什锦食材包、素炒什锦、两种冰红茶）与两个任意的商品身份。

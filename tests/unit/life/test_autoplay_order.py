@@ -14,11 +14,16 @@ from tests.life.environment_inputs import bilibili_series_rows, second_series_en
 from tests.life.prerequisite_inputs import add_rows
 from tests.unit.life.test_environment_content import world_at
 from tests.unit.test_environment_engine_admission import occupied, running
-from worldmock.life import activity_control
-from worldmock.life.activity_evidence import OUTCOME_APP_USE_ENDED, app_use_ended, conclusion_outcome
-from worldmock.life.activity_titles import TitleIndex, activity_snapshot, progress_snapshot
-from worldmock.life.content_select import ContentRequest, autoplay_content
-from worldmock.life.models import ActivityKind, ActivityStatus, AppPush, ContentProgress
+from worldmock.simulation_engine.activities.lifecycle import activity_control
+from worldmock.simulation_engine.evidence.activity import OUTCOME_APP_USE_ENDED, app_use_ended, conclusion_outcome
+from worldmock.simulation_engine.observation.wording.activity_titles import (
+    TitleIndex,
+    activity_snapshot,
+    progress_snapshot,
+)
+from worldmock.simulation_engine.activities.content.content_select import ContentRequest, autoplay_content
+from worldmock.state.world.kinds import ActivityKind, ActivityStatus
+from worldmock.state.world.agent import AppPush, ContentProgress
 
 #: 每种情形都用这几个种子各抽一次：候选集合错了，总有一个种子抽到别的。
 _SEEDS = range(6)

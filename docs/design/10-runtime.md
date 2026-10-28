@@ -68,8 +68,8 @@ run、resume、replay 成功后写 `result.json`，其中 `token_stats` 是数�
 阶段带协议纠错时的错误码）与零点计划调用耗时 `PLAN_DAY_CALL`。
 
 用户通过 `--environment` 显式指定完整环境根，删除 `--scenario` 生活运行输入和地图生成命令。
-环境验证、导出、状态查询与评估分别使用所属公开入口；评估自己的 scenario 配置文件与生活运行输入无关。
-命令是 `validate`、`run`、`resume`、`replay`、`status`、`export`、`evaluate`，没有 `profile` 子命令：
+环境验证、导出和状态查询使用原有公开入口；独立行为分析由仓库工具读取事实。
+命令是 `validate`、`run`、`resume`、`replay`、`status`、`export`，没有 `profile` 子命令：
 人物卡片没有编译、一致性检查或覆盖率检查这几步，`worldmock validate` 检查 persona.toml 的每个字段，
 也检查由它构造的卡片文本不超过 600 汉字，见[人物](06-agent.md)；通过 `validate` 的人设表不会在 run 构造卡片时被拒绝。
 失败记录英文诊断，实际存在的输出目录才写失败状态；输入拒绝不能留下假的运行资产或成功回执。

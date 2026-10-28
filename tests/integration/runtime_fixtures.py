@@ -28,8 +28,8 @@ def _created_persona_profile() -> dict:
     """@brief 恢复夹具冻结与真实新建入口同形的有效卡片，卡片由夹具人设表构造。"""
     from tests.data_paths import ENVIRONMENT_ROOT
     from tests.frozen_inputs import fixture_metadata
-    from worldmock.environment import load_environment
-    from worldmock.run_setup import creation_inputs
+    from worldmock.configuration.inputs.environment import load_environment
+    from worldmock.runtime.framework.setup import creation_inputs
 
     inputs = load_environment(ENVIRONMENT_ROOT, metadata_loader=fixture_metadata)
     return creation_inputs(inputs)[0][0]["profile"]
@@ -37,8 +37,8 @@ def _created_persona_profile() -> dict:
 
 def current_run_identity(inputs, run_id: str):
     """@brief 使用当前运行代码、模型合同和真实场景建立可恢复身份。"""
-    from worldmock.life.models import RunIdentity
-    from worldmock.run_setup import _model_identity, runtime_code_sha256
+    from worldmock.state.identity import RunIdentity
+    from worldmock.runtime.framework.setup import _model_identity, runtime_code_sha256
 
     return RunIdentity(run_id=run_id, source_group_id=f"group-{run_id}",
                        agent_ids=(inputs.persona.agent_id,),
@@ -53,10 +53,10 @@ def branch_of(parent, tmp_path: Path, kind: str, source: str):
     :param kind: resume 是普通恢复；replay 是反事实重放，分支打开后把人物余额改成 BRANCH_BALANCE。
     :param source: 重放干预引用的来源事件身份。
     """
-    from worldmock.footprints.checkpoint import restore_branch, snapshot_directory
-    from worldmock.life.engine import LifeEngine
-    from worldmock.life.models import CounterfactualIntervention
-    from worldmock.life.world_ops import _request_sha
+    from worldmock.recording_engine.storage.checkpoint import restore_branch, snapshot_directory
+    from worldmock.simulation_engine.engine import LifeEngine
+    from worldmock.state.decisions.results import CounterfactualIntervention
+    from worldmock.simulation_engine.world.world_updates import _request_sha
 
     workspace = write_agent_workspace(tmp_path / "agent")
     checkpoint = parent.checkpoint({"agent:1": snapshot_directory(workspace, parent.context.store.assets)})

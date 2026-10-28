@@ -3,14 +3,23 @@ import math
 import tomllib
 from pathlib import Path
 import pytest
-from worldmock.exchange.operators import evaluate_goods_receipt
-from worldmock.input_models import PersonaConfig
-from worldmock.life.body import (ActivityFactors, BoundaryClock, apply_discomfort_pulse, apply_food,
-    apply_relaxation_change, food_intake, initial_body, last_flows, next_shared_body_boundary_seconds,
-    settle_shared_body)
-from worldmock.life.body_config import assemble_body_config
-from worldmock.life.felt import EnergyReading, MealWindows, summarize_felt_levels
-from worldmock.life.models import ActivityKind
+from worldmock.exchange_engine.commerce.operators import evaluate_goods_receipt
+from worldmock.configuration.inputs.models import PersonaConfig
+from worldmock.simulation_engine.body.body import (
+    ActivityFactors,
+    BoundaryClock,
+    apply_discomfort_pulse,
+    apply_food,
+    apply_relaxation_change,
+    food_intake,
+    initial_body,
+    last_flows,
+    next_shared_body_boundary_seconds,
+    settle_shared_body,
+)
+from worldmock.simulation_engine.body.body_config import assemble_body_config
+from worldmock.simulation_engine.body.felt import EnergyReading, MealWindows, summarize_felt_levels
+from worldmock.state.world.kinds import ActivityKind
 
 @pytest.fixture
 def body_inputs():
@@ -162,7 +171,7 @@ def test_travel_burns_energy_by_the_exertion_key_frozen_at_departure(body_inputs
     与并行活动同时进行时取较高的代谢当量，基础代谢只扣一次。"""
     from types import SimpleNamespace
 
-    from worldmock.life.activities import activity_factors
+    from worldmock.simulation_engine.activities.lifecycle.activities import activity_factors
 
     config, body = body_inputs
     trip = SimpleNamespace(kind=ActivityKind.TRAVEL, data={"action": "travel", "exertion": exertion})

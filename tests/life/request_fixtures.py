@@ -1,6 +1,6 @@
 """@brief 两个开始工具的共享请求工厂。"""
 
-from worldmock.life.models import StartMainActivityRequest, StartSideActivityRequest
+from worldmock.state.interaction.requests import StartMainActivityRequest, StartSideActivityRequest
 
 
 def main_request(action, target, detail=None):

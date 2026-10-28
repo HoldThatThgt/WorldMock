@@ -8,7 +8,7 @@ from datetime import datetime
 from tests.life.conftest import advance_next, conclude_request, context, do_at, sleep, stage_day_plan
 from tests.life.environment_runtime import act, finish_activity, observe_only
 from tests.life.observation_record import assert_observations_round_trip, record_observations
-from worldmock.life.schedule import PlanGoal
+from worldmock.state.planning.schedule import PlanGoal
 
 
 def _round_trip(engine, recorded) -> None:

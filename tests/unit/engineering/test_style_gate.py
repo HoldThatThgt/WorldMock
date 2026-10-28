@@ -14,7 +14,7 @@ import re
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
-SCAN_ROOTS = ("src/worldmock", "custom")
+SCAN_ROOTS = ("src/worldmock", "custom", "tools/analysis")
 MAX_LINE_WIDTH = 120
 MAX_FUNCTION_LINES = 50
 MAX_PARAMETERS = 5

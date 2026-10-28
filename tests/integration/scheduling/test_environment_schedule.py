@@ -7,17 +7,29 @@ import pytest
 from pydantic import ValidationError
 
 from tests.life.conftest import (
-    advance_until_ready, conclude_request, do_at, report_request, target_actions, travel, use_app,
+    advance_until_ready,
+    conclude_request,
+    do_at,
+    report_request,
+    target_actions,
+    travel,
+    use_app,
 )
 from tests.life.current_world import stage_moment
 from tests.life.environment_inputs import copy_environment, write_catalog_rows
 from tests.life.environment_runtime import act, events, finish_activity, reach
 from tests.life.prerequisite_inputs import (
-    OFFICE, app_content, dingtalk_environment, example_window, moment, silence_other_pushes, weekday_hours,
+    OFFICE,
+    app_content,
+    dingtalk_environment,
+    example_window,
+    moment,
+    silence_other_pushes,
+    weekday_hours,
 )
-from worldmock.scheduling.compile import compile_schedule
-from worldmock.scheduling.effects import apply_scheduled_effect
-from worldmock.scheduling.events import ScheduledEvent, ScheduledKind
+from worldmock.simulation_engine.scheduling.clock.compile import compile_schedule
+from worldmock.simulation_engine.scheduling.clock.effects import apply_scheduled_effect
+from worldmock.state.planning.events import ScheduledEvent, ScheduledKind
 
 
 def time_environment(tmp_path):

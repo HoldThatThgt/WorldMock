@@ -5,13 +5,13 @@ import hashlib
 import networkx as nx
 import pytest
 
-from worldmock.catalog.admission import validate_map
-from worldmock.catalog.errors import RegistrationError
-from worldmock.catalog.graph import Graph
-from worldmock.catalog.loader import load_catalog
-from worldmock.catalog.mapgen import generate_map, map_bytes
-from worldmock.catalog.models import MapEdge
-from worldmock.life.randomness import random_stream
+from worldmock.resource_engine.registration.admission import validate_map
+from worldmock.resource_engine.registration.errors import RegistrationError
+from worldmock.resource_engine.map.graph import Graph
+from worldmock.resource_engine.catalog.loader import load_catalog
+from worldmock.resource_engine.map.mapgen import generate_map, map_bytes
+from worldmock.resource_engine.catalog.models import MapEdge
+from worldmock.foundation.randomness import random_stream
 
 
 def test_map_is_sorted_deterministic_and_seeded(catalog_dir):

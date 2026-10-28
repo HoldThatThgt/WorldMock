@@ -12,7 +12,7 @@
   python3 scripts/inspect_run.py <run_dir> continuation [--topic 话题 ...] [--baseline <run_dir>]
   python3 scripts/inspect_run.py <run_dir> workday --environment <环境目录>
 
-时刻一律按运行清单的 window.timezone 显示；events 里活动与手机事件的写法取 worldmock.footprints.display_wording，
+时刻一律按运行清单的 window.timezone 显示；events 里活动与手机事件的写法取 worldmock.recording_engine.projections.presentation.display_wording，
 名称取这次运行冻结的环境目录（docs/design/05-recording-engine.md「显示写法与检查工具」）。
 rerun 只读计算 docs/design/05-recording-engine.md「显示写法与检查工具」的运行指标，只报告，不作门禁。
 continuation 只读给出 docs/design/05-recording-engine.md的逐决策指标与合计（JSON）；--baseline 先核对
@@ -36,16 +36,20 @@ from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT))
 
-from worldmock.footprints.display_wording import (  # noqa: E402
-    DisplayNames, activity_phrase, event_content_id, phone_phrase,
+from worldmock.recording_engine.projections.presentation.display_wording import (
+    DisplayNames,
+    activity_phrase,
+    event_content_id,
+    phone_phrase,
 )
-from worldmock.footprints.frozen_environment import frozen_display_names  # noqa: E402
-from worldmock.footprints.observation_parts import rehydrate_observation  # noqa: E402
-from worldmock.footprints.purchases import orders_by_id  # noqa: E402
-from worldmock.footprints.store import EVENT_PAGE_SIZE  # noqa: E402
-from worldmock.status import event_type_counts  # noqa: E402
-from worldmock.life.felt import APETITE_BASE_LEVEL, APPETITE_BANDS, APPETITE_STARVING_LEVEL  # noqa: E402
+from worldmock.recording_engine.validation.frozen_environment import frozen_display_names  # noqa: E402
+from worldmock.recording_engine.storage.observation_parts import rehydrate_observation  # noqa: E402
+from worldmock.recording_engine.projections.commerce.purchases import orders_by_id  # noqa: E402
+from worldmock.recording_engine.storage.store import EVENT_PAGE_SIZE  # noqa: E402
+from worldmock.runtime.monitoring.status import event_type_counts  # noqa: E402
+from worldmock.simulation_engine.body.felt import APETITE_BASE_LEVEL, APPETITE_BANDS, APPETITE_STARVING_LEVEL  # noqa: E402
 
 #: 饥饿分级由轻到重（与体感分级同源）：「最低饥饿分级」取观察中出现过的最重一档。
 APPETITE_ORDER = (APETITE_BASE_LEVEL, *(label for _, label in APPETITE_BANDS), APPETITE_STARVING_LEVEL)
@@ -530,7 +534,7 @@ def _reasoning(responses: list[dict]) -> dict:
 
 def _usage(pairs: list[tuple[dict, dict]]) -> dict:
     """@brief 缓存命中、输入 token 与计价成本（与质量报告同一冻结价目）；任一响应缺字段时对应合计为 None。"""
-    from worldmock.footprints.quality import _estimate_cost
+    from worldmock.recording_engine.reports.quality import _estimate_cost
 
     usages = [(request, response["data"]["response"]) for request, response in pairs]
     hits = [(body.get("usage") or {}).get("prompt_cache_hit_tokens") for _, body in usages]
@@ -571,7 +575,7 @@ def _decision_metrics(decision: dict, topics: tuple[str, ...]) -> dict:
 
 def _assistant_matches(message: dict, response: dict | None) -> bool:
     """@brief 续接中的 assistant 与上一决策最终响应的思考、正文和工具调用相同；工具调用是一个，或两个开始工具各一个。"""
-    from worldmock.life.action_contract import START_TOOLS
+    from worldmock.state.interaction.actions import START_TOOLS
 
     final = _message(response)
     calls = [(call.get("id"), (call.get("function") or {}).get("name"), (call.get("function") or {}).get("arguments"))
@@ -624,7 +628,7 @@ def _chain_rows(decisions: list[dict]) -> list[dict]:
 
 def _repeat_orders(conn: sqlite3.Connection, zone: ZoneInfo) -> dict[str, int]:
     """@brief 按订单去重后的重复下单：同一人物同一本地日再次购买同一商品的订单数，按下单决策计。"""
-    from worldmock.footprints.purchases import project_purchase_facts
+    from worldmock.recording_engine.projections.commerce.purchases import project_purchase_facts
 
     events = _rows(conn, "json_extract(body,'$.event_type') IN ('action_result','action_requested')")
     decisions = {row["action_id"]: row["decision_id"] for row in events if row["event_type"] == "action_requested"}
@@ -688,7 +692,7 @@ def _switch(manifest: dict) -> bool | None:
 
     特性之前的运行带决策自述阶段，既不是开臂也不是关臂（docs/design/05-recording-engine.md）。
     """
-    from worldmock.life.continuation import continuation_enabled
+    from worldmock.simulation_engine.decisions.continuation import continuation_enabled
 
     if not isinstance(manifest.get("stage_model_identity"), dict):
         return None
@@ -752,8 +756,8 @@ def cmd_continuation(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
 
 def cmd_workday(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
     """@brief 工作安排与下班、到家窗口取已核对两份原文身份的完整环境，不读人物工作区。"""
-    from worldmock.environment import load_environment
-    from worldmock.evaluation.workload_metrics import workday_inputs, workday_reports
+    from worldmock.configuration.inputs.environment import load_environment
+    from tools.analysis.behavior.workday import workday_inputs, workday_reports
 
     manifest = _manifest(a.run_dir)
     inputs = load_environment(a.environment)

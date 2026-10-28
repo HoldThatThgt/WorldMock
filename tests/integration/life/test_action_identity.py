@@ -10,10 +10,17 @@ import pytest
 from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import (
-    MAIN_TOOL, action_identity, advance_until_ready, context, do_at, report_request, sleep, use_app,
+    MAIN_TOOL,
+    action_identity,
+    advance_until_ready,
+    context,
+    do_at,
+    report_request,
+    sleep,
+    use_app,
 )
 from tests.life.environment_runtime import act, act_group, events, every_five_minutes
-from worldmock.errors import ProtocolError
+from worldmock.foundation.errors import ProtocolError
 
 #: 动作身份不由本决策形成时的协议故障原文。
 _FORM = "^Action identity must have the form <decision_id>:action:<four digits>$"

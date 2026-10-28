@@ -5,7 +5,7 @@ fail-closed 语义断言 IntegrityError。
 """
 
 from __future__ import annotations
-from worldmock.footprints.checkpoint import restore_branch
+from worldmock.recording_engine.storage.checkpoint import restore_branch
 
 import gzip
 import hashlib
@@ -20,20 +20,21 @@ from types import SimpleNamespace
 
 import pytest
 
-from worldmock.errors import IntegrityError
-from worldmock.footprints import evidence, export as export_module
-from worldmock.footprints import timeline_labels as timeline_module
-from worldmock.footprints.assets import AssetStore, atomic_write
-from worldmock.footprints.export import export_run, reconstruct_activities
-from worldmock.footprints.ledger import (
-    validate_account_history,
-    validate_account_transition,
-)
-from worldmock.footprints.models import AssetRef, Event, EventDraft, canonical_json
+import worldmock.recording_engine.storage.assets as assets_module
+from worldmock.foundation.errors import IntegrityError
+from worldmock.recording_engine.events import model_evidence as evidence
+from worldmock.recording_engine.export import export as export_module
+from worldmock.recording_engine.projections.presentation import timeline_labels as timeline_module
+from worldmock.recording_engine.storage.assets import AssetStore
+from worldmock.foundation.atomic_write import atomic_write
+from worldmock.recording_engine.export.export import export_run, reconstruct_activities
+from worldmock.recording_engine.validation.ledger import validate_account_history, validate_account_transition
+from worldmock.recording_engine.events.models import AssetRef, Event, EventDraft
+from worldmock.foundation.serialization import canonical_json
 from tests.footprints.display_fixtures import freeze_environment, sample_display_names
-from worldmock.footprints.quality import build_quality_report
-from worldmock.footprints.store import FootprintStore
-from worldmock.footprints.validation import validate_export
+from worldmock.recording_engine.reports.quality import build_quality_report
+from worldmock.recording_engine.storage.store import FootprintStore
+from worldmock.recording_engine.validation.validation import validate_export
 
 
 # ---------------------------------------------------------------------------
@@ -427,7 +428,7 @@ def test_get_checkpoint_rejects_missing_damaged_and_inconsistent_records(tmp_pat
 
 
 def test_snapshot_directory_skips_directories_and_packs_files(tmp_path):
-    from worldmock.footprints.checkpoint import snapshot_directory
+    from worldmock.recording_engine.storage.checkpoint import snapshot_directory
     assets = AssetStore(tmp_path / "assets")
     workspace = tmp_path / "workspace"
     (workspace / "nested").mkdir(parents=True)
@@ -441,12 +442,12 @@ def test_snapshot_directory_skips_directories_and_packs_files(tmp_path):
 def test_snapshot_directory_rejects_missing_workspace(tmp_path):
     assets = AssetStore(tmp_path / "assets")
     with pytest.raises(IntegrityError, match="workspace is missing"):
-        from worldmock.footprints.checkpoint import snapshot_directory
+        from worldmock.recording_engine.storage.checkpoint import snapshot_directory
         snapshot_directory(tmp_path / "absent", assets)
 
 
 def test_snapshot_directory_rejects_symlinks(tmp_path, monkeypatch):
-    from worldmock.footprints.checkpoint import snapshot_directory
+    from worldmock.recording_engine.storage.checkpoint import snapshot_directory
 
     assets = AssetStore(tmp_path / "assets")
     workspace = tmp_path / "workspace"
@@ -470,7 +471,7 @@ def test_snapshot_directory_rejects_symlinks(tmp_path, monkeypatch):
 def test_restore_directory_rejects_existing_destination_and_unsafe_members(tmp_path):
     import tarfile
     import io
-    from worldmock.footprints.checkpoint import restore_directory
+    from worldmock.recording_engine.storage.checkpoint import restore_directory
     assets = AssetStore(tmp_path / "assets")
     content = io.BytesIO()
     with tarfile.open(fileobj=content, mode="w") as archive:
@@ -511,7 +512,7 @@ def _workspace_snapshot(assets, members):
 
 def _forbid_restore_writes(monkeypatch):
     """核对必须先于展开：任何写入都让用例失败，回归时也不会真的写到临时目录之外。"""
-    from worldmock.footprints import checkpoint
+    from worldmock.recording_engine.storage import checkpoint
 
     def written(path, raw):
         raise AssertionError(f"restore wrote before rejecting the snapshot: {path}")
@@ -530,7 +531,7 @@ def test_restore_directory_rejects_members_that_escape_or_cannot_be_restored_fai
     """每个平台上都拒绝带盘符或根、含父引用、不只用 "/" 分隔、是 Windows 设备名、含禁用字符或孤立代理码点、
     一级超过 255 字节、以点或空格结尾、忽略大小写与 Unicode 规范形式后重名，或文件同时是另一成员上级目录的成员
     （Windows 上 "/x"、"\\x"、"D:x" 会写到目标目录之外，"x" 与 "x." 互相覆盖）；核对先于展开，目标目录不会被创建。"""
-    from worldmock.footprints.checkpoint import restore_directory
+    from worldmock.recording_engine.storage.checkpoint import restore_directory
 
     _forbid_restore_writes(monkeypatch)
     assets = AssetStore(tmp_path / "assets")
@@ -544,7 +545,7 @@ def test_restore_directory_rejects_members_that_escape_or_cannot_be_restored_fai
                                   tarfile.GNUTYPE_SPARSE])
 def test_restore_directory_rejects_members_that_are_not_plain_regular_files(tmp_path, monkeypatch, kind):
     """快照只写普通文件；目录、链接，以及同样算作文件的旧式、连续与稀疏成员（稀疏成员可声明远大于归档的长度）都拒绝。"""
-    from worldmock.footprints.checkpoint import restore_directory
+    from worldmock.recording_engine.storage.checkpoint import restore_directory
 
     _forbid_restore_writes(monkeypatch)
     assets = AssetStore(tmp_path / "assets")
@@ -557,7 +558,7 @@ def test_restore_directory_rejects_members_that_are_not_plain_regular_files(tmp_
 def test_restore_directory_rejects_a_member_that_aliases_an_earlier_file(tmp_path):
     """文件系统给长名生成 8.3 短名时，"LONGFI~1.JSO" 与先写的 "longfilename.json" 是同一个文件，后者不能被静默覆盖；
     文件系统不生成短名时两者是不同的文件，照常恢复。"""
-    from worldmock.footprints.checkpoint import restore_directory
+    from worldmock.recording_engine.storage.checkpoint import restore_directory
 
     probe = tmp_path / "probe"
     probe.mkdir()
@@ -578,7 +579,7 @@ def test_restore_directory_rejects_a_member_that_aliases_an_earlier_file(tmp_pat
 
 def test_snapshot_and_restore_keep_every_workspace_file_byte_for_byte(tmp_path):
     """真实工作区的文件名（人物身份、配置、记忆、提示快照）照常快照并逐字节恢复；空目录不进归档。"""
-    from worldmock.footprints.checkpoint import restore_directory, snapshot_directory
+    from worldmock.recording_engine.storage.checkpoint import restore_directory, snapshot_directory
 
     assets = AssetStore(tmp_path / "assets")
     workspace = tmp_path / "workspace"
@@ -599,7 +600,7 @@ def test_snapshot_and_restore_keep_every_workspace_file_byte_for_byte(tmp_path):
 def test_snapshot_directory_refuses_a_workspace_that_restore_would_reject(tmp_path):
     """快照与恢复用同一成员检查：同一个名字的 NFC 与 NFD 写法在 NTFS、ext4 上是两个文件，恢复到 APFS 会互相覆盖，
     所以快照时就拒绝，不保存恢复不了的快照；文件系统本身把它们当作同一个文件时只剩一个，照常快照。"""
-    from worldmock.footprints.checkpoint import snapshot_directory
+    from worldmock.recording_engine.storage.checkpoint import snapshot_directory
 
     assets = AssetStore(tmp_path / "assets")
     workspace = tmp_path / "workspace"
@@ -617,7 +618,7 @@ def test_snapshot_directory_refuses_a_workspace_that_restore_would_reject(tmp_pa
 def test_snapshot_directory_rejects_directory_junctions(tmp_path, monkeypatch):
     """Windows 目录联接不是符号链接（is_symlink 为假），快照同样拒绝，而且在进入联接之前拒绝：不列出它指向的目录
     （指回工作区的联接会让逐层遍历无穷展开）。"""
-    from worldmock.footprints.checkpoint import snapshot_directory
+    from worldmock.recording_engine.storage.checkpoint import snapshot_directory
 
     assets = AssetStore(tmp_path / "assets")
     workspace = tmp_path / "workspace"
@@ -657,7 +658,7 @@ def _store_with_checkpoint(tmp_path):
 
 
 def test_restore_branch_rejects_destinations_inside_parent_run(tmp_path):
-    from worldmock.footprints.checkpoint import restore_branch
+    from worldmock.recording_engine.storage.checkpoint import restore_branch
     store, point = _store_with_checkpoint(tmp_path)
     with pytest.raises(IntegrityError, match="outside the parent run"):
         restore_branch(store, point.checkpoint_id, store.run_dir / 'child')
@@ -685,7 +686,7 @@ def test_restore_branch_carries_event_artifacts_into_child_run(tmp_path):
 
 
 def test_restore_branch_cleanup_on_population_failure(tmp_path, monkeypatch):
-    from worldmock.footprints import checkpoint as checkpoint_module
+    from worldmock.recording_engine.storage import checkpoint as checkpoint_module
     store, point = _store_with_checkpoint(tmp_path)
 
     def _fail(*args, **kwargs):
@@ -707,13 +708,13 @@ def test_restore_branch_cleanup_on_population_failure(tmp_path, monkeypatch):
     {"branch_kind": "counterfactual", "intervention_sha256": "0" * 64, "extra": 1},
 ])
 def test_branch_metadata_rejects_invalid_shapes(metadata):
-    from worldmock.footprints.checkpoint import _branch_metadata
+    from worldmock.recording_engine.storage.checkpoint import _branch_metadata
     with pytest.raises(IntegrityError):
         _branch_metadata(metadata)
 
 
 def test_branch_metadata_accepts_counterfactual_with_valid_hash():
-    from worldmock.footprints.checkpoint import _branch_metadata
+    from worldmock.recording_engine.storage.checkpoint import _branch_metadata
     metadata = _branch_metadata({"branch_kind": "counterfactual",
                                  "intervention_sha256": "a" * 64})
     assert metadata["branch_kind"] == "counterfactual"
@@ -755,30 +756,11 @@ def test_export_includes_event_artifact_refs_in_asset_index(tmp_path):
     store.close()
 
 
-def test_load_render_day_rejects_missing_timeline_script(monkeypatch):
-    class _FakePath:
-        def __init__(self, exists=True):
-            self._exists = exists
+def test_load_render_day_uses_the_packaged_timeline_renderer():
+    """时间线随记录引擎发布，不再按仓库路径加载工程脚本。"""
+    from worldmock.recording_engine.projections.presentation import timeline_labels, timeline_renderer
 
-        def resolve(self):
-            return self
-
-        def __truediv__(self, other):
-            return self
-
-        @property
-        def parents(self):
-            return [self] * 6
-
-        def is_file(self):
-            return self._exists
-
-        def is_symlink(self):
-            return False
-
-    monkeypatch.setattr(timeline_module, "Path", lambda *args, **kwargs: _FakePath(exists=False))
-    with pytest.raises(IntegrityError, match="timeline projection script"):
-        timeline_module._load_render_day()
+    assert timeline_labels._load_render_day() is timeline_renderer
 
 
 def _progress_event(sequence, activity, interval_start, interval_end, **fields):
@@ -978,19 +960,19 @@ def test_atomic_write_failure_paths_clean_up_and_raise(tmp_path, monkeypatch):
     with pytest.raises(OSError):
         atomic_write(blocker / "sub" / "file.txt", b"data")
 
-    import worldmock.footprints.assets as assets_module
+    import worldmock.foundation.atomic_write as atomic_write_module
     target = tmp_path / "late-failure.txt"
     real_replace = os.replace
 
     def _failing_replace(source, destination):
         raise OSError("replace refused")
 
-    monkeypatch.setattr(assets_module.os, "replace", _failing_replace)
+    monkeypatch.setattr(atomic_write_module.os, "replace", _failing_replace)
     try:
         with pytest.raises(OSError):
             atomic_write(target, b"data")
     finally:
-        monkeypatch.setattr(assets_module.os, "replace", real_replace)
+        monkeypatch.setattr(atomic_write_module.os, "replace", real_replace)
     leftovers = [item for item in os.listdir(tmp_path) if item.startswith(".pending-")]
     assert leftovers == []
 
@@ -1066,7 +1048,7 @@ def test_branch_copies_parent_rows_and_artifact_rows_byte_for_byte(tmp_path):
 
 def test_branch_rejects_an_invalid_parent_body_before_creating_the_stage(tmp_path, monkeypatch):
     from pydantic import ValidationError
-    from worldmock.footprints import checkpoint as checkpoint_module
+    from worldmock.recording_engine.storage import checkpoint as checkpoint_module
     store = _make_store(tmp_path)
     (first,) = store.append_evidence([EventDraft(event_type="action_result", occurred_at=100, agent_id=1)])
     body = first.model_dump()
@@ -1104,7 +1086,7 @@ def test_branch_copy_that_disagrees_with_the_parent_publishes_nothing(tmp_path, 
 
 
 def test_branch_reads_every_parent_artifact_reference(tmp_path, monkeypatch):
-    from worldmock.footprints import checkpoint as checkpoint_module
+    from worldmock.recording_engine.storage import checkpoint as checkpoint_module
     store, point = _parent_with_shared_artifact(tmp_path)
     shared = next(event.artifact_refs[0] for event in store.iter_events(point.last_event_seq) if event.artifact_refs)
     (store.assets.root / shared.sha256).unlink()

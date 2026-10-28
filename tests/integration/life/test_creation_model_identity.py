@@ -13,11 +13,11 @@ from tests.integration.as2_fixtures import write_project
 from tests.integration.runtime.current_contract_fixtures import ROOT, inputs
 from tests.integration.runtime.test_runtime_inputs_contract import prepared_parent
 from tests.integration.runtime_fixtures import current_run_identity
-from worldmock.agents import life_prompt
-from worldmock.errors import IntegrityError
-from worldmock.life.engine import LifeEngine
-from worldmock.run_setup import _model_identity, stage_model_identity
-from worldmock.runtime import ResumeRequest, _prepare_resume
+from worldmock.agents.prompt import life_prompt
+from worldmock.foundation.errors import IntegrityError
+from worldmock.simulation_engine.engine import LifeEngine
+from worldmock.runtime.framework.setup import _model_identity, stage_model_identity
+from worldmock.runtime.lifecycle.runner import ResumeRequest, _prepare_resume
 
 
 def _foreign_stages(frozen, change):

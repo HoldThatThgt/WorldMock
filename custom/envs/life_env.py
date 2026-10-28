@@ -1,10 +1,10 @@
 """@brief AgentSociety2 原生 LifeEnv 扩展，委托唯一生活领域服务。"""
 
 from __future__ import annotations
-from worldmock.run_setup import stage_model_identity
-from worldmock.runtime import settle_pending_day_plans
+from worldmock.runtime.framework.setup import stage_model_identity
+from worldmock.runtime.lifecycle.runner import settle_pending_day_plans
 from custom.agents.life_agent import life_action_tool_names
-from worldmock.environment import load_environment
+from worldmock.configuration.inputs.environment import load_environment
 
 import logging
 from datetime import datetime
@@ -15,12 +15,14 @@ from agentsociety2.config.llm_dispatcher import close_cached_async_clients
 from agentsociety2.env import EnvBase
 from agentsociety2.society import SocietyCheckpointRequest
 
-from worldmock.errors import BusinessRuleError, ProtocolError
-from worldmock.footprints.checkpoint import snapshot_directory
-from worldmock.life.engine import LifeEngine
-from worldmock.life.guidance import rejection_guidance
-from worldmock.life.models import CounterfactualIntervention, REQUEST_MODELS, RunIdentity
-from worldmock.status import write_status
+from worldmock.foundation.errors import BusinessRuleError, ProtocolError
+from worldmock.recording_engine.storage.checkpoint import snapshot_directory
+from worldmock.simulation_engine.engine import LifeEngine
+from worldmock.simulation_engine.observation.wording.guidance import rejection_guidance
+from worldmock.state.decisions.results import CounterfactualIntervention
+from worldmock.state.interaction.requests import REQUEST_MODELS
+from worldmock.state.identity import RunIdentity
+from worldmock.runtime.monitoring.status import write_status
 
 #: 稳定工具面（docs/design/06-agent.md「提示与工具」）：环境侧必须恰好受理七个请求工具；
 #: 零点计划 plan_day 是运行时后台任务，不是人物工具（docs/design/04-simulation-engine.md）。
