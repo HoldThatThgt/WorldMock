@@ -250,7 +250,7 @@ test('context drills into current tools and real-shaped progress self notes', as
 /** @brief 不读录制夹具，按七层合同内联构造一个现行行动请求：角色原文取自提示的唯一来源 LIFE_SYSTEM_LAYER，工具层是
  * 提示里的紧凑分组（出行与在地点做事的行带 detail，睡眠没有），工具数组含两个开始工具。 */
 function inlineContextRequest() {
-  const prompt = readFileSync(path.join(__dirname, '../../../src/worldmock/agents/life_prompt.py'), 'utf8');
+  const prompt = readFileSync(path.join(__dirname, '../../../src/worldmock/agents/prompt/life_prompt.py'), 'utf8');
   const role = /LIFE_SYSTEM_LAYER[^=]*= \{\s*"layer": "系统层",\s*"role": "([^"]+)"/.exec(prompt)[1];
   const toolLayer = {layer: '工具层', groups: [
     {kind: 'location', action: 'travel', shared: {state: '全天营业', available: true}, targets: [
@@ -759,20 +759,20 @@ test('decision starts show their wake reasons from the frozen vocabulary', async
   assert.deepEqual(view.errors, []);
 });
 
-/** @brief 控制请求里的一条个人事务变更：七个键全部写出（src/worldmock/life/models.py 的 ErrandChange），fields 覆盖
+/** @brief 控制请求里的一条个人事务变更：七个键全部写出（src/worldmock/state/interaction/requests.py 的 ErrandChange），fields 覆盖
  *  该变更种类要写的键。 */
 function errandChange(change, name, fields = {}) {
   return {change, name, item: null, quantity: null, memo: null, remind_time: null, reason: null, ...fields};
 }
 
-/** @brief 事件载荷里的事务快照，按 ErrandState 的十二个字段（src/worldmock/life/errand_state.py）；fields 覆盖个别字段。 */
+/** @brief 事件载荷里的事务快照，按 ErrandState 的十二个字段（src/worldmock/state/planning/errands.py）；fields 覆盖个别字段。 */
 function errandSnapshot(fields = {}) {
   return {errand_id: 'action-0007:errand:0', name: '买牛奶', product_id: 'food-milk', quantity: 2,
     progress: 0, memo: '下班顺路去便利店', registered_at: epoch, remind_at: epoch + 3600, reminded_at: null,
     origin_action_id: 'action-0007', origin_event_id: 'event-0042', ...fields};
 }
 
-/** @brief 一条个人事务事件的存储形状（src/worldmock/life/errands.py 的 _draft）：environment_event，载荷为 {kind, errand}
+/** @brief 一条个人事务事件的存储形状（src/worldmock/simulation_engine/scheduling/plans/errands.py 的 _draft）：environment_event，载荷为 {kind, errand}
  *  另加 extra（quantity_added 或 reason），决策、动作与活动身份为空，提醒与办成两种人物可见。 */
 function errandEvent(kind, snapshot, extra = {}, envelope = {}) {
   return event('environment_event', {kind, errand: snapshot, ...extra}, {
@@ -816,7 +816,7 @@ test('errand changes are read by the same rule as control_errands: seven keys pr
   const view = await viewer([]);
   t.after(() => view.close());
   // 七个键与顺序取自 Python 读取入口的 _ERRAND_KEYS，镜像实现不得另立一套。
-  const reader = readFileSync(path.join(__dirname, '../../../src/worldmock/life/control_items.py'), 'utf8');
+  const reader = readFileSync(path.join(__dirname, '../../../src/worldmock/state/interaction/control_items.py'), 'utf8');
   const keys = [.../_ERRAND_KEYS = \(([^)]*)\)/.exec(reader)[1].matchAll(/"([a-z_]+)"/g)].map(match => match[1]);
   assert.equal(keys.length, 7);
   assert.deepEqual(JSON.parse(JSON.stringify(view.run('ERRAND_CHANGE_KEYS'))), keys);
@@ -1174,7 +1174,7 @@ async function loadedViewer(t, files, directories = [], events = [event('observa
 }
 
 test('overview lists every frozen input warning under its person or at scenario level with code and message', async t => {
-  const source = readFileSync(path.join(__dirname, '../../../src/worldmock/input_warnings.py'), 'utf8')
+  const source = readFileSync(path.join(__dirname, '../../../src/worldmock/configuration/inputs/warnings.py'), 'utf8')
     .replace(/\r\n/g, '\n');
   const codes = [.../InputWarningCode = Literal\[\n([\s\S]*?)\n\]/.exec(source)[1].matchAll(/"([A-Z_]+)"/g)]
     .map(match => match[1]);

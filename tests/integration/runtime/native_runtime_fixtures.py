@@ -10,10 +10,9 @@ import tomlkit
 
 from tests.data_paths import ENVIRONMENT_ROOT
 from tests.frozen_inputs import fixture_metadata
-from tests.integration.runtime.current_contract_fixtures import (ROOT, ToolResponse, aligned_process,
-                                                                 metadata_service)
+from tests.integration.runtime.current_contract_fixtures import ROOT, ToolResponse, aligned_process, metadata_service
 from tests.life.conftest import MAIN_TOOL, StubPlanDayClient, main_arguments
-from worldmock.environment import load_environment
+from worldmock.configuration.inputs.environment import load_environment
 
 
 class CurrentDecisionModel:
@@ -94,7 +93,7 @@ def scripted_dispatcher(env, failures):
 @pytest.fixture
 def native_runtime(tmp_path, monkeypatch):
     """一小时的真实原生运行环境：返回环境根、冻结输入与每次构造出的模型列表。"""
-    import worldmock.runtime as runtime
+    import worldmock.runtime.lifecycle.runner as runtime
     import agentsociety2.society.society as society_module
     from agentsociety2.agent.runner import _step_agent_batch_async, _create_direct_agents_batch_async
     from agentsociety2.config import llm_dispatcher

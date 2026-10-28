@@ -129,4 +129,4 @@ python scripts/build_design_doc.py
 ```
 
 机器报告、覆盖率、执行回执与生成设计 HTML 在 .work。当前设计从[文档入口](../INDEX.md)阅读，
-真实性对比与盲评操作见[评价手册](evaluation.md)。
+行为与工作统计的使用方法见[分析手册](evaluation.md)。

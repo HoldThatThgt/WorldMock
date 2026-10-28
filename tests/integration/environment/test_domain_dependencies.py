@@ -11,9 +11,9 @@ ROOT = Path(__file__).resolve().parents[3]
 
 
 @pytest.mark.parametrize("operation", [
-    "from worldmock.catalog.loader import load_catalog; load_catalog(root / 'catalog', seed=1)",
-    "from worldmock.environment import load_environment; load_environment(root, metadata_loader=fixture_metadata)",
-    "from worldmock.validation import validate_environment; "
+    "from worldmock.resource_engine.catalog.loader import load_catalog; load_catalog(root / 'catalog', seed=1)",
+    "from worldmock.configuration.inputs.environment import load_environment; load_environment(root, metadata_loader=fixture_metadata)",
+    "from worldmock.configuration.inputs.validation import validate_environment; "
     "report = validate_environment(root, metadata_loader=fixture_metadata); assert report['valid']",
 ], ids=["catalog", "environment", "validation"])
 def test_domain_checks_do_not_load_the_complete_engine(operation):
@@ -24,8 +24,8 @@ def test_domain_checks_do_not_load_the_complete_engine(operation):
         "before={str(path):path.read_bytes() for path in root.rglob('*') if path.is_file()}; "
         + operation + "; "
         "after={str(path):path.read_bytes() for path in root.rglob('*') if path.is_file()}; assert before==after; "
-        "forbidden={'worldmock.life.engine','worldmock.life.game','custom.envs.life_env',"
-        "'worldmock.life.read_query_runtime'}; "
+        "forbidden={'worldmock.simulation_engine.engine','worldmock.simulation_engine.game','custom.envs.life_env',"
+        "'worldmock.runtime.framework.read_query'}; "
         "assert not forbidden.intersection(sys.modules), sorted(forbidden.intersection(sys.modules)); "
         "assert not any(name.startswith('agentsociety2.society') for name in sys.modules)"
     )

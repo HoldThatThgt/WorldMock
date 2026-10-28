@@ -3,20 +3,27 @@
 import pytest
 
 from tests.life.conftest import (
-    advance_next, conclude_request, do_at, purchase, target_actions, travel, travel_rows, use_app,
+    advance_next,
+    conclude_request,
+    do_at,
+    purchase,
+    target_actions,
+    travel,
+    travel_rows,
+    use_app,
 )
 from tests.life.current_world import stage_moment
 from tests.life.environment_runtime import act, act_group, events, finish_activity, reach
 from tests.life.prerequisite_inputs import CLOCK, OFFICE, app_content, dingtalk_environment, example_window, moment
-from worldmock.catalog.graph import Graph
-from worldmock.catalog.models import MapEdge, MapGraph
-from worldmock.errors import BusinessRuleError, IntegrityError
-from worldmock.life.basket import quoted_basket
-from worldmock.life.guidance import rejection_guidance
-from worldmock.life.purchase_offers import quote_goods
-from worldmock.life.travel import pay_travel_fare, plan_trip
-from worldmock.life.travel_methods import WALKING, travel_method
-from worldmock.life.weather import current_weather_factor
+from worldmock.resource_engine.map.graph import Graph
+from worldmock.resource_engine.catalog.models import MapEdge, MapGraph
+from worldmock.foundation.errors import BusinessRuleError, IntegrityError
+from worldmock.simulation_engine.commerce.purchase.basket import quoted_basket
+from worldmock.simulation_engine.observation.wording.guidance import rejection_guidance
+from worldmock.simulation_engine.commerce.purchase.purchase_offers import quote_goods
+from worldmock.simulation_engine.activities.travel.travel import pay_travel_fare, plan_trip
+from worldmock.resource_engine.catalog.travel_methods import WALKING, travel_method
+from worldmock.simulation_engine.scheduling.clock.weather import current_weather_factor
 
 #: 开始组有两条调用时追加在拒绝原因后的一句。
 NEITHER = " Neither start request was started."
@@ -346,8 +353,8 @@ def _seed_with_weather(condition):
     """找出运行首日抽到指定天气的最小种子；声明的距离不随种子变化。"""
     import hashlib
 
-    from worldmock.exchange.constants import WEATHER_FACTORS
-    from worldmock.life.randomness import random_stream
+    from worldmock.exchange_engine.definitions.constants import WEATHER_FACTORS
+    from worldmock.foundation.randomness import random_stream
 
     for seed in range(500):
         state = hashlib.sha256(f"random:{seed}".encode()).hexdigest()
@@ -536,7 +543,7 @@ def test_travel_detail_naming_no_method_is_corrected_with_copyable_calls_and_nev
 
 def test_missing_travel_detail_is_refused_by_the_request_model_without_walking(engine_factory, tmp_path):
     """detail 为 null：请求模型的交叉约束拒绝，到不了名称解析，没有允许值和候选；不按步行出发。"""
-    from worldmock.life.models import StartMainActivityRequest
+    from worldmock.state.interaction.requests import StartMainActivityRequest
 
     engine = engine_factory(_custom_world(tmp_path))
     request = StartMainActivityRequest.model_construct(action="travel", target="公司", detail=None)
@@ -630,9 +637,9 @@ def test_accepted_trip_stays_frozen_through_a_weather_change_and_a_reopened_run(
 
     from tests.life.conftest import context
     from tests.life.environment_runtime import settle_decision
-    from worldmock.exchange.constants import WEATHER_FACTORS
-    from worldmock.life.engine import LifeEngine
-    from worldmock.life.randomness import random_stream
+    from worldmock.exchange_engine.definitions.constants import WEATHER_FACTORS
+    from worldmock.simulation_engine.engine import LifeEngine
+    from worldmock.foundation.randomness import random_stream
 
     def weather(seed, day):
         state = hashlib.sha256(f"random:{seed}".encode()).hexdigest()

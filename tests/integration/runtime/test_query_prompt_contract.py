@@ -8,10 +8,10 @@ import pytest
 from tests.integration.runtime.current_contract_fixtures import inputs
 from tests.life.conftest import advance_until_ready, context, stage_day_plan, travel, use_app
 from tests.life.environment_runtime import act, act_group
-from worldmock.life import prompt_capacity
-from worldmock.life.activity_control import PHASE_PENDING
-from worldmock.life.prompt_schemas import validate_layer
-from worldmock.life.tool_groups import compact, compact_render, compact_tool_layer, expand_tool_layer
+from worldmock.agents.prompt import prompt_capacity
+from worldmock.simulation_engine.activities.lifecycle.activity_control import PHASE_PENDING
+from worldmock.agents.prompt.prompt_schemas import validate_layer
+from worldmock.agents.prompt.tool_groups import compact, compact_render, compact_tool_layer, expand_tool_layer
 
 
 def test_actual_active_tools_roundtrip_losslessly_and_repeated_groups_do_not_duplicate_actions(engine_factory):

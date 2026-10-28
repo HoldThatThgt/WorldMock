@@ -2,8 +2,8 @@
 
 import pytest
 from typing import get_args
-from worldmock.exchange import types
-from worldmock.exchange.types import GOODS_CATEGORY_LABELS, GoodsCategory
+from worldmock.exchange_engine.definitions import types
+from worldmock.exchange_engine.definitions.types import GOODS_CATEGORY_LABELS, GoodsCategory
 
 
 def test_exact_four_categories_and_public_labels():

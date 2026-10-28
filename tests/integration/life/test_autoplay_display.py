@@ -17,18 +17,35 @@ import pytest
 from scripts import inspect_run, render_day
 from tests.footprints.recording import artifact_rows, export_completed
 from tests.life.conftest import (
-    SIDE_TOOL, action_identity, activity_name, advance_until_ready, conclude_request, do_at, pause_request,
-    progress_calls, report_request, target_actions, tool_targets, travel, use_app,
+    SIDE_TOOL,
+    action_identity,
+    activity_name,
+    advance_until_ready,
+    conclude_request,
+    do_at,
+    pause_request,
+    progress_calls,
+    report_request,
+    target_actions,
+    tool_targets,
+    travel,
+    use_app,
 )
 from tests.life.environment_inputs import catalog_rows, five_episode_environment, meal_environment, write_catalog_rows
 from tests.life.environment_runtime import (
-    act, conclude_app_use, events, every_five_minutes, observe_only, one_hour, one_hour_every_five_minutes,
+    act,
+    conclude_app_use,
+    events,
+    every_five_minutes,
+    observe_only,
+    one_hour,
+    one_hour_every_five_minutes,
     until_ended,
 )
 from tests.life.prerequisite_inputs import app_content, dingtalk_environment
-from worldmock.footprints.timeline_labels import label_findings
-from worldmock.life.models import RecallTaskSummaryRequest
-from worldmock.life.prompt_schemas import validate_layer
+from worldmock.recording_engine.projections.presentation.timeline_labels import label_findings
+from worldmock.state.interaction.requests import RecallTaskSummaryRequest
+from worldmock.agents.prompt.prompt_schemas import validate_layer
 
 ZONE = ZoneInfo("Asia/Shanghai")
 #: 五集副本里那次使用的活动名。

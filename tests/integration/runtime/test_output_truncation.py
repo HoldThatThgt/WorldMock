@@ -24,18 +24,30 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 from agentsociety2.agent.base import ReactLoopRequest  # noqa: E402
 
 from custom.agents.life_agent import LifeAgent  # noqa: E402
-from worldmock.agents.life_feedback import FEEDBACK_INSTRUCTION  # noqa: E402
-from worldmock.agents.life_truncation import TRUNCATION_DETAIL, TRUNCATION_CONTENT  # noqa: E402
-from tests.integration.runtime.test_life_agent_protocol import (_Environment, _GroundedCorrectionDispatcher,  # noqa: E402
-                                                        _ModelResponse, _context, _wire_agent)
+from worldmock.agents.protocol.life_feedback import FEEDBACK_INSTRUCTION  # noqa: E402
+from worldmock.agents.protocol.life_truncation import TRUNCATION_DETAIL, TRUNCATION_CONTENT  # noqa: E402
+from tests.integration.runtime.test_life_agent_protocol import (
+    _Environment,
+    _GroundedCorrectionDispatcher,
+    _ModelResponse,
+    _context,
+    _wire_agent,
+)
 from tests.integration.life_host_fixtures import TruncatedResponse  # noqa: E402
-from tests.integration.runtime.test_same_second_continuation import (_PLAN, _decide, _environment,  # noqa: E402
-                                                             _plan_reply, _reply, _single, _wait_reply)
-from tests.engine_fixture import (engine_factory as _engine_factory)  # noqa: F401
-from tests.life.conftest import (MAIN_TOOL, advance_next, context, main_arguments, stage_day_plan)  # noqa: F401
-from worldmock.footprints.export import export_run  # noqa: E402
-from worldmock.life import prompt_capacity  # noqa: E402
-from worldmock.life.models import REQUEST_MODELS  # noqa: E402
+from tests.integration.runtime.test_same_second_continuation import (
+    _PLAN,
+    _decide,
+    _environment,
+    _plan_reply,
+    _reply,
+    _single,
+    _wait_reply,
+)
+from tests.engine_fixture import engine_factory as _engine_factory  # noqa: F401
+from tests.life.conftest import MAIN_TOOL, advance_next, context, main_arguments, stage_day_plan  # noqa: F401
+from worldmock.recording_engine.export.export import export_run  # noqa: E402
+from worldmock.agents.prompt import prompt_capacity  # noqa: E402
+from worldmock.state.interaction.requests import REQUEST_MODELS  # noqa: E402
 
 #: 截断回合的思考（每次不同，用来确认它不进入任何后续请求）。
 _SPIRALS = ("先想想要不要回家，家里没有吃的，外卖要等，还是先去楼下……", "再算一遍：回家要四十分钟，楼下那家没有菜单……")
@@ -387,7 +399,7 @@ async def test_export_with_model_calls_is_byte_identical_with_and_without_the_po
         _engine_factory, tmp_path, monkeypatch) -> None:
     """带真实模型请求与响应的导出：内存里的请求只留提纲、响应去掉候选的 message，导出的每个字节（含质量报告的
     model_usage 与 truncations）与按完整事件导出的相同。"""
-    from worldmock.footprints import export as export_module
+    from worldmock.recording_engine.export import export as export_module
 
     engine = _engine_factory()
     stage_day_plan(engine)

@@ -5,7 +5,7 @@ validation 拒绝分支与 opslog 边界。模型客户端全部打桩，零真�
 from __future__ import annotations
 
 from tests.data_paths import ENVIRONMENT_ROOT
-import worldmock.run_setup as worldmock_run_setup_module
+import worldmock.runtime.framework.setup as worldmock_run_setup_module
 
 import asyncio
 import json
@@ -23,18 +23,26 @@ os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
 os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
-from worldmock.errors import IntegrityError, ProtocolError
-from worldmock.footprints.checkpoint import snapshot_directory
-from worldmock.footprints.models import EventDraft
-from worldmock.footprints.store import FootprintStore
-from worldmock.life.models import CounterfactualIntervention
-from worldmock.life.engine import LifeEngine
+from worldmock.foundation.errors import IntegrityError, ProtocolError
+from worldmock.recording_engine.storage.checkpoint import snapshot_directory
+from worldmock.recording_engine.events.models import EventDraft
+from worldmock.recording_engine.storage.store import FootprintStore
+from worldmock.state.decisions.results import CounterfactualIntervention
+from worldmock.simulation_engine.engine import LifeEngine
 from tests.integration.runtime_fixtures import current_run_identity, write_agent_workspace
-from worldmock.runtime import (CounterfactualRequest, ResumeRequest, _cleanup_runtime, _execute,
-    _ops_crash_log, _require_custom_modules, _require_run_shell, _terminate_failed_actor)
-from worldmock.run_setup import _prepend_pythonpath, runtime_code_sha256
-from worldmock.status import read_status, write_status
-from worldmock.run_setup import validate_stage_model_identity
+from worldmock.runtime.lifecycle.runner import (
+    CounterfactualRequest,
+    ResumeRequest,
+    _cleanup_runtime,
+    _execute,
+    _ops_crash_log,
+    _require_custom_modules,
+    _require_run_shell,
+    _terminate_failed_actor,
+)
+from worldmock.runtime.framework.setup import _prepend_pythonpath, runtime_code_sha256
+from worldmock.runtime.monitoring.status import read_status, write_status
+from worldmock.runtime.framework.setup import validate_stage_model_identity
 from tests.integration.as2_fixtures import use_fake_as2, write_project
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -161,7 +169,7 @@ def test_prepend_pythonpath_is_idempotent(tmp_path, monkeypatch):
 
 def test_runtime_code_sha256_requires_complete_sources(tmp_path, monkeypatch):
     """代码身份源缺失或不安全时拒绝；实际导入的 AS2 无法解析时同样拒绝给出代码身份。"""
-    import worldmock.runtime as runtime
+    import worldmock.runtime.lifecycle.runner as runtime
 
     with pytest.raises(IntegrityError, match="missing or unsafe"):
         runtime_code_sha256(tmp_path)
@@ -207,7 +215,7 @@ def test_ops_crash_log_records_and_never_masks_original_error(tmp_path):
 @pytest.mark.asyncio
 async def test_execute_requires_intervention_identity(monkeypatch, tmp_path):
     """干预已设置但身份缺失时拒绝进入运行。"""
-    import worldmock.runtime as runtime
+    import worldmock.runtime.lifecycle.runner as runtime
     from agentsociety2.config import llm_dispatcher
 
     monkeypatch.setattr(llm_dispatcher, "init_dispatchers", _no_dispatchers)
@@ -227,7 +235,7 @@ async def test_execute_cleanup_failures_surface_without_run_failure(monkeypatch,
     """运行成功但清理失败：单项错误单独上抛，多项错误合并异常组。"""
     import ray
 
-    import worldmock.runtime as runtime
+    import worldmock.runtime.lifecycle.runner as runtime
     from agentsociety2.config import llm_dispatcher
 
     monkeypatch.setattr(llm_dispatcher, "init_dispatchers", _no_dispatchers)
@@ -347,7 +355,7 @@ def test_require_custom_modules_accepts_registered_life_modules(monkeypatch):
 
 def test_opslog_accepts_naive_datetime_and_reports_close_failures(tmp_path, capsys):
     """朴素 datetime 按 UTC 解释；关闭失败只记 stderr。"""
-    from worldmock.opslog import OpsLogger
+    from worldmock.recording_engine.storage.opslog import OpsLogger
 
     writer = OpsLogger(tmp_path, "Asia/Shanghai")
     writer.log(datetime(2026, 1, 5, 16, 30), "runtime", "info", {"code": "PROBE_NAIVE", "detail": "probe"})

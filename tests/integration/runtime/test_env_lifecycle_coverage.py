@@ -10,7 +10,7 @@ fail-closed、检查点身份校验与 close 双重故障分支。只新增测�
 from __future__ import annotations
 
 from tests.data_paths import ENVIRONMENT_ROOT
-from worldmock.footprints.checkpoint import restore_branch
+from worldmock.recording_engine.storage.checkpoint import restore_branch
 
 import hashlib
 import json
@@ -28,18 +28,15 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 import custom.agents.life_agent as life_agent_module
 import custom.envs.life_env as life_env_module
-import worldmock.runtime as runtime_module
+import worldmock.runtime.lifecycle.runner as runtime_module
 from agentsociety2.agent.base import ModelCallEvidence, MemoryUpdateEvidence
 from agentsociety2.society import DecisionContext, DirectToolCall, SocietyCheckpointRequest
 from custom.envs.life_env import LifeEnv
 from tests.life.conftest import MAIN_TOOL, StubPlanDayClient, do_at
-from worldmock.errors import ProtocolError
-from worldmock.life.models import (
-    CounterfactualIntervention,
-    ModelIdentity,
-    REQUEST_MODELS,
-    RunIdentity,
-)
+from worldmock.foundation.errors import ProtocolError
+from worldmock.state.decisions.results import CounterfactualIntervention
+from worldmock.state.identity import ModelIdentity, RunIdentity
+from worldmock.state.interaction.requests import REQUEST_MODELS
 from tests.integration.runtime.current_contract_fixtures import inputs, metadata_service
 from tests.integration.runtime_fixtures import current_run_identity
 
@@ -81,7 +78,7 @@ def _context_for(env: LifeEnv, round_id: str, agent_id: int = 1) -> DecisionCont
 
 
 def _inject_plan_day_client(monkeypatch) -> list[StubPlanDayClient]:
-    """在 worldmock.runtime 上替换零点计划客户端类（同替换 ContactReplyClient），返回按构造顺序记录的桩。
+    """在 worldmock.runtime.lifecycle.runner 上替换零点计划客户端类（同替换 ContactReplyClient），返回按构造顺序记录的桩。
 
     LifeEnv 的检查点（启动路径）与零点推进经它生成确定性空清单，不调用真实模型（时间与能量规格第四章）。
     """

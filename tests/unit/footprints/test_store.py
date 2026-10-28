@@ -1,4 +1,4 @@
-from worldmock.footprints.checkpoint import restore_branch
+from worldmock.recording_engine.storage.checkpoint import restore_branch
 import json
 import hashlib
 import sqlite3
@@ -7,11 +7,12 @@ from pathlib import Path
 
 import pytest
 
-from worldmock.errors import IntegrityError
-from worldmock.footprints.assets import AssetStore
-from worldmock.footprints.checkpoint import restore_branch, restore_directory, snapshot_directory
-from worldmock.footprints.models import EventDraft, canonical_json
-from worldmock.footprints.store import FootprintStore
+from worldmock.foundation.errors import IntegrityError
+from worldmock.recording_engine.storage.assets import AssetStore
+from worldmock.recording_engine.storage.checkpoint import restore_branch, restore_directory, snapshot_directory
+from worldmock.recording_engine.events.models import EventDraft
+from worldmock.foundation.serialization import canonical_json
+from worldmock.recording_engine.storage.store import FootprintStore
 
 
 def _outcome(write):
@@ -324,7 +325,7 @@ def test_checkpoint_event_must_match_committed_identity_and_clock(store, field, 
 
 
 def test_credentials_are_redacted_without_losing_model_task(monkeypatch):
-    from worldmock.footprints.evidence import redact_evidence
+    from worldmock.recording_engine.events.model_evidence import redact_evidence
     monkeypatch.setenv('DEEPSEEK_NODE_KEYS', 'private-credential-value')
     original = {'headers': {'Authorization': 'Bearer private-credential-value'},
                 'messages': [{'role': 'user', 'content': 'Read the actual meeting transcript'}],
@@ -364,7 +365,7 @@ def _events(store, count, **fields):
 
 def test_iter_events_pages_by_sequence_and_rejects_an_outside_range(store, monkeypatch, caplog):
     from tests.footprints.statement_log import StatementLog
-    monkeypatch.setattr('worldmock.footprints.store.EVENT_PAGE_SIZE', 2)
+    monkeypatch.setattr('worldmock.recording_engine.storage.store.EVENT_PAGE_SIZE', 2)
     written = _events(store, 5)
     log = StatementLog(store.connection)
     monkeypatch.setattr(store, 'connection', log)
@@ -470,7 +471,7 @@ def _experience_receipt(agent_id, number):
 
 
 def test_recent_experience_sources_equal_the_single_query_with_or(store):
-    from worldmock.footprints.models import Event
+    from worldmock.recording_engine.events.models import Event
     drafts = []
     for number in range(40):
         activity = {'activity_id': f'activity-{number}', 'agent_id': 1, 'kind': 'sleep'}

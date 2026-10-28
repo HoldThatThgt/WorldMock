@@ -5,8 +5,8 @@ import copy
 import pytest
 
 from tests.integration.runtime.current_contract_fixtures import inputs
-from worldmock.errors import IntegrityError
-from worldmock.run_setup import _model_identity, stage_model_identity, validate_stage_model_identity
+from worldmock.foundation.errors import IntegrityError
+from worldmock.runtime.framework.setup import _model_identity, stage_model_identity, validate_stage_model_identity
 
 
 def test_model_identity_freezes_explicit_endpoint_and_separate_retry_budgets():

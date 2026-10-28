@@ -2,9 +2,9 @@ import pytest
 from types import SimpleNamespace
 from typing import get_args
 
-from tests.engine_fixture import (engine_factory)  # noqa: F401
-from tests.life.conftest import (context)  # noqa: F401
-from worldmock.footprints.models import (
+from tests.engine_fixture import engine_factory  # noqa: F401
+from tests.life.conftest import context  # noqa: F401
+from worldmock.recording_engine.events.models import (
     DECISION_OFFERED_FIELD,
     DECISION_STARTED_FIELDS,
     EventType,
@@ -15,7 +15,7 @@ from worldmock.footprints.models import (
 
 #: 事件类型冻结枚举（footprints/models.py EventType Literal 的运行时视图）。
 EVENT_TYPES = get_args(EventType)
-from worldmock.life.schedule import WAKE_TRIGGERS
+from worldmock.state.planning.schedule import WAKE_TRIGGERS
 WAKE_REASON_NAMES = frozenset(trigger.name for trigger in WAKE_TRIGGERS)
 
 _SPEC_WAKE_REASONS = frozenset({
@@ -38,7 +38,7 @@ def test_event_type_vocabulary_is_the_frozen_spec_set():
 
 
 def test_event_type_rejects_anything_outside_the_frozen_set():
-    from worldmock.footprints.models import EventDraft
+    from worldmock.recording_engine.events.models import EventDraft
 
     with pytest.raises(ValueError):
         EventDraft(event_type="agent_thought", occurred_at=1)
@@ -49,7 +49,7 @@ def test_wake_reason_vocabulary_is_the_frozen_spec_set():
 
 
 def test_wake_reason_vocabulary_matches_the_engine_side_enum():
-    from worldmock.life.schedule import WAKE_TRIGGERS
+    from worldmock.state.planning.schedule import WAKE_TRIGGERS
 
     assert WAKE_REASON_NAMES == {trigger.name for trigger in WAKE_TRIGGERS}
 
@@ -105,7 +105,7 @@ def _with_pending_reasons(engine, reasons):
 
 def test_unknown_wake_reason_is_rejected_on_decision_started_write(engine_factory):
     """decision_started 的唤醒原因在写入时经闭集校验：未知原因被拒，新成员照常写入。"""
-    from worldmock.life.decision_start import defer_decision_starts
+    from worldmock.simulation_engine.decisions.decision_start import defer_decision_starts
 
     engine = engine_factory()
     contexts = [context(engine, "round-1")]
@@ -139,7 +139,7 @@ def test_decision_started_data_is_the_closed_four_field_set():
 @pytest.mark.parametrize("value", ["有点饿，先吃点东西。", None, ""])
 def test_retired_decision_statement_field_is_rejected_on_event_drafts(value, caplog):
     """带退役字段 decision_statement 的 decision_started 在真实事件入口以英文错误拒绝，不论取值。"""
-    from worldmock.footprints.models import EventDraft
+    from worldmock.recording_engine.events.models import EventDraft
 
     with pytest.raises(ValueError, match="decision_started.data carries the retired field decision_statement"):
         EventDraft(event_type="decision_started", occurred_at=1, data={**_STARTED, "decision_statement": value})
@@ -149,7 +149,7 @@ def test_retired_decision_statement_field_is_rejected_on_event_drafts(value, cap
 
 def test_persisted_decision_started_is_validated_when_reading_events():
     """读取持久事件复用闭集校验：旧运行带自述或缺字段的 decision_started 不被接受。"""
-    from worldmock.footprints.models import Event, EventDraft
+    from worldmock.recording_engine.events.models import Event, EventDraft
 
     payload = EventDraft(event_type="decision_started", occurred_at=1, data=dict(_STARTED)).model_dump()
     payload.update(run_id="run", event_seq=1, recorded_at="2026-09-20T00:00:00Z",
@@ -165,7 +165,7 @@ def test_persisted_decision_started_is_validated_when_reading_events():
 
 def test_other_event_types_are_not_bound_by_the_decision_started_set():
     """闭集只约束 decision_started：其他事件的 data 由各自领域约定。"""
-    from worldmock.footprints.models import EventDraft
+    from worldmock.recording_engine.events.models import EventDraft
 
     event = EventDraft(event_type="observation", occurred_at=1, data={"decision_statement": "旧字段名"})
     assert event.data == {"decision_statement": "旧字段名"}
@@ -173,8 +173,8 @@ def test_other_event_types_are_not_bound_by_the_decision_started_set():
 
 def test_store_revalidates_decision_started_before_persisting_mutated_draft(tmp_path):
     """草稿创建后被加入退役字段也不能通过真实存储入口写入。"""
-    from worldmock.footprints.models import EventDraft
-    from worldmock.footprints.store import FootprintStore
+    from worldmock.recording_engine.events.models import EventDraft
+    from worldmock.recording_engine.storage.store import FootprintStore
 
     store = FootprintStore.create(tmp_path / "run", {"run_id": "run"}, {"version": 0, "current_time": 1})
     try:

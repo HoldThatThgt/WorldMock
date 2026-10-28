@@ -61,9 +61,9 @@ def published_environment(tmp_path):
 
 def test_pure_cli_and_runtime_imports_do_not_load_engine_or_as2():
     script = (
-        "import sys; from worldmock.cli import build_parser; import worldmock.validation; import worldmock.runtime; "
-        "build_parser(); forbidden=('worldmock.life.engine','worldmock.life.engine_context',"
-        "'worldmock.life.read_query_runtime'); assert not set(forbidden)&set(sys.modules); "
+        "import sys; from worldmock.cli import build_parser; import worldmock.configuration.inputs.validation; import worldmock.runtime.lifecycle.runner; "
+        "build_parser(); forbidden=('worldmock.simulation_engine.engine','worldmock.simulation_engine.world.context',"
+        "'worldmock.runtime.framework.read_query'); assert not set(forbidden)&set(sys.modules); "
         "assert not any(name.startswith('agentsociety2') for name in sys.modules)"
     )
     result = subprocess.run([sys.executable, "-c", script], cwd=ROOT, capture_output=True, text=True, timeout=30)
@@ -76,7 +76,7 @@ def test_real_pytest_collection_of_pure_commands_does_not_load_engine_or_as2(tmp
                  "--basetemp", str(tmp_path / "collection")]
     script = (
         "import sys,pytest; code=pytest.main(" + repr(arguments) + "); assert code==0; "
-        "forbidden=('worldmock.life.engine','worldmock.life.engine_context','worldmock.life.read_query_runtime'); "
+        "forbidden=('worldmock.simulation_engine.engine','worldmock.simulation_engine.world.context','worldmock.runtime.framework.read_query'); "
         "assert not set(forbidden)&set(sys.modules); "
         "assert not any(name.startswith('agentsociety2') for name in sys.modules)"
     )

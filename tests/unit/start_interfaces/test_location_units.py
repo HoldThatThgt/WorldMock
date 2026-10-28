@@ -6,13 +6,18 @@ import pytest
 from pydantic import ValidationError
 
 from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
-from worldmock.catalog.errors import RegistrationError
-from worldmock.catalog.loader import load_catalog, validate_catalog_files
-from worldmock.catalog.models import Location
-from worldmock.life.location_activities import (
-    held_refusal, location_units, next_content, unit_binding, unit_done, unit_facts,
+from worldmock.resource_engine.registration.errors import RegistrationError
+from worldmock.resource_engine.catalog.loader import load_catalog, validate_catalog_files
+from worldmock.resource_engine.catalog.models import Location
+from worldmock.simulation_engine.activities.content.location_activities import (
+    held_refusal,
+    location_units,
+    next_content,
+    unit_binding,
+    unit_done,
+    unit_facts,
 )
-from worldmock.life.models import ContentProgress
+from worldmock.state.world.agent import ContentProgress
 
 _SOURCE = {"kind": "synthetic", "notice": "测试用合成摘要", "url": None}
 

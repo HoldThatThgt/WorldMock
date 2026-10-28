@@ -14,8 +14,8 @@ from __future__ import annotations
 from tests.integration.runtime.current_contract_fixtures import inputs as current_inputs, profile as current_profile
 
 from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT, ENVIRONMENT_ROOT
-from worldmock.life.activity_control import open_activities
-from worldmock.footprints.checkpoint import restore_branch
+from worldmock.simulation_engine.activities.lifecycle.activity_control import open_activities
+from worldmock.recording_engine.storage.checkpoint import restore_branch
 
 import copy
 import json
@@ -34,27 +34,51 @@ from agentsociety2.agent.base import ReactLoopRequest  # noqa: E402
 from agentsociety2.society import DirectToolCall  # noqa: E402
 
 from custom.agents.life_agent import LifeAgent  # noqa: E402
-from worldmock.agents.life_continuation import _overlay, _view as _seen, layer_changes, send_check  # noqa: E402
+from worldmock.agents.protocol.life_continuation import _overlay, _view as _seen, layer_changes, send_check  # noqa: E402
 from custom.envs.life_env import LifeEnv  # noqa: E402
 from scripts import inspect_run  # noqa: E402
 from tests.integration.runtime_fixtures import current_run_identity, write_agent_workspace  # noqa: E402
-from tests.integration.runtime.test_life_agent_protocol import (_OBSERVED_AT, _ModelResponse, _conclude_args,  # noqa: E402
-                                                        _memory, _stored_memories, _view)
-from tests.engine_fixture import (engine_factory as _engine_factory)  # noqa: F401
-from tests.life.conftest import (MAIN_TOOL, SIDE_TOOL, advance_next, advance_until_ready, context, do_at,  # noqa: F401
-                                 errand_add, errand_cancel, errand_update, layer_start, main_arguments, pending_names,
-                                 progress_calls, side_arguments, stage_day_plan, tool_of, travel, use_app)
+from tests.integration.runtime.test_life_agent_protocol import (
+    _OBSERVED_AT,
+    _ModelResponse,
+    _conclude_args,
+    _memory,
+    _stored_memories,
+    _view,
+)
+from tests.engine_fixture import engine_factory as _engine_factory  # noqa: F401
+from tests.life.conftest import (
+    MAIN_TOOL,
+    SIDE_TOOL,
+    advance_next,
+    advance_until_ready,
+    context,
+    do_at,
+    errand_add,
+    errand_cancel,
+    errand_update,
+    layer_start,
+    main_arguments,
+    pending_names,
+    progress_calls,
+    side_arguments,
+    stage_day_plan,
+    tool_of,
+    travel,
+    use_app,
+)
 from tests.life.environment_runtime import act_group, events, every_five_minutes  # noqa: E402
 from tests.life.work_schedule_fixtures import declare  # noqa: E402
-from worldmock.life.readable import iso_time  # noqa: E402
-from worldmock.errors import IntegrityError  # noqa: E402
-from worldmock.life import prompt_capacity  # noqa: E402
-from worldmock.life.continuation import _session_changed  # noqa: E402
-from worldmock.life.engine import LifeEngine  # noqa: E402
-from worldmock.life.models import CounterfactualIntervention, ModelIdentity, RunIdentity  # noqa: E402
-from worldmock.life.prompt_capacity import ProgressBudget, fit_request  # noqa: E402
-from worldmock.life.progress_layer import records_after  # noqa: E402
-from worldmock.life.tool_layer import LayerContext  # noqa: E402
+from worldmock.foundation.time.readable import iso_time  # noqa: E402
+from worldmock.foundation.errors import IntegrityError  # noqa: E402
+from worldmock.agents.prompt import prompt_capacity  # noqa: E402
+from worldmock.simulation_engine.decisions.continuation import _session_changed  # noqa: E402
+from worldmock.simulation_engine.engine import LifeEngine  # noqa: E402
+from worldmock.state.decisions.results import CounterfactualIntervention
+from worldmock.state.identity import ModelIdentity, RunIdentity  # noqa: E402
+from worldmock.agents.prompt.prompt_capacity import ProgressBudget, fit_request  # noqa: E402
+from worldmock.simulation_engine.observation.layers.progress_layer import records_after  # noqa: E402
+from worldmock.simulation_engine.observation.targets.tool_layer import LayerContext  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[3]
 SCENARIO = ENVIRONMENT_ROOT
@@ -355,7 +379,7 @@ async def test_a_plain_resume_from_a_mid_second_checkpoint_sends_the_same_reques
 @pytest.mark.asyncio
 async def test_a_counterfactual_branch_breaks_the_chain(_engine_factory, tmp_path) -> None:
     """反事实分支一律断链：干预之后的首次决策从新快照构造。"""
-    from worldmock.runtime import _intervention_sha256
+    from worldmock.runtime.lifecycle.runner import _intervention_sha256
 
     engine = _engine_factory()
     stage_day_plan(engine)
@@ -531,7 +555,7 @@ def test_a_repeated_observation_of_the_same_decision_does_not_continue(_engine_f
 
 def test_a_missing_result_of_the_previous_request_breaks_the_chain(_engine_factory, monkeypatch) -> None:
     """上一世界请求的结果不在本 session 的进度记录中（证据缺失）时断链。"""
-    from worldmock.life import continuation
+    from worldmock.simulation_engine.decisions import continuation
 
     engine = _engine_factory()
     stage_day_plan(engine)
@@ -943,7 +967,7 @@ def _switch_off_engine(tmp_path: Path) -> LifeEngine:
     from tests.integration.runtime_fixtures import current_run_identity
     frozen = current_inputs()
     return LifeEngine.create(frozen, tmp_path / "switch-off", current_run_identity(frozen, "switch-off"),
-        __import__("worldmock.run_setup", fromlist=["stage_model_identity"]).stage_model_identity(
+        __import__('worldmock.runtime.framework.setup', fromlist=["stage_model_identity"]).stage_model_identity(
             frozen.config.model, frozen.model_metadata, False),
         {"same_second_continuation": False})
 
@@ -966,7 +990,7 @@ def test_continuation_messages_read_earlier_changes_and_skip_memory_and_feedback
     """宿主组装：链中此前的续接 tool 消息的 changes 叠加到链首快照上，记忆查询与协议纠错的 tool 消息不算改动；
     新 tool 消息只写相对叠加结果的改动。tool_results 有两条（开始组）时每个 tool_call_id 各一条 tool 消息、按调用次序，
     changes 与 events 只写在最后一条上，前一条只有 result。"""
-    from worldmock.agents.life_continuation import continuation_messages
+    from worldmock.agents.protocol.life_continuation import continuation_messages
 
     def layers(state: str, body: str) -> list[dict]:
         return [{"layer": "工具层", "targets": [{"name": "店", "kind": "location", "state": state,

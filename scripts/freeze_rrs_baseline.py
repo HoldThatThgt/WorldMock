@@ -15,9 +15,9 @@ sys.path.insert(0, str(ROOT))
 
 from scripts.bootstrap_environment import require_python_identity, required_python_version
 from scripts.bootstrap_sources import file_sha256
-from worldmock.exchange.constants import RULES_VERSION
-from worldmock.footprints.assets import atomic_write
-from worldmock.footprints.models import canonical_json
+from worldmock.exchange_engine.definitions.constants import RULES_VERSION
+from worldmock.foundation.atomic_write import atomic_write
+from worldmock.foundation.serialization import canonical_json
 
 
 def _sha(value) -> bool:

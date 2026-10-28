@@ -3,10 +3,10 @@
 import pytest
 
 from tests.unit.life.test_navigation_foreground import DEPART, TRIP, activity, world
-from worldmock.errors import IntegrityError
-from worldmock.footprints.models import EventDraft
-from worldmock.life import sessions
-from worldmock.life.stay_records import run_start_event, stay_events
+from worldmock.foundation.errors import IntegrityError
+from worldmock.recording_engine.events.models import EventDraft
+from worldmock.simulation_engine.activities.lifecycle import sessions
+from worldmock.simulation_engine.evidence.stays import run_start_event, stay_events
 
 NAMES = {"home": "家", "office": "公司"}
 

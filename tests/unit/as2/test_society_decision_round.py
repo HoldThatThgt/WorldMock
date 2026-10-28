@@ -7,11 +7,7 @@ from typing import Any
 import pytest
 
 import agentsociety2.society.society as society_module
-from agentsociety2.society import (
-    AgentSociety,
-    AgentSocietyConfig,
-    SchedulingState,
-)
+from agentsociety2.society import AgentSociety, AgentSocietyConfig, SchedulingState
 
 
 class _RemoteFunction:

@@ -14,15 +14,30 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from tests.life.conftest import (
-    SIDE_TOOL, action_identity, action_rows, advance_next, advance_until_ready, conclude_request, context, do_at,
-    pause_request, progress_calls, purchase, query, sleep, target_tools, tool_targets, travel, use_app,
+    SIDE_TOOL,
+    action_identity,
+    action_rows,
+    advance_next,
+    advance_until_ready,
+    conclude_request,
+    context,
+    do_at,
+    pause_request,
+    progress_calls,
+    purchase,
+    query,
+    sleep,
+    target_tools,
+    tool_targets,
+    travel,
+    use_app,
 )
 from tests.life.current_world import stage_moment
 from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
 from tests.life.environment_runtime import act, act_group, events, finish_activity, run_to_end, settle_decision
-from worldmock.life.prompt_schemas import validate_layer
-from worldmock.life.randomness import random_stream
-from worldmock.life.readable import duration_phrase
+from worldmock.agents.prompt.prompt_schemas import validate_layer
+from worldmock.foundation.randomness import random_stream
+from worldmock.foundation.time.readable import duration_phrase
 
 ZONE = ZoneInfo("Asia/Shanghai")
 #: 运行开始的时刻：2026 年 1 月 5 日（周一）08:00。
@@ -437,7 +452,7 @@ def _app_name(activity) -> str | None:
 
 def _terminal_details(engine, activity) -> dict:
     """开始这项查询的那条动作最后一条结果投影给人物的 details。"""
-    from worldmock.life.result_projection import public_result
+    from worldmock.simulation_engine.observation.layers.result_projection import public_result
 
     rows = [row for row in events(engine, "action_result") if row.action_id == activity.origin_action_id]
     return public_result(rows[-1].data, engine.context.inputs)["details"]
@@ -510,8 +525,8 @@ def test_departure_waits_until_the_running_query_is_concluded(engine_factory):
 
 def test_query_burns_like_idle_time_and_needs_grow_naturally(engine_factory):
     """只有查询在进行的那一段，身体结算与同样长的空闲逐值相同，放松与社交需要照自然增长；活动数据里没有 exertion。"""
-    from worldmock.life.body import last_flows, settle_shared_body
-    from worldmock.life.models import BodyState
+    from worldmock.simulation_engine.body.body import last_flows, settle_shared_body
+    from worldmock.state.world.agent import BodyState
 
     engine = engine_factory()
     activity = _started(engine, "q", "柠檬茶")

@@ -23,20 +23,35 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 from agentsociety2.agent.base import ReactDecision, ReactLoopRequest  # noqa: E402
 
 from custom.agents.life_agent import LifeAgent  # noqa: E402
-from worldmock.agents.life_feedback import FEEDBACK_INSTRUCTION, HostFeedback, host_feedback  # noqa: E402
-from tests.integration.runtime.test_life_agent_protocol import (_WORK_ACTION, _WAIT, _WAIT_CHOICE, _WORK,  # noqa: E402
-                                                        _Environment, _GroundedCorrectionDispatcher, _ModelResponse,
-                                                        _add_objects, _conclude_args, _context, _memory, _observations,
-                                                        _offer, _prepared, _step_observation, _view,
-                                                        _visible_object, _wire_agent, _with_activities)
+from worldmock.agents.protocol.life_feedback import FEEDBACK_INSTRUCTION, HostFeedback, host_feedback  # noqa: E402
+from tests.integration.runtime.test_life_agent_protocol import (
+    _WORK_ACTION,
+    _WAIT,
+    _WAIT_CHOICE,
+    _WORK,
+    _Environment,
+    _GroundedCorrectionDispatcher,
+    _ModelResponse,
+    _add_objects,
+    _conclude_args,
+    _context,
+    _memory,
+    _observations,
+    _offer,
+    _prepared,
+    _step_observation,
+    _view,
+    _visible_object,
+    _wire_agent,
+    _with_activities,
+)
 from tests.integration.life_host_fixtures import TruncatedResponse  # noqa: E402
 from tests.integration.life_host_fixtures import environment_for, reply, decide  # noqa: E402
-from tests.engine_fixture import (engine_factory as _engine_factory)  # noqa: F401
-from tests.life.conftest import (MAIN_TOOL, SIDE_TOOL, last_result, main_arguments,  # noqa: F401
-                                 side_arguments)
-from worldmock.life import prompt_capacity  # noqa: E402
-from worldmock.life.activity_control import PHASE_ACTIVE  # noqa: E402
-from worldmock.life.error_contract import ERROR_KEYS, HOST_ERROR_CODES, host_defaults, host_report  # noqa: E402
+from tests.engine_fixture import engine_factory as _engine_factory  # noqa: F401
+from tests.life.conftest import MAIN_TOOL, SIDE_TOOL, last_result, main_arguments, side_arguments
+from worldmock.agents.prompt import prompt_capacity  # noqa: E402
+from worldmock.simulation_engine.activities.lifecycle.activity_control import PHASE_ACTIVE  # noqa: E402
+from worldmock.state.interaction.errors import ERROR_KEYS, HOST_ERROR_CODES, host_defaults, host_report  # noqa: E402
 
 #: 纠错正文里不得出现的校验库原文、输入回显与网址片段。
 _FOOD_LABEL = "便利店出售的牛奶"

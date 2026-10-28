@@ -7,10 +7,13 @@ import pytest
 from tests.life.conftest import advance_next, travel, use_app
 from tests.life.environment_inputs import copy_environment, write_catalog_rows
 from tests.life.environment_runtime import act
-from worldmock.errors import IntegrityError
-from worldmock.life.activity_validation import _CONTENT_FIELDS, validate_activity_targets
-from worldmock.life.callbacks import validate_callback_states
-from worldmock.life.travel import persisted_trip
+from worldmock.foundation.errors import IntegrityError
+from worldmock.simulation_engine.activities.lifecycle.activity_validation import (
+    _CONTENT_FIELDS,
+    validate_activity_targets,
+)
+from worldmock.simulation_engine.scheduling.callbacks.callbacks import validate_callback_states
+from worldmock.simulation_engine.activities.travel.travel import persisted_trip
 
 
 def started(engine_factory, request=None):

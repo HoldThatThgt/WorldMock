@@ -8,13 +8,20 @@ from tests.life.conftest import action_identity, advance_until_ready, conclude_r
 from tests.life.current_world import stage_moment
 from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
 from tests.life.environment_runtime import act, events, finish_activity, reach
-from worldmock.errors import IntegrityError
-from worldmock.footprints.models import EventDraft
-from worldmock.life import time_advance
-from worldmock.life.order_routing import payment_order_key, payment_orders
-from worldmock.life.purchase_offers import quote_goods
-from worldmock.life.purchase_phases import ORDERING, PAYMENT, activity_phases, advance_phases, phase_boundaries
-from worldmock.life.randomness import random_stream
+from worldmock.foundation.errors import IntegrityError
+from worldmock.recording_engine.events.models import EventDraft
+from worldmock.simulation_engine.scheduling.clock import time_advance
+from worldmock.state.world.order_keys import payment_order_key
+from worldmock.simulation_engine.commerce.purchase.order_routing import payment_orders
+from worldmock.simulation_engine.commerce.purchase.purchase_offers import quote_goods
+from worldmock.simulation_engine.commerce.purchase.purchase_phases import (
+    ORDERING,
+    PAYMENT,
+    activity_phases,
+    advance_phases,
+    phase_boundaries,
+)
+from worldmock.foundation.randomness import random_stream
 
 #: 夹具运行的第一个本地日。
 FIRST_DAY = "2026-01-05"

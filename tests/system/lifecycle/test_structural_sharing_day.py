@@ -9,7 +9,7 @@ import pytest
 from pydantic import BaseModel
 
 from tests.life.day_baseline_runtime import record_complete_day
-from worldmock.life.models import WorldState
+from worldmock.state.world.world import WorldState
 
 PROJECT = Path(__file__).resolve().parents[3]
 

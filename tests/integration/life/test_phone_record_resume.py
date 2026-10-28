@@ -7,9 +7,8 @@ from tests.integration.runtime_fixtures import branch_of
 from tests.life.conftest import advance_until_ready, purchase, stage_day_plan, travel, use_app
 from tests.life.current_world import stage_moment
 from tests.life.environment_runtime import act, reach
-from tests.life.phone_records import (foreground, moment, notices, phone_environment, phone_window,
-                                      returning_label)
-from worldmock.life.purchase_phases import ORDERING, PAYMENT, activity_phases
+from tests.life.phone_records import foreground, moment, notices, phone_environment, phone_window, returning_label
+from worldmock.simulation_engine.commerce.purchase.purchase_phases import ORDERING, PAYMENT, activity_phases
 
 
 def at_store(persona, config):

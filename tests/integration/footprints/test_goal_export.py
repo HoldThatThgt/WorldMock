@@ -3,8 +3,8 @@
 import json
 
 from tests.footprints.recording import artifact_rows, recorded_engine
-from worldmock.footprints.export import export_run
-from worldmock.footprints.validation import validate_export
+from worldmock.recording_engine.export.export import export_run
+from worldmock.recording_engine.validation.validation import validate_export
 from worldmock.cli import main
 
 

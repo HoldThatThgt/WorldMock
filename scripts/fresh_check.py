@@ -35,7 +35,7 @@ def quick_check(root: Path, profile: str, environment: dict) -> dict:
     command = [str(python), "-m", "pytest", "-q", f"--environment-profile={profile}",
                "-p", "no:cacheprovider", *QUICK_TESTS]
     subprocess.run(command, cwd=root, env=environment, check=True)
-    source = "from pathlib import Path; from worldmock.run_setup import runtime_code_sha256; "
+    source = "from pathlib import Path; from worldmock.runtime.framework.setup import runtime_code_sha256; "
     source += "print(runtime_code_sha256(Path('.')))"
     identity = subprocess.check_output([str(python), "-c", source], cwd=root, env=environment, text=True).strip()
     receipt = json.loads((root / ".work/environment-receipt.json").read_text(encoding="utf-8"))

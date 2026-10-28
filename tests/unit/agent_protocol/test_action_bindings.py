@@ -1,7 +1,8 @@
 """仅五个现行动作可登记为私有绑定的动作行，指名商品绑定带着所写的购买或查询。"""
 import pytest
-from worldmock.life.action_contract import ACTIVITY_ACTIONS, START_TOOLS, binding_action, start_tool
-from worldmock.life.name_resolution import named_supply_row, sleep_row
+from worldmock.exchange_engine.conditions.activity_rules import ACTIVITY_ACTIONS
+from worldmock.state.interaction.actions import START_TOOLS, binding_action, start_tool
+from worldmock.simulation_engine.actions.name_resolution import named_supply_row, sleep_row
 
 
 @pytest.mark.parametrize("action", ["travel", "purchase", "sleep", "interact", "query"])

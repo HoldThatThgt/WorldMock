@@ -4,23 +4,41 @@ from datetime import datetime
 from types import SimpleNamespace
 from random import Random
 import pytest
-from worldmock.catalog.models import OpeningHours
-from worldmock.life.activities import ActivityStartParams, ActivityOrigin, start_activity
-from worldmock.life.app_push import issue_app_push, validate_app_pushes
-from worldmock.life.body import ActivityFactors, initial_body
-from worldmock.life.body_config import assemble_body_config
-from worldmock.life.content_prerequisite import prerequisite_unmet
-from worldmock.life.content_select import (ContentRequest, OpeningDuration, eligible_contents, opening_duration,
-    pinned_push_content, select_content, select_from_contents)
-from worldmock.life.interact import InteractivityRuntime, _content_data
-from worldmock.life.location_activities import location_units
-from worldmock.life.models import (AgentState, AppPush, ContentProgress, SessionKind, SessionState, SessionStatus,
-    WorldState, WORLD_SCHEMA_VERSION, ActivityStatus)
-from worldmock.environment import load_environment
+from worldmock.resource_engine.catalog.models import OpeningHours
+from worldmock.simulation_engine.activities.lifecycle.activities import (
+    ActivityStartParams,
+    ActivityOrigin,
+    start_activity,
+)
+from worldmock.simulation_engine.scheduling.callbacks.app_push import issue_app_push, validate_app_pushes
+from worldmock.simulation_engine.body.body import ActivityFactors, initial_body
+from worldmock.simulation_engine.body.body_config import assemble_body_config
+from worldmock.simulation_engine.observation.wording.content_prerequisite import prerequisite_unmet
+from worldmock.simulation_engine.activities.content.content_select import (
+    ContentRequest,
+    OpeningDuration,
+    eligible_contents,
+    opening_duration,
+    pinned_push_content,
+    select_content,
+    select_from_contents,
+)
+from worldmock.simulation_engine.activities.content.interact import InteractivityRuntime, _content_data
+from worldmock.simulation_engine.activities.content.location_activities import location_units
+from worldmock.state.world.agent import AgentState, AppPush, ContentProgress, SessionState
+from worldmock.state.world.kinds import SessionKind, SessionStatus, ActivityStatus
+from worldmock.state.world.world import WorldState, WORLD_SCHEMA_VERSION
+from worldmock.configuration.inputs.environment import load_environment
 from tests.frozen_inputs import fixture_metadata
 from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT
-from tests.life.prerequisite_inputs import (CLOCK, CLOCK_PREREQUISITE, app_content, dingtalk_environment, moment,
-    weekday_hours)
+from tests.life.prerequisite_inputs import (
+    CLOCK,
+    CLOCK_PREREQUISITE,
+    app_content,
+    dingtalk_environment,
+    moment,
+    weekday_hours,
+)
 
 def world_at(root, when=None, location_id='home', origin_id='home'):
     """给定环境的最小真实世界：人物在指定时刻停留在指定地点。
@@ -166,8 +184,8 @@ def test_ordinary_push_only_selects_explicit_pushable_app_content(context_state)
 
 
 def test_strict_restore_rejects_retired_fields_and_wrong_effect_snapshot(context_state):
-    from worldmock.errors import IntegrityError
-    from worldmock.life.activity_validation import validate_activity_targets
+    from worldmock.foundation.errors import IntegrityError
+    from worldmock.simulation_engine.activities.lifecycle.activity_validation import validate_activity_targets
     context,state=context_state
     content=context.catalog.contents['c-course']
     _,activity=start_activity(state.agents[1],ActivityStartParams('interact',1800,

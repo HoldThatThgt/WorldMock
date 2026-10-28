@@ -5,10 +5,15 @@ from types import SimpleNamespace
 import pytest
 from pydantic import ValidationError
 
-from worldmock.life.models import (ActivityState, AgentState, BodyState, NavigationForeground, WorldState,
-                                   WORLD_SCHEMA_VERSION, active_side_activities)
-from worldmock.life.navigation_foreground import foreground_event, navigation_app, settle_navigation
-from worldmock.life.randomness import random_stream
+from worldmock.state.world.activity import ActivityState
+from worldmock.state.world.agent import AgentState, BodyState, NavigationForeground
+from worldmock.state.world.world import WorldState, WORLD_SCHEMA_VERSION, active_side_activities
+from worldmock.simulation_engine.activities.travel.navigation_foreground import (
+    foreground_event,
+    navigation_app,
+    settle_navigation,
+)
+from worldmock.foundation.randomness import random_stream
 
 #: 出发时刻：当地 2026-01-05 08:20:00。
 DEPART = 1767572400

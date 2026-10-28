@@ -7,14 +7,22 @@ import json
 
 import pytest
 
-from tests.footprints.recording import (artifact_rows, final_checkpoint, read_export, recorded_engine, reproject,
-                                        short_window, write_manifest, write_rows)
+from tests.footprints.recording import (
+    artifact_rows,
+    final_checkpoint,
+    read_export,
+    recorded_engine,
+    reproject,
+    short_window,
+    write_manifest,
+    write_rows,
+)
 from tests.life.conftest import action_identity, purchase
 from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
 from tests.life.environment_runtime import act, finish_activity, run_to_end
-from worldmock.errors import IntegrityError
-from worldmock.footprints.export import export_run
-from worldmock.footprints.validation import validate_export
+from worldmock.foundation.errors import IntegrityError
+from worldmock.recording_engine.export.export import export_run
+from worldmock.recording_engine.validation.validation import validate_export
 
 
 @pytest.fixture
@@ -102,7 +110,7 @@ def test_retired_schema_is_rejected_before_consumption(real_export, version, rea
 def test_quality_report_carrying_the_previous_structure_number_is_rejected(real_export):
     """质量报告的结构号是 9：把导出里的报告改回上一版的 8，并把清单里它的长度与摘要重写成与新字节一致，
     认证按事件重算整份报告后仍然拒绝；只改报告不改清单时先被字节摘要拦下。"""
-    from worldmock.footprints.models import canonical_json
+    from worldmock.foundation.serialization import canonical_json
 
     manifest, _ = read_export(real_export)
     path = real_export / "quality.json"

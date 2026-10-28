@@ -5,9 +5,16 @@ from __future__ import annotations
 import pytest
 
 from tests.life.conftest import MAIN_TOOL, SIDE_TOOL, context, do_at, purchase, query, sleep, travel, use_app
-from worldmock.life.action_contract import binding_action
-from worldmock.life.models import StartSideActivityRequest
-from worldmock.life.name_resolution import ORDER_APP_KIND, NameBook, Option, Target, name_book, resolve_start
+from worldmock.state.interaction.actions import binding_action
+from worldmock.state.interaction.requests import StartSideActivityRequest
+from worldmock.simulation_engine.actions.name_resolution import (
+    ORDER_APP_KIND,
+    NameBook,
+    Option,
+    Target,
+    name_book,
+    resolve_start,
+)
 
 _OBJECT_EXPECTED = "A known object name in the selected action's category is required."
 _DETAIL_EXPECTED = "A detail name listed for this object and action is required."

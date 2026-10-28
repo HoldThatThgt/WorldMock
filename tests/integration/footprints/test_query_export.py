@@ -14,7 +14,7 @@ import pytest
 
 from tests.engine_fixture import engine_factory_at
 from tests.footprints.recording import artifact_rows, export_completed
-from tests.life.conftest import (advance_next, conclude_request, do_at, purchase, query, report_request)
+from tests.life.conftest import advance_next, conclude_request, do_at, purchase, query, report_request
 from tests.life.environment_runtime import act, act_group, events
 
 #: 质量报告的顶层键：结构号 9 的完整键集，查询不增不减。
@@ -205,7 +205,7 @@ def test_query_line_of_the_timeline_is_chinese(query_export):
 
 def test_status_lists_a_running_query(engine_factory):
     """查询进行中时 read_status 的 active_activities 里有一项 kind 为 query。"""
-    from worldmock.status import read_status
+    from worldmock.runtime.monitoring.status import read_status
 
     engine = engine_factory()
     _, result = act(engine, "q", query("柠檬茶"))

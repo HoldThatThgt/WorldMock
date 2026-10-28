@@ -6,10 +6,16 @@ import pytest
 from agentsociety2.agent.base import ReactDecision
 
 from tests.integration.runtime.test_life_agent_protocol import (
-    _WAIT, _WAIT_CHOICE, _WORK_CHOICE, _control_args, _observations, _prepared, _with_activities,
+    _WAIT,
+    _WAIT_CHOICE,
+    _WORK_CHOICE,
+    _control_args,
+    _observations,
+    _prepared,
+    _with_activities,
 )
 from tests.life.conftest import MAIN_TOOL, SIDE_TOOL, main_arguments, side_arguments
-from worldmock.life.activity_control import PHASE_ACTIVE
+from worldmock.simulation_engine.activities.lifecycle.activity_control import PHASE_ACTIVE
 
 _REASON = ("Submit one world request, start_main_activity together with start_side_activity, "
            "or a batch containing only read queries.")

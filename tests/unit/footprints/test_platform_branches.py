@@ -13,10 +13,11 @@ from pathlib import Path
 
 import pytest
 
-import worldmock.footprints.assets as assets_module
-from worldmock.errors import IntegrityError
-from worldmock.footprints.assets import AssetStore, atomic_write
-from worldmock.footprints.checkpoint import snapshot_directory
+import worldmock.foundation.atomic_write as assets_module
+from worldmock.foundation.errors import IntegrityError
+from worldmock.recording_engine.storage.assets import AssetStore
+from worldmock.foundation.atomic_write import atomic_write
+from worldmock.recording_engine.storage.checkpoint import snapshot_directory
 
 #: 伪目录描述符；负数保证不与任何真实文件描述符相撞。
 _DIRECTORY_FD = -42

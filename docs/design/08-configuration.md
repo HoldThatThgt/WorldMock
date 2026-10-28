@@ -209,11 +209,6 @@ flowchart LR
 | 查询所在的 app | `query-app:{action_id}`；只在 `prefer` 用不上、且有下单 app 卖所查商品至少一件时取流，候选按 `app_id` 升序，等概率取一个；`prefer` 用得上或没有候选时不抽 |
 | 内容选择 | `{activity_id}:{draw_index}`，只用于内容 app：打开时 `draw_index` 为 0；一次 app 使用每自动接续一条加一，接下一集或另一部系列不抽，接一条没看过的独立内容时用加一后的键抽一次；在地点点名内容单元不抽随机数 |
 | 回调链 | `callback:{rule_id}:{anchor}:{step_index}`，步骤下标从零开始 |
-| 指标自举 | `bootstrap-metric:{name}`，抽取六十四位整数供 NumPy |
-| 评审自举 | `bootstrap-review:{dimension}`，抽取六十四位整数供 NumPy |
-| 评审日期 | `review-day:{block_start}:{calendar_class}`，使用 `randrange` |
-| 盲评交换 | `review-swap:{slot}:{item_id}`，抽取一位 |
-| 盲评掩码 | `review-mask:{reviewer_slot}`，抽取二百五十六位，以大端序写三十二字节 |
 
 `group_key` 是 `[store_id,destination_id,app_id,fulfillment]` 的规范 JSON，是配送组的键，运费按它合并。
 `payment_order_key` 是 `[app_id]` 的规范 JSON，序列化方式与 `group_key` 相同，是订单的键，付款按它抽取和结算：

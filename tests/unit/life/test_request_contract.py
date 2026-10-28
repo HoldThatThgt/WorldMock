@@ -4,8 +4,12 @@ import pytest
 from pydantic import ValidationError
 
 from tests.life.conftest import conclude_request, errand_add, pause_request, report_request
-from worldmock.life.models import (
-    ConcludeActivityRequest, ErrandChange, PauseActivityRequest, ReportStatusRequest, StartMainActivityRequest,
+from worldmock.state.interaction.requests import (
+    ConcludeActivityRequest,
+    ErrandChange,
+    PauseActivityRequest,
+    ReportStatusRequest,
+    StartMainActivityRequest,
     StartSideActivityRequest,
 )
 

@@ -16,16 +16,14 @@ os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/bet
 
 from agentsociety2.agent.memory_runtime import MemoryRuntimeConfig
 from agentsociety2.agent.base.react import MemoryUpdateEvidence
-from tests.life.conftest import (
-    advance_until_ready, conclude_request, stage_day_plan, submit_round, use_app,
-)
+from tests.life.conftest import advance_until_ready, conclude_request, stage_day_plan, submit_round, use_app
 from custom.agents.life_agent import _conclusion_memories
-from worldmock.agents.life_memory import WorldMockMemoryRuntime, render_memory_view
-from worldmock.agents.life_reflection import REFLECTION_PROMPT, reflection_tool
-from worldmock.footprints.experiences import project_verified_experiences
-from worldmock.footprints.models import EventDraft
-from worldmock.footprints.store import FootprintStore
-from worldmock.life.memory_evidence import _memory_evidence_data
+from worldmock.agents.memory.life_memory import WorldMockMemoryRuntime, render_memory_view
+from worldmock.agents.memory.life_reflection import REFLECTION_PROMPT, reflection_tool
+from worldmock.recording_engine.projections.activities.experiences import project_verified_experiences
+from worldmock.recording_engine.events.models import EventDraft
+from worldmock.recording_engine.storage.store import FootprintStore
+from worldmock.recording_engine.events.memory_evidence import _memory_evidence_data
 
 
 _TIME = datetime(2026, 9, 21, 8, tzinfo=timezone.utc)

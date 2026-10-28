@@ -183,7 +183,7 @@ def test_navigation_app_is_chosen_only_among_apps_bound_to_the_trips_travel_meth
         engine_factory, tmp_path, method, identity, candidates):
     """导航 app 只从绑定了这次出行方式的功能 app 里等概率选一个；同一种子得到同一个；没有绑定就没有导航记录。
     出发那一秒只把导航记在人物状态里，不再写时间点；到达时写一条从出发到到达的前台区间。"""
-    from worldmock.life.randomness import random_stream
+    from worldmock.foundation.randomness import random_stream
 
     chosen, seeds = [], (range(1, 7) if len(candidates) > 1 else (1,))
     for seed in seeds:

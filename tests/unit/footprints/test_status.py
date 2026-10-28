@@ -3,9 +3,9 @@ import json
 import pytest
 
 from tests.text_encoding import default_encoding_reads
-from worldmock.errors import IntegrityError
-from worldmock.footprints.store import FootprintStore
-from worldmock.status import observed_model_usage, read_status, write_status
+from worldmock.foundation.errors import IntegrityError
+from worldmock.recording_engine.storage.store import FootprintStore
+from worldmock.runtime.monitoring.status import observed_model_usage, read_status, write_status
 
 
 def test_status_reads_confirmed_state_without_modifying_any_run_file(tmp_path):
@@ -78,7 +78,7 @@ def test_status_lists_the_five_latest_checkpoint_ids_without_reading_their_bodie
 
 def _store_with_responses(run, models):
     """建一个最小运行库，按给定模型名各落一条带用量的模型响应（None 表示响应不带模型名）。"""
-    from worldmock.footprints.models import EventDraft
+    from worldmock.recording_engine.events.models import EventDraft
 
     store = FootprintStore.create(run, {'run_id': '运行一', 'agent_ids': [1], 'window': {'timezone': 'UTC'}},
                                   {'version': 0, 'current_time': 100, 'end_time': 200, 'activities': [],
@@ -133,7 +133,7 @@ def test_observed_usage_is_empty_without_responses_and_refuses_a_missing_databas
 
 def _status_run(run):
     """一个带五类事件的运行库：两种模型、两个阶段的模型响应，以及观察、行动结果和检查点前的证据。"""
-    from worldmock.footprints.models import EventDraft
+    from worldmock.recording_engine.events.models import EventDraft
 
     store = FootprintStore.create(run, {'run_id': 'run', 'agent_ids': [1], 'window': {'timezone': 'UTC'}},
                                   {'version': 0, 'current_time': 100, 'end_time': 200, 'activities': [],
@@ -189,7 +189,7 @@ def test_status_issues_no_explicit_transaction(tmp_path, monkeypatch):
         connection.set_trace_callback(statements.append)
         return connection
 
-    monkeypatch.setattr('worldmock.status.sqlite3.connect', traced)
+    monkeypatch.setattr('worldmock.runtime.monitoring.status.sqlite3.connect', traced)
     read_status(run)
     assert statements
     assert not [sql for sql in statements if sql.lstrip().upper().startswith('BEGIN')]
@@ -211,7 +211,7 @@ _OBSERVED_USAGE_BY_BODY = """
 
 def test_observed_usage_reads_responses_through_the_type_index(tmp_path):
     import sqlite3
-    from worldmock.status import _OBSERVED_USAGE_SQL
+    from worldmock.runtime.monitoring.status import _OBSERVED_USAGE_SQL
 
     run = tmp_path / 'run'
     _status_run(run)

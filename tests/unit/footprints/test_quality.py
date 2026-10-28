@@ -5,16 +5,17 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from worldmock.errors import IntegrityError
-from worldmock.footprints.models import (
-    DECISION_OFFERED_FIELD,
-    WAKE_REASONS_FIELD,
-    Event,
-)
+from worldmock.foundation.errors import IntegrityError
+from worldmock.recording_engine.events.models import DECISION_OFFERED_FIELD, WAKE_REASONS_FIELD, Event
 from tests.footprints.display_fixtures import sample_catalog_rows, sample_display_names
-from worldmock.footprints.display_wording import display_names
-from worldmock.footprints.quality import CALL_CLASSES, _estimate_cost, _model_quality, build_quality_report
-from worldmock.life.error_contract import ErrorItem, ErrorReport
+from worldmock.recording_engine.projections.presentation.display_wording import display_names
+from worldmock.recording_engine.reports.quality import (
+    CALL_CLASSES,
+    _estimate_cost,
+    _model_quality,
+    build_quality_report,
+)
+from worldmock.state.interaction.errors import ErrorItem, ErrorReport
 
 
 def _event(sequence, event_type, *, occurred_at=None, run_id="run", wall_ms=None, **fields):
@@ -219,7 +220,7 @@ def test_missing_measurements_remain_unknown_instead_of_becoming_zero():
 def test_plan_day_response_naming_memories_is_no_memory_problem():
     """零点计划不是记忆写入点：它的输出多带 memories 字段时，本地校验错误不记为记忆协议问题；
     人物决策带实际记忆字段的结构化错误时记入。"""
-    from worldmock.life.day_planning import PlanDayOutputError, parse_plan_day
+    from worldmock.simulation_engine.scheduling.plans.day_planning import PlanDayOutputError, parse_plan_day
 
     arguments = json.dumps({"goals": [], "memories": ["明早七点起床"]}, ensure_ascii=False)
     raw = {"model": "deepseek-flash", "choices": [{"message": {"tool_calls": [
@@ -737,7 +738,7 @@ def test_input_warnings_section_counts_the_frozen_manifest_warnings():
     """input_warnings 一节（docs/design/08-configuration.md「校验与输入冻结」）：按警告码闭集与人物统计清单冻结的警告，
     场景级警告另计；闭集之外的码（包括随人物卡片编译删除的那些）单列；清单没有记录（引擎直驱为 null，或旧清单没有这个键）
     时计数为 null 而不是 0；只报告，不放行。"""
-    from worldmock.input_warnings import INPUT_WARNING_CODES
+    from worldmock.configuration.inputs.warnings import INPUT_WARNING_CODES
 
     def personal(agent_id):
         return {"code": "CONTENT_EMPTY_WITH_MEDIA_TASTES", "agent_id": agent_id, "message": "没有绑定内容",
@@ -765,7 +766,7 @@ def test_input_warnings_section_counts_the_frozen_manifest_warnings():
     assert empty["warning_count"] == 0 and set(empty["code_counts"].values()) == {0}
 
 
-#: 截断回合写进模型响应证据的协议错误串（src/worldmock/agents/life_truncation.py）。
+#: 截断回合写进模型响应证据的协议错误串（src/worldmock/agents/protocol/life_truncation.py）。
 _TRUNCATION_ERROR = ("OUTPUT_TRUNCATED: model output reached max_tokens while reasoning, before any tool call "
                      "(finish_reason=length)")
 #: 4a5b0e6 两次全天运行的真实截断记录（只省略请求与思考正文）。

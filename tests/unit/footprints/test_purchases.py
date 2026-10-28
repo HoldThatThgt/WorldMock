@@ -2,7 +2,7 @@
 
 from tests.footprints.recording import recorded_engine
 from tests.life.conftest import action_identity
-from worldmock.footprints.purchases import project_purchase_facts
+from worldmock.recording_engine.projections.commerce.purchases import project_purchase_facts
 
 
 def test_actual_basket_preserves_payment_goods_and_receipt_ownership(engine_factory):

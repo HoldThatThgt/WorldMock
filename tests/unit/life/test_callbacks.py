@@ -7,17 +7,22 @@ from types import SimpleNamespace
 
 import pytest
 
-from worldmock.catalog.callback_models import CallbackRule, CallbackState
-from worldmock.environment import load_environment
-from worldmock.errors import IntegrityError
-from worldmock.footprints.models import EventDraft
-from worldmock.input_models import ModelMetadata
-from worldmock.life.callbacks import (
-    CallbackCause, compare_callback_states, evaluate_callbacks, issue_callback_reminders,
-    reset_on_receipt, settle_callback_dates, validate_callback_states,
+from worldmock.resource_engine.catalog.callback_models import CallbackRule, CallbackState
+from worldmock.configuration.inputs.environment import load_environment
+from worldmock.foundation.errors import IntegrityError
+from worldmock.recording_engine.events.models import EventDraft
+from worldmock.configuration.inputs.models import ModelMetadata
+from worldmock.simulation_engine.scheduling.callbacks.callbacks import (
+    CallbackCause,
+    compare_callback_states,
+    evaluate_callbacks,
+    issue_callback_reminders,
+    reset_on_receipt,
+    settle_callback_dates,
+    validate_callback_states,
 )
-from worldmock.life.world_setup import _initial_state
-from worldmock.scheduling.compile import compile_schedule
+from worldmock.simulation_engine.world.world_setup import _initial_state
+from worldmock.simulation_engine.scheduling.clock.compile import compile_schedule
 
 
 SOURCE = Path(__file__).resolve().parents[2] / "fixtures/dataset-environment"

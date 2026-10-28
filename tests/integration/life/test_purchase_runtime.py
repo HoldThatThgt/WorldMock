@@ -5,7 +5,13 @@ from datetime import timedelta
 import pytest
 
 from tests.life.conftest import (
-    action_identity, advance_next, conclude_request, errand_add, purchase, report_request, use_app,
+    action_identity,
+    advance_next,
+    conclude_request,
+    errand_add,
+    purchase,
+    report_request,
+    use_app,
 )
 from tests.life.current_world import stage_moment
 from tests.life.environment_inputs import copy_environment, write_catalog_rows

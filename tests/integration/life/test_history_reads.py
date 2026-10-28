@@ -6,9 +6,10 @@ from tests.life.current_world import stage_moment
 from tests.life.environment_runtime import act, events, finish_activity
 from tests.life.phone_records import moment, phone_environment, phone_window
 from tests.unit.life.test_counterfactual_rejection_contract import _branch
-from worldmock.life import day_plan_inputs, session_bounds
-from worldmock.life.day_plan_inputs import PlanInputs, plan_inputs
-from worldmock.life.storefront_runtime import StorefrontRuntime
+from worldmock.simulation_engine.scheduling.plans import day_plan_inputs
+from worldmock.recording_engine.projections.activities import session_bounds
+from worldmock.simulation_engine.scheduling.plans.day_plan_inputs import PlanInputs, plan_inputs
+from worldmock.simulation_engine.commerce.purchase.storefront_runtime import StorefrontRuntime
 
 #: 通勤例子的时刻：08:20:00 出发，08:31:00 中途折返并随即再次出发。
 DEPART, TURN = moment(8, 20), moment(8, 31)

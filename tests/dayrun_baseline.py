@@ -28,9 +28,9 @@ class _RecordedTime(datetime):
 def deterministic_day_runtime(monkeypatch) -> None:
     """@brief 仅在完整日测试内固定记录身份与计时，不修改生产代码。"""
     import agentsociety2.agent.person as person
-    import worldmock.footprints.checkpoint as checkpoint
-    import worldmock.footprints.models as models
-    import worldmock.footprints.store as store
+    import worldmock.recording_engine.storage.checkpoint as checkpoint
+    import worldmock.recording_engine.events.models as models
+    import worldmock.recording_engine.storage.store as store
 
     sequence = itertools.count(1)
     fixed_uuid = lambda: UUID(int=next(sequence))
@@ -131,7 +131,7 @@ class DayBaseline:
 
     def prepare(self) -> list[dict]:
         """@brief 重新计算输入、运行清单、素材与检查点的规范化摘要，先验证原始哈希完整性。"""
-        from worldmock.footprints.frozen_environment import validate_frozen_environment
+        from worldmock.recording_engine.validation.frozen_environment import validate_frozen_environment
 
         manifest_raw = (self.case / "run/manifest.json").read_bytes()
         manifest = json.loads(manifest_raw)

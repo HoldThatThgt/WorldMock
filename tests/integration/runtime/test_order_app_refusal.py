@@ -13,8 +13,8 @@ import pytest
 from tests.integration.life.test_app_opening import OFFERED_FIX, order_app_item, order_app_why
 from tests.integration.runtime.current_contract_fixtures import ToolResponse, decide
 from tests.life.conftest import SIDE_TOOL, context, side_arguments, stage_day_plan
-from worldmock.life.error_contract import ERROR_KEYS
-from worldmock.life.prompt_schemas import validate_layer
+from worldmock.state.interaction.errors import ERROR_KEYS
+from worldmock.agents.prompt.prompt_schemas import validate_layer
 
 OPEN_MEITUAN = side_arguments("interact", "美团")
 OPEN_KEEP = side_arguments("interact", "Keep")

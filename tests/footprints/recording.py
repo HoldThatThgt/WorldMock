@@ -66,8 +66,8 @@ def final_checkpoint(engine):
 
 def export_completed(engine, directory):
     """运行到截止、写最终检查点、导出并认证；返回（清单，事件行，活动行），事件行取导出文件里的完整事件。"""
-    from worldmock.footprints.export import export_run
-    from worldmock.footprints.validation import validate_export
+    from worldmock.recording_engine.export.export import export_run
+    from worldmock.recording_engine.validation.validation import validate_export
 
     run_to_end(engine)
     point = final_checkpoint(engine)
@@ -83,7 +83,7 @@ def artifact_rows(directory, name):
 
 def write_rows(directory, manifest, name, rows):
     """@brief 改写被测导出文件并刷新真实字节摘要和行数，不用损坏哈希代替行为认证。"""
-    from worldmock.footprints.models import canonical_json
+    from worldmock.foundation.serialization import canonical_json
     descriptor = manifest["artifacts"][name]
     raw = b"".join(canonical_json(row) + b"\n" for row in rows)
     (directory / descriptor["path"]).write_bytes(raw)
@@ -92,19 +92,20 @@ def write_rows(directory, manifest, name, rows):
 
 def write_manifest(directory, manifest):
     """@brief 按规范 JSON 写回导出清单。"""
-    from worldmock.footprints.models import canonical_json
+    from worldmock.foundation.serialization import canonical_json
     (directory / "manifest.json").write_bytes(canonical_json(manifest) + b"\n")
 
 
 def reproject(directory, manifest, events):
     """@brief 六份工件和质量全部按被污染后的事件重算并重新签名，失败只能来自实际语义约束。"""
-    from worldmock.footprints.app_usage import project_app_usage
-    from worldmock.footprints.export import _verified_experience_rows, reconstruct_activities
-    from worldmock.footprints.frozen_environment import frozen_display_names
-    from worldmock.footprints.location_stays import project_location_stays
-    from worldmock.footprints.models import Event, canonical_json, sha256_json
-    from worldmock.footprints.purchases import project_purchase_facts
-    from worldmock.footprints.quality import build_quality_report
+    from worldmock.recording_engine.projections.activities.app_usage import project_app_usage
+    from worldmock.recording_engine.export.export import _verified_experience_rows, reconstruct_activities
+    from worldmock.recording_engine.validation.frozen_environment import frozen_display_names
+    from worldmock.recording_engine.projections.activities.location_stays import project_location_stays
+    from worldmock.recording_engine.events.models import Event
+    from worldmock.foundation.serialization import canonical_json, sha256_json
+    from worldmock.recording_engine.projections.commerce.purchases import project_purchase_facts
+    from worldmock.recording_engine.reports.quality import build_quality_report
     records = [Event.model_validate(event) for event in events]
     activities = reconstruct_activities(records)
     write_rows(directory, manifest, "events", events)

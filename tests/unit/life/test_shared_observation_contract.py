@@ -5,28 +5,42 @@ from copy import deepcopy
 import pytest
 
 from tests.life.conftest import (
-    MAIN_TOOL, SIDE_TOOL, advance_until_ready, conclude_request, context, do_at, errand_add, stage_day_plan, travel, use_app,
+    MAIN_TOOL,
+    SIDE_TOOL,
+    advance_until_ready,
+    conclude_request,
+    context,
+    do_at,
+    errand_add,
+    stage_day_plan,
+    travel,
+    use_app,
 )
 from tests.life.environment_runtime import act, act_group, reach
-from worldmock.life import activity_control, tool_layer
-from worldmock.life.action_contract import start_tool
-from worldmock.life.activity_control import open_activities
-from worldmock.errors import IntegrityError
-from worldmock.life.continuation import continuation_enabled
-from worldmock.life.control_items import control_errands, control_items
-from worldmock.life.decision_start import is_action_request
-from worldmock.life.error_contract import ErrorItem, ErrorReport, bind_report, host_defaults
-from worldmock.life.name_resolution import lookup, name_book, resolution_data
-from worldmock.life.progress_layer import order_label, session_bound
-from worldmock.life.prompt_capacity import prompt_token_count, request_token_count
-from worldmock.life.prompt_schemas import validate_layer
-from worldmock.life.readable import clock_phrase
-from worldmock.life.reminders import mark_reminded, reminder_due
-from worldmock.life.schedule import DayPlan, PlanGoal
-from worldmock.life.settled_text import activity_sentence, experience_sentence, record_lines
-from worldmock.life.tool_groups import compact_tool_layer, expand_tool_layer
-from worldmock.life.tool_layer import Candidate, LayerContext, refusal_for
-from worldmock.life.models import SameMomentStage
+from worldmock.simulation_engine.activities.lifecycle import activity_control
+from worldmock.simulation_engine.observation.targets import tool_layer
+from worldmock.state.interaction.actions import start_tool
+from worldmock.simulation_engine.activities.lifecycle.activity_control import open_activities
+from worldmock.foundation.errors import IntegrityError
+from worldmock.simulation_engine.decisions.continuation import continuation_enabled
+from worldmock.state.interaction.control_items import control_errands, control_items
+from worldmock.state.model.exchange import is_action_request
+from worldmock.state.interaction.errors import ErrorItem, ErrorReport, bind_report, host_defaults
+from worldmock.simulation_engine.actions.name_resolution import lookup, name_book, resolution_data
+from worldmock.simulation_engine.observation.layers.progress_layer import order_label, session_bound
+from worldmock.agents.prompt.prompt_capacity import prompt_token_count, request_token_count
+from worldmock.agents.prompt.prompt_schemas import validate_layer
+from worldmock.foundation.time.readable import clock_phrase
+from worldmock.simulation_engine.scheduling.plans.reminders import mark_reminded, reminder_due
+from worldmock.state.planning.schedule import DayPlan, PlanGoal
+from worldmock.simulation_engine.observation.wording.settled_text import (
+    activity_sentence,
+    experience_sentence,
+    record_lines,
+)
+from worldmock.agents.prompt.tool_groups import compact_tool_layer, expand_tool_layer
+from worldmock.simulation_engine.observation.targets.tool_layer import Candidate, LayerContext, refusal_for
+from worldmock.state.world.kinds import SameMomentStage
 
 
 def _context(engine):
@@ -127,7 +141,7 @@ def test_token_measurement_failures_and_missing_output_reserve_stop_capacity_val
     def failed_counter(**kwargs):
         raise ValueError("tokenizer unavailable")
 
-    monkeypatch.setattr("worldmock.life.prompt_capacity.token_counter", failed_counter)
+    monkeypatch.setattr('worldmock.agents.prompt.prompt_capacity.token_counter', failed_counter)
     with pytest.raises(RuntimeError, match="token count failed"):
         prompt_token_count({"model": "test-model", "messages": []})
     for value in (None, 0, -1, "100"):

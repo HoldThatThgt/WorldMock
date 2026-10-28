@@ -2,11 +2,11 @@
 
 
 import pytest
-from worldmock.catalog.errors import RegistrationError
-from worldmock.catalog.identity import read_catalog_file
-from worldmock.errors import IntegrityError
-from worldmock.footprints import checkpoint
-from worldmock.footprints.assets import AssetStore
+from worldmock.resource_engine.registration.errors import RegistrationError
+from worldmock.resource_engine.catalog.identity import read_catalog_file
+from worldmock.foundation.errors import IntegrityError
+from worldmock.recording_engine.storage import checkpoint
+from worldmock.recording_engine.storage.assets import AssetStore
 from pathlib import Path
 
 

@@ -101,7 +101,7 @@ def test_source_mutation_has_only_current_symbol_fields():
 def test_source_mutation_resolves_actual_python_production_roots():
     """@brief 三个实际 Python 生产根只解析当前物理模块。"""
     for symbol, relative in (
-        ("worldmock.life.interact::InteractivityRuntime.start", "src/worldmock/life/interact.py"),
+        ('worldmock.simulation_engine.activities.content.interact::InteractivityRuntime.start', "src/worldmock/simulation_engine/activities/content/interact.py"),
         ("custom.agents.life_agent::LifeAgent.step", "custom/agents/life_agent.py"),
         ("scripts.freeze_rrs_baseline::freeze_matching_baseline", "scripts/freeze_rrs_baseline.py"),
     ):
@@ -121,6 +121,7 @@ def test_retired_test_environment_selector_is_rejected(tmp_path):
 
 def test_all_selected_behaviors_run_beyond_the_windows_command_line_limit(tmp_path):
     """超过 Windows 命令行上限的完整用例选择仍全部执行，保留顺序、路径空格与逐条回执。"""
+    (tmp_path / "pytest.ini").write_text("[pytest]\n", encoding="utf-8")
     source = tmp_path / "selection with spaces" / "test_selected.py"
     source.parent.mkdir()
     names = [f"argument-{'x' * 180}-{index}" for index in range(180)]

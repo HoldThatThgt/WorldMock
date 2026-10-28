@@ -11,8 +11,9 @@ from types import SimpleNamespace
 
 import pytest
 
-import worldmock.footprints.assets as assets_module
-from worldmock.footprints.assets import _REPLACE_RETRY_SECONDS, atomic_write
+import worldmock.foundation.atomic_write as assets_module
+from worldmock.foundation.atomic_write import _REPLACE_RETRY_SECONDS
+from worldmock.foundation.atomic_write import atomic_write
 
 
 class _ReplaceOs:

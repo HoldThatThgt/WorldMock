@@ -2,7 +2,7 @@
 import pytest
 from tests.life.conftest import MAIN_TOOL, SIDE_TOOL, side_arguments, stage_day_plan, context
 from tests.integration.runtime.current_contract_fixtures import decide, ToolResponse
-from worldmock.life.tool_groups import expand_tool_layer
+from worldmock.agents.prompt.tool_groups import expand_tool_layer
 import json
 
 @pytest.mark.asyncio

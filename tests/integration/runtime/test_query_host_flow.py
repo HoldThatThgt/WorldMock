@@ -10,7 +10,7 @@ import pytest
 from tests.integration.runtime.current_contract_fixtures import ToolResponse, decide
 from tests.life.conftest import MAIN_TOOL, SIDE_TOOL, advance_next, main_arguments, side_arguments, stage_day_plan
 from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
-from worldmock.life.models import StartSideActivityRequest
+from worldmock.state.interaction.requests import StartSideActivityRequest
 
 
 def _requested(engine) -> list:

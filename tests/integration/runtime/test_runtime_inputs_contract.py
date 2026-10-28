@@ -7,19 +7,25 @@ import pytest
 from tests.data_paths import ENVIRONMENT_ROOT
 from tests.integration.runtime.current_contract_fixtures import ROOT, aligned_process, inputs, metadata_service
 from tests.integration.runtime_fixtures import write_agent_workspace
-from worldmock import run_setup
-import worldmock.runtime as runtime_module
-from worldmock.errors import EnvironmentInputError, IntegrityError
-from worldmock.footprints.checkpoint import snapshot_directory
-from worldmock.footprints.store import FootprintStore
-from worldmock.runtime import RunRequest, ResumeRequest, _prepare_new_run, _prepare_resume, _society_specs
+from worldmock.runtime.framework import setup as run_setup
+import worldmock.runtime.lifecycle.runner as runtime_module
+from worldmock.foundation.errors import EnvironmentInputError, IntegrityError
+from worldmock.recording_engine.storage.checkpoint import snapshot_directory
+from worldmock.recording_engine.storage.store import FootprintStore
+from worldmock.runtime.lifecycle.runner import (
+    RunRequest,
+    ResumeRequest,
+    _prepare_new_run,
+    _prepare_resume,
+    _society_specs,
+)
 
 #: 进程配置失败的替身抛出的错误原文。
 REFUSED = "AgentSociety2 was imported before the required model configuration"
 
 
 def test_missing_actual_stage_identity_rejects_world_before_creating_run(tmp_path):
-    from worldmock.life.engine import LifeEngine
+    from worldmock.simulation_engine.engine import LifeEngine
     from tests.integration.runtime_fixtures import current_run_identity
 
     frozen = inputs()
@@ -171,7 +177,7 @@ async def test_resume_restores_exact_world_card_and_full_model_from_the_frozen_w
             k: v for k, v in before.items() if k not in {"run_id", "version"}}
         assert store.state["version"] == before["version"] + 1
         for reference in store.manifest["environment_assets"].values():
-            from worldmock.footprints.models import AssetRef
+            from worldmock.recording_engine.events.models import AssetRef
             asset = AssetRef.model_validate(reference)
             assert len(store.assets.read(asset)) == asset.size_bytes
     finally:
@@ -198,7 +204,7 @@ async def test_resume_rejects_a_frozen_card_that_differs_from_the_persona_table(
     """恢复的真实路径：检查点里人物工作区的结构化卡片与用冻结的 persona.toml 重新构造出的卡片不相等（作息或关系被改过，
     或卡片缺失）时，在发布子目录之前以完整性错误停止。"""
     import copy
-    from worldmock.run_setup import creation_inputs
+    from worldmock.runtime.framework.setup import creation_inputs
 
     frozen, parent, env, _ = await prepared_parent(tmp_path, monkeypatch)
     spec = copy.deepcopy(creation_inputs(frozen)[0][0])

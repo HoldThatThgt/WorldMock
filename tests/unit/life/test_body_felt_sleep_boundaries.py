@@ -7,20 +7,35 @@ import pytest
 
 from tests.data_paths import ENVIRONMENT_ROOT
 from tests.unit.life.test_environment_body import body_inputs
-from worldmock.input_models import PersonaConfig
-from worldmock.life.body import (
-    ActivityFactors, BoundaryClock, apply_discomfort_pulse, apply_relaxation_change, initial_body, last_flows,
-    next_shared_body_boundary_seconds, settle_shared_body,
+from worldmock.configuration.inputs.models import PersonaConfig
+from worldmock.simulation_engine.body.body import (
+    ActivityFactors,
+    BoundaryClock,
+    apply_discomfort_pulse,
+    apply_relaxation_change,
+    initial_body,
+    last_flows,
+    next_shared_body_boundary_seconds,
+    settle_shared_body,
 )
-from worldmock.life.body_config import assemble_body_config
-from worldmock.life.felt import (
-    MealWindows, appetite_level, changed_felt_levels, compute_appetite, in_clock_window, meal_window_bonus,
+from worldmock.simulation_engine.body.body_config import assemble_body_config
+from worldmock.simulation_engine.body.felt import (
+    MealWindows,
+    appetite_level,
+    changed_felt_levels,
+    compute_appetite,
+    in_clock_window,
+    meal_window_bonus,
     sleepiness_level,
 )
-from worldmock.life.models import ActivityKind
-from worldmock.life.sleep import (
-    EfficiencyCurvePoint, SleepinessGrade, initial_sleep_pressure, interpolate_efficiency,
-    sleepiness_grade, validate_efficiency_curve,
+from worldmock.state.world.kinds import ActivityKind
+from worldmock.simulation_engine.body.sleep import (
+    EfficiencyCurvePoint,
+    SleepinessGrade,
+    initial_sleep_pressure,
+    interpolate_efficiency,
+    sleepiness_grade,
+    validate_efficiency_curve,
 )
 
 

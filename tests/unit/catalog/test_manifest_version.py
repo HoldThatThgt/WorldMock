@@ -4,10 +4,10 @@ import json
 
 import pytest
 
-from worldmock.catalog.errors import RegistrationError
-from worldmock.catalog.loader import load_catalog, validate_catalog_files
-from worldmock.exchange.constants import RULES_VERSION
-from worldmock.footprints.models import canonical_json
+from worldmock.resource_engine.registration.errors import RegistrationError
+from worldmock.resource_engine.catalog.loader import load_catalog, validate_catalog_files
+from worldmock.exchange_engine.definitions.constants import RULES_VERSION
+from worldmock.foundation.serialization import canonical_json
 
 
 @pytest.mark.parametrize("payload,code", [

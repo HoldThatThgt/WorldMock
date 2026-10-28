@@ -11,9 +11,9 @@ import time
 
 import pytest
 
-from worldmock.errors import IntegrityError
-from worldmock.footprints.assets import AssetStore
-from worldmock.footprints.checkpoint import restore_directory, snapshot_directory
+from worldmock.foundation.errors import IntegrityError
+from worldmock.recording_engine.storage.assets import AssetStore
+from worldmock.recording_engine.storage.checkpoint import restore_directory, snapshot_directory
 
 #: 无效快照的错误原文。
 _INVALID = "^Workspace snapshot archive is invalid$"

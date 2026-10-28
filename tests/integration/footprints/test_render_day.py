@@ -7,18 +7,30 @@ from zoneinfo import ZoneInfo
 from scripts import inspect_run, render_day
 from tests.footprints.display_fixtures import freeze_environment, sample_display_names
 from tests.life.conftest import (
-    action_identity, advance_next, conclude_request, do_at, pause_request, purchase, query, report_request, travel,
+    action_identity,
+    advance_next,
+    conclude_request,
+    do_at,
+    pause_request,
+    purchase,
+    query,
+    report_request,
+    travel,
     use_app,
 )
 from tests.life.environment_inputs import (
-    catalog_rows, copy_environment, replace_travel_methods, travel_method_row, write_catalog_rows,
+    catalog_rows,
+    copy_environment,
+    replace_travel_methods,
+    travel_method_row,
+    write_catalog_rows,
 )
 from tests.life.environment_runtime import act, conclude_app_use, events, finish_activity, settle_decision
 from tests.life.phone_records import label_where, purchase_draws
 from tests.life.prerequisite_inputs import add_rows
-from worldmock.footprints.models import EventDraft
-from worldmock.footprints.store import FootprintStore
-from worldmock.footprints.timeline_labels import label_findings
+from worldmock.recording_engine.events.models import EventDraft
+from worldmock.recording_engine.storage.store import FootprintStore
+from worldmock.recording_engine.projections.presentation.timeline_labels import label_findings
 
 TZ = ZoneInfo("Asia/Shanghai")
 DAY = date(2026, 1, 5)
@@ -493,8 +505,10 @@ def test_result_bodies_through_the_index_equal_the_full_scan(tmp_path):
         old = "SELECT body FROM events WHERE json_extract(body,'$.event_type')='action_result' ORDER BY event_seq"
         expected = [json.loads(body) for (body,) in conn.execute(old)]
         assert len(expected) == 3
-        assert render_day._result_bodies(conn) == expected
-        plan = " | ".join(row[-1] for row in conn.execute(f"EXPLAIN QUERY PLAN {render_day._RESULT_BODIES_SQL}"))
+        from worldmock.recording_engine.projections.presentation import timeline_renderer
+
+        assert timeline_renderer._result_bodies(conn) == expected
+        plan = " | ".join(row[-1] for row in conn.execute(f"EXPLAIN QUERY PLAN {timeline_renderer._RESULT_BODIES_SQL}"))
         assert "USING COVERING INDEX events_agent_type" in plan
     finally:
         conn.close()

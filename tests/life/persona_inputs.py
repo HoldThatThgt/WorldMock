@@ -64,6 +64,6 @@ def persona_document(**values) -> dict:
 
 def persona_with(**values):
     """经真实严格模型校验的人设表：夹具人物加上要验证的顶层字段。"""
-    from worldmock.input_models import PersonaConfig
+    from worldmock.configuration.inputs.models import PersonaConfig
 
     return PersonaConfig.model_validate(persona_document(**values))

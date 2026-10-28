@@ -8,9 +8,9 @@ from tests.integration.runtime.current_contract_fixtures import ROOT, aligned_pr
 from tests.life.conftest import advance_next, do_at, stage_day_plan
 from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
 from tests.life.environment_runtime import act
-from worldmock.environment import load_environment
-from worldmock.footprints.export import export_run
-from worldmock.run_setup import creation_inputs, input_warnings
+from worldmock.configuration.inputs.environment import load_environment
+from worldmock.recording_engine.export.export import export_run
+from worldmock.runtime.framework.setup import creation_inputs, input_warnings
 
 #: 带坐标的地点显示名。
 SUSPICIOUS_NAME = "五里公园（31.2, 121.5）"
@@ -64,7 +64,7 @@ def test_actual_input_warnings_are_frozen_and_exported(engine_factory, tmp_path)
 
 def test_new_run_writes_each_input_warning_to_the_manifest_options_and_the_operations_log(tmp_path, monkeypatch):
     """真实新建入口：警告随人物工作区输入一起算出，放进引擎的新建选项，并各写一条运维日志；运行不因警告失败。"""
-    from worldmock.runtime import RunRequest, _prepare_new_run, _society_specs
+    from worldmock.runtime.lifecycle.runner import RunRequest, _prepare_new_run, _society_specs
 
     root = _warned_environment(tmp_path)
     frozen = load_environment(root, metadata_loader=fixture_metadata)
@@ -89,7 +89,7 @@ def test_new_run_writes_each_input_warning_to_the_manifest_options_and_the_opera
                                   "COVERAGE_BELOW_THRESHOLD"])
 def test_engine_refuses_to_freeze_a_deleted_warning_code(engine_factory, code):
     """引擎新建运行时拒绝闭集之外的警告码：随人物卡片编译删除的四个码不能再进运行清单。"""
-    from worldmock.errors import IntegrityError
+    from worldmock.foundation.errors import IntegrityError
 
     warning = {"code": code, "agent_id": 1, "message": "retired", "details": {}}
     with pytest.raises(IntegrityError, match="closed warning shape"):

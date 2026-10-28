@@ -3,9 +3,16 @@ import json
 import pytest
 from agentsociety2.agent.base import ReactDecision, ReactLoopRequest
 from tests.integration.runtime.current_contract_fixtures import environment, person, ScriptedModel
-from tests.life.conftest import (MAIN_TOOL, SIDE_TOOL, context, main_arguments, side_arguments, stage_day_plan,
-                                 tool_targets)
-from worldmock.life.models import StartMainActivityRequest, StartSideActivityRequest
+from tests.life.conftest import (
+    MAIN_TOOL,
+    SIDE_TOOL,
+    context,
+    main_arguments,
+    side_arguments,
+    stage_day_plan,
+    tool_targets,
+)
+from worldmock.state.interaction.requests import StartMainActivityRequest, StartSideActivityRequest
 
 #: 人物在家：家可点名的一件事，与一个内容 app。
 _REST = main_arguments("interact", "家", "测试休息")

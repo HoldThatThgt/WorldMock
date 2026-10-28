@@ -13,8 +13,8 @@ from tests.integration.runtime.test_life_agent_protocol import _ModelResponse
 from tests.life.conftest import MAIN_TOOL, context, main_arguments, plan_day_response, stage_day_plan
 from tests.life.environment_runtime import events
 from tests.unit.as2.test_llm_dispatcher_transport import _client, _error
-from worldmock.errors import ProtocolError
-from worldmock.runtime import PlanDayClient, settle_pending_day_plans
+from worldmock.foundation.errors import ProtocolError
+from worldmock.runtime.lifecycle.runner import PlanDayClient, settle_pending_day_plans
 
 
 ATTEMPTS = ({"attempt": 1, "error": "APIConnectionError", "failed_after_ms": 10, "wait_ms": 2000},

@@ -1,4 +1,5 @@
 """真实计划请求容量、提醒登记和个人事务变更的边界。"""
+from worldmock.recording_engine.projections.commerce.errand_evidence import evidence_rows as _errands_evidence_rows
 
 from datetime import datetime
 from math import ceil
@@ -8,17 +9,22 @@ import pytest
 
 from tests.integration.runtime.current_contract_fixtures import inputs
 from tests.life.conftest import errand_add, errand_update, plan_day_response
-from worldmock.errors import BusinessRuleError, IntegrityError, ProtocolError
-from worldmock.footprints.models import EventDraft
-from worldmock.input_models import ModelMetadata
-from worldmock.life import errands
-from worldmock.life.day_planning import (
-    PLAN_DAY_PROMPT, PlanDayOutputError, agents_missing_plan, fit_plan_day, parse_plan_day, prepare_plan_day,
+from worldmock.foundation.errors import BusinessRuleError, IntegrityError, ProtocolError
+from worldmock.recording_engine.events.models import EventDraft
+from worldmock.configuration.inputs.models import ModelMetadata
+from worldmock.simulation_engine.scheduling.plans import errands
+from worldmock.simulation_engine.scheduling.plans.day_planning import (
+    PLAN_DAY_PROMPT,
+    PlanDayOutputError,
+    agents_missing_plan,
+    fit_plan_day,
+    parse_plan_day,
+    prepare_plan_day,
     registration,
 )
-from worldmock.life.errand_state import ErrandState
-from worldmock.life.models import PlanDayRequest
-from worldmock.life.prompt_capacity import request_token_count
+from worldmock.state.planning.errands import ErrandState
+from worldmock.state.interaction.requests import PlanDayRequest
+from worldmock.agents.prompt.prompt_capacity import request_token_count
 
 
 def note(state, identity="note:errand:0", product="tissue"):
@@ -155,7 +161,7 @@ def test_stale_observed_errand_cannot_change_the_current_person_state(engine_fac
 @pytest.mark.parametrize("recipient", [None, True, 0, -1])
 def test_goods_receipt_requires_an_actual_simulated_recipient(recipient):
     with pytest.raises(IntegrityError, match="no simulated recipient"):
-        errands.evidence_rows("environment_event", recipient,
+        _errands_evidence_rows("environment_event", recipient,
                               {"kind": "goods_received", "goods_id": "tissue", "quantity": 1})
 
 

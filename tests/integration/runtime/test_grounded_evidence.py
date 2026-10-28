@@ -16,18 +16,18 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from agentsociety2.agent.base import ModelCallEvidence, ReactLoopRequest
 from custom.agents.life_agent import LifeAgent
-from tests.engine_fixture import (engine_factory as _engine_factory)  # noqa: F401
-from tests.life.conftest import (MAIN_TOOL, SIDE_TOOL, context, stage_day_plan)  # noqa: F401
-from worldmock.footprints.models import canonical_json
-from worldmock.footprints.store import FootprintStore
-from worldmock.life.action_contract import MAIN_ACTIVITY_ACTIONS, SIDE_ACTIVITY_ACTIONS
-from worldmock.run_setup import runtime_code_sha256
+from tests.engine_fixture import engine_factory as _engine_factory  # noqa: F401
+from tests.life.conftest import MAIN_TOOL, SIDE_TOOL, context, stage_day_plan  # noqa: F401
+from worldmock.foundation.serialization import canonical_json
+from worldmock.recording_engine.storage.store import FootprintStore
+from worldmock.exchange_engine.conditions.activity_rules import MAIN_ACTIVITY_ACTIONS, SIDE_ACTIVITY_ACTIONS
+from worldmock.runtime.framework.setup import runtime_code_sha256
 from tests.integration.as2_fixtures import use_fake_as2
 
 @pytest.fixture(autouse=True)
 def _fixed_context_window(monkeypatch):
     """用固定供应商窗口测试请求持久化，不依赖远程元数据服务。"""
-    monkeypatch.setattr("worldmock.life.prompt_capacity.model_context_length", lambda _model, metadata: metadata.context_window)
+    monkeypatch.setattr('worldmock.agents.prompt.prompt_capacity.model_context_length', lambda _model, metadata: metadata.context_window)
 
 
 class _PersistentResponse:

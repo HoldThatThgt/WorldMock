@@ -32,27 +32,23 @@ from agentsociety2.agent.base import ReactDecision, ReactLoopRequest
 from agentsociety2.agent.memory import AgentMemoryStore
 from agentsociety2.agent.runner import _step_agent_batch_async
 import agentsociety2.society.society as society_module
-from agentsociety2.society import (
-    AgentSociety,
-    AgentSocietyConfig,
-    DecisionContext,
-    DirectToolCall,
-    SchedulingState,
+from agentsociety2.society import AgentSociety, AgentSocietyConfig, DecisionContext, DirectToolCall, SchedulingState
+from custom.agents.life_agent import LifeAgent, _conclusion_memories, life_action_tool_names, life_tool_schema_sha256
+from worldmock.agents.protocol.life_feedback import FEEDBACK_INSTRUCTION, feedback_report
+from worldmock.agents.memory.life_memory_store import WorldMockMemoryStore
+from worldmock.agents.prompt.life_prompt import LIFE_SYSTEM_LAYER, READONLY_SYSTEM_LAYER, life_prompt_sha256
+from worldmock.simulation_engine.activities.lifecycle.activity_control import PHASE_ACTIVE, PHASE_PAUSED, PHASE_PENDING
+from worldmock.state.decisions.results import ActionReceipt
+from worldmock.state.interaction.requests import (
+    ConcludeActivityRequest,
+    REQUEST_MODELS,
+    ReportStatusRequest,
+    StartMainActivityRequest,
+    StartSideActivityRequest,
 )
-from custom.agents.life_agent import (
-    LifeAgent,
-    _conclusion_memories,
-    life_action_tool_names,
-    life_tool_schema_sha256,
-)
-from worldmock.agents.life_feedback import FEEDBACK_INSTRUCTION, feedback_report
-from worldmock.agents.life_memory_store import WorldMockMemoryStore
-from worldmock.agents.life_prompt import LIFE_SYSTEM_LAYER, READONLY_SYSTEM_LAYER, life_prompt_sha256
-from worldmock.life.activity_control import PHASE_ACTIVE, PHASE_PAUSED, PHASE_PENDING
-from worldmock.life.models import (ActionReceipt, ConcludeActivityRequest, REQUEST_MODELS, ReportStatusRequest,
-                                   StartMainActivityRequest, StartSideActivityRequest, deepseek_strict_schema)
-from worldmock.life.action_contract import ACTIVITY_ACTIONS
-from worldmock.life.narration import ForbiddenObservationFieldError, render_layer_json
+from worldmock.state.interaction.schema import deepseek_strict_schema
+from worldmock.exchange_engine.conditions.activity_rules import ACTIVITY_ACTIONS
+from worldmock.agents.prompt.narration import ForbiddenObservationFieldError, render_layer_json
 from tests.life.conftest import MAIN_TOOL, SIDE_TOOL, errand_add, errand_update, main_arguments, side_arguments
 
 
@@ -143,7 +139,7 @@ _BODY = {"appetite": "不饿", "sleepiness": "有点乏", "relaxation": "不闷"
 @pytest.fixture(autouse=True)
 def _fixed_context_window(monkeypatch) -> None:
     """测试使用固定供应商窗口，只验证请求和执行合同。"""
-    from worldmock.life import prompt_capacity
+    from worldmock.agents.prompt import prompt_capacity
 
     monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model, metadata: metadata.context_window)
 
@@ -362,7 +358,7 @@ def test_life_tool_schema_fingerprint_is_the_person_tool_surface_without_the_ref
     import hashlib
 
     import custom.agents.life_agent as life_agent_module
-    from worldmock.agents import life_reflection
+    from worldmock.agents.memory import life_reflection
 
     original = life_tool_schema_sha256()
     offered = _functions(_prepared())
@@ -1230,7 +1226,7 @@ async def test_grounded_unknown_game_tool_is_corrected_without_alias() -> None:
 async def test_runtime_budget_handles_twelve_bad_responses_then_submits_once() -> None:
     """生产配置允许超过十次模型调用后纠正，完整循环仍只登记一个动作。"""
     from tests.integration.runtime.current_contract_fixtures import inputs
-    from worldmock.run_setup import creation_inputs
+    from worldmock.runtime.framework.setup import creation_inputs
 
     frozen = inputs()
     config = creation_inputs(frozen)[0][0]["config"]
@@ -1433,11 +1429,11 @@ async def test_native_memory_update_records_real_subjective_merge_without_duplic
     """真实记忆运行时合并旧身份，原生记录入口保留合并、来源及文件证据。"""
     import hashlib
 
-    from worldmock.agents.life_memory import WorldMockMemoryRuntime
-    from worldmock.footprints.experiences import project_verified_experiences
-    from worldmock.footprints.models import EventDraft
-    from worldmock.footprints.store import FootprintStore
-    from worldmock.life.memory_evidence import _memory_evidence_data
+    from worldmock.agents.memory.life_memory import WorldMockMemoryRuntime
+    from worldmock.recording_engine.projections.activities.experiences import project_verified_experiences
+    from worldmock.recording_engine.events.models import EventDraft
+    from worldmock.recording_engine.storage.store import FootprintStore
+    from worldmock.recording_engine.events.memory_evidence import _memory_evidence_data
 
     footprint = FootprintStore.create(
         tmp_path / "run", {"run_id": "run", "agent_ids": [7]},
@@ -1833,7 +1829,7 @@ def test_retired_submit_tool_is_absent_while_actions_and_activity_recall_remain(
 
 @pytest.mark.asyncio
 async def test_usage_check_reuses_the_count_taken_before_sending(monkeypatch, caplog):
-    from worldmock.life import prompt_capacity
+    from worldmock.agents.prompt import prompt_capacity
 
     class UsageResponse(_ModelResponse):
         def model_dump(self, *args, **kwargs):
@@ -1864,7 +1860,7 @@ async def test_usage_check_reuses_the_count_taken_before_sending(monkeypatch, ca
 @pytest.mark.asyncio
 async def test_usage_check_refuses_a_count_taken_for_another_request(caplog):
     from agentsociety2.agent.base import ModelCallEvidence
-    from worldmock.life.prompt_capacity import FittedRequest
+    from worldmock.agents.prompt.prompt_capacity import FittedRequest
 
     for fitted in (None, FittedRequest({"messages": []}, 5)):
         agent = _prepared()

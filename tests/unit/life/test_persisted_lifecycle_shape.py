@@ -8,11 +8,14 @@ from pydantic import ValidationError
 from tests.integration.runtime_fixtures import current_run_identity
 from tests.life.conftest import do_at, purchase
 from tests.life.environment_runtime import act
-from worldmock.errors import IntegrityError
-from worldmock.life.models import (
-    ActivityState, ConclusionMemory, CounterfactualIntervention, DeliveryState, ErrandChange, PlanGoalInput, RunIdentity, SessionState,
-    WorldState, validated_payload,
-)
+from worldmock.foundation.errors import IntegrityError
+from worldmock.state.world.activity import ActivityState
+from worldmock.state.interaction.requests import ConclusionMemory, ErrandChange, PlanGoalInput
+from worldmock.state.decisions.results import CounterfactualIntervention
+from worldmock.state.world.orders import DeliveryState
+from worldmock.state.identity import RunIdentity
+from worldmock.state.world.agent import SessionState
+from worldmock.state.world.world import WorldState, validated_payload
 
 
 def _decode(model, payload):

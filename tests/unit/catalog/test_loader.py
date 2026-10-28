@@ -7,11 +7,11 @@ import pytest
 
 from tests.data_paths import CATALOG_ROOT
 from tests.life.environment_inputs import travel_method_row, walking_only, write_catalog_rows
-from worldmock.catalog.errors import RegistrationError
-from worldmock.catalog.identity import refresh_manifest_identity
-from worldmock.catalog.loader import load_catalog, validate_catalog_files
-from worldmock.exchange.operators import travel_seconds
-from worldmock.footprints.models import canonical_json
+from worldmock.resource_engine.registration.errors import RegistrationError
+from worldmock.resource_engine.catalog.identity import refresh_manifest_identity
+from worldmock.resource_engine.catalog.loader import load_catalog, validate_catalog_files
+from worldmock.exchange_engine.commerce.operators import travel_seconds
+from worldmock.foundation.serialization import canonical_json
 
 
 def test_catalog_is_deeply_immutable():
@@ -24,8 +24,8 @@ def test_catalog_is_deeply_immutable():
 
 
 def test_pure_catalog_loading_does_not_import_runtime_engine():
-    source = ("from pathlib import Path; import sys; from worldmock.catalog.loader import load_catalog; "
-              "catalog=load_catalog(Path(sys.argv[1]),7); assert 'worldmock.life.engine' not in sys.modules; "
+    source = ("from pathlib import Path; import sys; from worldmock.resource_engine.catalog.loader import load_catalog; "
+              "catalog=load_catalog(Path(sys.argv[1]),7); assert 'worldmock.simulation_engine.engine' not in sys.modules; "
               "print(len(catalog.locations))")
     result = subprocess.run([sys.executable, "-c", source, str(CATALOG_ROOT)],
                             capture_output=True, text=True, check=False)

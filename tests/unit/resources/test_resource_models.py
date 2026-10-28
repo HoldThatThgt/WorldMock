@@ -4,7 +4,7 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from worldmock.resources import (
+from worldmock.exchange_engine.ledger.ledger_models import (
     ConvertEntry,
     FlowEntry,
     ResourceLedgerError,

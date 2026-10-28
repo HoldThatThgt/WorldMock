@@ -7,9 +7,9 @@ from __future__ import annotations
 
 import pytest
 
-from worldmock.resources.audit import audit_closed_domain, audit_level_flows
-from worldmock.resources.ledger import ResourceLedger
-from worldmock.resources.models import (
+from worldmock.recording_engine.validation.resource_audit import audit_closed_domain, audit_level_flows
+from worldmock.exchange_engine.ledger.ledger import ResourceLedger
+from worldmock.exchange_engine.ledger.ledger_models import (
     ConvertEntry,
     FlowEntry,
     ResourceLeg,

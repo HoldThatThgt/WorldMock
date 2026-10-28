@@ -3,16 +3,23 @@ import json
 import pytest
 from tests.integration.runtime.current_contract_fixtures import ROOT
 from tests.integration.runtime.native_runtime_fixtures import CurrentDecisionModel, native_runtime  # noqa: F401
-from worldmock.footprints.store import FootprintStore
-from worldmock.life.models import CounterfactualIntervention
-from worldmock.runtime import CounterfactualRequest, RunRequest, ResumeRequest, run_world, resume_world, replay_world
+from worldmock.recording_engine.storage.store import FootprintStore
+from worldmock.state.decisions.results import CounterfactualIntervention
+from worldmock.runtime.lifecycle.runner import (
+    CounterfactualRequest,
+    RunRequest,
+    ResumeRequest,
+    run_world,
+    resume_world,
+    replay_world,
+)
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("branch", [None, "resume", "counterfactual"])
 async def test_native_dataset_run_resume_and_replay_finish_with_real_frozen_workspaces(
         tmp_path, native_runtime, monkeypatch, branch):
-    from worldmock import run_setup
+    from worldmock.runtime.framework import setup as run_setup
 
     root, frozen, models = native_runtime
     configure, configured = run_setup._configure_process, []
@@ -92,7 +99,7 @@ def test_receipts_count_every_persisted_model_response_including_the_day_plan(tm
     """经真实命令入口跑完：回执的 token_stats 等于 status 的实测用量，含零点日计划桩的用量；
     从检查点恢复与重放的回执覆盖分支库整段历史，含继承自父运行的响应。"""
     from worldmock.cli import main
-    from worldmock.status import read_status
+    from worldmock.runtime.monitoring.status import read_status
 
     root, _, _ = native_runtime
     parent = tmp_path / "parent"

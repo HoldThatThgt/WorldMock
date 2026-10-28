@@ -17,18 +17,28 @@ from agentsociety2.agent.base import ReactDecision, ReactLoopRequest
 from tests.footprints.recording import artifact_rows, export_completed
 from tests.integration.runtime.current_contract_fixtures import ScriptedModel, environment, person
 from tests.integration.runtime_fixtures import write_agent_workspace
-from tests.life.conftest import (SIDE_TOOL, advance_next, advance_until_ready, conclude_request, context,
-                                 progress_calls, purchase, stage_day_plan, tool_targets, travel)
+from tests.life.conftest import (
+    SIDE_TOOL,
+    advance_next,
+    advance_until_ready,
+    conclude_request,
+    context,
+    progress_calls,
+    purchase,
+    stage_day_plan,
+    tool_targets,
+    travel,
+)
 from tests.life.current_world import stage_moment
 from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
 from tests.life.environment_runtime import act, act_group, events, finish_activity, reach
 from tests.life.phone_records import foreground, notices, phone_events
-from worldmock.footprints.checkpoint import restore_branch, snapshot_directory
-from worldmock.life.engine import LifeEngine
-from worldmock.life.models import StartSideActivityRequest
-from worldmock.life.prompt_schemas import validate_layer
-from worldmock.life.randomness import random_stream
-from worldmock.life.tool_groups import compact_tool_layer
+from worldmock.recording_engine.storage.checkpoint import restore_branch, snapshot_directory
+from worldmock.simulation_engine.engine import LifeEngine
+from worldmock.state.interaction.requests import StartSideActivityRequest
+from worldmock.agents.prompt.prompt_schemas import validate_layer
+from worldmock.foundation.randomness import random_stream
+from worldmock.agents.prompt.tool_groups import compact_tool_layer
 
 ZONE = ZoneInfo("Asia/Shanghai")
 FIRST_DAY = "2026-01-05"

@@ -10,9 +10,10 @@ import pytest
 
 from tests.life.environment_inputs import catalog_rows, meal_environment, write_catalog_rows
 from tests.unit.test_environment_engine_admission import running
-from worldmock.catalog.loader import load_catalog
-from worldmock.life.location_activities import running_series_note
-from worldmock.life.models import ActivityKind, ActivityState, ActivityStatus
+from worldmock.resource_engine.catalog.loader import load_catalog
+from worldmock.simulation_engine.activities.content.location_activities import running_series_note
+from worldmock.state.world.kinds import ActivityKind, ActivityStatus
+from worldmock.state.world.activity import ActivityState
 
 
 def _without_food(root):

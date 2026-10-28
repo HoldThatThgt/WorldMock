@@ -9,10 +9,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-from worldmock.footprints.models import canonical_json
-from worldmock.footprints.store import FootprintStore
-from worldmock.life.errand_state import ErrandState
-from worldmock.life.models import WORLD_SCHEMA_VERSION, ActivityState, AgentState, BodyState, WorldState
+from worldmock.foundation.serialization import canonical_json
+from worldmock.recording_engine.storage.store import FootprintStore
+from worldmock.state.planning.errands import ErrandState
+from worldmock.state.world.world import WORLD_SCHEMA_VERSION, WorldState
+from worldmock.state.world.activity import ActivityState
+from worldmock.state.world.agent import AgentState, BodyState
 
 
 def _world_state() -> WorldState:
@@ -89,22 +91,7 @@ def _subprocess_env(root: Path, seed: int) -> dict[str, str]:
 
 def _commit_readonly_in_subprocess(root: Path, run_dir: Path, seed: int) -> str:
     """在真实独立解释器中打开状态并执行同版本事件提交。"""
-    script = """
-import json
-import sys
-from worldmock.footprints.models import EventDraft, canonical_json
-from worldmock.footprints.store import FootprintStore
-from worldmock.life.models import WorldState
-
-store = FootprintStore(sys.argv[1])
-state = WorldState.model_validate(store.state)
-payload = state.model_dump(mode="json")
-store.require_committed(payload)
-store.append_evidence([EventDraft(event_type="environment_event", occurred_at=1,
-                                  visibility="system", data={"kind": "readonly_probe"})])
-sys.stdout.buffer.write(canonical_json(payload))
-store.close()
-"""
+    script = '\nimport json\nimport sys\nfrom worldmock.recording_engine.events.models import EventDraft; from worldmock.foundation.serialization import canonical_json\nfrom worldmock.recording_engine.storage.store import FootprintStore\nfrom worldmock.state.world.world import WorldState\n\nstore = FootprintStore(sys.argv[1])\nstate = WorldState.model_validate(store.state)\npayload = state.model_dump(mode="json")\nstore.require_committed(payload)\nstore.append_evidence([EventDraft(event_type="environment_event", occurred_at=1,\n                                  visibility="system", data={"kind": "readonly_probe"})])\nsys.stdout.buffer.write(canonical_json(payload))\nstore.close()\n'
     result = subprocess.run(
         [sys.executable, "-c", script, str(run_dir)],
         cwd=root,

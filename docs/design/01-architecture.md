@@ -47,7 +47,13 @@ flowchart TB
 
 图中的引擎表示职责边界。AgentSociety 2 提供调度、模型调用、人物决策与记忆基础；
 LifeAgent 承载数字人，LifeEnv 是模拟引擎接入 AgentSociety 2 的环境入口。
-现有代码文件可以承载多个引擎的处理逻辑，不能仅凭目录名称判定职责归属。
+源码按 resource_engine、exchange_engine、simulation_engine、recording_engine 四个引擎组织，
+引擎内部按登记、计算、活动、调度、观察和记录等职责分子目录。
+跨模块共用的状态、请求与纯字段判定在 state 中维护，通用模型、文件和序列化函数在 foundation 中维护。
+人物提示与主观记忆、配置和运行装配分别独立；目录调整不改变工具输入输出、生活规则、运行时序和环境格式。
+认证导出仍包含原有 quality.json，统计字段与严格重算要求保持不变。
+独立候选比较、真人参照、盲评和 evaluate 命令退役；保留的独立行为分析在 tools/analysis 中运行。
+导出认证实际依赖的约束、事务和质量统计仍由记录引擎提供，工具复用它们，不复制实现。
 
 <a name="architecture-职责与交接"></a>
 ### 职责与交接
@@ -60,7 +66,7 @@ LifeAgent 承载数字人，LifeEnv 是模拟引擎接入 AgentSociety 2 的环�
 | [模拟引擎](04-simulation-engine.md) | 初始化、时间调度、动作受理、世界结算与恢复编排 | 人物观察与反馈、实际事件、状态和共同快照 |
 | [记录引擎](05-recording-engine.md) | 保存与关联足迹、素材和状态，校验记录一致性，保存检查点，构建分支存储，认证导出与诊断 | 返回保存确认、已核验的恢复材料、认证导出和客观统计 |
 | LabelKit-DataSet 数据加工 | 证据窗口、离线经历回顾与假设推演、LabelKit 加工、样本校验与发布 | 交付可追溯的训练数据与规则测试数据 |
-| [行为评估](07-evaluation.md) | 依据已记录事实计算指标、对比与真实性评价 | 带证据关联和结论边界的报告 |
+| [行为评估](07-evaluation.md) | 依据已记录事实计算行为与工作统计 | 带来源与缺失说明的统计 |
 
 LifeEnv 与活动属于模拟引擎的执行职责；数字足迹、检查点和分支存储属于记录引擎。
 离线数据加工由 LabelKit-DataSet 消费认证导出，
@@ -158,16 +164,17 @@ flowchart LR
 <a name="architecture-现有代码与职责的对应关系"></a>
 ## 现有代码与职责的对应关系
 
-下表用于定位现有实现。同一文件可能承载多个引擎的处理逻辑，职责按实际输入与输出判断。
+下表对应实际源码包。共用的状态、请求、结果与纯字段判定在 state 下按世界、交互和模型数据分组。
+LifeEngine 保留创建、打开、观察、动作、推进与检查点接口；启动身份核验仍按原调用时机在运行装配边界执行。
 
 | 职责 | 现有承载位置 | 详细设计 |
 | --- | --- | --- |
-| 数字人 | [LifeAgent](../../custom/agents/life_agent.py)、[就寝反思工具](../../src/worldmock/agents/life_reflection.py)、[人物画像](../../src/worldmock/profile)、AgentSociety 2 人物与记忆模块 | [人物](06-agent.md) |
-| 资源引擎 | [目录登记、加载与图查询](../../src/worldmock/catalog)及只读反向索引；内容选择与进度由模拟引擎负责 | [资源引擎](03-resource-engine.md) |
-| 交换引擎 | [固定类型、常数与算子](../../src/worldmock/exchange)、[具体动作声明](../../src/worldmock/life/action_contract.py)、[资源分录计算与校验](../../src/worldmock/resources)及生活模型中的条件、费用和报酬规则 | [交换引擎](02-exchange-engine.md) |
-| 模拟引擎 | [运行入口](../../src/worldmock/runtime.py)、[LifeEnv](../../custom/envs/life_env.py)、[只读查询转发](../../src/worldmock/life/read_query_runtime.py)、[生活运行逻辑](../../src/worldmock/life/engine.py)及活动、身体和调度模块 | [模拟引擎](04-simulation-engine.md) | 初始化、时间调度、动作受理、世界结算与恢复编排 | 人物观察与反馈、实际事件、状态和共同快照 |
-| 记录引擎 | [足迹存储](../../src/worldmock/footprints)、[素材存储](../../src/worldmock/footprints/assets.py) | [记录引擎](05-recording-engine.md) |
-| 完整导出与评估 | [导出模块](../../src/worldmock/footprints/export.py)、[评估模块](../../src/worldmock/evaluation) | [记录引擎](05-recording-engine.md)、[行为评估](07-evaluation.md) |
+| 数字人 | [LifeAgent](../../custom/agents/life_agent.py)、[就寝反思工具](../../src/worldmock/agents/memory/life_reflection.py)、[人物画像](../../src/worldmock/configuration/persona)、AgentSociety 2 人物与记忆模块 | [人物](06-agent.md) |
+| 资源引擎 | [目录登记、加载与图查询](../../src/worldmock/resource_engine)及只读反向索引；内容选择与进度由模拟引擎负责 | [资源引擎](03-resource-engine.md) |
+| 交换引擎 | [固定类型、常数与算子](../../src/worldmock/exchange_engine)、[具体动作声明](../../src/worldmock/exchange_engine/conditions/activity_rules.py)、[资源分录计算与校验](../../src/worldmock/exchange_engine/ledger)及生活模型中的条件、费用和报酬规则 | [交换引擎](02-exchange-engine.md) |
+| 模拟引擎 | [模拟职责](../../src/worldmock/simulation_engine)、[LifeEnv](../../custom/envs/life_env.py)、[运行装配](../../src/worldmock/runtime) | [模拟引擎](04-simulation-engine.md) |
+| 记录引擎 | [足迹存储](../../src/worldmock/recording_engine)、[素材存储](../../src/worldmock/recording_engine/storage/assets.py) | [记录引擎](05-recording-engine.md) |
+| 完整导出与分析 | [导出模块](../../src/worldmock/recording_engine/export/export.py)、[分析工具](../../tools/analysis) | [记录引擎](05-recording-engine.md)、[行为评估](07-evaluation.md) |
 
 LifeEngine 是现有内部代码载体，不作为四个引擎之外的另一项顶层职责。
 身体相关资源、体感与活动效率在模拟引擎中计算，资源定义来自资源引擎，
@@ -213,6 +220,9 @@ flowchart LR
 生产依赖沿职责单向组织：运行宿主装配人物与模拟引擎，模拟引擎调用资源和交换规则，并通过记录引擎提交事实。
 资源与交换模块不反向依赖模拟运行时；查看器、导出与评估读取已保存事实，不参与世界结算。
 结构检查直接验证模块依赖，行为测试验证状态只有一个写入入口。
+资源、交换、记录和共享状态不依赖模拟执行、人物执行或运行宿主；生产包不导入 tools 或 scripts。
+时间线的共用投影由记录引擎提供，工程查看命令调用它，记录引擎不按路径加载工程脚本。
+认证质量报告所需的统计保留在记录引擎，独立行为与工作分析放在 tools/analysis，纳入同一套风格、覆盖与变异检查。
 
 <a name="architecture-核心决策"></a>
 ## 核心决策

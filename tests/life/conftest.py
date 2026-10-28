@@ -18,7 +18,7 @@ os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
 
 if TYPE_CHECKING:
     from agentsociety2.society import DecisionContext
-    from worldmock.life.engine import LifeEngine
+    from worldmock.simulation_engine.engine import LifeEngine
 
 
 
@@ -43,7 +43,7 @@ def action_identity(label: str, number: int = 1, agent_id: int = 1) -> str:
 def oversleep_identity(engine: LifeEngine, label: str, seconds: int | None = None) -> str:
     """@brief 标签为 label 的决策里找一条会抽中多睡的动作身份（给了秒数时要求恰好多睡这么久）：此前睡得不足时，用它开始的
     睡眠一定睡过头。"""
-    from worldmock.life.sleep_plan import oversleep_seconds
+    from worldmock.simulation_engine.body.sleep_plan import oversleep_seconds
 
     state = engine.context.state.random_state
     return next(action_identity(label, number) for number in range(1, 10000)
@@ -55,9 +55,9 @@ def stage_day_plan(engine: LifeEngine, agent_id: int = 1, goals: tuple = (), sub
 
     用于经 LifeEnv 驱动的测试之前时传 submitted=True，零点计划后台任务就不再为该人物生成计划。
     """
-    from worldmock.footprints.models import EventDraft
-    from worldmock.life.day_planning import plan_date
-    from worldmock.life.schedule import DayPlan, day_end_seconds
+    from worldmock.recording_engine.events.models import EventDraft
+    from worldmock.simulation_engine.scheduling.plans.day_planning import plan_date
+    from worldmock.state.planning.schedule import DayPlan, day_end_seconds
 
     now = engine.context.state.current_time
     day_end = day_end_seconds(now, engine.context.config.timezone)
@@ -76,7 +76,7 @@ def stage_day_plan(engine: LifeEngine, agent_id: int = 1, goals: tuple = (), sub
 def stage_errands(engine: LifeEngine, agent_id: int, errands=()) -> None:
     """预置人物的未完成个人事务（只置 AgentState.errands，键为事务身份，替换原有的事务）并保持存储版本连续：用于需要
     指定记下时刻、累计量与提醒状态的用例。状态副本与一条系统可见的测试事件同一提交落库。"""
-    from worldmock.footprints.models import EventDraft
+    from worldmock.recording_engine.events.models import EventDraft
 
     staged = engine.context.state.model_copy(deep=True)
     staged.agents[agent_id] = staged.agents[agent_id].model_copy(
@@ -95,7 +95,7 @@ def stage_legacy_control_request(engine: LifeEngine, tool: str, agent_id: int = 
     返回补登的动作身份。"""
     import hashlib
 
-    from worldmock.footprints.models import EventDraft
+    from worldmock.recording_engine.events.models import EventDraft
 
     requested = [event for event in engine.context.store.read_agent_events("action_requested", agent_id)
                  if event.data["tool_name"] == tool][-1]
@@ -139,7 +139,7 @@ def bring_to_window(engine: LifeEngine, object_ids, agent_id: int = 1) -> None:
     """让给定商品进入下一次观察的呈现窗口：其余门店商品都记为此刻刚呈现过，
     给定对象从未呈现——轮转按每个对象的上次呈现时刻把换新名额留给该分区最久未呈现的对象
     （docs/design/04-simulation-engine.md ），每个分区至多三个。经存储落盘并保持版本连续。"""
-    from worldmock.footprints.models import EventDraft
+    from worldmock.recording_engine.events.models import EventDraft
 
     wanted = set(object_ids)
     catalog = engine.context.catalog
@@ -201,7 +201,7 @@ def drive(coroutine):
 
 def settle_day_plans(engine: LifeEngine, client=None) -> list[dict]:
     """执行零点计划后台任务（确定性桩），零点边界随后执行零点节律入口；返回登记摘要。"""
-    from worldmock.runtime import settle_pending_day_plans
+    from worldmock.runtime.lifecycle.runner import settle_pending_day_plans
 
     registered = drive(settle_pending_day_plans(engine, client=client or StubPlanDayClient({"requested_model": engine.context.config.model.requested_model})))
     if engine.midnight_rhythm_pending:
@@ -275,49 +275,49 @@ def side_arguments(action: str, *targets: str, prefer: str | None = None) -> dic
 
 def travel(target: str, method: str = "步行"):
     """@brief 出行请求：目的地地点名与出行方式名称（步行、驾车、打车、公共交通）。"""
-    from worldmock.life.models import StartMainActivityRequest
+    from worldmock.state.interaction.requests import StartMainActivityRequest
 
     return StartMainActivityRequest.model_validate(main_arguments("travel", target, method))
 
 
 def do_at(location: str, unit: str):
     """@brief 在当前地点按名称做一件事：当前地点名与内容单元名。"""
-    from worldmock.life.models import StartMainActivityRequest
+    from worldmock.state.interaction.requests import StartMainActivityRequest
 
     return StartMainActivityRequest.model_validate(main_arguments("interact", location, unit))
 
 
 def sleep(minutes: int | str = NIGHT_SLEEP_MINUTES):
     """@brief 睡眠请求：分钟数写成数字文字，detail 为 null。"""
-    from worldmock.life.models import StartMainActivityRequest
+    from worldmock.state.interaction.requests import StartMainActivityRequest
 
     return StartMainActivityRequest.model_validate(main_arguments("sleep", str(minutes)))
 
 
 def purchase(*goods: str, prefer: str | None = None):
     """@brief 购买请求：一份一项，同一个名称写两次就是两份；prefer 是想用来下单的 app 名称原文，缺省为 null。"""
-    from worldmock.life.models import StartSideActivityRequest
+    from worldmock.state.interaction.requests import StartSideActivityRequest
 
     return StartSideActivityRequest.model_validate(side_arguments("purchase", *goods, prefer=prefer))
 
 
 def use_app(app: str):
     """@brief 使用一个内容 app 的请求：prefer 为 null。"""
-    from worldmock.life.models import StartSideActivityRequest
+    from worldmock.state.interaction.requests import StartSideActivityRequest
 
     return StartSideActivityRequest.model_validate(side_arguments("interact", app))
 
 
 def query(*targets: str, prefer: str | None = None):
     """@brief 查询请求：商品的完整名称或商品类别名，可以混写；prefer 是想在其中查询的 app 名称原文，缺省为 null。"""
-    from worldmock.life.models import StartSideActivityRequest
+    from worldmock.state.interaction.requests import StartSideActivityRequest
 
     return StartSideActivityRequest.model_validate(side_arguments("query", *targets, prefer=prefer))
 
 
 def tool_of(request) -> str:
     """@brief 请求模型对应的世界请求工具名。"""
-    from worldmock.life.models import REQUEST_MODELS
+    from worldmock.state.interaction.requests import REQUEST_MODELS
 
     return next(name for name, model in REQUEST_MODELS.items() if type(request) is model)
 
@@ -338,7 +338,7 @@ def _summaries(names: tuple[str, ...], summary) -> list[str]:
 def report_request(*names: str, summary="继续。", errands=()):
     """播报所点名活动的请求（点名暂停的活动即恢复它）：一项一个对象 {activity_name, summary}；请求级 errands 是个人事务
     变更（errand_add、errand_update、errand_cancel 构造的八键字典），缺省为空列表。"""
-    from worldmock.life.models import ReportStatusRequest
+    from worldmock.state.interaction.requests import ReportStatusRequest
 
     return ReportStatusRequest(items=[{"activity_name": name, "summary": text}
                                       for name, text in zip(names, _summaries(names, summary), strict=True)],
@@ -347,7 +347,7 @@ def report_request(*names: str, summary="继续。", errands=()):
 
 def pause_request(*names: str, summary="先停一下。", errands=()):
     """暂停所点名活动的请求：一项一个对象 {activity_name, summary}；请求级 errands 缺省为空列表。"""
-    from worldmock.life.models import PauseActivityRequest
+    from worldmock.state.interaction.requests import PauseActivityRequest
 
     return PauseActivityRequest(items=[{"activity_name": name, "summary": text}
                                        for name, text in zip(names, _summaries(names, summary), strict=True)],
@@ -357,7 +357,7 @@ def pause_request(*names: str, summary="先停一下。", errands=()):
 def conclude_request(*names: str, summary="收尾。", memories=None, views=None, errands=()):
     """结束所点名活动的请求：一项一个对象 {activity_name, summary, memories, views}；memories 与 views 逐项给出
     （与 names 等长的列表的列表），默认都不写；请求级 errands 缺省为空列表。"""
-    from worldmock.life.models import ConcludeActivityRequest
+    from worldmock.state.interaction.requests import ConcludeActivityRequest
 
     memories = memories if memories is not None else [[] for _ in names]
     views = views if views is not None else [[] for _ in names]
@@ -369,7 +369,7 @@ def conclude_request(*names: str, summary="收尾。", memories=None, views=None
 
 def pending_names(observed: dict) -> list[str]:
     """本轮观察中刚结束、待收尾的活动名（私有绑定的阶段为「刚结束」）。"""
-    from worldmock.life.activity_control import PHASE_PENDING
+    from worldmock.simulation_engine.activities.lifecycle.activity_control import PHASE_PENDING
 
     return [row["name"] for row in observed["activity_bindings"] if row["phase"] == PHASE_PENDING]
 

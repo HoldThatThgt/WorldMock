@@ -15,13 +15,13 @@ from tests.frozen_inputs import fixture_metadata
 from tests.integration.runtime_fixtures import current_run_identity, write_agent_workspace
 from tests.life.conftest import do_at, purchase, query, sleep, stage_day_plan, travel, use_app
 from tests.life.environment_runtime import act, act_group, conclude_app_use, finish_activity, run_to_end
-from worldmock.catalog.identity import refresh_manifest_identity
-from worldmock.environment import environment_identity, load_environment
-from worldmock.footprints.checkpoint import snapshot_directory
-from worldmock.footprints.export import export_run
-from worldmock.footprints.validation import validate_export
-from worldmock.life.engine import LifeEngine
-from worldmock.run_setup import stage_model_identity
+from worldmock.resource_engine.catalog.identity import refresh_manifest_identity
+from worldmock.configuration.inputs.environment import environment_identity, load_environment
+from worldmock.recording_engine.storage.checkpoint import snapshot_directory
+from worldmock.recording_engine.export.export import export_run
+from worldmock.recording_engine.validation.validation import validate_export
+from worldmock.simulation_engine.engine import LifeEngine
+from worldmock.runtime.framework.setup import stage_model_identity
 
 
 def _callback_rows():

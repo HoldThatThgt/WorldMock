@@ -6,8 +6,8 @@ import logging
 
 import pytest
 
-from worldmock.errors import BusinessRuleError
-from worldmock.life.models import PendingAction
+from worldmock.foundation.errors import BusinessRuleError
+from worldmock.state.decisions.state import PendingAction
 
 
 @pytest.mark.parametrize("tool_name, arguments", [

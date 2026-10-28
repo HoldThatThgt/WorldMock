@@ -18,7 +18,7 @@ from tests.integration.reflection_fixtures import host_run
 from tests.integration.runtime.current_contract_fixtures import ToolResponse, decide
 from tests.life.conftest import action_identity, advance_next, do_at, purchase, sleep, stage_day_plan, travel, use_app
 from tests.life.environment_runtime import act, conclude_app_use, events, finish_activity, reach
-from worldmock.status import write_status
+from worldmock.runtime.monitoring.status import write_status
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 #: 一行开头的序号与时刻，以及一行里任何位置的时刻。

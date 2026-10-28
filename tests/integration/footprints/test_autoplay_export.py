@@ -9,7 +9,7 @@ from tests.footprints.recording import artifact_rows, export_completed
 from tests.life.conftest import advance_next, conclude_request, use_app
 from tests.life.environment_inputs import five_episode_environment
 from tests.life.environment_runtime import act, events, settle_decision
-from worldmock.footprints.export import export_run
+from worldmock.recording_engine.export.export import export_run
 
 ZONE = ZoneInfo("Asia/Shanghai")
 

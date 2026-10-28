@@ -40,8 +40,8 @@ from tests.integration.runtime.test_life_agent_protocol import (
     _wire_agent,
     _with_activities,
 )
-from worldmock.life.activity_control import PHASE_ACTIVE, PHASE_PAUSED
-from worldmock.life.models import ConclusionMemory, REQUEST_MODELS, RecallTaskSummaryRequest
+from worldmock.simulation_engine.activities.lifecycle.activity_control import PHASE_ACTIVE, PHASE_PAUSED
+from worldmock.state.interaction.requests import ConclusionMemory, REQUEST_MODELS, RecallTaskSummaryRequest
 from tests.life.conftest import MAIN_TOOL, SIDE_TOOL, conclude_request, main_arguments, side_arguments
 
 

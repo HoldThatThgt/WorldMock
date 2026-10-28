@@ -8,15 +8,24 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from tests.life.conftest import (
-    action_identity, advance_next, conclude_request, context, do_at, oversleep_identity, purchase, sleep,
-    stage_day_plan, stage_errands, travel,
+    action_identity,
+    advance_next,
+    conclude_request,
+    context,
+    do_at,
+    oversleep_identity,
+    purchase,
+    sleep,
+    stage_day_plan,
+    stage_errands,
+    travel,
 )
 from tests.life.environment_inputs import copy_environment, write_catalog_rows
 from tests.life.environment_runtime import act, action_result, events, finish_activity, settle_decision
 from tests.unit.life.test_planning_and_errand_boundaries import note
-from worldmock.errors import ProtocolError
-from worldmock.life.schedule import PlanGoal
-from worldmock.life.sleep_plan import oversleep_seconds
+from worldmock.foundation.errors import ProtocolError
+from worldmock.state.planning.schedule import PlanGoal
+from worldmock.simulation_engine.body.sleep_plan import oversleep_seconds
 
 #: 睡过头用例取的多睡时长：各用例按自己的决策标签找一条恰好抽中这么久的动作身份。
 _LATE_SECONDS = 27 * 60

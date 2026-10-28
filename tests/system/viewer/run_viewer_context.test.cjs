@@ -113,7 +113,7 @@ test('the current tool layer contains only the four actual actions with lossless
 
 /** @brief 生活决策系统层的人物角色原文，取自提示的唯一来源 LIFE_SYSTEM_LAYER，不抄查看器里的那一份。 */
 const LIFE_ROLE = /LIFE_SYSTEM_LAYER[^=]*= \{\s*"layer": "系统层",\s*"role": "([^"]+)"/.exec(
-  read('src/worldmock/agents/life_prompt.py'))[1];
+  read('src/worldmock/agents/prompt/life_prompt.py'))[1];
 
 /** @brief 现行工具层在提示里的紧凑分组（由真实引擎的观察照抄）：出行每个目的地每种方式一行、在地点做事每个内容单元
  * 一行，都带 detail；睡眠、购买与用内容 app 的动作行没有 detail。驾车一行按余额不足写成不可用。 */

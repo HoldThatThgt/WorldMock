@@ -18,13 +18,19 @@ import re
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
 
-from custom.agents.life_agent import (MemoryRecentRequest, MemorySearchRequest, MemoryTimeRangeRequest,  # noqa: E402
-                                      ReadonlyFinishRequest)
-from worldmock.agents.life_prompt import LIFE_SYSTEM_LAYER, TOOL_DESCRIPTIONS  # noqa: E402
-from worldmock.life.action_contract import MAIN_ACTIVITY_ACTIONS, SIDE_ACTIVITY_ACTIONS, START_TOOLS  # noqa: E402
-from worldmock.life.control_items import CONTROL_TOOLS  # noqa: E402
-from worldmock.life.models import REQUEST_MODELS, deepseek_strict_schema  # noqa: E402
-from worldmock.life.narration import FORBIDDEN_OBSERVATION_KEYS  # noqa: E402
+from custom.agents.life_agent import (
+    MemoryRecentRequest,
+    MemorySearchRequest,
+    MemoryTimeRangeRequest,
+    ReadonlyFinishRequest,
+)
+from worldmock.agents.prompt.life_prompt import LIFE_SYSTEM_LAYER, TOOL_DESCRIPTIONS  # noqa: E402
+from worldmock.exchange_engine.conditions.activity_rules import MAIN_ACTIVITY_ACTIONS, SIDE_ACTIVITY_ACTIONS
+from worldmock.state.interaction.actions import START_TOOLS  # noqa: E402
+from worldmock.state.interaction.control_items import CONTROL_TOOLS  # noqa: E402
+from worldmock.state.interaction.requests import REQUEST_MODELS
+from worldmock.state.interaction.schema import deepseek_strict_schema  # noqa: E402
+from worldmock.agents.prompt.narration import FORBIDDEN_OBSERVATION_KEYS  # noqa: E402
 
 #: 字段引用形状：`名称.字段`、`名称[].字段`、`名称[0].字段`。
 _FIELD_REFERENCE = re.compile(

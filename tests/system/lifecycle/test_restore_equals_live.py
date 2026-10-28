@@ -7,7 +7,7 @@ import shutil
 from tests.integration.runtime_fixtures import branch_of
 from tests.life.day_baseline_runtime import create_complete_day_engine, play_complete_day
 from tests.life.environment_runtime import check_every_step
-from worldmock.footprints.models import canonical_json
+from worldmock.foundation.serialization import canonical_json
 
 
 def _world(engine) -> bytes:

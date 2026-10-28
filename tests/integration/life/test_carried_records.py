@@ -10,15 +10,31 @@ import pytest
 from tests.footprints.recording import export_completed
 from tests.integration.runtime.current_contract_fixtures import ToolResponse, decide
 from tests.life.conftest import (
-    SIDE_TOOL, advance_until_ready, conclude_request, do_at, pause_request, progress_calls, purchase, report_request,
-    side_arguments, stage_day_plan, travel, use_app,
+    SIDE_TOOL,
+    advance_until_ready,
+    conclude_request,
+    do_at,
+    pause_request,
+    progress_calls,
+    purchase,
+    report_request,
+    side_arguments,
+    stage_day_plan,
+    travel,
+    use_app,
 )
 from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
 from tests.life.environment_runtime import (
-    act, act_group, events, every_five_minutes, finish_activity, observe_only, one_hour_every_five_minutes,
+    act,
+    act_group,
+    events,
+    every_five_minutes,
+    finish_activity,
+    observe_only,
+    one_hour_every_five_minutes,
     until_ended,
 )
-from worldmock.life import sessions
+from worldmock.simulation_engine.activities.lifecycle import sessions
 
 
 def _keep(observed: dict) -> list[dict]:

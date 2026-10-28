@@ -9,12 +9,21 @@ from tempfile import TemporaryDirectory
 import pytest
 
 from tests.life.conftest import (
-    SIDE_TOOL, advance_next, advance_until_ready, conclude_request, context, do_at, progress_calls, purchase, query,
-    travel, use_app,
+    SIDE_TOOL,
+    advance_next,
+    advance_until_ready,
+    conclude_request,
+    context,
+    do_at,
+    progress_calls,
+    purchase,
+    query,
+    travel,
+    use_app,
 )
 from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
 from tests.life.environment_runtime import act, act_group, every_five_minutes, until_ended
-from worldmock.life.prompt_schemas import validate_layer
+from worldmock.agents.prompt.prompt_schemas import validate_layer
 
 
 def _location_activity_in_progress(engine_factory) -> dict:

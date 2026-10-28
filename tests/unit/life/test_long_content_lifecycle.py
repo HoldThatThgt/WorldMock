@@ -7,7 +7,7 @@ import shutil
 from tests.data_paths import ENVIRONMENT_ROOT
 from tests.life.conftest import pause_request, report_request, sleep, stage_day_plan, use_app
 from tests.life.environment_runtime import act, events, finish_activity, reach
-from worldmock.catalog.identity import refresh_manifest_identity
+from worldmock.resource_engine.catalog.identity import refresh_manifest_identity
 
 
 def long_content_engine(engine_factory, tmp_path, duration):

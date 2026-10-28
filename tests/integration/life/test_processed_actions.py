@@ -10,16 +10,34 @@ import pytest
 
 from tests.integration.runtime_fixtures import branch_of
 from tests.life.conftest import (
-    advance_next, advance_until_ready, conclude_request, do_at, pause_request, purchase, travel, use_app,
+    advance_next,
+    advance_until_ready,
+    conclude_request,
+    do_at,
+    pause_request,
+    purchase,
+    travel,
+    use_app,
 )
 from tests.life.day_baseline_runtime import create_complete_day_engine, play_complete_day
 from tests.life.environment_runtime import (
-    act, check_every_step, events, every_five_minutes, finish_activity, ledger_holds_only_readable_entries, one_hour,
-    run_to_end, settle_decision,
+    act,
+    check_every_step,
+    events,
+    every_five_minutes,
+    finish_activity,
+    ledger_holds_only_readable_entries,
+    one_hour,
+    run_to_end,
+    settle_decision,
 )
-from worldmock.errors import ProtocolError
-from worldmock.footprints.models import EventDraft
-from worldmock.life.same_moment import latest_rejection_code, refusal_pulse_applied, rejection_counts
+from worldmock.foundation.errors import ProtocolError
+from worldmock.recording_engine.events.models import EventDraft
+from worldmock.simulation_engine.decisions.same_moment import (
+    latest_rejection_code,
+    refusal_pulse_applied,
+    rejection_counts,
+)
 
 #: 活动终结时开始动作缺失的协议故障原文。
 _MISSING = "^Activity origin action is missing from processed actions$"

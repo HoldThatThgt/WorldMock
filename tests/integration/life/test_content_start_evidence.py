@@ -7,19 +7,32 @@ import pytest
 
 from tests.footprints.recording import artifact_rows
 from tests.life.conftest import (
-    advance_until_ready, conclude_request, context, do_at, pause_request, report_request, target_actions, use_app,
+    advance_until_ready,
+    conclude_request,
+    context,
+    do_at,
+    pause_request,
+    report_request,
+    target_actions,
+    use_app,
 )
 from tests.life.current_world import stage_moment
 from tests.life.environment_runtime import act, events, finish_activity, run_to_end
 from tests.life.prerequisite_inputs import (
-    CLOCK_PREREQUISITE, OFFICE, app_content, dingtalk_environment, example_window, moment, weekday_hours,
+    CLOCK_PREREQUISITE,
+    OFFICE,
+    app_content,
+    dingtalk_environment,
+    example_window,
+    moment,
+    weekday_hours,
 )
-from worldmock.errors import IntegrityError
-from worldmock.footprints.app_usage import activity_snapshots
-from worldmock.footprints.export import export_run, write_jsonl
-from worldmock.footprints.validation import validate_export
-from worldmock.life.readable import duration_phrase
-from worldmock.life.result_projection import public_result
+from worldmock.foundation.errors import IntegrityError
+from worldmock.recording_engine.projections.activities.app_usage import activity_snapshots
+from worldmock.recording_engine.export.export import export_run, write_jsonl
+from worldmock.recording_engine.validation.validation import validate_export
+from worldmock.foundation.time.readable import duration_phrase
+from worldmock.simulation_engine.observation.layers.result_projection import public_result
 
 
 def short_window(persona, config):

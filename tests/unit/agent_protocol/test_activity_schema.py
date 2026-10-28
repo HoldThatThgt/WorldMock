@@ -18,14 +18,25 @@ from jsonschema import Draft202012Validator
 from pydantic import ValidationError
 
 from custom.agents.life_agent import LifeAgent, MemorySearchRequest
-from worldmock.agents.life_prompt import TOOL_DESCRIPTIONS
+from worldmock.agents.prompt.life_prompt import TOOL_DESCRIPTIONS
 from tests.integration.runtime.test_life_agent_protocol import (
-    _OBSERVED_AT, _REST, _WAIT, _WAIT_CHOICE, _WORK_ACTION, _WORK_CHOICE, _add_objects, _memory, _observations, _offer,
-    _visible_object, _with_activities,
+    _OBSERVED_AT,
+    _REST,
+    _WAIT,
+    _WAIT_CHOICE,
+    _WORK_ACTION,
+    _WORK_CHOICE,
+    _add_objects,
+    _memory,
+    _observations,
+    _offer,
+    _visible_object,
+    _with_activities,
 )
 from tests.integration.runtime.current_contract_fixtures import profile
-from worldmock.life.activity_control import PHASE_ACTIVE
-from worldmock.life.models import REQUEST_MODELS, deepseek_strict_schema
+from worldmock.simulation_engine.activities.lifecycle.activity_control import PHASE_ACTIVE
+from worldmock.state.interaction.requests import REQUEST_MODELS
+from worldmock.state.interaction.schema import deepseek_strict_schema
 from tests.life.conftest import MAIN_TOOL, SIDE_TOOL, main_arguments, side_arguments
 
 

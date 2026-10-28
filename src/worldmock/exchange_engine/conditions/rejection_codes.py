@@ -1,0 +1,11 @@
+"""@brief 按职责保存现有定义与纯计算。"""
+
+
+from __future__ import annotations
+
+
+HOST_NAME_CODES = frozenset({"NAME_NOT_FOUND", "NAME_AMBIGUOUS", "ACTION_NOT_OFFERED", "SUBJECT_NOT_KNOWN"})
+
+ENVIRONMENT_NAME_CODES = frozenset({"SUPPLY_NOT_FOUND", "TASK_NOT_FOUND"})
+
+NAME_REJECTION_CODES = HOST_NAME_CODES | ENVIRONMENT_NAME_CODES

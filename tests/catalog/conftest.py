@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from worldmock.catalog.identity import refresh_manifest_identity
-from worldmock.catalog.loader import load_catalog
-from worldmock.footprints.models import canonical_json
+from worldmock.resource_engine.catalog.identity import refresh_manifest_identity
+from worldmock.resource_engine.catalog.loader import load_catalog
+from worldmock.foundation.serialization import canonical_json
 
 
 @pytest.fixture

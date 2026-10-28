@@ -8,9 +8,9 @@ import pytest
 
 from tests.footprints.recording import artifact_rows
 from tests.integration.footprints.test_acs_export import real_export
-from worldmock.errors import IntegrityError
-from worldmock.footprints.invariants import validate_footprint_facts
-from worldmock.footprints.validation import validate_export
+from worldmock.foundation.errors import IntegrityError
+from worldmock.recording_engine.validation.invariants import validate_footprint_facts
+from worldmock.recording_engine.validation.validation import validate_export
 
 
 @pytest.fixture

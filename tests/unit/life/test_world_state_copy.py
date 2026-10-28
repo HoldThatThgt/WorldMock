@@ -8,7 +8,7 @@ import copy
 
 from tests.life.conftest import travel
 from tests.life.environment_runtime import act
-from worldmock.footprints.models import canonical_json
+from worldmock.foundation.serialization import canonical_json
 
 
 def _walking(engine_factory):

@@ -2,14 +2,14 @@
 
 import pytest
 
-from worldmock.errors import IntegrityError
-from worldmock.footprints.experiences import (
+from worldmock.foundation.errors import IntegrityError
+from worldmock.recording_engine.projections.activities.experiences import (
     project_verified_experiences,
     recent_verified_experiences,
     validate_verified_experiences,
 )
-from worldmock.footprints.models import EventDraft
-from worldmock.footprints.store import FootprintStore
+from worldmock.recording_engine.events.models import EventDraft
+from worldmock.recording_engine.storage.store import FootprintStore
 
 
 @pytest.fixture

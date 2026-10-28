@@ -6,10 +6,10 @@ import json
 from scripts import inspect_run
 from tests.footprints.recording import recorded_engine
 from tests.footprints.statement_log import StatementLog
-from worldmock.footprints.models import EventDraft
-from worldmock.footprints.purchases import orders_by_id
-from worldmock.footprints.store import FootprintStore
-from worldmock.status import write_status
+from worldmock.recording_engine.events.models import EventDraft
+from worldmock.recording_engine.projections.commerce.purchases import orders_by_id
+from worldmock.recording_engine.storage.store import FootprintStore
+from worldmock.runtime.monitoring.status import write_status
 
 #: action_result 经类型表达式索引的筛选（display_context 用的同一写法）。
 _RESULT_INDEX = ("event_seq IN (SELECT event_seq FROM events "

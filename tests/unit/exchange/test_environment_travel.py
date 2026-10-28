@@ -6,13 +6,13 @@ from math import ceil
 import pytest
 
 from tests.data_paths import CATALOG_ROOT
-from worldmock.catalog.graph import Graph
-from worldmock.catalog.loader import load_catalog
-from worldmock.catalog.models import MapEdge, MapGraph
-from worldmock.exchange.constants import WEATHER_FACTORS
-from worldmock.exchange.operators import delivery_seconds, evaluate_travel_fare, travel_seconds
-from worldmock.life.travel import plan_trip
-from worldmock.life.travel_methods import WALKING, travel_methods
+from worldmock.resource_engine.map.graph import Graph
+from worldmock.resource_engine.catalog.loader import load_catalog
+from worldmock.resource_engine.catalog.models import MapEdge, MapGraph
+from worldmock.exchange_engine.definitions.constants import WEATHER_FACTORS
+from worldmock.exchange_engine.commerce.operators import delivery_seconds, evaluate_travel_fare, travel_seconds
+from worldmock.simulation_engine.activities.travel.travel import plan_trip
+from worldmock.resource_engine.catalog.travel_methods import WALKING, travel_methods
 
 
 def _fixture_methods():

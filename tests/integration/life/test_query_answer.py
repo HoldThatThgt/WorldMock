@@ -12,12 +12,21 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from tests.life.conftest import (
-    SIDE_TOOL, action_identity, advance_next, advance_until_ready, conclude_pending, context, do_at, progress_calls,
-    purchase, query, travel,
+    SIDE_TOOL,
+    action_identity,
+    advance_next,
+    advance_until_ready,
+    conclude_pending,
+    context,
+    do_at,
+    progress_calls,
+    purchase,
+    query,
+    travel,
 )
 from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
 from tests.life.environment_runtime import act, act_group, events, settle_decision
-from worldmock.life.randomness import random_stream
+from worldmock.foundation.randomness import random_stream
 
 ZONE = ZoneInfo("Asia/Shanghai")
 APP_NAMES = {"bilibili": "哔哩哔哩", "eleme": "饿了么", "meituan": "美团"}
