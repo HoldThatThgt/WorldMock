@@ -12,13 +12,9 @@ from pathlib import Path
 
 import pytest
 
-from worldmock.resources import (
-    ResourceLedger,
-    ResourceLedgerError,
-    ResourceMeta,
-    TransferEntry,
-    audit_closed_domain,
-)
+from worldmock.exchange_engine.ledger.ledger import ResourceLedger
+from worldmock.exchange_engine.ledger.ledger_models import ResourceLedgerError, ResourceMeta, TransferEntry
+from worldmock.recording_engine.validation.resource_audit import audit_closed_domain
 
 FIXTURE = Path(__file__).resolve().parents[3] / 'tests/resources' / "fixtures" / "anchor-money.json"
 MONEY = "money_fen"

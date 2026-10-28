@@ -3,11 +3,11 @@
 import pytest
 
 from tests.footprints.recording import errand_engine, recorded_engine
-from worldmock.footprints import export as export_module
-from worldmock.footprints import validation as validation_module
-from worldmock.footprints.export import export_run
-from worldmock.footprints.post_run import DROPPED_PAYLOADS
-from worldmock.footprints.validation import validate_export
+from worldmock.recording_engine.export import export as export_module
+from worldmock.recording_engine.validation import validation as validation_module
+from worldmock.recording_engine.export.export import export_run
+from worldmock.recording_engine.export.post_run import DROPPED_PAYLOADS
+from worldmock.recording_engine.validation.validation import validate_export
 
 #: 两个夹具运行：购买加内容使用，以及个人事务由真实收货完成。
 RUNS = {"recorded": recorded_engine, "errand": errand_engine}

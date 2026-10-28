@@ -12,17 +12,17 @@ from tests.data_paths import ENVIRONMENT_ROOT
 from tests.frozen_inputs import fixture_metadata
 from tests.life.conftest import do_at, purchase, travel
 from tests.life.environment_runtime import act, reach
-from worldmock.catalog.callback_models import CallbackRule, CallbackState
-from worldmock.catalog.identity import refresh_manifest_identity
-from worldmock.environment import load_environment
-from worldmock.errors import IntegrityError
-from worldmock.footprints.models import EventDraft
-from worldmock.input_models import RunConfig
-from worldmock.life.activity_validation import validate_activity_targets
-from worldmock.life.callbacks import settle_callback_dates
-from worldmock.life.rhythm import RhythmBoundary, settle_engine_rhythm
-from worldmock.life.world_setup import _initial_state
-from worldmock.scheduling.compile import compile_schedule
+from worldmock.resource_engine.catalog.callback_models import CallbackRule, CallbackState
+from worldmock.resource_engine.catalog.identity import refresh_manifest_identity
+from worldmock.configuration.inputs.environment import load_environment
+from worldmock.foundation.errors import IntegrityError
+from worldmock.recording_engine.events.models import EventDraft
+from worldmock.configuration.inputs.models import RunConfig
+from worldmock.simulation_engine.activities.lifecycle.activity_validation import validate_activity_targets
+from worldmock.simulation_engine.scheduling.callbacks.callbacks import settle_callback_dates
+from worldmock.simulation_engine.scheduling.clock.rhythm import RhythmBoundary, settle_engine_rhythm
+from worldmock.simulation_engine.world.world_setup import _initial_state
+from worldmock.simulation_engine.scheduling.clock.compile import compile_schedule
 
 
 @pytest.fixture
@@ -119,7 +119,7 @@ def test_relief_at_interval_end_still_bills_the_preceding_actual_discomfort(inpu
 
 
 def engine_body(inputs):
-    from worldmock.life.body_config import assemble_body_config
+    from worldmock.simulation_engine.body.body_config import assemble_body_config
 
     return assemble_body_config(inputs.persona)
 

@@ -2,14 +2,14 @@
 
 import pytest
 
-from worldmock.resources import (
+from worldmock.exchange_engine.ledger.ledger_models import (
     ConvertEntry,
     FlowEntry,
-    ResourceLedger,
     ResourceLedgerError,
     ResourceMeta,
     TransferEntry,
 )
+from worldmock.exchange_engine.ledger.ledger import ResourceLedger
 
 from tests.resources.conftest import AGENT, ANCHOR, EMPLOYER, ENERGY, MONEY, TRANSPORT
 

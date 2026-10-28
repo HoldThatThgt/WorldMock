@@ -6,9 +6,9 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from worldmock.evaluation.behavior_metrics import behavior_metrics_report
-from worldmock.evaluation.goal_metrics import UNREPORTED_CODE_KEY, day_plan_metrics
-from worldmock.footprints.models import canonical_json
+from tools.analysis.behavior.metrics import behavior_metrics_report
+from worldmock.recording_engine.reports.goal_metrics import UNREPORTED_CODE_KEY, day_plan_metrics
+from worldmock.foundation.serialization import canonical_json
 
 CODE = "a" * 64
 ZONE = ZoneInfo("Asia/Shanghai")

@@ -8,9 +8,9 @@ import zlib
 
 import pytest
 
-from worldmock.errors import IntegrityError
-from worldmock.footprints.models import canonical_json
-from worldmock.footprints.store import FootprintStore
+from worldmock.foundation.errors import IntegrityError
+from worldmock.foundation.serialization import canonical_json
+from worldmock.recording_engine.storage.store import FootprintStore
 
 #: 损坏或缺失的检查点记录的错误原文。
 _DAMAGED = "^Checkpoint is missing or its record is damaged$"

@@ -19,11 +19,11 @@ from tests.integration.reflection_fixtures import host_run, memory
 from tests.integration.runtime_fixtures import write_agent_workspace
 from tests.life.conftest import advance_next, oversleep_identity, sleep, stage_day_plan, travel
 from tests.life.environment_runtime import act, finish_activity, run_to_end
-from worldmock.evaluation.behavior_metrics import behavior_metrics_report
-from worldmock.footprints.checkpoint import restore_branch, restore_directory, snapshot_directory
-from worldmock.footprints.export import export_run
-from worldmock.footprints.validation import validate_export
-from worldmock.life.engine import LifeEngine
+from tools.analysis.behavior.metrics import behavior_metrics_report
+from worldmock.recording_engine.storage.checkpoint import restore_branch, restore_directory, snapshot_directory
+from worldmock.recording_engine.export.export import export_run
+from worldmock.recording_engine.validation.validation import validate_export
+from worldmock.simulation_engine.engine import LifeEngine
 
 _ZONE = ZoneInfo("Asia/Shanghai")
 
@@ -31,7 +31,7 @@ _ZONE = ZoneInfo("Asia/Shanghai")
 @pytest.fixture(autouse=True)
 def _fixed_context_window(monkeypatch) -> None:
     """脚本模型使用固定供应商窗口，不请求外部模型元数据。"""
-    from worldmock.life import prompt_capacity
+    from worldmock.agents.prompt import prompt_capacity
 
     monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model, metadata: metadata.context_window)
 

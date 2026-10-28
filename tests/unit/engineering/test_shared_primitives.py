@@ -1,6 +1,9 @@
 """共享叶子规则通过原有生产消费者验证同源合同。"""
 
 from __future__ import annotations
+from worldmock.foundation.atomic_write import atomic_write as _assets_atomic_write
+from worldmock.state.model.memory import valid_subjective_snapshot as _memory_evidence_valid_subjective_snapshot
+from worldmock.state.model.memory import valid_subjective_snapshots as _memory_evidence_valid_subjective_snapshots
 
 import asyncio
 import copy
@@ -14,20 +17,28 @@ from types import SimpleNamespace
 import pytest
 from pydantic import Field, ValidationError
 
-from worldmock.base_models import CurvePoint, DeepFrozenModel, EfficiencyFactor, FrozenModel
-from worldmock.catalog.errors import RegistrationError
-from worldmock.catalog.identity import read_catalog_file
-from worldmock.corpora.manifest import safe_file
-from worldmock.errors import IntegrityError, ProtocolError, reject_value
-from worldmock.evaluation import behavior_metrics, goal_metrics, workload_metrics
-from worldmock.footprints import assets
-from worldmock.footprints.timeline_labels import _load_render_day
+from worldmock.foundation.models import CurvePoint, DeepFrozenModel, EfficiencyFactor, FrozenModel
+from worldmock.resource_engine.registration.errors import RegistrationError
+from worldmock.resource_engine.catalog.identity import read_catalog_file
+from worldmock.foundation.filesystem import safe_file
+from worldmock.foundation.errors import IntegrityError, ProtocolError, reject_value
+from tools.analysis.behavior import metrics as behavior_metrics, workday as workload_metrics
+from worldmock.recording_engine.reports import goal_metrics
+from worldmock.foundation import atomic_write as assets
+from worldmock.recording_engine.projections.presentation.timeline_labels import _load_render_day
 from tests.footprints.display_fixtures import sample_display_names
-from worldmock.footprints.intervals import body_settlements, valid_interval
-from worldmock.footprints.models import Event, canonical_json, is_sha256, sha256_json
-from worldmock.footprints.timeline_labels import local_day_bounds, split_local_days, timeline_label_report, window_days
-from worldmock.life import day_planning, memory_evidence
-from worldmock.model_feedback import schema_error_details
+from worldmock.foundation.time.intervals import body_settlements, valid_interval
+from worldmock.recording_engine.events.models import Event
+from worldmock.foundation.serialization import canonical_json, is_sha256, sha256_json
+from worldmock.recording_engine.projections.presentation.timeline_labels import (
+    local_day_bounds,
+    split_local_days,
+    timeline_label_report,
+    window_days,
+)
+from worldmock.simulation_engine.scheduling.plans import day_planning
+from worldmock.simulation_engine.evidence import memory as memory_evidence
+from worldmock.foundation.model_feedback import schema_error_details
 
 
 def _body(start, end, agent=1):
@@ -218,19 +229,19 @@ def test_atomic_publication_order_and_failed_replace_cleanup(tmp_path, monkeypat
     fsync, replace = assets.os.fsync, assets.os.replace
     monkeypatch.setattr(assets.os, 'fsync', lambda descriptor: (calls.append('fsync'), fsync(descriptor))[-1])
     monkeypatch.setattr(assets.os, 'replace', lambda source, target: (calls.append('replace'), replace(source, target))[-1])
-    assets.atomic_write(destination, b'{"text":"ok"}\n')
+    _assets_atomic_write(destination, b'{"text":"ok"}\n')
     assert destination.read_bytes() == b'{"text":"ok"}\n'
     assert calls == (['fsync', 'replace'] if assets.os.name == 'nt' else ['fsync', 'replace', 'fsync'])
     monkeypatch.setattr(assets.os, 'replace', lambda *args: (_ for _ in ()).throw(OSError('publication failed')))
     with pytest.raises(OSError, match='publication failed'):
-        assets.atomic_write(destination, b'new')
+        _assets_atomic_write(destination, b'new')
     assert destination.read_bytes() == b'{"text":"ok"}\n'
     assert not list(destination.parent.glob('.pending-*'))
 
 
 @pytest.mark.parametrize('invalid', [True, False, float('nan'), float('inf'), -1])
 def test_curve_models_shared_by_body_and_life_reject_invalid_numbers(invalid):
-    from worldmock.exchange.body import BODY_CONSTANTS
+    from worldmock.exchange_engine.definitions.body_constants import BODY_CONSTANTS
     assert all(isinstance(point, CurvePoint) for point in BODY_CONSTANTS.food_efficiency_curve)
     for key in ('input_value', 'output_value'):
         with pytest.raises(ValidationError):
@@ -259,7 +270,7 @@ def test_efficiency_factor_blank_and_empty_constraints_and_freeze_distinction():
 @pytest.mark.parametrize('start,end', [(0.0, 10), (0, 10.0), (True, 10), (0, False),
                                        (float('nan'), 10), (0, float('inf')), (10, 10), (20, 10)])
 def test_interval_consumers_do_not_count_invalid_settlements(start, end):
-    from worldmock.footprints import quality
+    from worldmock.recording_engine.reports import quality
 
     event = _body(start, end)
     row = event.model_dump(mode='python')
@@ -276,7 +287,7 @@ def test_interval_consumers_do_not_count_invalid_settlements(start, end):
 
 
 def test_body_settlement_subject_filter_is_shared_and_strict():
-    from worldmock.footprints import quality
+    from worldmock.recording_engine.reports import quality
 
     events = [_body(0, 10, 1), _body(0, 20, 2), _body(0, 30, None)]
     assert body_settlements(events, 1) == events[:1]
@@ -313,15 +324,15 @@ def test_renderer_and_label_report_use_manifest_timezone_and_real_local_day(zone
 
 
 def test_independent_reflection_snapshot_is_valid_across_memory_quality_and_behavior():
-    from worldmock.footprints import quality
+    from worldmock.recording_engine.reports import quality
 
     episode = {'id': 'reflection', 'type': 'reflection', 'text': '睡前想了想',
                'epistemic_status': 'subjective', 'source': 'reflection'}
-    assert memory_evidence.valid_subjective_snapshot(episode)
-    assert memory_evidence.valid_subjective_snapshots([episode], ['reflection'])
+    assert _memory_evidence_valid_subjective_snapshot(episode)
+    assert _memory_evidence_valid_subjective_snapshots([episode], ['reflection'])
     assert quality.valid_subjective_snapshots([episode], ['reflection'])
     assert behavior_metrics._episode_pairs([{'event_type': 'memory_updated', 'data': {'episodes': [episode]}}])[-1] == 0
-    assert not memory_evidence.valid_subjective_snapshot({**episode, 'source': 'activity_conclusion'})
+    assert not _memory_evidence_valid_subjective_snapshot({**episode, 'source': 'activity_conclusion'})
 
 
 def test_value_error_rejection_logs_once_and_preserves_message(caplog):

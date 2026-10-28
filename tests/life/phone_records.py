@@ -8,9 +8,9 @@ from tests.life.conftest import action_identity
 from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
 from tests.life.environment_runtime import events
 from tests.life.prerequisite_inputs import add_rows
-from worldmock.exchange.constants import WEATHER_FACTORS
-from worldmock.life.order_routing import payment_order_key
-from worldmock.life.randomness import random_stream
+from worldmock.exchange_engine.definitions.constants import WEATHER_FACTORS
+from worldmock.state.world.order_keys import payment_order_key
+from worldmock.foundation.randomness import random_stream
 
 #: 例子的日期：2026 年 10 月 12 日，周一，运行时区 Asia/Shanghai。
 ZONE = ZoneInfo("Asia/Shanghai")

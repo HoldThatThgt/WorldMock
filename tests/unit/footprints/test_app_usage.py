@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from worldmock.footprints.app_usage import app_usage_quality, project_app_usage, validate_app_event_source
-from worldmock.footprints.models import Event
-from worldmock.errors import IntegrityError
-from worldmock.life.models import ActivityState
+from worldmock.recording_engine.projections.activities.app_usage import (
+    app_usage_quality,
+    project_app_usage,
+    validate_app_event_source,
+)
+from worldmock.recording_engine.events.models import Event
+from worldmock.foundation.errors import IntegrityError
+from worldmock.state.world.activity import ActivityState
 
 START = 1767600000
 

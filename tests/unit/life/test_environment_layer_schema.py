@@ -6,7 +6,7 @@ import copy
 
 import pytest
 
-from worldmock.life.prompt_schemas import BODY_LEVELS, validate_layer
+from worldmock.agents.prompt.prompt_schemas import BODY_LEVELS, validate_layer
 
 
 def _layer() -> dict:

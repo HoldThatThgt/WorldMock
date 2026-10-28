@@ -12,12 +12,12 @@ from tests.life.conftest import purchase, use_app
 from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
 from tests.life.environment_runtime import act, events, finish_activity, reach
 from tests.life.phone_records import paying_label
-from worldmock.errors import IntegrityError
-from worldmock.footprints.display_wording import display_names
-from worldmock.footprints.export import export_run
-from worldmock.footprints.frozen_environment import frozen_display_names
-from worldmock.footprints.timeline_labels import timeline_label_report
-from worldmock.footprints.validation import validate_export
+from worldmock.foundation.errors import IntegrityError
+from worldmock.recording_engine.projections.presentation.display_wording import display_names
+from worldmock.recording_engine.export.export import export_run
+from worldmock.recording_engine.validation.frozen_environment import frozen_display_names
+from worldmock.recording_engine.projections.presentation.timeline_labels import timeline_label_report
+from worldmock.recording_engine.validation.validation import validate_export
 
 #: 副本里哔哩哔哩的新名称。
 RENAMED = "B站"

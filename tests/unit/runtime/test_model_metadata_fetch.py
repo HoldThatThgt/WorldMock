@@ -7,9 +7,9 @@ import pytest
 import requests
 
 from tests.integration.runtime.current_contract_fixtures import inputs
-from worldmock import model_endpoint
-from worldmock.errors import EnvironmentInputError, IntegrityError
-from worldmock.model_endpoint import frozen_metadata_loader, load_model_metadata
+from worldmock.configuration.model import model_metadata as model_endpoint
+from worldmock.foundation.errors import EnvironmentInputError, IntegrityError
+from worldmock.configuration.model.model_metadata import frozen_metadata_loader, load_model_metadata
 
 
 def _answer(frozen):

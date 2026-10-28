@@ -1,4 +1,4 @@
-"""提示侧渲染与字段黑名单（worldmock.life.narration）的合同测试。
+"""提示侧渲染与字段黑名单（worldmock.agents.prompt.narration）的合同测试。
 
 覆盖七层 JSON 的唯一规范序列化 render_layer_json（紧凑、键序即构建顺序、中文不转义），以及序列化前的字段黑名单：
 内部身份、私有绑定与观察私有证据、数值身体状态、合同全表都不得进入提示（docs/design/06-agent.md 第一章）。
@@ -12,7 +12,7 @@ import re
 import pytest
 
 
-from worldmock.life.narration import (
+from worldmock.agents.prompt.narration import (
     FORBIDDEN_OBSERVATION_KEYS,
     PERSONA_CARD_HANZI_BUDGET,
     ForbiddenObservationFieldError,
@@ -129,7 +129,7 @@ class TestRenderLayerJson:
 
     def test_parameter_error_path_is_visible_but_graph_path_is_private(self) -> None:
         """真实错误指出待修正参数；内部地图路径不能借同名字段进入提示。"""
-        from worldmock.life.error_contract import ErrorItem, host_report
+        from worldmock.state.interaction.errors import ErrorItem, host_report
 
         item = ErrorItem(("tool_calls", 0, "function", "arguments", "target", 1), "不存在的对象", "NAME_NOT_FOUND")
         report = host_report("NAME_NOT_FOUND", items=(item,)).payload()

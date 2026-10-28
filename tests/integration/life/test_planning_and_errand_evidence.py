@@ -8,17 +8,26 @@ from datetime import timedelta
 import pytest
 
 from tests.life.conftest import (
-    advance_until_ready, conclude_request, do_at, errand_cancel, errand_update, plan_day_response, purchase,
-    settle_day_plans, stage_errands, travel, use_app,
+    advance_until_ready,
+    conclude_request,
+    do_at,
+    errand_cancel,
+    errand_update,
+    plan_day_response,
+    purchase,
+    settle_day_plans,
+    stage_errands,
+    travel,
+    use_app,
 )
 from tests.life.environment_inputs import copy_environment
 from tests.life.environment_runtime import act, events, finish_activity, settle_decision
 from tests.life.prerequisite_inputs import add_rows
 from tests.unit.life.test_planning_and_errand_boundaries import note
-from worldmock.errors import ProtocolError
-from worldmock.life.day_plan_inputs import plan_inputs
-from worldmock.life.readable import clock_phrase
-from worldmock.runtime import settle_pending_day_plans
+from worldmock.foundation.errors import ProtocolError
+from worldmock.simulation_engine.scheduling.plans.day_plan_inputs import plan_inputs
+from worldmock.foundation.time.readable import clock_phrase
+from worldmock.runtime.lifecycle.runner import settle_pending_day_plans
 
 #: 经历句开头的起止：「HH:MM–HH:MM」，跨日时各带「M月D日 」。
 _SPAN = re.compile(r"^(?:\d+月\d+日 )?\d\d:\d\d–(?:\d+月\d+日 )?\d\d:\d\d ")

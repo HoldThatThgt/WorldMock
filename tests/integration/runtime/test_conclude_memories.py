@@ -8,7 +8,7 @@ from tests.integration.runtime.current_contract_fixtures import profile as curre
 """
 
 
-from worldmock.life.tool_groups import expand_tool_layer
+from worldmock.agents.prompt.tool_groups import expand_tool_layer
 
 import copy
 import json
@@ -33,7 +33,7 @@ from agentsociety2.agent.runner import _step_agent_batch_async
 import agentsociety2.society.society as society_module
 from agentsociety2.society import AgentSociety, AgentSocietyConfig, DecisionContext, DirectToolCall
 from custom.agents.life_agent import LifeAgent, _conclusion_memories, life_action_tool_names
-from worldmock.agents.life_feedback import FEEDBACK_INSTRUCTION
+from worldmock.agents.protocol.life_feedback import FEEDBACK_INSTRUCTION
 from custom.envs.life_env import LifeEnv
 from tests.integration.runtime.test_life_agent_protocol import (
     _Environment,
@@ -59,22 +59,32 @@ from tests.integration.runtime.test_life_agent_protocol import (
     _with_activities,
 )
 from tests.integration.runtime.test_verified_memory import _runtime
-from tests.engine_fixture import (engine_factory as _engine_factory)  # noqa: F401
+from tests.engine_fixture import engine_factory as _engine_factory  # noqa: F401
 from tests.life.conftest import (
-    MAIN_TOOL, SIDE_TOOL, activity_name, advance_until_ready, context, do_at, errand_add, stage_day_plan, use_app,
-    pause_request, report_request,
+    MAIN_TOOL,
+    SIDE_TOOL,
+    activity_name,
+    advance_until_ready,
+    context,
+    do_at,
+    errand_add,
+    stage_day_plan,
+    use_app,
+    pause_request,
+    report_request,
 )  # noqa: F401
-from worldmock.errors import IntegrityError
-from worldmock.life.activity_control import PHASE_ACTIVE, PHASE_PENDING
-from worldmock.life.control_items import control_items
-from worldmock.life.errand_state import ERRAND_EVENT_KINDS
-from worldmock.life.models import ConcludeActivityRequest, REQUEST_MODELS, SameMomentStage
+from worldmock.foundation.errors import IntegrityError
+from worldmock.simulation_engine.activities.lifecycle.activity_control import PHASE_ACTIVE, PHASE_PENDING
+from worldmock.state.interaction.control_items import control_items
+from worldmock.state.planning.errands import ERRAND_EVENT_KINDS
+from worldmock.state.interaction.requests import ConcludeActivityRequest, REQUEST_MODELS
+from worldmock.state.world.kinds import SameMomentStage
 
 
 @pytest.fixture(autouse=True)
 def _fixed_context_window(monkeypatch) -> None:
     """脚本模型使用固定供应商窗口，不请求外部模型元数据。"""
-    from worldmock.life import prompt_capacity
+    from worldmock.agents.prompt import prompt_capacity
 
     monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model, metadata: metadata.context_window)
 

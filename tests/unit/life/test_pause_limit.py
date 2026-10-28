@@ -10,13 +10,22 @@ import pytest
 from tests.data_paths import ENVIRONMENT_ROOT
 from tests.life.conftest import MAIN_TOOL, SIDE_TOOL
 from tests.unit.test_environment_engine_admission import (
-    app_call, conflict, occupied, place_call, refusal, running, sleep_call, travel_call, world,
+    app_call,
+    conflict,
+    occupied,
+    place_call,
+    refusal,
+    running,
+    sleep_call,
+    travel_call,
+    world,
 )
-from worldmock.life.activity_control import open_activities
-from worldmock.life import activity_control
-from worldmock.life.admission import Blocked, Context
-from worldmock.life.guidance import Refusal, refusal_for_code
-from worldmock.life.models import ActivityKind, ActivityState, ActivityStatus
+from worldmock.simulation_engine.activities.lifecycle.activity_control import open_activities
+from worldmock.simulation_engine.activities.lifecycle import activity_control
+from worldmock.simulation_engine.actions.admission import Blocked, Context
+from worldmock.simulation_engine.observation.wording.guidance import Refusal, refusal_for_code
+from worldmock.state.world.kinds import ActivityKind, ActivityStatus
+from worldmock.state.world.activity import ActivityState
 
 _NAME = "进行测试休息（1月5日 08:00 起）"
 _PLACES = {"home": "Home", "store": "Store"}

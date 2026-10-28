@@ -5,7 +5,7 @@ import pytest
 from tests.integration.runtime_fixtures import BRANCH_BALANCE, branch_of
 from tests.life.conftest import purchase, stage_day_plan
 from tests.life.environment_runtime import act, events, reach
-from worldmock.life.purchase_phases import PAYMENT, activity_phases
+from worldmock.simulation_engine.commerce.purchase.purchase_phases import PAYMENT, activity_phases
 
 
 def at_store(persona, config):

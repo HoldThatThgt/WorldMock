@@ -16,8 +16,16 @@ import pytest
 import scripts.recorded_response_child as child
 import scripts.recorded_response_run as tool
 from scripts.compare_runs import ComparisonError
-from scripts.recorded_response_run import (DUMMY_CREDENTIAL, Cassette, RecordedResponseError, expected_body,
-                                           first_difference, load_plan, rewrite_model_urls, write_input)
+from scripts.recorded_response_run import (
+    DUMMY_CREDENTIAL,
+    Cassette,
+    RecordedResponseError,
+    expected_body,
+    first_difference,
+    load_plan,
+    rewrite_model_urls,
+    write_input,
+)
 
 RUN1, RUN2, CHECKPOINT = "1" * 32, "2" * 32, "c" * 32
 BASE_URL, METADATA_URL = "https://api.example.invalid/beta", "https://api.example.invalid/models"
@@ -324,8 +332,8 @@ def test_a_credential_other_than_the_dummy_is_refused_and_not_logged(two_calls, 
 
 
 def test_models_endpoint_serves_the_frozen_metadata(two_calls):
-    from worldmock.input_models import ModelConfig
-    from worldmock.model_endpoint import parse_model_metadata
+    from worldmock.configuration.inputs.models import ModelConfig
+    from worldmock.configuration.model.model_metadata import parse_model_metadata
 
     cassette, _ = two_calls
     status, payload = cassette.answer("GET", "/models", _headers(), b"")

@@ -3,8 +3,8 @@ import json
 import pytest
 from tests.integration.runtime.current_contract_fixtures import decide, ToolResponse
 from tests.life.conftest import SIDE_TOOL, side_arguments, stage_day_plan, advance_until_ready, context
-from worldmock.life.schedule import PlanGoal
-from worldmock.life.tool_groups import expand_tool_layer
+from worldmock.state.planning.schedule import PlanGoal
+from worldmock.agents.prompt.tool_groups import expand_tool_layer
 
 PRIVATE_KEYS = {"activity_id", "content_id", "app_id", "location_id", "goods_id", "session_id",
                 "order_id", "object_id", "interaction_bindings",

@@ -4,7 +4,7 @@ import pytest
 from tests.life.conftest import stage_day_plan, use_app, advance_until_ready
 from tests.life.environment_runtime import act
 from tests.integration.runtime.current_contract_fixtures import decide, ToolResponse
-from worldmock.life.tool_groups import expand_tool_layer
+from worldmock.agents.prompt.tool_groups import expand_tool_layer
 
 @pytest.mark.asyncio
 async def test_current_activity_controls_have_readable_names_and_no_private_identity(long_content_engine):

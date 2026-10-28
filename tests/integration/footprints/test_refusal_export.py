@@ -6,8 +6,8 @@ import json
 from tests.footprints.recording import artifact_rows
 from tests.life.conftest import advance_until_ready, do_at, travel, use_app
 from tests.life.environment_runtime import act, events, run_to_end
-from worldmock.footprints.export import export_run
-from worldmock.footprints.validation import validate_export
+from worldmock.recording_engine.export.export import export_run
+from worldmock.recording_engine.validation.validation import validate_export
 
 
 def one_hour_with_frequent_reports(persona, config):

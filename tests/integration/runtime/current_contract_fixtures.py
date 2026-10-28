@@ -12,8 +12,8 @@ from types import SimpleNamespace
 
 from tests.data_paths import ENVIRONMENT_ROOT
 from tests.frozen_inputs import fixture_metadata
-from worldmock.environment import load_environment
-from worldmock.run_setup import creation_inputs, stage_model_identity
+from worldmock.configuration.inputs.environment import load_environment
+from worldmock.runtime.framework.setup import creation_inputs, stage_model_identity
 
 
 ROOT = Path(__file__).resolve().parents[3]

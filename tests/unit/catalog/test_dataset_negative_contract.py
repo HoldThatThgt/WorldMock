@@ -6,14 +6,18 @@ from dataclasses import replace
 import pytest
 
 from tests.life.environment_inputs import (
-    catalog_rows, copy_environment, travel_method_row, walking_only, write_catalog_rows,
+    catalog_rows,
+    copy_environment,
+    travel_method_row,
+    walking_only,
+    write_catalog_rows,
 )
-from worldmock.catalog.admission import validate_manifest, validate_map
-from worldmock.catalog.errors import RegistrationError
-from worldmock.catalog.identity import read_manifest_payload, refresh_manifest_identity
-from worldmock.catalog.loader import load_catalog, validate_catalog_files
-from worldmock.catalog.models import App, MapGraph
-from worldmock.footprints.models import canonical_json
+from worldmock.resource_engine.registration.admission import validate_manifest, validate_map
+from worldmock.resource_engine.registration.errors import RegistrationError
+from worldmock.resource_engine.catalog.identity import read_manifest_payload, refresh_manifest_identity
+from worldmock.resource_engine.catalog.loader import load_catalog, validate_catalog_files
+from worldmock.resource_engine.catalog.models import App, MapGraph
+from worldmock.foundation.serialization import canonical_json
 
 
 @pytest.fixture
@@ -270,7 +274,7 @@ def test_graph_rejects_unknown_origin_and_missing_station_has_explicit_error(dir
 
 def test_catalog_file_read_reports_real_filesystem_failure(directory, monkeypatch):
     from pathlib import Path
-    from worldmock.catalog.identity import read_catalog_file
+    from worldmock.resource_engine.catalog.identity import read_catalog_file
 
     original = Path.read_bytes
 

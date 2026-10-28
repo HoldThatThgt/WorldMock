@@ -6,27 +6,38 @@ from types import SimpleNamespace
 import pytest
 
 from tests.life.prerequisite_inputs import (
-    CLOCK, app_content, dingtalk_environment, moment, silence_other_pushes, weekday_hours,
+    CLOCK,
+    app_content,
+    dingtalk_environment,
+    moment,
+    silence_other_pushes,
+    weekday_hours,
 )
 from tests.unit.life.test_environment_content import NOTICE, context_state, dingtalk_world, world_at
-from tests.unit.life.test_environment_commerce import (
-    environment, finish, operate_phases, pending, runtime, world,
+from tests.unit.life.test_environment_commerce import environment, finish, operate_phases, pending, runtime, world
+from worldmock.foundation.errors import BusinessRuleError, IntegrityError, PreconditionError
+from worldmock.state.interaction.actions import binding_action
+from worldmock.simulation_engine.scheduling.callbacks.app_push import (
+    issue_app_push,
+    open_app_push,
+    release_app_pushes,
+    validate_app_pushes,
 )
-from worldmock.errors import BusinessRuleError, IntegrityError, PreconditionError
-from worldmock.life.action_contract import binding_action
-from worldmock.life.app_push import issue_app_push, open_app_push, release_app_pushes, validate_app_pushes
-from worldmock.life.basket import activity_orders
-from worldmock.life.commerce import deliver_order
-from worldmock.life.content_select import ContentRequest, eligible_contents, select_from_contents
-from worldmock.life.interact import InteractivityRuntime
-from worldmock.life.location_activities import location_units, unit_binding
-from worldmock.life.models import (
-    ActivityStatus, AppPush, ContentProgress, SessionKind, SessionState, SessionStatus,
+from worldmock.simulation_engine.commerce.purchase.basket import activity_orders
+from worldmock.simulation_engine.commerce.fulfillment.commerce import deliver_order
+from worldmock.simulation_engine.activities.content.content_select import (
+    ContentRequest,
+    eligible_contents,
+    select_from_contents,
 )
-from worldmock.life.parcel import require_ready_parcels
-from worldmock.life.purchase_offers import quote_goods
-from worldmock.life.purchase_phases import PAYMENT, activity_phases, advance_phases
-from worldmock.life.receipt import settle_receipt
+from worldmock.simulation_engine.activities.content.interact import InteractivityRuntime
+from worldmock.simulation_engine.activities.content.location_activities import location_units, unit_binding
+from worldmock.state.world.kinds import ActivityStatus, SessionKind, SessionStatus
+from worldmock.state.world.agent import AppPush, ContentProgress, SessionState
+from worldmock.simulation_engine.commerce.fulfillment.parcel import require_ready_parcels
+from worldmock.simulation_engine.commerce.purchase.purchase_offers import quote_goods
+from worldmock.simulation_engine.commerce.purchase.purchase_phases import PAYMENT, activity_phases, advance_phases
+from worldmock.simulation_engine.commerce.fulfillment.receipt import settle_receipt
 
 
 def app_row(context, app_id):
@@ -330,7 +341,7 @@ def test_series_with_a_prerequisite_keeps_continuing_after_the_prerequisite_laps
 
 def test_restore_accepts_a_lapsed_push_and_a_running_content_whose_prerequisite_no_longer_holds(tmp_path):
     """带着不合格推送和进行中的带前提内容的世界是合法状态，恢复核对不加前提这一项。"""
-    from worldmock.life.activity_validation import validate_activity_targets
+    from worldmock.simulation_engine.activities.lifecycle.activity_validation import validate_activity_targets
 
     context, state = quiet_world(tmp_path, (CLOCK, MORNING), (12, 9, 0), "office")
     state, data = push(context, state)

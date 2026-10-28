@@ -8,12 +8,17 @@ import pytest
 from pydantic import ValidationError
 
 from tests.life.persona_inputs import REQUIRED_PERSONA_FIELDS, declare, drop_field, edit_persona
-from worldmock.environment import EnvironmentInputError, load_environment, parse_persona_file, parse_run_config_file
-from worldmock.input_models import ModelConfig, ModelMetadata, PersonaConfig, RunConfig
-from worldmock.model_endpoint import parse_model_metadata
-from worldmock.profile.models import persona_card
-from worldmock.profile.textgen import count_hanzi, render_card
-from worldmock.validation import validate_environment
+from worldmock.configuration.inputs.environment import (
+    EnvironmentInputError,
+    load_environment,
+    parse_persona_file,
+    parse_run_config_file,
+)
+from worldmock.configuration.inputs.models import ModelConfig, ModelMetadata, PersonaConfig, RunConfig
+from worldmock.configuration.model.model_metadata import parse_model_metadata
+from worldmock.configuration.persona.persona_card import persona_card
+from worldmock.configuration.persona.persona_text import count_hanzi, render_card
+from worldmock.configuration.inputs.validation import validate_environment
 
 
 SOURCE = Path(__file__).resolve().parents[1] / "fixtures/dataset-environment"
@@ -51,7 +56,7 @@ def test_persona_and_config_serialize_without_warnings_and_keep_arrays_as_writte
     """警告升成错误后，序列化人设表、运行配置并构造人物工作区输入都不抛；数组仍冻结成元组，工作区里是 JSON 数组。"""
     import warnings
 
-    from worldmock.run_setup import creation_inputs
+    from worldmock.runtime.framework.setup import creation_inputs
 
     loaded = load_environment(environment, metadata_loader=metadata)
     with warnings.catch_warnings(record=True) as caught:

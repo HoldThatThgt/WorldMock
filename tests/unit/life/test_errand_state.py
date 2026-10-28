@@ -9,8 +9,8 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from worldmock.life import errand_state
-from worldmock.life.errand_state import ErrandState
+from worldmock.state.planning import errands as errand_state
+from worldmock.state.planning.errands import ErrandState
 
 
 def _errand(**overrides) -> dict:

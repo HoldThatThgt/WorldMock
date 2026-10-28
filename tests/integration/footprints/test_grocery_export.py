@@ -15,8 +15,8 @@ from tests.footprints.recording import export_completed, read_export, reproject
 from tests.life.conftest import action_identity, conclude_request, do_at
 from tests.life.environment_inputs import grocery_environment
 from tests.life.environment_runtime import act, until_ended
-from worldmock.errors import IntegrityError
-from worldmock.footprints.validation import validate_export
+from worldmock.foundation.errors import IntegrityError
+from worldmock.recording_engine.validation.validation import validate_export
 
 #: 完成效果证据的形状检查只有这一句英文错误。
 COMPLETION_ERROR = "Activity completion effects must use the current location completion contract"

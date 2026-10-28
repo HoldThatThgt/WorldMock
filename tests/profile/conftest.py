@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from tests.life.persona_inputs import persona_with
-from worldmock.profile.models import PersonaCard, TimeAnchors, TimeWindow, persona_card
+from worldmock.configuration.persona.persona_card import PersonaCard, TimeAnchors, TimeWindow, persona_card
 
 
 def make_window(start: float, end: float) -> TimeWindow:

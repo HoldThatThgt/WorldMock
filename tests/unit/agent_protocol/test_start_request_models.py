@@ -8,15 +8,21 @@ import pytest
 from jsonschema import Draft202012Validator
 from pydantic import ValidationError
 
-from worldmock.agents.life_prompt import TOOL_DESCRIPTIONS
-from worldmock.life.action_contract import (
-    ACTIVITY_ACTIONS, APP_BOUND_ACTIONS, MAIN_ACTIVITY_ACTIONS, SIDE_ACTIVITY_ACTIONS, START_TOOLS, activity_slot,
+from worldmock.agents.prompt.life_prompt import TOOL_DESCRIPTIONS
+from worldmock.exchange_engine.conditions.activity_rules import (
+    ACTIVITY_ACTIONS,
+    APP_BOUND_ACTIONS,
+    MAIN_ACTIVITY_ACTIONS,
+    SIDE_ACTIVITY_ACTIONS,
+    activity_slot,
 )
-from worldmock.life.models import (
-    REQUEST_MODELS, StartMainActivityRequest, StartSideActivityRequest, deepseek_strict_schema,
+from worldmock.state.interaction.actions import START_TOOLS
+from worldmock.state.interaction.requests import REQUEST_MODELS, StartMainActivityRequest, StartSideActivityRequest
+from worldmock.state.interaction.schema import deepseek_strict_schema
+from worldmock.state.interaction.request_errors import argument_report
+from worldmock.state.interaction.sleep import (
+    SLEEP_MINUTES_REASON,
 )
-from worldmock.life.request_errors import argument_report
-from worldmock.life.sleep_plan import SLEEP_MINUTES_REASON
 
 _MAIN_VALID = (
     {"action": "travel", "target": "公司", "detail": "驾车"},

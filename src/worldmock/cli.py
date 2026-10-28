@@ -11,10 +11,10 @@ import sys
 from pathlib import Path
 from uuid import uuid4
 
-from worldmock.errors import IntegrityError
-from worldmock.footprints.assets import atomic_write
-from worldmock.footprints.models import canonical_json
-from worldmock.status import failure_message, observed_model_usage, read_status, write_status
+from worldmock.foundation.errors import IntegrityError
+from worldmock.foundation.atomic_write import atomic_write
+from worldmock.foundation.serialization import canonical_json
+from worldmock.runtime.monitoring.status import failure_message, observed_model_usage, read_status, write_status
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -42,19 +42,9 @@ def build_parser() -> argparse.ArgumentParser:
     export.add_argument("--run-dir", type=Path, required=True)
     export.add_argument("--cutoff", type=int)
     export.add_argument("--output", type=Path, required=True)
-    _evaluation_arguments(commands)
     return parser
 
 
-def _evaluation_arguments(commands) -> None:
-    """@brief 评估输入显式指向完整交付与配置，可在盲评后继续。"""
-    evaluate = commands.add_parser("evaluate", help="compare authenticated digital footprints")
-    evaluate.add_argument("--worldmock", type=Path)
-    evaluate.add_argument("--legacy", type=Path)
-    evaluate.add_argument("--scenario", type=Path)
-    evaluate.add_argument("--output", type=Path, required=True)
-    evaluate.add_argument("--reviews", type=Path, nargs="*")
-    evaluate.add_argument("--human-reference", type=Path)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -85,15 +75,16 @@ def _dispatch(arguments) -> dict:
     if command == "export":
         return _export_command(arguments)
     if command == "validate":
-        from worldmock.validation import validate_environment
+        from worldmock.configuration.inputs.validation import validate_environment
         return validate_environment(arguments.environment)
-    return _evaluate_command(arguments)
+    logging.error("Unknown command: %s", command)
+    raise ValueError(f"Unknown command: {command}")
 
 
 def _run_command(arguments) -> dict:
     """@brief 新建或恢复都使用真实 AS2 入口，只在完整返回后标记完成；回执的 token_stats 由运行库里已落盘的模型响应
     累计（此时环境进程与 Ray 都已关闭）。"""
-    from worldmock.runtime import ResumeRequest, RunRequest, resume_world, run_world
+    from worldmock.runtime.lifecycle.runner import ResumeRequest, RunRequest, resume_world, run_world
 
     root, output = arguments.project_root.resolve(), arguments.output.resolve()
     environment = arguments.environment.absolute()
@@ -123,8 +114,8 @@ def _run_command(arguments) -> dict:
 
 def _run_replay(base_request, intervention_path: Path):
     """@brief 按 UTF-8 显式读取严格世界条件干预，实际重演始终创建独立运行。"""
-    from worldmock.life.models import CounterfactualIntervention
-    from worldmock.runtime import CounterfactualRequest, replay_world
+    from worldmock.state.decisions.results import CounterfactualIntervention
+    from worldmock.runtime.lifecycle.runner import CounterfactualRequest, replay_world
 
     intervention = CounterfactualIntervention.model_validate_json(intervention_path.read_text(encoding="utf-8"))
     return asyncio.run(replay_world(CounterfactualRequest(base_request, intervention)))
@@ -132,8 +123,8 @@ def _run_replay(base_request, intervention_path: Path):
 
 def _export_command(arguments) -> dict:
     """@brief 在读取开始时冻结截止序号，并关闭持久连接。"""
-    from worldmock.footprints.export import export_run
-    from worldmock.footprints.store import FootprintStore
+    from worldmock.recording_engine.export.export import export_run
+    from worldmock.recording_engine.storage.store import FootprintStore
 
     store = FootprintStore(arguments.run_dir)
     try:
@@ -143,18 +134,6 @@ def _export_command(arguments) -> dict:
         store.close()
 
 
-def _evaluate_command(arguments) -> dict:
-    """@brief 调用正式评估工具；同一输入只生成一套已认证比较。"""
-    from worldmock.evaluation.runner import finalize_evaluation, prepare_evaluation
-
-    if arguments.reviews:
-        if any((arguments.worldmock, arguments.legacy, arguments.scenario, arguments.human_reference)):
-            raise IntegrityError("Finalizing prepared reviews accepts only --output and --reviews")
-        return finalize_evaluation(arguments.output, arguments.reviews)
-    if not all((arguments.worldmock, arguments.legacy, arguments.scenario)):
-        raise IntegrityError("Preparing evaluation requires --worldmock, --legacy, and --scenario")
-    return prepare_evaluation(arguments.legacy, arguments.worldmock, arguments.scenario,
-                              arguments.output, arguments.human_reference)
 
 
 if __name__ == "__main__":

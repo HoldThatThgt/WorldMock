@@ -7,11 +7,18 @@ import requests
 
 from tests.integration.runtime.current_contract_fixtures import ROOT
 from tests.integration.runtime.native_runtime_fixtures import native_runtime  # noqa: F401
-from worldmock import model_endpoint
-from worldmock.errors import IntegrityError
-from worldmock.footprints.store import FootprintStore
-from worldmock.life.models import CounterfactualIntervention
-from worldmock.runtime import CounterfactualRequest, ResumeRequest, RunRequest, replay_world, resume_world, run_world
+from worldmock.configuration.model import model_metadata as model_endpoint
+from worldmock.foundation.errors import IntegrityError
+from worldmock.recording_engine.storage.store import FootprintStore
+from worldmock.state.decisions.results import CounterfactualIntervention
+from worldmock.runtime.lifecycle.runner import (
+    CounterfactualRequest,
+    ResumeRequest,
+    RunRequest,
+    replay_world,
+    resume_world,
+    run_world,
+)
 
 
 @pytest.fixture
@@ -107,13 +114,13 @@ def _no_branch_left(tmp_path, destination):
 @pytest.mark.asyncio
 async def test_bad_checkpoint_id_fails_before_environment_load_or_copy(tmp_path, native_runtime, monkeypatch, sleeps):
     """空检查点身份：在加载环境与配置进程之前报检查点缺失，不留目标目录或暂存目录。"""
-    import worldmock.environment
-    from worldmock import run_setup
+    import worldmock.configuration.inputs.environment
+    from worldmock.runtime.framework import setup as run_setup
 
     root, _, _ = native_runtime
     parent, _, _ = await _parent(tmp_path, root)
     calls = _offline(monkeypatch)
-    monkeypatch.setattr(worldmock.environment, "load_environment", _forbidden("load_environment"))
+    monkeypatch.setattr(worldmock.configuration.inputs.environment, "load_environment", _forbidden("load_environment"))
     monkeypatch.setattr(run_setup, "_configure_process", _forbidden("_configure_process"))
     destination = tmp_path / "branches" / "child"
     with pytest.raises(IntegrityError, match="^Checkpoint is missing or its record is damaged$"):
@@ -126,7 +133,7 @@ async def test_bad_checkpoint_id_fails_before_environment_load_or_copy(tmp_path,
 async def test_parent_with_an_edited_manifest_fails_before_environment_load_or_copy(
         tmp_path, native_runtime, monkeypatch, sleeps):
     """父运行清单被改写去掉 model_metadata：检查点按清单摘要拒绝，不加载环境、不读元数据、不留分支目录。"""
-    import worldmock.environment
+    import worldmock.configuration.inputs.environment
 
     root, _, _ = native_runtime
     parent, checkpoint, _ = await _parent(tmp_path, root)
@@ -134,7 +141,7 @@ async def test_parent_with_an_edited_manifest_fails_before_environment_load_or_c
     del manifest["model_metadata"]
     (parent / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     calls = _offline(monkeypatch)
-    monkeypatch.setattr(worldmock.environment, "load_environment", _forbidden("load_environment"))
+    monkeypatch.setattr(worldmock.configuration.inputs.environment, "load_environment", _forbidden("load_environment"))
     destination = tmp_path / "branches" / "child"
     with pytest.raises(IntegrityError, match="^Checkpoint and frozen manifest disagree$"):
         await resume_world(ResumeRequest(ROOT, root, parent, checkpoint, destination))
@@ -145,7 +152,7 @@ async def test_parent_with_an_edited_manifest_fails_before_environment_load_or_c
 @pytest.mark.asyncio
 async def test_engine_open_reads_the_store_manifest_metadata(tmp_path, native_runtime, monkeypatch, sleeps):
     """从环境目录打开已有运行：元数据服务不可读也能打开，输入里的模型元数据就是清单冻结的那一份。"""
-    from worldmock.life.engine import LifeEngine
+    from worldmock.simulation_engine.engine import LifeEngine
 
     root, _, _ = native_runtime
     parent, _, _ = await _parent(tmp_path, root)

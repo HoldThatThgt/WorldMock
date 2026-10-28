@@ -8,14 +8,19 @@ import pytest
 
 from tests.data_paths import ENVIRONMENT_ROOT
 from tests.footprints.display_fixtures import freeze_environment, sample_display_names
-from worldmock.catalog.errors import RegistrationError
-from worldmock.catalog.loader import parse_catalog_model
-from worldmock.catalog.models import App, Content, Goods, Location, TravelMethod
-from worldmock.errors import IntegrityError
-from worldmock.footprints.display_wording import (
-    activity_phrase, display_name, display_names, event_content_id, goods_items, phone_phrase,
+from worldmock.resource_engine.registration.errors import RegistrationError
+from worldmock.resource_engine.catalog.loader import parse_catalog_model
+from worldmock.resource_engine.catalog.models import App, Content, Goods, Location, TravelMethod
+from worldmock.foundation.errors import IntegrityError
+from worldmock.recording_engine.projections.presentation.display_wording import (
+    activity_phrase,
+    display_name,
+    display_names,
+    event_content_id,
+    goods_items,
+    phone_phrase,
 )
-from worldmock.footprints.frozen_environment import frozen_display_names
+from worldmock.recording_engine.validation.frozen_environment import frozen_display_names
 
 #: 查看器的 Node 用例读同一份文件。
 CASES = json.loads((ENVIRONMENT_ROOT.parent / "display-wording-cases.json").read_text(encoding="utf-8"))

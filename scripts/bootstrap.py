@@ -14,8 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from scripts.bootstrap_environment import (create_environment, install_requirements, install_source,
-                                           write_receipt)
+from scripts.bootstrap_environment import create_environment, install_requirements, install_source, write_receipt
 from scripts.bootstrap_sources import restore_as2
 
 

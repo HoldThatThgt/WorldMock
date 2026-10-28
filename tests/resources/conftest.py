@@ -2,7 +2,8 @@
 
 import pytest
 
-from worldmock.resources import ResourceLedger, ResourceMeta
+from worldmock.exchange_engine.ledger.ledger import ResourceLedger
+from worldmock.exchange_engine.ledger.ledger_models import ResourceMeta
 
 MONEY = "money_fen"
 ENERGY = "energy_kcal"

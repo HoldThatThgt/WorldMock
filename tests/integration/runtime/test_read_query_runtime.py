@@ -4,7 +4,7 @@ from tests.integration.runtime.current_contract_fixtures import profile as curre
 1. 真实 Ray：驱动侧与 worker 侧各经代理调用一次，回看任务返回结果字典而非对象引用，世界状态逐字节不变、不追加事件；
 2. 主进程内直接构造未经 ray.remote 包装的 LifeEnvActor 并调用 read_query，等于环境直调（守住函数体与私有成员依赖）；
 3. 不启动 Ray 的并发度断言：actor 类固定 max_concurrency=1，不提供参数；
-4. 运行装配（worldmock.runtime._build_society）建立的是 LifeEnvActor 与带 read_query 的 LifeEnvProxy。
+4. 运行装配（worldmock.runtime.lifecycle.runner._build_society）建立的是 LifeEnvActor 与带 read_query 的 LifeEnvProxy。
 覆盖率门禁只计主进程执行的行，变异执行器也只对主进程生效，所以四类缺一不可。
 同一条 Life 扩展通道上的另一个只读方法 due_reflection（取观察之前该不该先做就寝反思）用同样的分工：未包装的 actor
 等于环境直调，运行装配出的代理把调用送到 actor 句柄并返回等待后的结果。
@@ -27,14 +27,14 @@ os.environ.setdefault('LITELLM_LOCAL_MODEL_COST_MAP', 'True')
 
 from agentsociety2.env.direct_env_actor import DirectEnvActorSpec
 from custom.envs.life_env import LifeEnv
-from tests.engine_fixture import (engine_factory)  # noqa: F401
-from tests.life.conftest import (advance_next, context, sleep, stage_day_plan)  # noqa: F401
+from tests.engine_fixture import engine_factory  # noqa: F401
+from tests.life.conftest import advance_next, context, sleep, stage_day_plan  # noqa: F401
 from tests.life.environment_runtime import act
-from worldmock.errors import ProtocolError
-from worldmock.life.engine import LifeEngine
-from worldmock.life.models import RecallTaskSummaryRequest, ReviseDayPlanRequest
-from worldmock.life.read_query_runtime import LifeEnvActor, LifeEnvProxy, life_env_actor_class
-from worldmock.life.schedule import PlanGoal
+from worldmock.foundation.errors import ProtocolError
+from worldmock.simulation_engine.engine import LifeEngine
+from worldmock.state.interaction.requests import RecallTaskSummaryRequest, ReviseDayPlanRequest
+from worldmock.runtime.framework.read_query import LifeEnvActor, LifeEnvProxy, life_env_actor_class
+from worldmock.state.planning.schedule import PlanGoal
 
 ROOT = Path(__file__).resolve().parents[3]
 SCENARIO = ENVIRONMENT_ROOT
@@ -220,7 +220,7 @@ async def test_runtime_assembly_builds_life_actor_and_a_proxy_with_read_query(mo
     LifeEnvProxy，持有装配出的 actor 句柄，交给人物的服务代理（ServiceProxy.env）是同一个代理；经人物一侧调用
     read_query 把查询送到该句柄并返回等待后的结果对象（代理不等待远端时得到的是协程而不是结果）。装配改回 AS2 原类
     （没有 read_query 的 EnvRouterProxy 或 DirectEnvActor，含只给人物一侧换回 EnvRouterProxy）即失败。"""
-    import worldmock.runtime as runtime
+    import worldmock.runtime.lifecycle.runner as runtime
     from agentsociety2.config import llm_dispatcher
     from agentsociety2.env import direct_env_actor
 
@@ -327,7 +327,7 @@ async def test_host_tool_message_is_the_environment_recall_result(engine_factory
 
     from agentsociety2.agent.base import ReactLoopRequest
     from tests.integration.runtime.test_same_second_continuation import _PLAN, _Script, _person, _reply
-    from worldmock.life import prompt_capacity
+    from worldmock.agents.prompt import prompt_capacity
 
     monkeypatch.setattr(prompt_capacity, 'model_context_length', lambda model, metadata: metadata.context_window)
     engine = engine_factory()

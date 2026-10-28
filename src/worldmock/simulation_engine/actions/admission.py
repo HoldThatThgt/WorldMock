@@ -1,0 +1,302 @@
+"""@brief 开始组的槽位占用、睡眠约束、对象条件与余额核验；工具层的单行可用性与受理共用同一套判定。"""
+
+from __future__ import annotations
+
+import logging
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Any
+from zoneinfo import ZoneInfo
+
+from worldmock.foundation.errors import BusinessRuleError
+from worldmock.simulation_engine.activities.lifecycle import activity_control
+from worldmock.simulation_engine.activities.content import location_activities
+from worldmock.state.interaction.actions import START_TOOLS
+from worldmock.exchange_engine.conditions.activity_rules import activity_slot
+from worldmock.simulation_engine.commerce.purchase.basket import quoted_basket
+from worldmock.simulation_engine.observation.wording.content_prerequisite import app_prerequisite_refusal
+from worldmock.simulation_engine.observation.wording.guidance import (
+    Refusal,
+    default_reason,
+    refusal_for_code,
+    refusal_from_error,
+)
+from worldmock.state.world.kinds import ActivityKind, ActivityStatus, FulfillmentKind
+from worldmock.state.world.activity import ActivityState
+from worldmock.state.world.world import WorldState
+from worldmock.simulation_engine.activities.lifecycle.sessions import current_session
+from worldmock.simulation_engine.activities.travel.travel import Trip, plan_trip
+from worldmock.resource_engine.catalog.travel_methods import travel_method
+from worldmock.simulation_engine.scheduling.clock.weather import current_weather_factor
+
+_LOGGER = logging.getLogger(__name__)
+_SLEEP_SLOT_REASON = "Sleep requires the second activity slot to be empty."
+
+
+@dataclass(frozen=True, slots=True)
+class Context:
+    """@brief 准入直接读取唯一世界与环境输入，不装配旧场景层。"""
+
+    #: 当前世界。
+    state: WorldState
+    #: 唯一人物身份。
+    agent_id: int
+    #: 本人在 state 里的未了活动；槽位、睡着与待收尾的判定只读它。
+    open_activities: tuple[ActivityState, ...]
+    #: 完整地点显示名。
+    place_names: Mapping[str, str]
+    #: 本轮活动显示名。
+    activity_names: Mapping[str, str] = field(default_factory=dict)
+    #: 完整环境输入：冻结目录、运行配置与本人住处。
+    inputs: Any = None
+
+
+@dataclass(frozen=True, slots=True)
+class Call:
+    """@brief 一条名称已解析的开始调用。"""
+
+    #: 开始工具名。
+    tool: str
+    #: 调用所写的动作。
+    action: str
+    #: 解析出的绑定行，各带 selected_action：主工具一行，副工具每个名称一行。
+    rows: tuple[Mapping[str, Any], ...]
+    #: 这条购买或查询调用从 prefer 认出的意向 app 身份；没有意向、主工具的调用、打开 app 与工具层的单行预览都为 None。
+    prefer: str | None = None
+
+    @property
+    def slot(self) -> str:
+        """@brief 这条调用要占的槽位，由动作与所用内容 app 唯一给出。"""
+        first = self.rows[0]
+        return activity_slot(self.action, first["object_id"] if first["kind"] == "app" else None)
+
+    @property
+    def goods_ids(self) -> tuple[str, ...]:
+        """@brief 购买调用按所写次序的商品身份，同一商品写几次就出现几次。"""
+        return tuple(row["object_id"] for row in self.rows)
+
+
+@dataclass(frozen=True, slots=True)
+class Blocked:
+    """@brief 整组第一条不成立的核验与负责的调用。"""
+
+    #: 拒绝的码、原因、下一步、改法与未满足条件。
+    refusal: Refusal
+    #: 负责的开始工具名：业务明细落在这些调用上。
+    tools: tuple[str, ...]
+
+
+def present_location(state: WorldState, agent_id: int) -> str | None:
+    """@brief 路上不视为停留在起点或终点。"""
+    session = current_session(state, agent_id)
+    return session.location_id if session is not None and session.kind == "stay" else None
+
+
+def group_refusal(context: Context, calls: Sequence[Call]) -> Blocked | None:
+    """@brief 整组按固定次序核验同槽位占用、睡眠约束、主调用与副调用的对象条件和余额；全部成立时为 None。
+
+    核验读请求前的世界，所以与出发同组的购买报价、收货地点都按出发前的停留地点算。
+    """
+    main = next((call for call in calls if call.tool == START_TOOLS[0]), None)
+    side = next((call for call in calls if call.tool == START_TOOLS[1]), None)
+    for check in (_slot_refusal, _sleep_refusal, _main_refusal, _side_refusal, _funds_refusal):
+        blocked = check(context, main, side)
+        if blocked is not None:
+            return blocked
+    return None
+
+
+def planned_trip(context: Context, row: Mapping[str, Any]) -> Trip:
+    """@brief 出行行按出发前的地点、所选出行方式与当前天气形成同源行程报价。"""
+    origin, catalog = context.state.agents[context.agent_id].location_id, context.inputs.catalog
+    method = travel_method(catalog, row["selected_action"]["travel_method_id"])
+    return plan_trip(catalog.graph, origin, row["object_id"], method, current_weather_factor(context.state))
+
+
+def _occupant(context: Context, slot: str) -> ActivityState | None:
+    """@brief 占着这个槽位的本人活动：进行中和待收尾占槽位，暂停的活动让出槽位；只看本人的未了活动，次序同世界。"""
+    return next((activity for activity in context.open_activities
+                 if slot in activity.resource_claims and activity_control.occupies_slot(activity)), None)
+
+
+def _name(context: Context, activity: ActivityState) -> str:
+    """@brief 活动的本轮可读名称，没有时取活动自身的名称。"""
+    return context.activity_names.get(activity.activity_id, activity.name)
+
+
+def _release_step(context: Context, occupant: ActivityState) -> str:
+    """@brief 让占用者让出槽位的做法：此刻能暂停（activity_control.pausable）时写结束或暂停，否则只写结束。"""
+    return "Conclude or pause" if activity_control.pausable(context.state, occupant) else "Conclude"
+
+
+def _slot_refusal(context: Context, main: Call | None, side: Call | None) -> Blocked | None:
+    """@brief 同槽位占用：某条调用要占的槽位已有活动时点名占用者，能暂停的占用者下一步写结束或暂停。"""
+    for call in (main, side):
+        occupant = None if call is None else _occupant(context, call.slot)
+        if occupant is None:
+            continue
+        name = _name(context, occupant)
+        refusal = Refusal("RESOURCE_CONFLICT", f"The {call.slot} activity slot is occupied by {name}.",
+                          f"{_release_step(context, occupant)} {name} first.", ("resource_claims",))
+        return Blocked(refusal, (call.tool,))
+    return None
+
+
+def _sleep_refusal(context: Context, main: Call | None, side: Call | None) -> Blocked | None:
+    """@brief 睡眠约束：睡眠要求槽位 2 空着，也不能与副调用同组；睡着时不能开始槽位 2 的活动。
+
+    槽位 2 已被占时，下一步与同槽位占用一样按占用者此刻能否暂停写：能暂停写结束或暂停，否则只写结束。
+    """
+    if main is not None and main.action == "sleep":
+        if side is not None:
+            refusal = Refusal("RESOURCE_CONFLICT", _SLEEP_SLOT_REASON, fix="Submit start_main_activity alone to sleep.")
+            return Blocked(refusal, (main.tool, side.tool))
+        occupant = _occupant(context, "second")
+        if occupant is not None:
+            step = f"{_release_step(context, occupant)} the second activity first."
+            return Blocked(Refusal("RESOURCE_CONFLICT", _SLEEP_SLOT_REASON, step), (main.tool,))
+    asleep = any(activity.kind == ActivityKind.SLEEP and activity.status == ActivityStatus.ACTIVE
+                 for activity in context.open_activities)
+    if asleep and side is not None:
+        return Blocked(Refusal("RESOURCE_CONFLICT", _SLEEP_SLOT_REASON), (side.tool,))
+    return None
+
+
+def _main_refusal(context: Context, main: Call | None, side: Call | None) -> Blocked | None:
+    """@brief 主调用的对象条件：出行、在地点做事与睡眠各按自己的次序判定。"""
+    if main is None:
+        return None
+    if main.action == "travel":
+        refusal = _travel_refusal(context, main.rows[0])
+    elif main.action == "interact":
+        refusal = _location_refusal(context, main.rows[0])
+    else:
+        refusal = _sleep_place_refusal(context)
+    return None if refusal is None else Blocked(refusal, (main.tool,))
+
+
+def _travel_refusal(context: Context, row: Mapping[str, Any]) -> Refusal | None:
+    """@brief 出行：进行中的查询与进行中的到店购买要先结束；路线时长超出范围按路线拒绝。"""
+    state = context.state
+    local = next((activity for activity in state.activities.values()
+                  if activity.agent_id == context.agent_id and activity.status == ActivityStatus.ACTIVE
+                  and _keeps_here(state, activity)), None)
+    if local is not None:
+        name = _name(context, local)
+        return Refusal("ACTIVITY_PRECONDITION_UNMET", f"Conclude {name} before departure.", f"Conclude {name}.",
+                       ("activities_before_departure",))
+    try:
+        planned_trip(context, row)
+    except BusinessRuleError as error:
+        _LOGGER.error("Travel route was refused: %s", error)
+        return refusal_from_error(error)
+    return None
+
+
+def _keeps_here(state: WorldState, activity: ActivityState) -> bool:
+    """@brief 这项活动要人留在原地做完：查询，或含到店购买的购买。"""
+    if activity.kind == ActivityKind.QUERY:
+        return True
+    return activity.kind == ActivityKind.PURCHASE and any(
+        state.deliveries[key].fulfillment == FulfillmentKind.PICKUP for key in activity.data["order_ids"])
+
+
+def _local_moment(context: Context) -> datetime:
+    """@brief 当前时刻换算到运行时区的本地时刻，营业时段按它判定。"""
+    return datetime.fromtimestamp(context.state.current_time, ZoneInfo(context.inputs.config.timezone))
+
+
+def _location_refusal(context: Context, row: Mapping[str, Any]) -> Refusal | None:
+    """@brief 在地点做事按营业、取件、单元被占、未开放的次序判定，第一条不成立的给出拒绝。
+
+    单元被占排在未开放之前：照写一件已暂停的事得到先恢复的原因，而不是没开放。
+    """
+    location = context.inputs.catalog.locations[row["object_id"]]
+    if not location.is_open(_local_moment(context)):
+        return refusal_for_code("LOCATION_CLOSED")
+    ready = any(order.agent_id == context.agent_id and order.destination_id == location.location_id
+                and order.status == "ready_for_pickup" for order in context.state.deliveries.values())
+    if location.accepts_parcels and not ready:
+        return Refusal("PARCEL_NOT_READY", default_reason("PARCEL_NOT_READY"), unmet=("parcel_ready",))
+    held = location_activities.held_refusal(context.state, context.agent_id, row["selected_action"],
+                                            context.activity_names)
+    if held is not None:
+        return held
+    agent = context.state.agents[context.agent_id]
+    return location_activities.locked_refusal(context.inputs.catalog, agent, row["selected_action"])
+
+
+def _sleep_place_refusal(context: Context) -> Refusal | None:
+    """@brief 睡眠的地点判定：当前停留地点须标了 sleepable，声明了营业时段时此刻须在其内（关门只卡开始）。"""
+    location = context.inputs.catalog.locations[context.state.agents[context.agent_id].location_id]
+    if not location.sleepable:
+        home = context.place_names[context.inputs.home_location_id]
+        return Refusal("ACTIVITY_PRECONDITION_UNMET", f"Sleeping is not possible at {location.display_name}.",
+                       f"Go to {home}.", ("sleepable_location",))
+    if not location.is_open(_local_moment(context)):
+        return refusal_for_code("LOCATION_CLOSED")
+    return None
+
+
+def _side_refusal(context: Context, main: Call | None, side: Call | None) -> Blocked | None:
+    """@brief 副调用的对象条件，每个动作各走自己的一支：购买、用内容 app、查询。"""
+    if side is None:
+        return None
+    refusal = _SIDE_CHECKS[side.action](context, main, side)
+    return None if refusal is None else Blocked(refusal, (side.tool,))
+
+
+def _app_refusal(context: Context, main: Call | None, side: Call) -> Refusal | None:
+    """@brief 用内容 app：登记了内容的 app 此刻须有合格内容；停留地点取请求前的世界，与出发同组时按出发地判定。"""
+    catalog = context.inputs.catalog
+    stay = present_location(context.state, context.agent_id)
+    return app_prerequisite_refusal(catalog, side.rows[0]["object_id"],
+                                    None if stay is None else catalog.locations[stay], _local_moment(context))
+
+
+def _query_refusal(context: Context, main: Call | None, side: Call) -> Refusal | None:
+    """@brief 查询：人在路上（没有停留会话）不能查询，也不能与出发在同一次回复里开始。"""
+    if present_location(context.state, context.agent_id) is None:
+        return Refusal("ACTIVITY_PRECONDITION_UNMET", "A query cannot start while travelling.",
+                       "Start the query after arriving at a location.", ("stay_location",))
+    if main is not None and main.action == "travel":
+        return Refusal("ACTIVITY_PRECONDITION_UNMET", "A query cannot start with departure.",
+                       "Finish or conclude the query before leaving.", ("stay_location",))
+    return None
+
+
+def _purchase_refusal(context: Context, main: Call | None, side: Call) -> Refusal | None:
+    """@brief 购买：逐份报价的拒绝按数组次序取第一条；同组出发时报价里不能有到店购买。"""
+    try:
+        groups, _ = quoted_basket(context.inputs, context.state, context.agent_id, side.goods_ids, side.prefer)
+    except BusinessRuleError as error:
+        _LOGGER.error("Purchase quote was refused: %s", error)
+        return refusal_from_error(error)
+    departs = main is not None and main.action == "travel"
+    if departs and any(offer.fulfillment == "pickup" for offers in groups.values() for offer in offers):
+        return Refusal("ACTIVITY_PRECONDITION_UNMET", "A local purchase cannot start with departure.",
+                       "Complete or conclude the local purchase before leaving.")
+    return None
+
+
+#: 副调用对象条件的分支：每个副工具动作一支，没有兜底。
+_SIDE_CHECKS = {"purchase": _purchase_refusal, "interact": _app_refusal, "query": _query_refusal}
+
+
+def _funds_refusal(context: Context, main: Call | None, side: Call | None) -> Blocked | None:
+    """@brief 余额：全部货款加各配送组的运费再加同组出行的车费；没有同组购买时只核对车费。
+
+    货款与运费按带意向的路线算：意向让商品分到两家店、多出一份运费而余额不够时整组拒绝，不为余额放弃意向。
+    """
+    fare = planned_trip(context, main.rows[0]).fare_fen if main is not None and main.action == "travel" else 0
+    purchases = side is not None and side.action == "purchase"
+    goods = quoted_basket(context.inputs, context.state, context.agent_id, side.goods_ids,
+                          side.prefer)[1] if purchases else 0
+    account = context.state.agents[context.agent_id].balance_account_id
+    if context.state.accounts[account] >= fare + goods:
+        return None
+    if not purchases:
+        return Blocked(refusal_for_code("INSUFFICIENT_TRAVEL_FUNDS"), (main.tool,))
+    tools = (main.tool, side.tool) if fare else (side.tool,)
+    return Blocked(refusal_for_code("INSUFFICIENT_FUNDS"), tools)

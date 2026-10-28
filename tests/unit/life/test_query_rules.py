@@ -6,10 +6,16 @@ from __future__ import annotations
 import pytest
 
 from tests.data_paths import CATALOG_ROOT
-from worldmock.catalog.loader import load_catalog
-from worldmock.life.query_activity import QUERY_SECONDS_MAX, QUERY_SECONDS_MIN, query_app, query_seconds, query_targets
-from worldmock.life.query_answer import QUERY_PRODUCT_LIMIT, ordered_answer, queried_goods
-from worldmock.life.randomness import random_stream
+from worldmock.resource_engine.catalog.loader import load_catalog
+from worldmock.simulation_engine.activities.query.query_activity import (
+    QUERY_SECONDS_MAX,
+    QUERY_SECONDS_MIN,
+    query_app,
+    query_seconds,
+    query_targets,
+)
+from worldmock.simulation_engine.activities.query.query_answer import QUERY_PRODUCT_LIMIT, ordered_answer, queried_goods
+from worldmock.foundation.randomness import random_stream
 
 #: 单元用例的世界随机状态（任意固定文字）。
 _STATE = "query-rules-random-state"

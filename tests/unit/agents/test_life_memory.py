@@ -2,7 +2,7 @@
 
 import pytest
 
-from worldmock.agents.life_memory import render_memory_view
+from worldmock.agents.memory.life_memory import render_memory_view
 
 
 def _received():

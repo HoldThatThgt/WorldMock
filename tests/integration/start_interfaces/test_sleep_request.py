@@ -11,18 +11,30 @@ import pytest
 from tests.frozen_inputs import fixture_metadata
 from tests.integration.runtime.current_contract_fixtures import ToolResponse, decide
 from tests.life.conftest import (
-    MAIN_TOOL, action_identity, advance_next, advance_until_ready, conclude_request, context, do_at, main_arguments,
-    sleep, stage_day_plan, travel, use_app,
+    MAIN_TOOL,
+    action_identity,
+    advance_next,
+    advance_until_ready,
+    conclude_request,
+    context,
+    do_at,
+    main_arguments,
+    sleep,
+    stage_day_plan,
+    travel,
+    use_app,
 )
 from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
 from tests.life.environment_runtime import act, events, finish_activity
-from worldmock.catalog.errors import RegistrationError
-from worldmock.catalog.loader import validate_catalog_files
-from worldmock.environment import load_environment
-from worldmock.life.felt import sleep_debt_phrase
-from worldmock.life.models import StartMainActivityRequest
-from worldmock.life.narration import render_layer_json
-from worldmock.life.sleep_plan import SLEEP_MINUTES_REASON
+from worldmock.resource_engine.registration.errors import RegistrationError
+from worldmock.resource_engine.catalog.loader import validate_catalog_files
+from worldmock.configuration.inputs.environment import load_environment
+from worldmock.simulation_engine.body.felt import sleep_debt_phrase
+from worldmock.state.interaction.requests import StartMainActivityRequest
+from worldmock.agents.prompt.narration import render_layer_json
+from worldmock.state.interaction.sleep import (
+    SLEEP_MINUTES_REASON,
+)
 
 
 def _edit_locations(root, updates: dict[str, dict], removed: dict[str, tuple[str, ...]] | None = None):

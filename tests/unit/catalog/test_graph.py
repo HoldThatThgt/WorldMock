@@ -4,8 +4,8 @@ from dataclasses import replace
 
 import pytest
 
-from worldmock.catalog.graph import Graph
-from worldmock.catalog.models import MapEdge, MapGraph
+from worldmock.resource_engine.map.graph import Graph
+from worldmock.resource_engine.catalog.models import MapEdge, MapGraph
 
 
 def hand_graph(edges, nodes=None):

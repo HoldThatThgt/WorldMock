@@ -5,13 +5,13 @@
 
 import pytest
 
-import worldmock.life.same_moment as same_moment
+import worldmock.simulation_engine.decisions.same_moment as same_moment
 from agentsociety2.society import DirectToolCall
 from tests.committed_world_guard import public_methods
 from tests.life.conftest import advance_next, context, tool_of, travel
 from tests.life.environment_runtime import act, events, settle_decision
-from worldmock.errors import IntegrityError
-from worldmock.life.engine import LifeEngine
+from worldmock.foundation.errors import IntegrityError
+from worldmock.simulation_engine.engine import LifeEngine
 
 DIFFERS = "^Engine world differs from the committed world$"
 

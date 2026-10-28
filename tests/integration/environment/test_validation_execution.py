@@ -3,7 +3,7 @@
 import json
 
 from tests.life.environment_inputs import copy_environment
-from worldmock.validation import validate_environment
+from worldmock.configuration.inputs.validation import validate_environment
 
 
 def test_environment_validation_aggregates_independent_errors_without_reading_metadata(tmp_path):
@@ -44,7 +44,7 @@ def test_environment_validation_checks_the_whole_persona_table_without_any_model
     """纯校验就是人设表的全部检查：独立模型客户端一旦被构造就失败，合格的人设表照样通过，缺一个卡片字段时指出它。"""
     from tests.frozen_inputs import fixture_metadata
     from tests.life.persona_inputs import drop_field, edit_persona
-    from worldmock import model_endpoint
+    from worldmock.configuration.model import model_metadata as model_endpoint
 
     def refuse(*arguments, **keywords):
         raise AssertionError("Environment validation must not build a model client")

@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import copy
 
-from worldmock.agents import life_prompt
-from worldmock.agents.life_prompt import LIFE_SYSTEM_LAYER, TOOL_DESCRIPTIONS, life_prompt_sha256
-from worldmock.life.prompt_schemas import validate_layer
-from worldmock.life.schedule import WAKE_TRIGGERS
+from worldmock.agents.prompt import life_prompt
+from worldmock.agents.prompt.life_prompt import LIFE_SYSTEM_LAYER, TOOL_DESCRIPTIONS, life_prompt_sha256
+from worldmock.agents.prompt.prompt_schemas import validate_layer
+from worldmock.state.planning.schedule import WAKE_TRIGGERS
 
 #: 系统层二十条的逐字定稿，次序即下标；下标 0、1、3、4、5、7、8、9、10、11、12、14、19 十三条与改动之前逐字相同。
 _RULES = (

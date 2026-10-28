@@ -5,8 +5,8 @@ from zoneinfo import ZoneInfo
 
 from tests.life.conftest import purchase
 from tests.life.environment_runtime import act, events, finish_activity, reach
-from worldmock.scheduling.compile import compile_schedule
-from worldmock.scheduling.effects import process_scheduled_events
+from worldmock.simulation_engine.scheduling.clock.compile import compile_schedule
+from worldmock.simulation_engine.scheduling.clock.effects import process_scheduled_events
 
 
 def test_calendar_declaration_is_compiled_at_real_local_midnight(engine_factory):

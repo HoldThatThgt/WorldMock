@@ -7,13 +7,16 @@ import shutil
 import pytest
 
 from tests.life.environment_inputs import walking_only
-from worldmock.catalog.errors import RegistrationError
-from worldmock.catalog.identity import (
-    OPTIONAL_CATALOG_FILES, REQUIRED_CATALOG_FILES, compute_catalog_identity, refresh_manifest_identity,
+from worldmock.resource_engine.registration.errors import RegistrationError
+from worldmock.resource_engine.catalog.identity import (
+    OPTIONAL_CATALOG_FILES,
+    REQUIRED_CATALOG_FILES,
+    compute_catalog_identity,
+    refresh_manifest_identity,
 )
-from worldmock.catalog.loader import load_catalog
-from worldmock.footprints import assets
-from worldmock.footprints.models import canonical_json
+from worldmock.resource_engine.catalog.loader import load_catalog
+from worldmock.foundation import atomic_write as assets
+from worldmock.foundation.serialization import canonical_json
 
 EMPTY_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 MAP_ROW = b'{"a":"home","b":"office","length_m":12600}\n'

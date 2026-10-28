@@ -11,10 +11,10 @@ from tests.footprints.recording import artifact_rows, read_export, write_manifes
 from tests.life.conftest import action_identity
 from tests.life.day_baseline_runtime import record_complete_day
 from tests.life.observation_record import assert_observations_round_trip, record_observations
-from worldmock.errors import IntegrityError
-from worldmock.footprints.models import canonical_json
-from worldmock.footprints.store import FootprintStore
-from worldmock.footprints.validation import validate_export
+from worldmock.foundation.errors import IntegrityError
+from worldmock.foundation.serialization import canonical_json
+from worldmock.recording_engine.storage.store import FootprintStore
+from worldmock.recording_engine.validation.validation import validate_export
 
 PROJECT = Path(__file__).resolve().parents[3]
 

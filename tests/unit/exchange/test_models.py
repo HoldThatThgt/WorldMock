@@ -3,8 +3,8 @@
 import pytest
 from pydantic import ValidationError
 
-from worldmock.base_models import DeepFrozenModel, require_finite_number
-from worldmock.resources.models import Conservation
+from worldmock.foundation.models import DeepFrozenModel, require_finite_number
+from worldmock.exchange_engine.ledger.ledger_models import Conservation
 
 
 class NestedModel(DeepFrozenModel):
@@ -36,10 +36,10 @@ def test_finite_number_primitive_rejects_invalid_json_number(value, caplog):
 
 def test_surviving_definitions_have_one_canonical_owner():
     """@brief 旧品类位置不保留兼容重导出，消费者直接引用搬移后的定义。"""
-    from worldmock.catalog import models
-    from worldmock.exchange import operators
-    assert DeepFrozenModel.__module__ == "worldmock.base_models"
-    assert Conservation.__module__ == "worldmock.resources.models"
+    from worldmock.resource_engine.catalog import models
+    from worldmock.exchange_engine.commerce import operators
+    assert DeepFrozenModel.__module__ == 'worldmock.foundation.models'
+    assert Conservation.__module__ == 'worldmock.exchange_engine.ledger.ledger_models'
     assert models.DeepFrozenModel is DeepFrozenModel
     assert operators.require_finite_number is require_finite_number
     assert tuple(Conservation) == ("open", "closed")

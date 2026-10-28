@@ -10,12 +10,20 @@ import pytest
 from agentsociety2.agent.base import ModelCallEvidence, MemoryUpdateEvidence
 from agentsociety2.society import DirectToolCall
 from tests.life.conftest import (
-    MAIN_TOOL, SIDE_TOOL, advance_until_ready, conclude_request, context, do_at, pause_request, report_request,
-    stage_day_plan, use_app,
+    MAIN_TOOL,
+    SIDE_TOOL,
+    advance_until_ready,
+    conclude_request,
+    context,
+    do_at,
+    pause_request,
+    report_request,
+    stage_day_plan,
+    use_app,
 )
 from tests.life.environment_runtime import act, events
-from worldmock.errors import BusinessRuleError, IntegrityError, ProtocolError
-from worldmock.life.models import RecallTaskSummaryRequest, ReviseDayPlanRequest
+from worldmock.foundation.errors import BusinessRuleError, IntegrityError, ProtocolError
+from worldmock.state.interaction.requests import RecallTaskSummaryRequest, ReviseDayPlanRequest
 
 
 @pytest.mark.parametrize("change,message", [

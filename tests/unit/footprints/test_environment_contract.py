@@ -5,12 +5,15 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from worldmock.errors import IntegrityError
-from worldmock.footprints.app_usage import project_app_usage
-from worldmock.footprints.experiences import project_verified_experiences, validate_verified_experiences
-from worldmock.footprints.invariants import _payment_invariants
-from worldmock.footprints.ledger import validate_account_transition
-from worldmock.footprints.models import Event, EventDraft
+from worldmock.foundation.errors import IntegrityError
+from worldmock.recording_engine.projections.activities.app_usage import project_app_usage
+from worldmock.recording_engine.projections.activities.experiences import (
+    project_verified_experiences,
+    validate_verified_experiences,
+)
+from worldmock.recording_engine.validation.invariants import _payment_invariants
+from worldmock.recording_engine.validation.ledger import validate_account_transition
+from worldmock.recording_engine.events.models import Event, EventDraft
 
 
 def _event(sequence, kind, data, *, at=100, visibility="agent", cause=None, changes=None):
@@ -73,7 +76,7 @@ def test_app_touch_is_only_a_callback_footprint_and_the_automatic_touches_are_re
 def test_query_snapshot_is_admitted_by_every_downstream_projection(app_id):
     """种类为 query 的快照经 app 使用投影（受理与进度两处种类闭集）、活动重建和已核验经历投影都不被拒：带 app 的查询
     恰一行 app_use，区间等于执行区间；没有 app 的查询没有 app 使用的行；查询没有已核验经历。"""
-    from worldmock.footprints.export import reconstruct_activities
+    from worldmock.recording_engine.export.export import reconstruct_activities
     query = {**_activity("query"), "data": {"action": "query", "app_id": app_id}}
     events = [_event(1, "action_accepted", {"activity": query}),
               _event(2, "activity_progress", {"activity": {**query, "elapsed_seconds": 10}, "interval_start": 100,
@@ -90,8 +93,8 @@ def test_query_snapshot_is_admitted_by_every_downstream_projection(app_id):
 
 @pytest.mark.parametrize("retired", ["wait", "action", "eat", "work", "chat"])
 def test_retired_activity_is_rejected_before_any_downstream_projection(retired):
-    from worldmock.footprints.export import reconstruct_activities
-    from worldmock.footprints.quality import build_quality_report
+    from worldmock.recording_engine.export.export import reconstruct_activities
+    from worldmock.recording_engine.reports.quality import build_quality_report
     from tests.footprints.display_fixtures import sample_display_names
     event = _event(1, "activity_progress", {"activity": _activity(retired)})
     message = "Activity snapshot uses a retired activity kind"
@@ -253,7 +256,7 @@ def test_direct_payment_inside_the_content_app_is_notified_by_that_ordering_app(
 
 
 def test_wake_categories_count_each_category_once_per_real_boundary():
-    from worldmock.footprints.quality import _decision_rhythm_quality
+    from worldmock.recording_engine.reports.quality import _decision_rhythm_quality
     boundary = _event(1, "environment_event", {"kind": "body_settlement", "decision_offered": True,
                       "wake_reasons": ["planned_end", "session_open", "reminder_due", "app_push"]})
     started = _event(2, "decision_started", {"round_id": "round", "round_order": 0,

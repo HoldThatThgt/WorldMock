@@ -3,9 +3,7 @@
 from datetime import timedelta
 
 from agentsociety2.society import DirectToolCall
-from tests.life.conftest import (
-    advance_next, conclude_request, context, report_request, sleep, tool_of, travel,
-)
+from tests.life.conftest import advance_next, conclude_request, context, report_request, sleep, tool_of, travel
 
 
 def act(engine, label, request, tool=None, action_id=None):
@@ -37,7 +35,7 @@ def act_group(engine, label, *requests):
 
 def action_result(engine, action_id):
     """一条动作第一次写下的结果事件（受理或拒绝那一刻）的结果对象。"""
-    from worldmock.life.models import ActionResult
+    from worldmock.state.decisions.results import ActionResult
 
     row = next(event for event in events(engine, "action_result") if event.action_id == action_id)
     return ActionResult.model_validate({key: row.data[key] for key in ActionResult.model_fields if key in row.data})

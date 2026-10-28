@@ -15,8 +15,17 @@ from pathlib import Path
 import pytest
 
 import scripts.compare_runs as compare_runs
-from scripts.compare_runs import (ComparisonError, Chain, Options, Rule, Side, compare, leaf_diff, parse_rules,
-                                  require_allowed)
+from scripts.compare_runs import (
+    ComparisonError,
+    Chain,
+    Options,
+    Rule,
+    Side,
+    compare,
+    leaf_diff,
+    parse_rules,
+    require_allowed,
+)
 
 RUN, RUN2 = "a" * 32, "c" * 32
 TIMEZONE = "Asia/Shanghai"

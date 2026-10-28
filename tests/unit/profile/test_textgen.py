@@ -4,10 +4,15 @@ from __future__ import annotations
 
 import pytest
 
-from worldmock.agents.life_persona import persona_layer
-from worldmock.input_models import Relationship, Situation, Tastes
-from worldmock.profile.models import PERSONA_CARD_HANZI_BUDGET, HabitSignature, TimeAnchors, persona_card_struct
-from worldmock.profile.textgen import (
+from worldmock.agents.prompt.life_persona import persona_layer
+from worldmock.configuration.inputs.models import Relationship, Situation, Tastes
+from worldmock.configuration.persona.persona_card import (
+    PERSONA_CARD_HANZI_BUDGET,
+    HabitSignature,
+    TimeAnchors,
+    persona_card_struct,
+)
+from worldmock.configuration.persona.persona_text import (
     RenderBudgetExceededError,
     count_hanzi,
     hour_text,
@@ -71,7 +76,7 @@ def test_render_carries_card_content():
 
 def test_over_budget_card_raises_honestly():
     """@brief 超预算是输入侧问题：如实抛错，不静默截断。"""
-    from worldmock.profile import textgen
+    from worldmock.configuration.persona import persona_text as textgen
     original = textgen.PERSONA_CARD_HANZI_BUDGET
     textgen.PERSONA_CARD_HANZI_BUDGET = 10
     try:

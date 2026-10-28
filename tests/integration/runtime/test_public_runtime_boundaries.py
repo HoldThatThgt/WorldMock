@@ -12,17 +12,17 @@ from tests.data_paths import ENVIRONMENT_ROOT
 from tests.integration.runtime.current_contract_fixtures import ROOT, inputs, profile, metadata_service
 from tests.life.conftest import StubPlanDayClient, stage_day_plan
 from tests.life.environment_runtime import settle_decision
-from worldmock.agents.life_context import persona_card_text
-from worldmock.agents.life_continuation import tool_message
-from worldmock.agents.life_persona import persona_layer, readonly_layers, write_prompt_snapshot
-from worldmock.errors import EnvironmentInputError, IntegrityError, ProtocolError
-from worldmock.life.narration import RenderBudgetExceededError
-from worldmock import model_endpoint
-from worldmock.model_endpoint import credential_value, load_model_metadata, model_context_length
-from worldmock.run_setup import validate_manifest_stage_identity, validate_stage_model_identity
-from worldmock.runtime import CounterfactualRequest, PlanDayClient, ResumeRequest, RunRequest
-from worldmock.runtime import run_world, resume_world, replay_world
-from worldmock.life.models import CounterfactualIntervention
+from worldmock.agents.prompt.life_context import persona_card_text
+from worldmock.agents.protocol.life_continuation import tool_message
+from worldmock.agents.prompt.life_persona import persona_layer, readonly_layers, write_prompt_snapshot
+from worldmock.foundation.errors import EnvironmentInputError, IntegrityError, ProtocolError
+from worldmock.agents.prompt.narration import RenderBudgetExceededError
+from worldmock.configuration.model import model_metadata as model_endpoint
+from worldmock.configuration.model.model_metadata import credential_value, load_model_metadata, model_context_length
+from worldmock.runtime.framework.setup import validate_manifest_stage_identity, validate_stage_model_identity
+from worldmock.runtime.lifecycle.runner import CounterfactualRequest, PlanDayClient, ResumeRequest, RunRequest
+from worldmock.runtime.lifecycle.runner import run_world, resume_world, replay_world
+from worldmock.state.decisions.results import CounterfactualIntervention
 
 
 @pytest.mark.parametrize("value", [None, "", "  ", 17])
@@ -190,7 +190,7 @@ async def test_environment_confirmed_clock_cannot_advance_world_time(engine_fact
 
 @pytest.mark.asyncio
 async def test_real_environment_midnight_step_registers_next_plan_before_rhythm(engine_factory, monkeypatch):
-    import worldmock.runtime as runtime
+    import worldmock.runtime.lifecycle.runner as runtime
     from custom.envs.life_env import LifeEnv
 
     def overnight(persona, config):

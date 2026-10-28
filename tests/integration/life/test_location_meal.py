@@ -11,22 +11,27 @@ import pytest
 
 from tests.integration.runtime_fixtures import write_agent_workspace
 from tests.life.conftest import (
-    advance_next, advance_until_ready, conclude_request, context, do_at, pause_request, purchase, report_request,
+    advance_next,
+    advance_until_ready,
+    conclude_request,
+    context,
+    do_at,
+    pause_request,
+    purchase,
+    report_request,
     stage_errands,
 )
 from tests.life.current_world import stage_moment
 from tests.life.environment_inputs import catalog_rows, meal_environment, set_content, write_catalog_rows
-from tests.life.environment_runtime import (
-    act, act_group, events, every_five_minutes, one_hour, reach, until_ended,
-)
-from worldmock.exchange.constants import GOODS_ENERGY_KCAL
-from worldmock.footprints.checkpoint import restore_branch, snapshot_directory
-from worldmock.life.body import food_intake
-from worldmock.life.engine import LifeEngine
-from worldmock.life.errand_state import ErrandState
-from worldmock.life.models import BodyState
-from worldmock.life.purchase_offers import quote_goods
-from worldmock.life.sleep import food_utilization_efficiency
+from tests.life.environment_runtime import act, act_group, events, every_five_minutes, one_hour, reach, until_ended
+from worldmock.exchange_engine.definitions.constants import GOODS_ENERGY_KCAL
+from worldmock.recording_engine.storage.checkpoint import restore_branch, snapshot_directory
+from worldmock.simulation_engine.body.body import food_intake
+from worldmock.simulation_engine.engine import LifeEngine
+from worldmock.state.planning.errands import ErrandState
+from worldmock.state.world.agent import BodyState
+from worldmock.simulation_engine.commerce.purchase.purchase_offers import quote_goods
+from worldmock.simulation_engine.body.sleep import food_utilization_efficiency
 
 #: 能量上限（千卡）。
 CAP = 2400

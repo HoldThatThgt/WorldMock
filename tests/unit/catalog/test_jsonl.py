@@ -5,10 +5,10 @@ from pathlib import Path
 import pytest
 from pydantic import Field, StrictInt
 
-from worldmock.base_models import DeepFrozenModel
-from worldmock.catalog.errors import RegistrationError
-from worldmock.catalog.loader import parse_catalog_lines, read_catalog_rows
-from worldmock.catalog.models import MapEdge, TravelMethod
+from worldmock.foundation.models import DeepFrozenModel
+from worldmock.resource_engine.registration.errors import RegistrationError
+from worldmock.resource_engine.catalog.loader import parse_catalog_lines, read_catalog_rows
+from worldmock.resource_engine.catalog.models import MapEdge, TravelMethod
 
 
 class CatalogRow(DeepFrozenModel):

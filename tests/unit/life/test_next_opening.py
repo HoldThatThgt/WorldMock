@@ -12,12 +12,20 @@ from datetime import date, datetime
 import pytest
 
 from tests.life.prerequisite_inputs import (
-    CLOCK, CLOCK_HOURS, WORKDAYS, app_content, dingtalk_environment, weekday_hours,
+    CLOCK,
+    CLOCK_HOURS,
+    WORKDAYS,
+    app_content,
+    dingtalk_environment,
+    weekday_hours,
 )
-from worldmock.catalog.loader import load_catalog
-from worldmock.catalog.models import OpeningHours
-from worldmock.life.content_prerequisite import (
-    NEXT_OPENING_DAYS, app_prerequisite_refusal, app_time_state, time_phrase,
+from worldmock.resource_engine.catalog.loader import load_catalog
+from worldmock.resource_engine.catalog.models import OpeningHours
+from worldmock.simulation_engine.observation.wording.content_prerequisite import (
+    NEXT_OPENING_DAYS,
+    app_prerequisite_refusal,
+    app_time_state,
+    time_phrase,
 )
 
 HOURS = "08:00–10:00, 17:00–20:00"

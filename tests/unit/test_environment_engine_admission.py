@@ -10,17 +10,17 @@ import pytest
 
 from tests.life.conftest import MAIN_TOOL, SIDE_TOOL, context, purchase, tool_of, travel, use_app
 from tests.life.environment_runtime import act
-from worldmock.life.activity_control import open_activities
-from worldmock.life.action_contract import binding_action
-from worldmock.life.admission import Blocked, Call, Context, group_refusal
-from worldmock.life.guidance import Refusal
-from worldmock.life.models import (
-    ActivityKind, ActivityState, ActivityStatus, AgentState, BodyState,
-    SessionKind, SessionState, SessionStatus, WorldState, WORLD_SCHEMA_VERSION,
-)
-from worldmock.life.name_resolution import name_book, resolve_start, sleep_row
-from worldmock.life.schedule import WakeSnapshot, evaluate_wake_reasons
-from worldmock.life.world_ops import place_names
+from worldmock.simulation_engine.activities.lifecycle.activity_control import open_activities
+from worldmock.state.interaction.actions import binding_action
+from worldmock.simulation_engine.actions.admission import Blocked, Call, Context, group_refusal
+from worldmock.simulation_engine.observation.wording.guidance import Refusal
+from worldmock.state.world.kinds import ActivityKind, ActivityStatus, SessionKind, SessionStatus
+from worldmock.state.world.activity import ActivityState
+from worldmock.state.world.agent import AgentState, BodyState, SessionState
+from worldmock.state.world.world import WorldState, WORLD_SCHEMA_VERSION
+from worldmock.simulation_engine.actions.name_resolution import name_book, resolve_start, sleep_row
+from worldmock.state.planning.schedule import WakeSnapshot, evaluate_wake_reasons
+from worldmock.simulation_engine.world.world_updates import place_names
 
 _SLEEP_REASON = "Sleep requires the second activity slot to be empty."
 
@@ -168,7 +168,7 @@ def test_sleep_requires_an_empty_second_slot(action, kind, step):
 @pytest.mark.parametrize("call", [app_call(), purchase_call("Bread")])
 def test_sleep_blocks_second_slot_start_until_its_own_end(call):
     state = occupied(running("sleep", ActivityKind.SLEEP, "first"))
-    from worldmock.life.admission import _sleep_refusal
+    from worldmock.simulation_engine.actions.admission import _sleep_refusal
 
     current = Context(state, 1, open_activities(state, 1), {"home": "Home"})
     assert _sleep_refusal(current, None, call) == Blocked(Refusal("RESOURCE_CONFLICT", _SLEEP_REASON), (SIDE_TOOL,))

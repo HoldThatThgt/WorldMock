@@ -1,14 +1,18 @@
 """事后读取视图：只去掉表里的庞大载荷，事后读取会读的键一个不少，任何形状都不抛错。"""
+from worldmock.state.model.exchange import is_action_request as _decision_start_is_action_request
+from worldmock.state.model.exchange import request_tool_names as _decision_start_request_tool_names
 
 import json
 
 import pytest
 
-from worldmock.evaluation import behavior_metrics, errand_metrics
-from worldmock.footprints import quality
-from worldmock.footprints.models import Event, canonical_json
-from worldmock.footprints.post_run import DROPPED_PAYLOADS, post_run_row, post_run_view
-from worldmock.life import decision_start
+from tools.analysis.behavior import metrics as behavior_metrics
+from worldmock.recording_engine.reports import errand_metrics
+from worldmock.recording_engine.reports import quality
+from worldmock.recording_engine.events.models import Event
+from worldmock.foundation.serialization import canonical_json
+from worldmock.recording_engine.export.post_run import DROPPED_PAYLOADS, post_run_row, post_run_view
+from worldmock.simulation_engine.decisions import decision_start
 
 #: 观察在视图里去掉的八个键（逐字写出）。
 EIGHT_KEYS = {"activity_bindings", "persona_views", "tool_layer", "interaction_bindings", "catalog_bindings",
@@ -167,14 +171,14 @@ def _history_messages():
 def test_request_outline_keeps_every_call_class(request_body):
     for event_type in ("model_request", "model_response"):
         outline = _reduced(event_type, {"phase": "request", "request": request_body})["request"]
-        assert decision_start.is_action_request(outline) == decision_start.is_action_request(request_body)
-        assert decision_start.request_tool_names(outline) == decision_start.request_tool_names(request_body)
+        assert _decision_start_is_action_request(outline) == _decision_start_is_action_request(request_body)
+        assert _decision_start_request_tool_names(outline) == _decision_start_request_tool_names(request_body)
         assert _roles(outline) == _roles(request_body)
         assert quality._call_class({"request": outline}) == quality._call_class({"request": request_body})
         if isinstance(request_body, dict):
             assert {key: value for key, value in outline.items() if key not in {"messages", "tools"}} == {
                 key: value for key, value in request_body.items() if key not in {"messages", "tools"}}
-    assert decision_start.request_tool_names(_request()) == ["start_main_activity", "start_side_activity"]
+    assert _decision_start_request_tool_names(_request()) == ["start_main_activity", "start_side_activity"]
 
 
 def _roles(request):

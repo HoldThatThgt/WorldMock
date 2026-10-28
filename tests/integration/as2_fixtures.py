@@ -7,13 +7,13 @@
 """
 
 from __future__ import annotations
-import worldmock.run_setup as worldmock_run_setup_module
+import worldmock.runtime.framework.setup as worldmock_run_setup_module
 
 import hashlib
 from pathlib import Path
 from uuid import uuid4
 
-import worldmock.runtime as runtime
+import worldmock.runtime.lifecycle.runner as runtime
 
 #: 临时 AS2 包的缺省内容：含非 Python 文件，以及必须排除在摘要之外的 __pycache__ 文件。
 FAKE_AS2_FILES = {

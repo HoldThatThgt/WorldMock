@@ -4,9 +4,9 @@ import importlib
 import json
 import logging
 
-from worldmock.agents import life_truncation
-from worldmock.agents.life_feedback import FEEDBACK_INSTRUCTION, feedback_content, report_content
-from worldmock.life.error_contract import ErrorItem, host_report
+from worldmock.agents.protocol import life_truncation
+from worldmock.agents.protocol.life_feedback import FEEDBACK_INSTRUCTION, feedback_content, report_content
+from worldmock.state.interaction.errors import ErrorItem, host_report
 
 
 def test_reimporting_the_truncation_module_writes_no_error_log_and_keeps_the_fixed_content(caplog):

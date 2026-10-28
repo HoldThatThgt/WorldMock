@@ -1,7 +1,7 @@
 <a name="index-worldmock-文档入口"></a>
 # WorldMock 文档入口
 
-WorldMock 模拟数字人的生活，保存可追溯的数字足迹，提供完整导出与真实性评估。
+WorldMock 模拟数字人的生活，保存可追溯的数字足迹，提供完整导出与行为分析。
 当前系统按模块维护在 `design/`；配置和操作步骤在 `manual/`；开发过程与历史证据在 `dev/`。
 
 ```mermaid
@@ -26,7 +26,7 @@ flowchart LR
 | [模拟引擎](design/04-simulation-engine.md) | 工具接口、共享时钟、活动、交易、计划与事务 |
 | [记录引擎](design/05-recording-engine.md) | 事件、素材、事务、检查点、认证导出与查看器 |
 | [人物](design/06-agent.md) | 画像、记忆、七层提示、模型请求和纠错 |
-| [行为评估](design/07-evaluation.md) | 指标、对比、盲评、报告与结论边界 |
+| [行为评估](design/07-evaluation.md) | 保留行为与工作统计、工具归属和缺失说明 |
 | [配置](design/08-configuration.md) | 单人人设、工作安排、运行配置、模型身份与加载检查 |
 | [状态与序列化](design/09-io-formats.md) | 世界与人物状态、严格字段和编码规则 |
 | [运行与框架集成](design/10-runtime.md) | AgentSociety 装配、生命周期、命令行、安装和恢复 |
@@ -46,7 +46,7 @@ HTML 是阅读附件，只从模块正文生成，不直接编辑、不进入版
 | 准备环境 | [设计环境数据集](manual/resources.md#resources-设计环境数据集) |
 | 理解固定规则 | [规则配置](manual/rules.md) |
 | 安装、运行和恢复 | [运行配置](manual/runtime.md) |
-| 比较与评审 | [真实性评估](manual/evaluation.md) |
+| 行为与工作统计 | [行为分析](manual/evaluation.md) |
 
 ## 开发记录
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from worldmock.life.tool_groups import expand_tool_layer
+from worldmock.agents.prompt.tool_groups import expand_tool_layer
 
 import copy
 import json
@@ -25,12 +25,12 @@ from agentsociety2.agent.base import ReactLoopRequest
 from agentsociety2.agent.base import agent_runtime
 from agentsociety2.society import DecisionContext
 from custom.agents import life_agent
-from worldmock.agents import life_prompt
+from worldmock.agents.prompt import life_prompt
 from custom.agents.life_agent import LifeAgent
-from worldmock.agents.life_persona import persona_layer
-from worldmock.life.models import REQUEST_MODELS
-from worldmock.life import prompt_capacity
-from worldmock.life.narration import render_layer_json
+from worldmock.agents.prompt.life_persona import persona_layer
+from worldmock.state.interaction.requests import REQUEST_MODELS
+from worldmock.agents.prompt import prompt_capacity
+from worldmock.agents.prompt.narration import render_layer_json
 from tests.life.conftest import MAIN_TOOL, SIDE_TOOL
 
 

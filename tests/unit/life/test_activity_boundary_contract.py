@@ -2,17 +2,23 @@
 
 import pytest
 
-from worldmock.life.activity_control import open_activities
-from worldmock.errors import BusinessRuleError
-from worldmock.life import activity_control, same_moment, sessions
-from worldmock.life.activities import (
-    ActivityOrigin, ActivityStartParams, advance_activity_shared, change_activity, start_activity as create_activity,
+from worldmock.simulation_engine.activities.lifecycle.activity_control import open_activities
+from worldmock.foundation.errors import BusinessRuleError
+from worldmock.simulation_engine.activities.lifecycle import activity_control, sessions
+from worldmock.simulation_engine.decisions import same_moment
+from worldmock.simulation_engine.activities.lifecycle.activities import (
+    ActivityOrigin,
+    ActivityStartParams,
+    advance_activity_shared,
+    change_activity,
+    start_activity as create_activity,
     truncate_activity,
 )
-from worldmock.life.body import BodySettlement
-from worldmock.life.models import (
-    ActionReceipt, ActivityChange, ActivityStatus, ChangeActivityRequest, PendingAction, SameMomentStage, StoredAction,
-)
+from worldmock.simulation_engine.body.body import BodySettlement
+from worldmock.state.decisions.results import ActionReceipt
+from worldmock.state.world.kinds import ActivityChange, ActivityStatus, SameMomentStage
+from worldmock.state.interaction.requests import ChangeActivityRequest
+from worldmock.state.decisions.state import PendingAction, StoredAction
 
 MAIN_TOOL, SIDE_TOOL = "start_main_activity", "start_side_activity"
 

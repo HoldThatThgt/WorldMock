@@ -4,11 +4,11 @@ import json
 
 import pytest
 
-from worldmock.catalog.admission import validate_map
-from worldmock.catalog.errors import RegistrationError
-from worldmock.catalog.identity import refresh_manifest_identity
-from worldmock.catalog.loader import load_catalog, validate_catalog_files
-from worldmock.footprints.models import canonical_json
+from worldmock.resource_engine.registration.admission import validate_map
+from worldmock.resource_engine.registration.errors import RegistrationError
+from worldmock.resource_engine.catalog.identity import refresh_manifest_identity
+from worldmock.resource_engine.catalog.loader import load_catalog, validate_catalog_files
+from worldmock.foundation.serialization import canonical_json
 
 
 @pytest.mark.parametrize("change", ["bytes", "digest", "size", "missing", "manifest_hash"])

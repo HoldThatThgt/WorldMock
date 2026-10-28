@@ -6,9 +6,14 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from worldmock.input_models import WorkSchedule
-from worldmock.life.work_schedule import (
-    WEEKDAY_NAMES, day_arrangement, duty, duty_status, shift_on, tomorrow,
+from worldmock.configuration.inputs.models import WorkSchedule
+from worldmock.configuration.persona.work_schedule import (
+    WEEKDAY_NAMES,
+    day_arrangement,
+    duty,
+    duty_status,
+    shift_on,
+    tomorrow,
 )
 
 #: 上海时区（算例与样例环境的运行配置时区）。
@@ -138,3 +143,15 @@ def test_tomorrow_adds_a_calendar_day_across_a_daylight_saving_change(zone, mome
     （星期日、休息日）；那一天只有 23 小时，在时刻上加 86,400 秒会落到再下一天（星期一）。"""
     now = int(moment.replace(tzinfo=ZoneInfo(zone)).timestamp())
     assert tomorrow(_holiday_schedule(), now, zone, {}) == expected
+
+
+def test_no_work_schedule_has_no_current_or_future_duty_edges():
+    """未声明工作安排的人物没有班次起止，也不产生当前或未来唤醒边界。"""
+    from types import SimpleNamespace
+    from worldmock.simulation_engine.scheduling.clock.duty_edges import duty_edges, edges_at, edge_times_after
+
+    inputs = SimpleNamespace(persona=SimpleNamespace(work_schedule=None), config=SimpleNamespace(timezone=_ZONE))
+    now = int(datetime(2026, 1, 5, 9, tzinfo=ZoneInfo(_ZONE)).timestamp())
+    assert list(duty_edges(inputs, 1, now)) == []
+    assert edges_at(inputs, 1, now) == frozenset()
+    assert edge_times_after(inputs, 1, now) == ()

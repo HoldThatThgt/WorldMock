@@ -6,7 +6,7 @@ import json
 from scripts import inspect_run
 from tests.life.conftest import do_at, stage_day_plan
 from tests.life.environment_runtime import act, observe_only
-from worldmock.footprints.models import canonical_json
+from worldmock.foundation.serialization import canonical_json
 
 
 def _run(engine, command, capsys, **arguments):

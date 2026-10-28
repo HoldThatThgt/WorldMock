@@ -5,16 +5,27 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from worldmock.life.action_contract import ACTIVITY_ACTIONS, MAIN_ACTIVITY_ACTIONS, SIDE_ACTIVITY_ACTIONS
-from worldmock.life.models import (
-    ActivityKind, ActivityState, ActivityStatus, AgentState, BodyState, ModelIdentity,
-    StartMainActivityRequest, StartSideActivityRequest, WorldState, WORLD_SCHEMA_VERSION,
+from worldmock.exchange_engine.conditions.activity_rules import (
+    ACTIVITY_ACTIONS,
+    MAIN_ACTIVITY_ACTIONS,
+    SIDE_ACTIVITY_ACTIONS,
 )
-from worldmock.life import schedule
-from worldmock.life.same_moment import RoundOutcome, budget_exhausted, round_wake_reasons
-from worldmock.life.schedule import (
-    NextDecisionQuery, WAKE_TRIGGERS, WakeSnapshot, WakeTrigger, evaluate_wake_reasons,
-    next_decision_time, wake_categories,
+from worldmock.state.world.kinds import ActivityKind, ActivityStatus
+from worldmock.state.world.activity import ActivityState
+from worldmock.state.world.agent import AgentState, BodyState
+from worldmock.state.identity import ModelIdentity
+from worldmock.state.interaction.requests import StartMainActivityRequest, StartSideActivityRequest
+from worldmock.state.world.world import WorldState, WORLD_SCHEMA_VERSION
+from worldmock.state.planning import schedule
+from worldmock.simulation_engine.decisions.same_moment import RoundOutcome, budget_exhausted, round_wake_reasons
+from worldmock.state.planning.schedule import (
+    NextDecisionQuery,
+    WAKE_TRIGGERS,
+    WakeSnapshot,
+    WakeTrigger,
+    evaluate_wake_reasons,
+    next_decision_time,
+    wake_categories,
 )
 
 
@@ -254,9 +265,9 @@ def test_exact_six_round_budget(rounds, active, pending, exhausted):
 def test_social_growth_is_the_value_written_in_the_persona_table(growth):
     """社交需要每小时增长直接取人设表的值，身体初值原样带着它；0.02 到 0.10 之外的值在加载时被拒绝。"""
     from tests.life.persona_inputs import persona_document, persona_with
-    from worldmock.input_models import PersonaConfig
-    from worldmock.life.body import initial_body
-    from worldmock.life.body_config import assemble_body_config
+    from worldmock.configuration.inputs.models import PersonaConfig
+    from worldmock.simulation_engine.body.body import initial_body
+    from worldmock.simulation_engine.body.body_config import assemble_body_config
 
     persona = persona_with(social_need_growth_per_hour=growth)
     assert initial_body(assemble_body_config(persona), 8.0, persona).social_need_growth_per_hour == growth

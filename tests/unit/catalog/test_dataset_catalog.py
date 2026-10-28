@@ -8,11 +8,11 @@ import shutil
 
 import pytest
 
-from worldmock.catalog.errors import RegistrationError
-from worldmock.catalog.identity import refresh_manifest_identity
-from worldmock.catalog.loader import load_catalog, validate_catalog_files
-from worldmock.catalog.mapgen import generate_map
-from worldmock.life.randomness import random_stream
+from worldmock.resource_engine.registration.errors import RegistrationError
+from worldmock.resource_engine.catalog.identity import refresh_manifest_identity
+from worldmock.resource_engine.catalog.loader import load_catalog, validate_catalog_files
+from worldmock.resource_engine.map.mapgen import generate_map
+from worldmock.foundation.randomness import random_stream
 
 
 FIXTURE = Path(__file__).parents[2] / "fixtures" / "dataset-environment" / "catalog"
@@ -100,7 +100,7 @@ def test_catalog_indexes_expand_exact_kinds_and_keep_app_goods_separate():
 def test_pure_catalog_validation_does_not_require_or_generate_a_map(monkeypatch):
     def forbidden(*args):
         raise AssertionError("Pure catalog validation must not generate a map")
-    monkeypatch.setattr("worldmock.catalog.loader.generate_map", forbidden)
+    monkeypatch.setattr('worldmock.resource_engine.catalog.loader.generate_map', forbidden)
     validate_catalog_files(FIXTURE)
 
 

@@ -9,11 +9,11 @@ from tests.footprints.recording import artifact_rows
 from tests.life.conftest import conclude_request, do_at, errand_add, purchase, travel, use_app
 from tests.life.environment_runtime import act, finish_activity, reach, run_to_end
 from tests.life.prerequisite_inputs import OFFICE, dingtalk_environment, example_window, moment
-from worldmock.errors import IntegrityError
-from worldmock.footprints.checkpoint import restore_branch
-from worldmock.footprints.export import export_run
-from worldmock.footprints.models import AssetRef
-from worldmock.footprints.validation import validate_export
+from worldmock.foundation.errors import IntegrityError
+from worldmock.recording_engine.storage.checkpoint import restore_branch
+from worldmock.recording_engine.export.export import export_run
+from worldmock.recording_engine.events.models import AssetRef
+from worldmock.recording_engine.validation.validation import validate_export
 
 
 @pytest.fixture

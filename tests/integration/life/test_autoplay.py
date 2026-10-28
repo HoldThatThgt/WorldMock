@@ -9,20 +9,34 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from tests.life.conftest import (
-    action_identity, advance_next, conclude_request, context, do_at, pause_request, report_request, sleep,
-    stage_day_plan, target_tools, travel, use_app,
+    action_identity,
+    advance_next,
+    conclude_request,
+    context,
+    do_at,
+    pause_request,
+    report_request,
+    sleep,
+    stage_day_plan,
+    target_tools,
+    travel,
+    use_app,
 )
 from tests.life.environment_inputs import (
-    bilibili_series_rows, copy_environment, meal_environment, office_stretch_environment, second_series_environment,
+    bilibili_series_rows,
+    copy_environment,
+    meal_environment,
+    office_stretch_environment,
+    second_series_environment,
     set_content,
 )
 from tests.life.environment_runtime import act, act_group, events, one_hour, run_to_end, settle_decision, until_ended
 from tests.life.phone_records import label_where
 from tests.life.prerequisite_inputs import OFFICE, add_rows, dingtalk_environment, example_window
-from worldmock.life.admission import present_location
-from worldmock.life.content_select import ContentRequest, select_content
-from worldmock.life.randomness import random_stream
-from worldmock.life.sessions import current_session
+from worldmock.simulation_engine.actions.admission import present_location
+from worldmock.simulation_engine.activities.content.content_select import ContentRequest, select_content
+from worldmock.foundation.randomness import random_stream
+from worldmock.simulation_engine.activities.lifecycle.sessions import current_session
 
 ZONE = ZoneInfo("Asia/Shanghai")
 

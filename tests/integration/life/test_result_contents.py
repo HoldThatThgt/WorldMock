@@ -7,14 +7,30 @@ import pytest
 
 from tests.integration.start_interfaces.test_location_activities import dinner_environment  # noqa: F401
 from tests.life.conftest import (
-    SIDE_TOOL, advance_until_ready, conclude_request, do_at, pause_request, progress_calls, purchase, travel, use_app,
+    SIDE_TOOL,
+    advance_until_ready,
+    conclude_request,
+    do_at,
+    pause_request,
+    progress_calls,
+    purchase,
+    travel,
+    use_app,
 )
 from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
 from tests.life.environment_runtime import (
-    act, events, every_five_minutes, finish_activity, observe_only, one_hour, reach, run_to_end, until_ended,
+    act,
+    events,
+    every_five_minutes,
+    finish_activity,
+    observe_only,
+    one_hour,
+    reach,
+    run_to_end,
+    until_ended,
 )
-from worldmock.life.readable import duration_phrase
-from worldmock.life.result_projection import public_result
+from worldmock.foundation.time.readable import duration_phrase
+from worldmock.simulation_engine.observation.layers.result_projection import public_result
 
 
 def _row(title: str, duration: str, finished: bool) -> dict:

@@ -13,9 +13,9 @@ from tests.dayrun_baseline import deterministic_day_runtime
 from tests.integration.runtime import native_runtime_fixtures as fixtures
 from tests.integration.runtime.current_contract_fixtures import ROOT
 from tests.integration.runtime.native_runtime_fixtures import native_runtime  # noqa: F401
-from worldmock.footprints.models import canonical_json
-from worldmock.footprints.store import FootprintStore
-from worldmock.runtime import RunRequest, run_world
+from worldmock.foundation.serialization import canonical_json
+from worldmock.recording_engine.storage.store import FootprintStore
+from worldmock.runtime.lifecycle.runner import RunRequest, run_world
 
 
 def _read_run(run_dir):

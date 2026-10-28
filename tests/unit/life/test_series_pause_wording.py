@@ -12,12 +12,13 @@ import pytest
 from tests.frozen_inputs import fixture_metadata
 from tests.life.environment_inputs import meal_environment
 from tests.unit.test_environment_engine_admission import occupied, running
-from worldmock.life.activity_control import open_activities
-from worldmock.environment import load_environment
-from worldmock.life import activity_control
-from worldmock.life.admission import Context
-from worldmock.life.guidance import Refusal
-from worldmock.life.models import ActivityKind, ContentProgress
+from worldmock.simulation_engine.activities.lifecycle.activity_control import open_activities
+from worldmock.configuration.inputs.environment import load_environment
+from worldmock.simulation_engine.activities.lifecycle import activity_control
+from worldmock.simulation_engine.actions.admission import Context
+from worldmock.simulation_engine.observation.wording.guidance import Refusal
+from worldmock.state.world.kinds import ActivityKind
+from worldmock.state.world.agent import ContentProgress
 
 _NAME = "进行做晚饭（1月5日 08:00 起）"
 #: 会接下一集时的三句。

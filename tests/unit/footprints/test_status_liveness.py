@@ -10,13 +10,14 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-import worldmock.footprints.store as store_module
+import worldmock.recording_engine.storage.store as store_module
 from tests.text_encoding import default_encoding_reads
-from worldmock import status
-from worldmock.errors import IntegrityError
-from worldmock.footprints.models import EventDraft, canonical_json
-from worldmock.footprints.store import FootprintStore
-from worldmock.status import DriverHeartbeat, failure_message, read_status, write_status
+from worldmock.runtime.monitoring import status
+from worldmock.foundation.errors import IntegrityError
+from worldmock.recording_engine.events.models import EventDraft
+from worldmock.foundation.serialization import canonical_json
+from worldmock.recording_engine.storage.store import FootprintStore
+from worldmock.runtime.monitoring.status import DriverHeartbeat, failure_message, read_status, write_status
 
 
 class _At(datetime):
@@ -89,7 +90,7 @@ def test_failure_message_unwraps_groups_and_ray_causes():
 
 def test_cli_failure_writes_the_root_cause_into_status(tmp_path, monkeypatch):
     """运行失败时 cli 在 status.json 写类型名与一行根因：异常链的类型名到达 error_message。"""
-    import worldmock.runtime as runtime
+    import worldmock.runtime.lifecycle.runner as runtime
     from worldmock.cli import main
 
     output = tmp_path / "run"
@@ -241,7 +242,7 @@ def test_heartbeat_write_failure_is_logged_and_beating_continues(tmp_path, monke
 _BEATING_CHILD = """
 import sys, time
 from pathlib import Path
-from worldmock import status
+from worldmock.runtime.monitoring import status
 status.HEARTBEAT_INTERVAL_SECONDS = 0.2
 with status.DriverHeartbeat(Path(sys.argv[1])):
     time.sleep(60)

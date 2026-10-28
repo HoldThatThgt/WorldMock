@@ -7,8 +7,8 @@ import pytest
 
 from tests.footprints.recording import artifact_rows, write_manifest, write_rows
 from tests.integration.footprints.test_acs_export import real_export
-from worldmock.errors import IntegrityError
-from worldmock.footprints.validation import validate_export
+from worldmock.foundation.errors import IntegrityError
+from worldmock.recording_engine.validation.validation import validate_export
 
 
 @pytest.fixture
@@ -108,7 +108,7 @@ def test_tampered_events_with_an_invalid_line_report_the_hash_first(complete_exp
 
 
 def test_events_changed_between_the_two_reads_are_rejected(complete_export, monkeypatch, caplog):
-    from worldmock.footprints import validation
+    from worldmock.recording_engine.validation import validation
 
     original = validation._authenticated_events
     path = complete_export / "events.jsonl"

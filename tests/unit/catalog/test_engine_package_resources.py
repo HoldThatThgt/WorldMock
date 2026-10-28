@@ -1,7 +1,7 @@
 """@brief 目录的文件集合与夹具字节：固定规则只在引擎代码里，不随目录发布。"""
 
-from worldmock.catalog.identity import OPTIONAL_CATALOG_FILES, REQUIRED_CATALOG_FILES
-from worldmock.catalog.loader import load_catalog
+from worldmock.resource_engine.catalog.identity import OPTIONAL_CATALOG_FILES, REQUIRED_CATALOG_FILES
+from worldmock.resource_engine.catalog.loader import load_catalog
 
 
 def test_catalog_has_four_required_files_three_optional_names_and_no_engine_rule_copies(catalog_dir):

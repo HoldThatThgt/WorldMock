@@ -1,0 +1,42 @@
+"""@brief 身体动力学常数与四种资源元信息的唯一定义。"""
+
+from dataclasses import dataclass, field
+from types import MappingProxyType
+from typing import Mapping
+
+from worldmock.foundation.models import CurvePoint
+from worldmock.exchange_engine.ledger.ledger_models import Conservation, ResourceMeta
+
+
+@dataclass(frozen=True)
+class BodyConstants:
+    """@brief 系统固定的身体参数，不从环境加载系数。"""
+
+    #: 能量池上限，单位千卡。
+    maximum_energy_kcal: int = 2400
+    #: 开始饥饿的能量阈值。
+    hunger_threshold_kcal: int = 800
+    #: 紧急饥饿的能量阈值。
+    emergency_threshold_kcal: int = 400
+    #: 活动键对应的固定代谢当量：出行取自带步行的 walking 或数据集出行方式声明的体力档位。
+    activity_met: Mapping[str, float] = field(default_factory=lambda: MappingProxyType({
+        "sleep": 0.95, "walking": 3.5, "purchase": 1.0, "query": 1.0,
+        "idle": 1.0, "light": 1.5, "moderate": 2.0, "heavy": 5.0,
+    }))
+    #: 每清醒小时增加的放松需要。
+    relaxation_need_per_awake_hour: float = 0.08
+    #: 睡眠债小时对应的食品利用比例曲线。
+    food_efficiency_curve: tuple[CurvePoint, ...] = (
+        CurvePoint(input_value=0, output_value=0.9), CurvePoint(input_value=8, output_value=0.9),
+        CurvePoint(input_value=16, output_value=0.85), CurvePoint(input_value=24, output_value=0.8),
+    )
+
+
+BODY_CONSTANTS = BodyConstants()
+RESOURCE_METAS = MappingProxyType({
+    "money_fen": ResourceMeta("money_fen", "account", Conservation.CLOSED),
+    "energy_kcal": ResourceMeta("energy_kcal", "level", Conservation.OPEN, 0, BODY_CONSTANTS.maximum_energy_kcal),
+    "sleep_deficit_hours": ResourceMeta("sleep_deficit_hours", "level", Conservation.OPEN, 0, 24),
+    "relaxation_need": ResourceMeta("relaxation_need", "level", Conservation.OPEN, 0, 1),
+    "social_need": ResourceMeta("social_need", "level", Conservation.OPEN, 0, 1),
+})

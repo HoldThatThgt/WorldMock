@@ -8,12 +8,23 @@ import pytest
 
 from tests.integration.runtime.current_contract_fixtures import ToolResponse, decide
 from tests.life.conftest import (
-    advance_until_ready, conclude_request, context, do_at, last_result, pause_request, purchase, sleep, stage_day_plan,
-    target_actions, target_tools, travel, use_app,
+    advance_until_ready,
+    conclude_request,
+    context,
+    do_at,
+    last_result,
+    pause_request,
+    purchase,
+    sleep,
+    stage_day_plan,
+    target_actions,
+    target_tools,
+    travel,
+    use_app,
 )
 from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
 from tests.life.environment_runtime import act, events, finish_activity
-from worldmock.life import activity_control
+from worldmock.simulation_engine.activities.lifecycle import activity_control
 
 #: 夹具里绑定到家的「测试休息」时长 900 秒。
 _REST_SECONDS = 900

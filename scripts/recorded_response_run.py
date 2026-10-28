@@ -806,8 +806,7 @@ def finish(plan: Plan, work: Path, project: Path, report: dict) -> None:
     entry = {"check": "not_applicable", "cutoff": manifest["cutoff_event_seq"], "dir": str(work / "export"),
              "error": None}
     if cutoff is None:
-        check = [sys.executable, "-P", "-c", "import sys; from pathlib import Path; from worldmock.footprints."
-                 "validation import validate_export; validate_export(Path(sys.argv[1]))", str(work / "export")]
+        check = [sys.executable, "-P", "-c", 'import sys; from pathlib import Path; from worldmock.recording_engine.validation.validation import validate_export; validate_export(Path(sys.argv[1]))', str(work / "export")]
         checked = _child_command(check, project, plan.api_key_env, work / "logs" / "export-check.log")
         entry["check"] = "passed" if checked.returncode == 0 else "failed"
         if checked.returncode != 0:

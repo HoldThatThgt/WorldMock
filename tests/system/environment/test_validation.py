@@ -7,7 +7,7 @@ import pytest
 from tests.life.environment_inputs import catalog_rows, travel_method_row, walking_only, write_catalog_rows
 from tests.life.prerequisite_inputs import CLOCK, CLOCK_PREREQUISITE
 from tests.system.cli.test_cli import _command, published_environment
-from worldmock.catalog.identity import refresh_manifest_identity
+from worldmock.resource_engine.catalog.identity import refresh_manifest_identity
 
 
 def report(root):

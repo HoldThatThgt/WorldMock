@@ -135,32 +135,16 @@ def _node_status() -> tuple[str | None, bool]:
     return node_version, result.returncode == 0
 
 
-def _chinese_font_available(root: Path) -> bool:
-    """@brief 在根虚拟环境子进程调用生产字体选择器，保持宿主导入边界。"""
-    python = environment_python(root / ".venv")
-    code = "from worldmock.evaluation.reporting import _chinese_font; _chinese_font()"
-    try:
-        result = subprocess.run([str(python), "-c", code], cwd=root, capture_output=True,
-                                text=True, timeout=30, check=False)
-    except (OSError, subprocess.TimeoutExpired) as error:
-        logging.error("Chinese chart font capability check failed: %s", error)
-        return False
-    if result.returncode != 0:
-        logging.error("Chinese chart font capability check failed: %s", result.stderr.strip())
-    return result.returncode == 0
 
 
 def component_status(root: Path) -> dict:
-    """@brief 核对查看器 SQLite 与评估字体的实际能力及缺失集合。"""
+    """@brief 核对查看器 SQLite的实际能力及缺失集合。"""
     node_version, node_sqlite_available = _node_status()
-    chinese_chart_font_available = _chinese_font_available(root)
     missing = []
     if not node_sqlite_available:
         missing.append("Node")
-    if not chinese_chart_font_available:
-        missing.append("Chinese font")
     return {"node_version": node_version, "node_sqlite_available": node_sqlite_available,
-            "chinese_chart_font_available": chinese_chart_font_available, "missing_components": missing}
+            "missing_components": missing}
 
 
 def require_profile(status: dict, profile: str) -> None:

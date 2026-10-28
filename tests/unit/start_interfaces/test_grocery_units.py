@@ -12,14 +12,19 @@ import pytest
 from tests.life.conftest import MAIN_TOOL, advance_until_ready, context, do_at, pause_request, travel
 from tests.life.environment_inputs import grocery_environment
 from tests.life.environment_runtime import act
-from worldmock.life.activity_control import open_activities
-from worldmock.life.action_contract import binding_action
-from worldmock.life.admission import Blocked, Call, Context, group_refusal
-from worldmock.life.guidance import Refusal
-from worldmock.life.location_activities import location_units, locked_refusal, unit_binding, unit_locked
-from worldmock.life.models import StartMainActivityRequest
-from worldmock.life.name_resolution import NameBook, Option, Target, name_book, resolve_start
-from worldmock.life.world_ops import place_names
+from worldmock.simulation_engine.activities.lifecycle.activity_control import open_activities
+from worldmock.state.interaction.actions import binding_action
+from worldmock.simulation_engine.actions.admission import Blocked, Call, Context, group_refusal
+from worldmock.simulation_engine.observation.wording.guidance import Refusal
+from worldmock.simulation_engine.activities.content.location_activities import (
+    location_units,
+    locked_refusal,
+    unit_binding,
+    unit_locked,
+)
+from worldmock.state.interaction.requests import StartMainActivityRequest
+from worldmock.simulation_engine.actions.name_resolution import NameBook, Option, Target, name_book, resolve_start
+from worldmock.simulation_engine.world.world_updates import place_names
 
 #: 收到扑克牌能开放「做饭」时，照写它得到的原因。
 LOCKED_REASON = "做饭 is not available now; receiving 扑克牌 makes it available."

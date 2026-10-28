@@ -9,15 +9,28 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from tests.unit.life.test_environment_commerce import environment, pending, runtime, world  # noqa: F401
-from worldmock.life import basket
-from worldmock.life.basket import activity_orders, build_orders, order_payment, quoted_basket
-from worldmock.life.order_routing import payment_order_key, payment_orders
-from worldmock.life.purchase_offers import order_app, quote_goods
-from worldmock.life.purchase_phases import (
-    ORDERING, PAYMENT, OrderPayment, PurchasePhase, activity_phases, foreground_events, order_payments,
-    purchase_seconds, split_phases,
+from worldmock.simulation_engine.commerce.purchase import basket
+from worldmock.simulation_engine.commerce.purchase.basket import (
+    activity_orders,
+    build_orders,
+    order_payment,
+    quoted_basket,
 )
-from worldmock.life.randomness import random_stream
+from worldmock.state.world.order_keys import payment_order_key
+from worldmock.simulation_engine.commerce.purchase.order_routing import payment_orders
+from worldmock.simulation_engine.commerce.purchase.purchase_offers import order_app, quote_goods
+from worldmock.simulation_engine.commerce.purchase.purchase_phases import (
+    ORDERING,
+    PAYMENT,
+    OrderPayment,
+    PurchasePhase,
+    activity_phases,
+    foreground_events,
+    order_payments,
+    purchase_seconds,
+    split_phases,
+)
+from worldmock.foundation.randomness import random_stream
 
 #: 购买开始时刻；例子里的钟点都写成相对它的秒数。
 START = 1_000_000

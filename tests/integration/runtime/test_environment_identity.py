@@ -8,10 +8,10 @@ from tests.footprints.recording import artifact_rows
 from tests.engine_fixture import engine_factory
 from tests.integration.runtime.current_contract_fixtures import inputs, metadata_service
 from tests.life.conftest import context
-from worldmock.environment import environment_identity, load_environment
-from worldmock.errors import IntegrityError
-from worldmock.life.engine import LifeEngine
-from worldmock.life.run_identity import require_environment_identity
+from worldmock.configuration.inputs.environment import environment_identity, load_environment
+from worldmock.foundation.errors import IntegrityError
+from worldmock.simulation_engine.engine import LifeEngine
+from worldmock.simulation_engine.world.run_identity import require_environment_identity
 from tests.frozen_inputs import fixture_metadata
 
 
@@ -46,7 +46,7 @@ def test_retired_or_unknown_run_manifest_versions_are_rejected(engine_factory, v
 def test_run_whose_stored_manifest_carries_the_previous_structure_number_cannot_be_opened(engine_factory, caplog):
     """磁盘上的运行清单写着上一版结构号 6 时，打开这个运行在存储打开之后、读世界状态之前就被拒绝，并留下英文错误日志；
     把清单写回 7 后同一个目录照常打开。"""
-    from worldmock.footprints.models import canonical_json
+    from worldmock.foundation.serialization import canonical_json
 
     engine = engine_factory()
     store, frozen = engine.context.store, engine.context.inputs
@@ -78,7 +78,7 @@ def test_open_rejects_changed_persona_without_mutating_original_run(engine_facto
 
 
 def test_export_carries_exact_frozen_environment_and_readable_inputs(engine_factory, tmp_path):
-    from worldmock.footprints.export import export_run
+    from worldmock.recording_engine.export.export import export_run
     engine = engine_factory()
     from tests.life.conftest import stage_day_plan, do_at, advance_next
     from tests.life.environment_runtime import act
@@ -108,7 +108,7 @@ def _environment(root, files):
     不放或放零行时夹具的三种方式都没有登记，导航 app 改为只绑定自带的步行。
     """
     from tests.life.environment_inputs import catalog_rows, write_catalog_rows
-    from worldmock.catalog.identity import refresh_manifest_identity
+    from worldmock.resource_engine.catalog.identity import refresh_manifest_identity
 
     if not root.exists():
         shutil.copytree(inputs().root, root)
@@ -148,8 +148,8 @@ def test_parent_run_published_under_another_environment_identity_cannot_be_opene
 def test_complete_run_with_any_optional_files_passes_export_certification(engine_factory, tmp_path, files):
     """带与不带各可选文件的运行都走完新建、检查点和导出，冻结素材跟随清单并通过导出自查。"""
     from tests.footprints.recording import recorded_engine
-    from worldmock.footprints.export import export_run
-    from worldmock.footprints.validation import validate_export
+    from worldmock.recording_engine.export.export import export_run
+    from worldmock.recording_engine.validation.validation import validate_export
 
     root = _environment(tmp_path / "input", files)
     engine, point = recorded_engine(lambda mutate: engine_factory(root, mutate=mutate))
@@ -225,7 +225,7 @@ def test_declared_distance_value_moves_both_digests_and_row_whitespace_only_the_
 
 def test_frozen_generated_map_matches_the_memory_map_and_is_not_the_declaration_file(engine_factory, tmp_path):
     """运行目录里的 map.json 是整张生成结果的规范字节；catalog/map.jsonl 按原字节另行冻结。"""
-    from worldmock.catalog.mapgen import map_bytes
+    from worldmock.resource_engine.map.mapgen import map_bytes
 
     engine = engine_factory(_environment(tmp_path / "input", {"map.jsonl": MAP_ROW}))
     store, catalog = engine.context.store, engine.context.catalog

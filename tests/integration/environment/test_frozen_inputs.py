@@ -11,9 +11,9 @@ import pytest
 from tests.data_paths import ENVIRONMENT_ROOT
 from tests.frozen_inputs import FrozenInputs, assert_deeply_immutable, input_digest, object_digest
 from tests.life.environment_inputs import walking_only
-from worldmock.catalog.identity import refresh_manifest_identity
-from worldmock.catalog.mapgen import map_bytes
-from worldmock.errors import IntegrityError
+from worldmock.resource_engine.catalog.identity import refresh_manifest_identity
+from worldmock.resource_engine.map.mapgen import map_bytes
+from worldmock.foundation.errors import IntegrityError
 
 MAP_ROW = b'{"a":"home","b":"office","length_m":12600}\n'
 

@@ -16,7 +16,7 @@ from custom.envs.life_env import LifeEnv
 from tests.integration.runtime.current_contract_fixtures import profile as current_profile
 from tests.integration.runtime.test_life_agent_protocol import _ModelResponse, _TextResponse
 from tests.life.conftest import MAIN_TOOL, advance_next, context, main_arguments
-from worldmock.life.activity_control import is_pending_conclusion
+from worldmock.simulation_engine.activities.lifecycle.activity_control import is_pending_conclusion
 
 REFLECTION_TOOL = "submit_reflection"
 #: 记忆巩固的脚本回答。

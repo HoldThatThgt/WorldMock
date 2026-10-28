@@ -6,10 +6,11 @@ from types import SimpleNamespace
 
 import pytest
 
-import worldmock.footprints.store as store_module
-from worldmock.errors import IntegrityError
-from worldmock.footprints.models import Event, EventDraft, canonical_json, sha256_json
-from worldmock.footprints.store import FootprintStore
+import worldmock.recording_engine.storage.store as store_module
+from worldmock.foundation.errors import IntegrityError
+from worldmock.recording_engine.events.models import Event, EventDraft
+from worldmock.foundation.serialization import canonical_json, sha256_json
+from worldmock.recording_engine.storage.store import FootprintStore
 
 INITIAL = {"version": 0, "current_time": 100, "accounts": {"agent:1": 100, "external:scenario": -100}}
 MANIFEST = {"run_id": "run", "agent_ids": [1]}

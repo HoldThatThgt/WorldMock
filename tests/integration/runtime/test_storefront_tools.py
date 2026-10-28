@@ -3,8 +3,8 @@ import pytest
 from pydantic import ValidationError
 from tests.engine_fixture import engine_factory
 from tests.life.conftest import MAIN_TOOL, context, main_arguments, side_arguments
-from worldmock.life.models import StartMainActivityRequest, StartSideActivityRequest
-from worldmock.life.prompt_schemas import validate_layer
+from worldmock.state.interaction.requests import StartMainActivityRequest, StartSideActivityRequest
+from worldmock.agents.prompt.prompt_schemas import validate_layer
 
 
 def test_real_goods_targets_validate_against_the_production_tool_layer_schema(engine_factory):

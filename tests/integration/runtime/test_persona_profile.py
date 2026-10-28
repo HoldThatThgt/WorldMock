@@ -11,10 +11,10 @@ os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
 os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
-from worldmock.input_models import PersonaConfig
+from worldmock.configuration.inputs.models import PersonaConfig
 from tests.integration.runtime.current_contract_fixtures import inputs, profile as current_profile
 from tests.integration.runtime.native_runtime_fixtures import native_runtime  # noqa: F401
-from worldmock.run_setup import creation_inputs
+from worldmock.runtime.framework.setup import creation_inputs
 
 
 SCENARIO = ENVIRONMENT_ROOT
@@ -43,7 +43,7 @@ def _declared_environment(tmp_path, **values):
 def _loaded(root):
     """按真实完整环境加载一个环境根。"""
     from tests.frozen_inputs import fixture_metadata
-    from worldmock.environment import load_environment
+    from worldmock.configuration.inputs.environment import load_environment
 
     return load_environment(root, metadata_loader=fixture_metadata)
 
@@ -55,10 +55,10 @@ def _declared_inputs(tmp_path, **values):
 
 def test_frozen_persona_identity_reaches_the_native_agent_prompt_as_the_persona_layer():
     """@brief 夹具人设表经宿主人设层与提示组装保留散文，不依赖其他用例的旧世界观察。"""
-    from worldmock.agents.life_persona import persona_layer
-    from worldmock.agents.life_prompt import life_user_layers, system_message
-    from worldmock.profile.models import persona_card
-    from worldmock.profile.textgen import render_card
+    from worldmock.agents.prompt.life_persona import persona_layer
+    from worldmock.agents.prompt.life_prompt import life_user_layers, system_message
+    from worldmock.configuration.persona.persona_card import persona_card
+    from worldmock.configuration.persona.persona_text import render_card
 
     frozen = inputs()
     card = persona_card(frozen.persona)
@@ -89,8 +89,8 @@ def test_relationship_channels_reach_the_persona_layer_as_the_dataset_wrote_them
     重复的词不去重，工作区里的结构化卡片通过恢复核对。"""
     from tests.life.environment_inputs import copy_environment
     from tests.life.persona_inputs import edit_persona
-    from worldmock.agents.life_persona import persona_layer
-    from worldmock.runtime import _validate_persona_card_struct
+    from worldmock.agents.prompt.life_persona import persona_layer
+    from worldmock.runtime.lifecycle.runner import _validate_persona_card_struct
 
     def mutate(document):
         document["relationships"][0]["channels"] = ["飞书", "邮件", "飞书"]
@@ -120,8 +120,8 @@ def test_deleted_template_fields_stay_out_of_documents(field):
 
 def test_initial_agent_state_and_profile_do_not_keep_numeric_tastes():
     """@brief 真实初态与工作区输入均无口味权重；严格模型也拒绝重新注入旧字段。"""
-    from worldmock.life.models import AgentState
-    from worldmock.life.world_setup import _initial_agent
+    from worldmock.state.world.agent import AgentState
+    from worldmock.simulation_engine.world.world_setup import _initial_agent
 
     frozen = inputs()
     state = _initial_agent(frozen, int(frozen.config.start_time.timestamp()))
@@ -136,8 +136,8 @@ def test_initial_agent_state_and_profile_do_not_keep_numeric_tastes():
                                                               "persona_card_struct": None}])
 def test_restored_persona_profile_rejects_retired_taste_weights(profile):
     """@brief 恢复时直接拒绝旧数值口味，即使没有结构化卡片也不保留。"""
-    from worldmock.errors import IntegrityError
-    from worldmock.runtime import _validate_persona_card_struct
+    from worldmock.foundation.errors import IntegrityError
+    from worldmock.runtime.lifecycle.runner import _validate_persona_card_struct
 
     with pytest.raises(IntegrityError, match="retired taste weights"):
         _validate_persona_card_struct(profile, inputs().persona)
@@ -170,8 +170,8 @@ def _tampered(struct: dict, kind: str) -> object:
 def test_restored_card_must_equal_the_card_built_from_the_frozen_persona(tmp_path, kind):
     """@brief 恢复只留一条核对：工作区里的结构化卡片必须与用冻结的 persona.toml 重新构造出的卡片逐值相等；
     取整过的时段、平移过的就寝、别的睡眠需要、改过的关系习惯或应对方式、多出的字段、缺失或损坏的卡片都停止恢复。"""
-    from worldmock.errors import IntegrityError
-    from worldmock.runtime import _validate_persona_card_struct
+    from worldmock.foundation.errors import IntegrityError
+    from worldmock.runtime.lifecycle.runner import _validate_persona_card_struct
 
     declared = _declared_inputs(tmp_path, **DECLARED)
     profile = creation_inputs(declared)[0][0]["profile"]
@@ -186,8 +186,8 @@ def test_restored_card_must_equal_the_card_built_from_the_frozen_persona(tmp_pat
 
 def test_a_card_frozen_for_another_persona_table_does_not_restore(tmp_path):
     """@brief 同一份工作区卡片换一份人设表就不相等：夹具人物的卡片不能恢复到改过作息的人设表上。"""
-    from worldmock.errors import IntegrityError
-    from worldmock.runtime import _validate_persona_card_struct
+    from worldmock.foundation.errors import IntegrityError
+    from worldmock.runtime.lifecycle.runner import _validate_persona_card_struct
 
     declared = _declared_inputs(tmp_path, **DECLARED)
     with pytest.raises(IntegrityError, match="Restored persona card differs from persona.toml"):
@@ -199,8 +199,8 @@ async def _created_run(tmp_path, native_runtime, run_id: str, **declared):
     """经真实的运行创建路径（run_world、原生 Society 与工作区）用改过人设表的环境新建一次运行。"""
     from tests.integration.runtime.current_contract_fixtures import ROOT
     from tests.life.persona_inputs import declare
-    from worldmock.footprints.store import FootprintStore
-    from worldmock.runtime import RunRequest, run_world
+    from worldmock.recording_engine.storage.store import FootprintStore
+    from worldmock.runtime.lifecycle.runner import RunRequest, run_world
 
     root, _, models = native_runtime
     declare(root, **declared)
@@ -247,9 +247,9 @@ async def test_new_run_makes_no_model_request_for_the_persona_and_shows_the_tabl
     人物自己的决策；落库的零点计划请求里午饭、到家、就寝时段是人设表写的同一分钟；工作区里的卡片、清单的习惯反应文本
     都来自人设表，运行能从检查点恢复。"""
     from tests.integration.runtime.current_contract_fixtures import ROOT
-    from worldmock import model_endpoint
-    from worldmock.profile.models import persona_card, persona_card_struct
-    from worldmock.runtime import ResumeRequest, resume_world
+    from worldmock.configuration.model import model_metadata as model_endpoint
+    from worldmock.configuration.persona.persona_card import persona_card, persona_card_struct
+    from worldmock.runtime.lifecycle.runner import ResumeRequest, resume_world
 
     def refuse(*arguments, **keywords):
         raise AssertionError("No model request may be made for the persona card")
@@ -292,9 +292,9 @@ async def test_memory_prompts_carry_the_card_text_rendered_from_the_persona_tabl
     from custom.agents.life_agent import LifeAgent
     from datetime import datetime, timezone
     from types import SimpleNamespace
-    from worldmock.agents.life_memory import WorldMockMemoryRuntime
-    from worldmock.profile.models import persona_card
-    from worldmock.profile.textgen import render_card
+    from worldmock.agents.memory.life_memory import WorldMockMemoryRuntime
+    from worldmock.configuration.persona.persona_card import persona_card
+    from worldmock.configuration.persona.persona_text import render_card
 
     declared = _declared_inputs(tmp_path, **DECLARED)
     profile = creation_inputs(declared)[0][0]["profile"]
@@ -326,7 +326,7 @@ async def test_memory_prompts_carry_the_card_text_rendered_from_the_persona_tabl
 def test_midnight_plan_input_reads_the_persona_table(tmp_path, engine_factory):
     """@brief 零点计划这一处：真实引擎装配的计划输入里，人物段的背景、午饭、下班、到家、晚饭、就寝时段是
     persona.toml 的原值，分钟与人设层相同；没有写的下班、到家、健康习惯与社交风格不出现。"""
-    from worldmock.life.day_plan_inputs import plan_inputs
+    from worldmock.simulation_engine.scheduling.plans.day_plan_inputs import plan_inputs
 
     story = "林舟住在公司附近，喜欢去江边散步。"
     engine = engine_factory(environment_root=_declared_environment(tmp_path, **DECLARED, background_story=story,
@@ -345,9 +345,9 @@ def test_midnight_plan_input_reads_the_persona_table(tmp_path, engine_factory):
 def test_body_reads_meal_windows_sleep_rhythm_and_social_growth_from_the_persona_table(tmp_path, engine_factory):
     """@brief 身体这一处：真实引擎的饭点窗口、困意用的睡眠中点、欠觉用的睡眠需要和社交需要增长率都是 persona.toml
     的原值；饭点加成恰在写的午饭、晚饭时段里出现，清醒一小时社交需要长的就是写的那个量。"""
-    from worldmock.life import felt
-    from worldmock.life.body import settle_shared_body
-    from worldmock.life.body_config import assemble_body_config
+    from worldmock.simulation_engine.body.body import felt
+    from worldmock.simulation_engine.body.body import settle_shared_body
+    from worldmock.simulation_engine.body.body_config import assemble_body_config
 
     engine = engine_factory(environment_root=_declared_environment(tmp_path, **DECLARED))
     windows = engine.meal_windows_by_agent()[1]
@@ -367,8 +367,8 @@ def test_evaluation_reads_the_work_windows_from_the_persona_table(tmp_path):
     记早 10 分钟；没有写这两个时段的夹具人物偏离为空。写成大于 24 的时段按钟面读，与人设层显示的时刻相同：
     下班 [25.0, 25.5]、到家 [25.75, 26.25] 的人物凌晨 01:10 离开、01:50 到家都准时，前一晚 23:50 离开记早 70 分钟。"""
     from tests.integration.evaluation.test_workload_metrics import CODE, ZONE, _Events, _at
-    from worldmock.evaluation.behavior_metrics import behavior_metrics_report
-    from worldmock.evaluation.workload_metrics import workday_inputs
+    from tools.analysis.behavior.metrics import behavior_metrics_report
+    from tools.analysis.behavior.workday import workday_inputs
 
     def deviation(workday, clock: str):
         events = _Events()
@@ -407,7 +407,7 @@ def test_evaluation_reads_the_work_windows_from_the_persona_table(tmp_path):
 
 def _persona_rhythm(loaded) -> dict:
     """由加载好的环境经真实工作区输入构造的人设层作息。"""
-    from worldmock.agents.life_persona import persona_layer
+    from worldmock.agents.prompt.life_persona import persona_layer
 
     profile = creation_inputs(loaded)[0][0]["profile"]
     return persona_layer(profile, loaded.persona.name, {"relationships": [], "preferences": []})["rhythm"]
@@ -419,9 +419,9 @@ async def test_a_table_whose_card_text_exceeds_the_budget_is_refused_before_a_ru
     PERSONA_INVALID 拒绝，原因写出实际的汉字数；新建运行在创建运行目录之前就停下。"""
     from tests.frozen_inputs import fixture_metadata
     from tests.integration.runtime.current_contract_fixtures import ROOT
-    from worldmock.errors import EnvironmentInputError
-    from worldmock.runtime import RunRequest, run_world
-    from worldmock.validation import validate_environment
+    from worldmock.foundation.errors import EnvironmentInputError
+    from worldmock.runtime.lifecycle.runner import RunRequest, run_world
+    from worldmock.configuration.inputs.validation import validate_environment
 
     long_tastes = {"content_genres": ["纪" * 300, "录" * 300], "food_preferences": ["川菜"], "media": ["长视频"]}
     root = _declared_environment(tmp_path, tastes=long_tastes)
@@ -454,8 +454,8 @@ def test_formerly_rejected_windows_reach_the_persona_layer_and_the_plan_as_writt
         tmp_path, engine_factory, declared, layer, plan):
     """@brief 修订前被成对关系、上界或跨度拒绝的时段，现在通过加载并照写的样子到达人物：人设层和卡片文本按钟面写到分钟
     （大于 24 的小时数对一天取模），零点计划写同一分钟，卡片里存的仍是原值；引擎不替作者挪动或纠正任何时段。"""
-    from worldmock.agents.life_persona import persona_layer
-    from worldmock.life.day_plan_inputs import plan_inputs
+    from worldmock.agents.prompt.life_persona import persona_layer
+    from worldmock.simulation_engine.scheduling.plans.day_plan_inputs import plan_inputs
 
     root = _declared_environment(tmp_path, **declared)
     loaded = _loaded(root)

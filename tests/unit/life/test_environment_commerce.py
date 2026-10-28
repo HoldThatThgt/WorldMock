@@ -9,26 +9,33 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from worldmock.life.activity_control import open_activities
-from worldmock.catalog.models import Goods, Location, OpeningHours
-from worldmock.environment import load_environment
-from worldmock.errors import BusinessRuleError, IntegrityError, PreconditionError
-from worldmock.input_models import ModelMetadata
-from worldmock.life.action_contract import binding_action
-from worldmock.life.admission import Blocked, Call, Context, group_refusal
-from worldmock.life.basket import activity_orders, delivery_events, quoted_basket
-from worldmock.life.body_config import assemble_body_config
-from worldmock.life.commerce import deliver_order
-from worldmock.life.guidance import refusal_for_code
-from worldmock.life.models import ActivityStatus, AgentState, BodyState, WorldState, WORLD_SCHEMA_VERSION
-from worldmock.life.order_notices import (delivered_notices, goods_names, goods_text, shipped_notice,
-                                          shipping_delay_seconds)
-from worldmock.life.parcel import collect_parcels
-from worldmock.life.purchase_offers import courier_offer, delivery_offer, quote_goods
-from worldmock.life.purchase_phases import advance_phases, phase_boundaries
-from worldmock.life.randomness import random_stream
-from worldmock.life.receipt import settle_receipt
-from worldmock.life.storefront_runtime import StorefrontRuntime
+from worldmock.simulation_engine.activities.lifecycle.activity_control import open_activities
+from worldmock.resource_engine.catalog.models import Goods, Location, OpeningHours
+from worldmock.configuration.inputs.environment import load_environment
+from worldmock.foundation.errors import BusinessRuleError, IntegrityError, PreconditionError
+from worldmock.configuration.inputs.models import ModelMetadata
+from worldmock.state.interaction.actions import binding_action
+from worldmock.simulation_engine.actions.admission import Blocked, Call, Context, group_refusal
+from worldmock.simulation_engine.commerce.purchase.basket import activity_orders, delivery_events, quoted_basket
+from worldmock.simulation_engine.body.body_config import assemble_body_config
+from worldmock.simulation_engine.commerce.fulfillment.commerce import deliver_order
+from worldmock.simulation_engine.observation.wording.guidance import refusal_for_code
+from worldmock.state.world.kinds import ActivityStatus
+from worldmock.state.world.agent import AgentState, BodyState
+from worldmock.state.world.world import WorldState, WORLD_SCHEMA_VERSION
+from worldmock.simulation_engine.commerce.fulfillment.order_notices import (
+    delivered_notices,
+    goods_names,
+    goods_text,
+    shipped_notice,
+)
+from worldmock.exchange_engine.commerce.shipping import shipping_delay_seconds
+from worldmock.simulation_engine.commerce.fulfillment.parcel import collect_parcels
+from worldmock.simulation_engine.commerce.purchase.purchase_offers import courier_offer, delivery_offer, quote_goods
+from worldmock.simulation_engine.commerce.purchase.purchase_phases import advance_phases, phase_boundaries
+from worldmock.foundation.randomness import random_stream
+from worldmock.simulation_engine.commerce.fulfillment.receipt import settle_receipt
+from worldmock.simulation_engine.commerce.purchase.storefront_runtime import StorefrontRuntime
 
 
 @pytest.fixture
