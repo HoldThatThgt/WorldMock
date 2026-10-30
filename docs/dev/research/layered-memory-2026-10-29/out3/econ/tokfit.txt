@@ -1,0 +1,7 @@
+coef {'cjk': np.float64(0.7087), 'cjkp': np.float64(0.9551), 'alnum': np.float64(0.1082), 'asciip': np.float64(0.6573), 'other': np.float64(-2.3023), 'per_msg': np.float64(-8.0432), 'T0': np.float64(5754.7983)}
+abs err mean 90.3  p90 199.9 max 421.0  rel mean 0.0044
+fresh single-ratio fit: tokens = 6222.0 + 0.4317*chars ; abs err mean 407.7
+user chars mean 29525, implied tok/char (class model) 0.4491
+class share {'cjk': np.float64(0.272), 'cjkp': np.float64(0.025), 'alnum': np.float64(0.408), 'asciip': np.float64(0.293), 'other': np.float64(0.002)}
+system 3377 chars [2170, 253, 702, 252, 0] class-model tokens 2021
+tools 11221 chars [1432, 195, 6067, 3527, 0] class-model tokens 4176

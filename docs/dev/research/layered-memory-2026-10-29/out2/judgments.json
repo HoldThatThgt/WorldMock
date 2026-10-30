@@ -1,0 +1,326 @@
+[
+ {
+  "lens": "contracts",
+  "scores": [
+   {
+    "design": "deterministic",
+    "score": 8,
+    "strengths": [
+     "Best contract fit of the three. It adds no event kind, call class, ModelConfig field, quality bump or AS2 patch. It reuses the existing reflection seam: pure due_reflection at evidence/memory.py:13-34, the 2-key `reflection` binding that quality pins at quality.py:589-595, and the `names==[submit_reflection]` call class at quality.py:795-812. Its claims about these seams match the code.",
+     "Facts are never model-written at any tier. 事实 is rebuilt from committed events. 感想 must cite at least one own-note id, and the host computes its category, so verified and subjective stay strictly apart.",
+     "Its snapshot change sits in the right place. valid_subjective_snapshot (state/model/memory.py:30-38) gets an optional category on reflection snapshots, and legacy snapshots stay valid. AS2 MemoryUpdateEvidence.episodes is tuple[dict[str,str]] (react.py:118), so a string category fits. memory_updated data is cut out by LabelKit anyway (export_source.py:355-357).",
+     "Extending engine.due_reflection with day_input while registration keeps calling the pure 2-key function works: the forward is generic (read_query.py:31-33) and _reflection_registration recomputes `due` itself (evidence/model.py:173-184).",
+     "Stopping reflection records from merging fixes the case where merged text replaces an insight (life_memory_store.py:75-79).",
+     "It keeps the same-second invariant in phases 1-3: 今天 changes only at session end, 看法 is frozen at D-1, and 未到的订单 lists only orders from earlier sessions. It also states the delta phase 4 will need.",
+     "The search cap returns ok=False feedback and leaves the tool schema alone, so the tool fingerprint and the 'whole-run tool surface' rule (life_agent.py:348-352) are untouched."
+    ],
+    "flaws": [
+     "The layer reorder (人设, 记忆, 待办, 工具, …) silently breaks the positional lookups at custom/agents/life_agent.py:483 and :487. `_visible_names(data, layers[3])` would receive 工具层 instead of 待办层, and `write_prompt_snapshot(..., layers[2])` would store 待办层 as the memory layer. The change list does not mention this.",
+     "Phase 5 bumps the catalog format 5→6, but LabelKit-DataSet pins CATALOG_FORMAT_VERSION=5 exactly (LabelKit-DataSet/persona/src/labelkit_dataset/datasets/persona/export_source.py:21,589, 'Unsupported frozen catalog version'). The design still claims LabelKit is unaffected.",
+     "SearchMemoryRequest goes into a 'query-model map', but the design does not mention the fail-closed tool-surface check `_STABLE_TOOL_SURFACE` (life_env.py:29-40,126-134). It also omits `life_action_tool_names = _TOOL_MODELS - _MEMORY_TOOL_MODELS` (life_agent.py:197-199), which must change once _MEMORY_TOOL_MODELS is removed.",
+     "Episode records have a closed set of 15 fields (vendor/.../agent/memory.py:46-50), so category cannot live in episodes.jsonl. It must be attached host-side when _episode_snapshot (life_memory.py:351-359) runs. The design says only 'snapshot gains a field' and does not describe this plumbing.",
+     "Facts are attributed to 'the first decision whose observation seq ≥ e.seq'. A delivery or ending at 23:45 that the 07:30 wake decision observes is therefore filed under the new day, while the planner window (day_plan_inputs.py:109-115) files it under the old one. That makes the 'one day rule' only approximate.",
+     "Office lunch is knowingly filed under 生活 until phase 5, which weakens the categorized-memory goal for the motivating meal case.",
+     "The 3-search cap is a business counter kept in LifeAgent, which was supposed to stay thin. It is acceptable as a protocol guard, but it adds host-side state."
+    ],
+    "fatal": []
+   },
+   {
+    "design": "economy",
+    "score": 7,
+    "strengths": [
+     "Of the three, it alone catches that the layer reorder breaks the positional lookups at life_agent.py:482-487, and it moves them to lookup by name.",
+     "Today entries are published only at the first observation of a later second. That makes the 记忆层-constant-in-chain assumption (life_continuation.py:8) true by construction, with no new delta, and it never rewrites anything already shown.",
+     "Its LabelKit reading is correct. Unknown environment_event kinds are trimmed to {kind} (export_source.py:355-357). LabelKit does not check the quality schema version. It pins CATALOG_FORMAT_VERSION but does not validate catalog row fields (source.py:93-101). So an optional catalog field is invisible downstream, while a format bump would break ingest.",
+     "It keeps consolidation and reflection as zero-count call classes, and validators keep accepting refresh_summary and reflection triggers. Historical runs therefore stay exportable, which matters because export has no code-identity gate (export.py:96,169).",
+     "The digest follows the plan_day precedent exactly. It runs as an environment-side settle task on the midnight step, the checkpoint and the resume init (life_env.py:106-116,202-215,235-243; runner.py:619-671). It is recorded as an environment_event with source_kind=model (day_planning.py:162-166). Idempotence comes from the event, not an AgentState field. Reusing day_plan_validation_max_retries means no ModelConfig or manifest bump (models.py:224-225; setup.py:258-263).",
+     "The digest prompt says not to restate verified facts. That keeps 核验 and 自述 cleanly apart, better than the literal design.",
+     "It uses a separate QUERY_MODELS map instead of REQUEST_MODELS, which avoids turning search_memory into a world tool."
+    ],
+    "flaws": [
+     "It adds an optional catalog `memory_category` field with no format bump. That conflicts with docs/design/03-resource-engine.md:40-47 ('未知字段不忽略…旧格式直接拒绝', where the format number is maintained). Older WorldMock code would reject new catalogs with an unknown-field error instead of a version error. The design flags this but does not resolve it.",
+     "It keeps search_memory on the readonly Q&A path. LifeEnv.read_query requires a live round and exactly one frozen decision observation (life_env.py:158-170), and the readonly path has neither. That seam does not exist.",
+     "In-transit orders move into 待办层, but a purchase inside a same-second chain then changes 待办层 without being tracked. layer_changes covers only targets, paused activities, errands, day_plan, body, relationships and preferences (life_continuation.py:33-53). Nothing adds an orders delta or freezes the list.",
+     "The 'open threads only' rule for 进度层 removes the disjointness documented in the recording-engine projection (session_bounds.py:1-8, 'same event appears in only one of the two layers'). That doc and contract need rewriting, and they are not in the 05-recording-engine change list.",
+     "The day_digest_generated data uses Chinese keys ({饮食,工作,生活}), unlike every other event body. The new kind's closed-field validation branch in validate_environment_event (environment_events.py:24-44) is listed only under 'exact key set'.",
+     "Rendering MEMORY.md once at init changes the semantics of the analysis metric memory_md_identity_residue (tools/analysis/behavior/metrics.py:110). The design does not address this.",
+     "The P4 quality bump from 9 to 10 is acceptable, but it gates on LabelKit confirmation that the code does not need."
+    ],
+    "fatal": []
+   },
+   {
+    "design": "literal",
+    "score": 5,
+    "strengths": [
+     "Its seam choices are mostly right: search goes through the existing read_query (life_env.py:156-180), the digest follows the plan_day precedent (runner.py:619-670; time_advance.py:211-226), and the call class comes from a purpose branch (quality.py:796-799).",
+     "It is the only design that adds an explicit 在途订单 added/removed delta to the chain `changes`. It also removes the persona-layer preference and relationship deltas.",
+     "It proposes a closed-field branch for the new environment_event kind and gives a deterministic name guard (NAME_NOT_IN_RECORDS) against invented dishes.",
+     "It defines one day rule and retires both the session-end rule and the wake−1 rule. The commit-aligned midnight segment bound builds on the existing session_lower and rejected_today code (progress_layer.py:316-322).",
+     "Idempotence comes from the event, so the world schema stays at 15. It correctly notes that no AS2 patch is needed and that old runs cannot resume after the fingerprint change."
+    ],
+    "flaws": [
+     "It puts SearchMemoryRequest into REQUEST_MODELS 'like recall_task_summary'. But `_WORLD_TOOL_MODELS` is defined as REQUEST_MODELS minus recall_task_summary by name (life_agent.py:183), and the dispatcher excludes recall by name too (dispatcher.py:456). Unless both change, search_memory becomes a world request that ends the decision and is dispatched. The fail-closed `_STABLE_TOOL_SURFACE` (life_env.py:29) is also not mentioned.",
+     "The same layer-reorder index break as the deterministic design (life_agent.py:483,487) is not mentioned.",
+     "It shrinks MEMORY_WRITE_POINTS to ('activity_conclusion',), and §9 drops consolidation and reflection from CALL_CLASSES. Historical runs re-exported under new code would then fail write-point validation (quality.py:528-552). This also contradicts the design's own Phase 1 claim that the keys 'stay at zero'.",
+     "It repurposes `reflection_validation_max_retries` as the digest retry budget after retiring reflection, so a frozen identity field ends up with a misleading name.",
+     "The digest prompt tells the model to restate what was eaten or done, with names copied from the records. Model-restated facts then sit inside subjective 回顾, and the name guard cannot catch wrong times, quantities or prices.",
+     "Views leave 人设层 entirely. After the day ends, the persona's own dated, structured views survive only as an environment-side model's paraphrase, which weakens provenance and risks the amnesia the design itself flags.",
+     "It changes the semantics of recording_engine/projections/activities/session_bounds.py (the segment cut) without listing the 05-recording-engine doc change for the session definition.",
+     "It claims that 'a branch inherits digests and never regenerates them'. That is true only for events before the checkpoint; like plan_day, a branch re-runs midnight work committed after its checkpoint."
+    ],
+    "fatal": [
+     "Phase 1 requires a catalog format bump from 5 to 6 with fail-closed admission, yet the design says 'LabelKit-DataSet: no pin breaks'. LabelKit pins CATALOG_FORMAT_VERSION=5 exactly (LabelKit-DataSet/persona/src/labelkit_dataset/datasets/persona/export_source.py:21,589-590), so every export from the core phase would be rejected with 'Unsupported frozen catalog version' until LabelKit is changed in lockstep. The design also makes all five WorldMock-Dataset packages mandatory dependencies of the same change."
+    ]
+   }
+  ],
+  "graft": [
+   "From economy: publish a decision's today entries only at the first observation of a later second, so 记忆层 is constant within same-second chains by construction (life_continuation.py:8).",
+   "From economy: replace the positional layer lookups at life_agent.py:482-487 with lookups by layer name before reordering the layers.",
+   "From economy: put the search tool in a separate QUERY_MODELS map, not REQUEST_MODELS, and widen the LifeEnv.read_query type check (life_env.py:161) from that map.",
+   "From economy: keep zero-count consolidation and reflection call classes, and keep accepting legacy write points and snapshots, so old runs stay exportable (export has no code-identity gate).",
+   "From economy: the digest prompt forbids restating verified facts; times, prices and dish names stay in 核验, which is generated by code.",
+   "From economy: reuse day_plan_validation_max_retries, not a renamed or repurposed field, to avoid a run-manifest bump without a misleading name.",
+   "From economy: start with P0 measurement (a memory_pilot script) and gate any model-written digest on whether the pilot's reasoning actually cites past-day items.",
+   "From deterministic: keep the bedtime-reflection seam for the single daily subjective call, with the whole calendar day as input grouped by category; every insight must cite an own-note id; the host computes its category from the cited inputs; reflection records are never merged.",
+   "From deterministic: snapshot validation accepts an optional `category` on reflection snapshots and still accepts the legacy shape; the category is attached host-side because AS2 episode records have a closed set of 15 fields.",
+   "From deterministic: on a fourth search, return ok=False feedback instead of removing the tool, so the tool fingerprint stays fixed for the whole run.",
+   "From deterministic: list only orders placed before the current session in 待办层, or add a chain delta for them.",
+   "From literal: add an explicit 在途订单 added/removed delta to layer_changes, and remove the persona preference and relationship keys from _view and _overlay.",
+   "From literal: add a closed-field branch in validate_environment_event for any new digest kind, and a deterministic catalog-name guard on model-written paragraphs.",
+   "From literal: use one day rule (local calendar date, midnight-aligned via commit_last_seq), retiring both the session-end rule and the wake−1 rule; idempotence comes from event existence, with no AgentState field.",
+   "From literal: add the kit clause to the shared activity_sentence builder, so plan_day input and memory both name home-cooked dinners."
+  ],
+  "must_fix_in_any_design": [
+   "The layer reorder must also change custom/agents/life_agent.py:483 (`_visible_names(data, layers[3])`, which expects 待办层) and :487 (`write_prompt_snapshot(..., layers[2])`, which expects 记忆层) to lookups by name. Otherwise both break silently.",
+   "search_memory must stay a read-only query and never become a world request. _WORLD_TOOL_MODELS is REQUEST_MODELS minus recall_task_summary by name (life_agent.py:183), and dispatcher.py:456 excludes recall by name. Also update the init-time fail-closed `_STABLE_TOOL_SURFACE` (life_env.py:29-40,126-134) and `life_action_tool_names` (life_agent.py:197-199), which is defined relative to _MEMORY_TOOL_MODELS.",
+   "Search answers must come from LifeEnv.read_query, bounded by the event_seq of the decision's single frozen observation; read_query requires a live round (life_env.py:158-170). The readonly Q&A path has no round, so give it finish only or design a separate path. Do not just declare search_memory available there.",
+   "A catalog format bump breaks LabelKit, which pins CATALOG_FORMAT_VERSION=5 exactly (export_source.py:21,589). Either coordinate the bump with LabelKit or add an optional field, with an explicit ruling in docs/design/03-resource-engine.md:40-47, whose 'unknown fields rejected' rule and format number are maintained only there.",
+   "Validators and quality must keep accepting historical values: the reflection write point, the consolidation and reflection call classes, and snapshots without a category. A run exported under new code is re-authenticated (quality.py:528-595).",
+   "Any new 待办层 content (在途订单) must be tracked in layer_changes or frozen within a session. Today layer_changes covers only targets, paused activities, errands, day_plan, body, relationships and preferences (life_continuation.py:33-53). Remove relationships and preferences from _view and _overlay when they leave 人设层.",
+   "Search result payloads must not carry a top-level `result` key. life_continuation._earlier_changes uses it to tell continuation tool messages apart from query messages (life_continuation.py:115-121).",
+   "A model-written digest must be recorded, never regenerated during resume, replay or export: as environment_event data with source_kind=model and visibility=system, or as memory_updated episodes. It must also have a closed-field validation branch and be labelled subjective in the rules. Do not claim a branch 'never regenerates' work committed after its checkpoint; plan_day semantics apply.",
+   "核验 lines are produced only by code from committed events, under a single day rule. Model text (自述, 回顾, 感想, views) never enters 核验 at any tier, including month and year roll-ups.",
+   "If the per-call budget, the digest client or the catalog field changes, keep run-manifest 7, world 15, checkpoint 1 and export 8, and the closed set of 14 event types. A new ModelConfig field or a new model stage would bump the manifest (setup.py:244-263).",
+   "Same-commit doc, code and tests (docs/INDEX.md:18). This covers: the 20-rule verbatim pin, the ten-tool pins (06-agent.md:52-57, 10-runtime.md:79-91), the session_bounds disjointness doc whenever the progress/memory split changes, the two-candidate day-run refreeze, the viewer-context re-record, and real-model pilots, since recorded responses reject prompt changes."
+  ]
+ },
+ {
+  "lens": "behavior",
+  "scores": [
+   {
+    "design": "literal",
+    "score": 5.5,
+    "strengths": [
+     "Follows the owner's points most closely. It has three categories that each compact on their own (one 回顾 call per category), a day → month → year ladder with a model paragraph at each tier, search_memory(category, time), and an explicit 2×2 mapping.",
+     "The midnight segment cut fixes the overnight muddle (F1/F6). 进度层 is bounded per calendar day: the simulated variety-run median/max falls from 14.6k/42.8k to 11.5k/34.1k. Travel-arrival lines and their conclude notes now land in the same entry.",
+     "The day 回顾 is written at 00:00, before plan_day. Bedtime decisions after midnight and the next morning therefore see yesterday's subjective summary at once. In the other two designs it arrives at wake, or only in a later phase.",
+     "A required catalog memory_category field is the only correct fix for office-eat-lunch, and it carries over to sales, students and the homemaker. In V, 3 lunch taste views were concluded on office-eat-lunch, including 「番茄牛肉刀削面…以后想换口味还会再点」 (checked with judge_behavior/lunchviews.py).",
+     "Names home-cooked dinners via the kit receipt, with a 「家里原有的食材」 fallback for the 10-08 case.",
+     "Anti-hallucination name guard: any catalog name in a 回顾 must appear in the input, otherwise NAME_NOT_IN_RECORDS and a retry.",
+     "Honest labels in the teaching text: 回顾 is 「零点时按那天的记录替你写下的」. The 可查 block tells the model which dates, months and years it can search. The rule says plainly that a stay crossing midnight is counted from midnight.",
+     "Teaching is non-coercive: 「先看记忆层，不够再查…记忆只供参考，怎么安排照人设层的习惯、今日计划和你此刻的想法」. It never says to vary food. Pilot metrics report the repeat rate instead of setting a target."
+    ],
+    "flaws": [
+     "Phase 1 removes 人设层 preferences and relationship views and retires bedtime reflection while 近三天.回顾 is still null. After midnight the prompt then holds no long-term subjective memory at all; views survive only in today's 自述.",
+     "From Phase 2, views survive only by chaining paragraphs (「上一次回顾里没有被新记录推翻的看法和打算保留下来」). This drops each view's original date and repeats the same stance in up to three day-回顾 entries per category. That could recreate the 'sticky preference' failure inside narrative text. The fallback (B), a dated per-category 看法 list, should be the default.",
+     "search_memory has no keyword. Both real searches in V were multi-keyword lookups ('盒马 食材包 土豆烧牛肉'), so date-only search does not match how the model actually asks. recall_task_summary takes exact activity names, not dish names, and was used 0 times.",
+     "今天 is gated on segment end. On rest days, or any long home stay, 今天 stays empty until the persona leaves (10-11: until 14:30), and the per-round memory entry the owner asked for is not delivered for that time.",
+     "Large memory layer: 近三天 ≤9k, 今天 ≤6k, hard cap 15.2k (about 2.5× today). The 生活 day-cell budget (800) is already exceeded by measured 生活 facts (959–1,613 chars per day). There is a real risk of diluting the model's attention in single-turn decisions.",
+     "report_status notes become memory entries, keeping the latest per activity. That carries progress chatter into memory-today, against the owner's memory/progress split.",
+     "No cap on searches per decision. A search loop can exhaust the 16 turns and fail the run (life_agent.py:388-395).",
+     "It does not note that preferences already carry noted_on (memory_layer.py:139-141). The real cause is where they sit and the last-wins rule, and the design never teaches the model to check a view's date."
+    ],
+    "fatal": [
+     "Phase 1, which the design says 'alone fixes the pilot failure mode', ships with preferences and relationship views removed from 人设层 (life_persona.py:29-54, memory_layer.py:127-144), reflection retired, and 近三天.回顾 null. That removes the only long-term subjective memory channel (F9) and replaces it with nothing in the prompt, which defeats the owner's 'memory-longterm (the real one)' for that phase. Resequencing so views move into a dated in-prompt block in the same phase would fix it."
+    ]
+   },
+   {
+    "design": "deterministic",
+    "score": 6,
+    "strengths": [
+     "Strongest fact fidelity: every fact tier is rebuilt from committed events, and the model never writes a fact. Cells are tight (≤6 lines, ≤300 chars), with meals given priority, so past meals are visible and named without bloating the prompt.",
+     "Best teaching text. Rule 3 gives concrete uses for each kind of decision: 「选吃什么，看看最近几顿吃了什么、当时觉得怎样」, 「照某条看法做之前，看看它是哪天记的、后来有没有变」. It balances them with 「照旧、重复还是换一换都可以，照人设层的习惯和你现在的想法选」. That directly counters the stale-preference failure without forcing variety.",
+     "Phase 3 moves views into an in-prompt 看法 block: dated (记于), deduped by normalised containment, budgeted (≤2.3k) and frozen at D-1. This is the most reliable way to keep long-term preferences visible and correctable.",
+     "Each tier has its own cap, so 前三天 can never be evicted by 今天. That fixes the evening trimming of reflections (F6).",
+     "The retargeted reflection reads the whole calendar day grouped by category. Every 感想 must cite at least one own-note id, which grounds it in what the persona wrote. Days with no notes skip the call, which fixes the reflection B filed under 10-07.",
+     "Keyword search with AND across space-separated terms fixes why the two V searches failed. A cap of 3 searches per decision, enforced with ok=False feedback, prevents a turn-exhaustion failure.",
+     "Persona-agnostic work rule (5): on duty at any place other than home counts as 工作, which covers sales visits. It uses 'last 3 dates with work' for 工作, and adds a week tier that fills the day-4-to-month gap."
+    ],
+    "flaws": [
+     "office-eat-lunch is filed under 生活 until optional Phase 5 (D5). In V, 3 lunch taste views were concluded on office-eat-lunch, including the motivating 「番茄牛肉刀削面…以后想换口味还会再点」. Under the design's own rules they land in 看法.生活 and 今天 生活, not next to 前三天.饮食. Its own example showing that view under 看法.饮食 contradicts its rule table.",
+     "今天 is gated on session end until Phase 4. Rest-day and overnight home stays leave 今天 empty, and 进度层 stays the bloated store of yesterday evening plus this morning (F7: 23–45.6k chars on 10-11) for three phases. Before wake, evening facts appear both in 进度层 and in the D-1 digest.",
+     "No per-category compacted paragraph. The daily subjective layer is at most 2 one-sentence 感想 per category from a single cross-category call, with the category chosen by majority vote of the cited inputs. That is weaker than the owner's 'each compacts on its own into a paragraph'.",
+     "感想 arrives at wake, so between 00:00 and wake, and for plan_day, the D-1 cell has no subjective content. The rule text calls them 「那天睡前写下的」, which is inaccurate: a separate call writes them after waking.",
+     "Phases 1–2 keep the undated-in-practice preferences in 人设层. The Phase 1 rule text still tells the model to use the old memory tools (「可以用记忆查询工具找自己写过的记录」), whose single-substring search is known to be broken (F10).",
+     "The pilot sets an outcome target of '≤1 of 4' repeated lunches. That conflicts with its own R1 ('judge success on informed choices, not forced variety') and invites tuning the prompt toward variety.",
+     "The homemaker has no duty, so 工作 is empty and 生活 absorbs chores, school runs, neighbour chats and media. Students' self-study outside duty hours lands in 生活."
+    ],
+    "fatal": []
+   },
+   {
+    "design": "economy",
+    "score": 7.5,
+    "strengths": [
+     "Phases are ordered by behavioural benefit. P1 is fully deterministic: it puts past-day 核验 per category into the prompt, moves reflections into a budgeted 近几天 so they are no longer trimmed by evening, names kit dinners, moves open orders to 待办层, and cuts pre-midnight closed records from 进度层. That alone covers four of the five observed failures.",
+     "P2 delivers the owner's literal 'every round becomes a memory entry for today', independent of sessions. An entry is published at the first observation of a later second, which keeps 记忆层 byte-identical inside same-second chains (life_continuation.py:8) and works for rest days and home-bound personas.",
+     "Views move to 记忆层.长期: dated (写于), deduped by containment or bigram Jaccard, budgeted per category, and refreshed only at midnight. Today's views show immediately in 今天, so long-term preferences stay visible but no longer sit in the identity layer.",
+     "Search follows how the model actually asks: category, a date / range / month / year, a multi-term AND keyword, and a limit, with the overflow counted in 未列出.",
+     "office-eat-lunch gets an explicit 饮食 override. Each package gets a coverage report of derived categories, so dataset authors can fix sales and student rows.",
+     "It flags its main interpretive deviation to the owner (D2: closed facts become memory-today labelled 核验, progress keeps only open threads) instead of hiding it.",
+     "The model-written daily digest (P4) is gated on P3 evidence of whether reasoning cites 回顾. That avoids computation with no proven behavioural payoff, matching 'without drowning in computation'.",
+     "Pilot metrics treat repeat rates as directional and use the citation rate (M3) as the mechanism check, so nothing pushes toward forced variety. Teaching is concise and non-coercive: 「拿主意前可以先看看相关的记忆…记忆只供参考，怎么选照人设层和此刻的感受决定」."
+    ],
+    "flaws": [
+     "Slimming 进度层 to open threads (P2) removes the closed tool_call records the model uses today for immediate continuity. Deliveries and results older than the previous decision exist only in 今天 entries. R1 is acknowledged, but no fallback is specified, such as keeping the last N closed results for one more decision.",
+     "Plain memories (想记住的) are excluded from 今天. The P4 digest prompt forbids restating dishes and prices, so the paragraph can become vague affect with no anchors. And 自述 labels both the persona's own words and the digest call's output as 「你当时写下的」, which is inaccurate.",
+     "One digest call covers all three categories, a deviation from 'each compacts on its own'. Month and year tiers are virtual for runs under two months, a deviation from the owner's ladder. Both are defensible on the 30-day calendar but should go to the owner as explicit decisions.",
+     "Until P4, 反思 still arrives at wake, so between 00:00 and wake yesterday's evening 自述 is invisible. That hits late-sleeper personas hardest: 0005 bedtime runs to 01:00, 0002 to 00:30.",
+     "The P1 interim rule mixes the English earlier_today key with Chinese 「近几天」, and P1 still lists preferences in 人设层. A required `limit` parameter adds friction in a regime where 402 of 406 decisions are single-turn.",
+     "No cap on searches per decision.",
+     "An optional catalog field without a format bump may conflict with the fail-closed catalog admission policy (D4 leaves this unconfirmed). The work rule (on duty and at the workplace kind) still needs overrides for sales and for students' library self-study.",
+     "The 0:00 boundary for post-midnight bedtime activity is not explained in the rule text."
+    ],
+    "fatal": []
+   }
+  ],
+  "graft": [
+   "Economy's publication rule: a per-round 今天 entry appears at the first observation of a later second, whatever the session state. That delivers the owner's 'every round becomes a memory entry' and keeps chains invariant. Add a softener: 进度层 keeps the closed results of the previous decision for one more decision.",
+   "Deterministic rule 3 teaching text nearly verbatim: concrete use cases per decision type, 「照某条看法做之前，看看它是哪天记的、后来有没有变」 and 「照旧、重复还是换一换都可以」.",
+   "Literal's 可查 block (earliest date, months and years available) for discoverability. Its honest label 「替你写下的回顾」 for model-written digests. Its explicit midnight sentence (「跨过零点的停留或路程从零点记起」).",
+   "A dated, deduped, budgeted in-prompt 看法/长期 block with relationship views, frozen at midnight (deterministic and economy), instead of literal's paragraph-chaining. Show each view once, with its original date.",
+   "Optional keyword search, multi-term AND (deterministic and economy), alongside the owner's (category, time). Plus economy's date-range form.",
+   "Deterministic's cap of 3 searches per decision, enforced with ok=False feedback.",
+   "Literal's catalog memory_category (fail-closed, format bump), with economy's derived-rule coverage report used as the proposal generator and cross-check.",
+   "Grounding guards for any model-written memory: literal's NAME_NOT_IN_RECORDS name guard, and deterministic's rule that every subjective line cites at least one own-note id.",
+   "Kit-dinner naming from the last reset-goods receipt before the dinner started, with a 「家里原有的食材」 fallback (all three).",
+   "Write the daily compaction at 00:00, before plan_day (literal and economy), so post-midnight decisions and the planner see it. Do not write it at wake.",
+   "For 工作, use the last 3 days that have work records (all three).",
+   "Economy's sequencing: deterministic facts first (P1), with the model digest gated on measured citation of 回顾.",
+   "Pilot success measured by informed choices, meaning reasoning or summaries citing dishes or dates shown in memory (economy M3, literal), with repeat rates reported but never targeted.",
+   "report_status summaries stay progress: only the latest per open activity, in 进度层 (deterministic and economy)."
+  ],
+  "must_fix_in_any_design": [
+   "Never remove 人设层 preferences or relationship views in a phase that does not also add a dated, budgeted in-prompt replacement. Otherwise long-term subjective memory disappears from single-turn decisions.",
+   "Memory-today must not wait for a session to end. On rest days and long home stays (homemaker, WFH, the 10-11 home stay to 14:30), 今天 would otherwise stay empty and 进度层 would remain the unbounded yesterday-plus-morning store (F7).",
+   "office-eat-lunch, and any other row with no food signal, must file under 饮食 before the food pilot. In V, 3 lunch taste views (including 「番茄牛肉刀削面…以后想换口味还会再点」) and the lunch conclude notes are attached to office-eat-lunch.",
+   "search_memory must accept an optional multi-term keyword. Both observed model searches were multi-keyword, and date-only lookup will rarely be used when 402 of 406 decisions are single-turn. Put the decision-critical memory (today plus the last 3 days plus dated views) in the prompt, not behind search.",
+   "Bound searches per decision so a query loop cannot exhaust max_react_turns and fail the run (life_agent.py:388-395).",
+   "Define the 00:00-to-sleep window and teach it. Late sleepers (0005 bedtime up to 01:00, 0002 up to 00:30) must still see yesterday evening's own notes before the first sleep or wake: either a digest written at 00:00, or yesterday's last entries with 自述 kept until wake.",
+   "Keep 核验 as the only fact label. Label every model-written digest as written on the persona's behalf, not as 「当时写下」 or 「睡前写下」, and guard it against invented names.",
+   "Carry-forward of views must keep each view's original date and show it once. Never re-paraphrase it into several day paragraphs, which would recreate sticky-preference dominance.",
+   "Define 工作 for personas with no work schedule (the homemaker) and for students' off-duty self-study, either through per-package catalog tags or by explicitly accepting two active categories and giving 生活 a larger budget.",
+   "No phase may teach a tool known to be broken. Deterministic P1 still points the model at the old single-substring memory_search.",
+   "Pilot targets must not set repeat-rate goals; judge success on cited, informed choices.",
+   "Ask the owner to settle the 2×2 interpretation explicitly: are closed verified facts memory-today (核验) or progress-today? Also present 'one digest call versus one per category' and 'virtual versus model-written month and year tiers' as owner decisions, not silent deviations."
+  ]
+ },
+ {
+  "lens": "economy",
+  "scores": [
+   {
+    "design": "literal",
+    "score": 4,
+    "strengths": [
+     "Layer order 人设→记忆→待办→工具→环境→进度 puts the order-volatile 待办层 after 记忆层, so a purchase or delivery invalidates at most about 1.6k cached chars. It also adds 在途订单 to the chain `changes`, which `life_continuation.py:40-53` does not diff today.",
+     "Cuts 进度层 at local midnight. The simulation shows an 18.6% drop in total 进度层 chars and median/max falling from 14.6k/42.8k to 11.5k/34.1k. This attacks the overnight bloat, which F1 shows growing from 23k to 45.6k, at low behavioural risk.",
+     "The digest runs env-side, on the `settle_pending_day_plans` precedent (`runner.py:619-670`, `life_env.py:235-243`). Idempotence comes from the existence of a digest event, so it needs no AgentState field, no AS2 patch and no manifest bump. It also settles on the startup and resume paths, so branches inherit digests rather than regenerating them.",
+     "The name-guard validator (every catalog goods, content or app name in the text must appear in the input) is a cheap, deterministic hallucination check.",
+     "Collapse rules: same-second merge, keeping only the last note source per activity, and dropping a memory equal to its summary. These keep 今天 volume down.",
+     "The cost arithmetic uses the correct frozen peak prices (`quality.py:62`: miss $0.30/M, hit $0.006/M, output $1.20/M)."
+    ],
+    "flaws": [
+     "Phase 1 is very large. It bundles a catalog field, entries, 近三天, search_memory, the segment cut, 在途订单, the reorder, removal of preferences, removal of the AS2 memory tools, retirement of reflection and consolidation, kit naming and 21 rules. With that many model-visible changes in one identity, a pilot cannot say which change moved a metric.",
+     "Phase 1 takes `preferences` and `relationships[].view` out of 人设层 and retires bedtime reflection while 近三天.回顾 is still null, because the 回顾 only arrives in phase 2. For a whole phase all 40 dated views drop out of the prompt after the day they were written, with nothing in the prompt carrying them. Shipping P1 and P2 as separate identities makes this regression real.",
+     "It makes three model calls per day (one per category), each with retries. Retry exhaustion follows the plan_day precedent, which raises ProtocolError and fails the run (`runner.py:655-660`). The strict name-guard adds a false-positive path, for example short content titles appearing as substrings, so a 30-day run can die at midnight over a single paraphrase.",
+     "The digest prompt tells the model to restate the facts ('先写…做了什么、吃了什么…名称照记录原样写'). That opens a hallucination surface for times, counts and prices that the name-guard does not check. It also chains each digest to the previous 回顾 ('上一次回顾里…保留下来'). Carrying views forward that way can rebuild exactly the undated, self-perpetuating preference (番茄牛肉刀削面…还会再点) behind the pilot failure.",
+     "进度层 has no cap beyond the midnight cut, and it is the largest volatile, uncached cost. 记忆层 grows to a 15.2k hard cap with 近三天 alone at ≤9k, so the user message median rises to about 34k chars from 31.7k today. That costs little in dollars because the block is cached, but it is an attention-dilution risk.",
+     "Validation retries reuse `reflection_validation_max_retries` (`models.py:224`) after reflection has been retired. The config name becomes misleading, and the field is part of the frozen identity.",
+     "Model-written month and year digests would fire once (on a 3-day September) and never in the 30-day calendar (F14). That is code and tests with almost no runtime value.",
+     "search_memory has no keyword. A question like 'when did I last eat X' takes a scan over several dates, each up to 6k chars of tool result.",
+     "It claims the 工作 tier shows 09-28..09-30 on 10-08. That only holds when the run started on 09-28; the 10-08 pilots start cold with no work history.",
+     "A new purpose `memory_digest` is 'unrecognized' in `quality._call_class` (`quality.py:801-803`) until the phase-2 schema bump. That is acknowledged, but every Phase 2 run depends on it."
+    ],
+    "fatal": [
+     "The catalog `format_version` goes from 5 to 6 in phase 1, and the design claims 'no pin breaks'. That claim is false: LabelKit-DataSet pins `CATALOG_FORMAT_VERSION = 5` exactly and rejects any other value with 'Unsupported frozen catalog version' (`LabelKit-DataSet/persona/src/labelkit_dataset/datasets/persona/export_source.py:21,589`). As written, every export from a phase-1 run is unconsumable downstream unless LabelKit changes in lockstep."
+    ]
+   },
+   {
+    "design": "deterministic",
+    "score": 6,
+    "strengths": [
+     "It adds no new model call class. Reflection is retargeted in place (`due_reflection`, then `memory_updated`), so there is no quality schema bump and no new event kind. The model never writes a fact at any tier, which gives the lowest risk of hallucinated facts.",
+     "Each 感想 must cite at least one of the persona's own note ids (`n*`), and the host assigns its category by the majority of the cited inputs. The model never classifies, so category misfiling by the model is impossible.",
+     "未到的订单 lists only orders from earlier sessions, so 待办层 cannot change inside a same-second chain. That preserves `life_continuation.py:8` with no new `changes` key.",
+     "search_memory is capped at 3 calls per decision, with ok=False feedback after that. This bounds the cost of a turn loop and guards against turn exhaustion, which fails the run (`life_agent.py:388-395`). Keyword AND-matching fixes the substring defect from F10.",
+     "Week, month and year tiers are code rollups that are memoized per past day. They cost nothing at runtime and are deterministic under replay and branching, with a test that recomputation after restore is byte-identical.",
+     "Phases are coherent and each one ships on its own. Phase 1 already makes past meals and kit-named dinners visible in 前三天, and the catalog field is deferred to an optional phase 5.",
+     "Legacy snapshots without `category` stay valid, so old exports still verify."
+    ],
+    "flaws": [
+     "The cost table uses the wrong prices: $0.28/M miss, $0.028/M hit, $0.42/M output. The frozen peak rates are $0.30, $0.006 and $1.20 (`quality.py:61-62`). Cache savings come out understated by about 4.7× per token and output cost by about 2.9×, so its dollar projections are unreliable.",
+     "进度层 is left unchanged through phases 1–3, with no midnight cut. The overnight stay that grows from 23k to 45.6k chars (F1, F7) and the largest volatile cost stay in place until phase 4.",
+     "Its own rules misfile the motivating case. `office-eat-lunch` has no food effect and falls in a break, so rules 3, 5 and 7 send 吃午饭 to 生活. Conclude notes and views on lunch inherit 生活, yet its example shows the 番茄牛肉刀削面 view under 看法.饮食. The lunch impressions the persona needs for variety land in the wrong bucket until phase 5.",
+     "Per-category digest templates (生活: sleep, naps, chores, minutes per app, outings, calls; 工作: duty, first and last work, time per content, commute, overtime) are a large, persona-specific code surface. Each needs tests under the zero-uncovered-interface gate and breaks on new personas.",
+     "今天 is keyed per (decision, category) at about 40–48 entries a day, with five keys each. That adds roughly 2k+ chars of JSON overhead on top of about 1.9k of facts and 3.5–4k of notes, so it will regularly hit the 6k cap and fold. Each fold rewrites the head of 今天 and breaks the cached prefix.",
+     "Reflection still fires at the first wake, so D-1's 感想 lands at about 07:30, after the midnight plan_day. 前三天 therefore changes mid-morning, and the planner never sees it.",
+     "Reflection input grows to 7–8k chars and is passed back through the read-only `due_reflection` forward, while the binding check still compares the 2-key value. That makes a more delicate seam (`engine.py:93-97`, `quality _valid_update_binding`).",
+     "The pilot target 'lunch repeats ≤1 of 4' contradicts its own R1 ('repetition allowed by design'). With n=4 lunches per run, the target is statistically meaningless.",
+     "The search surface is large: day, ISO week, month, year, 全部 and keyword, with a 3-parameter strict schema. That means more grammar to test and more ways for the model to call it wrongly."
+    ],
+    "fatal": []
+   },
+   {
+    "design": "economy",
+    "score": 7.5,
+    "strengths": [
+     "The phase order goes by benefit per risk. P0 builds the measurement tool and records V/B baselines. P1 is deterministic only (calendar day key, 进度层 midnight cut, per-category 近几天 核验, kit naming, 在途订单, retiring consolidation) and fixes the pilot's failure mode with no new model call. The model-written digest (P4) is gated on the P3 citation rate, with a ship-deterministic-only fallback that skips the quality bump.",
+     "The largest cost lever is correctly identified. Closed in-session records move out of the volatile 进度层 tail into an append-only 今天 placed as the last key of the stable block, with fold hysteresis at 6k→4k (1–2 breaks a day). The per-fresh-call arithmetic ($0.0046 → $0.0021) is internally consistent with the frozen peak prices.",
+     "It makes one digest call per day with category-separated inputs and outputs, rather than three. Validation is limited to lengths and nulls, which explicitly addresses the plan_day run-failure mode (R5). The digest writes only the subjective part ('核验事实已经单独保存，不必复述'), which shrinks the hallucination surface.",
+     "No catalog format bump: an optional `memory_category` override plus a per-package coverage report of derived categories. This stays clear of LabelKit's exact `CATALOG_FORMAT_VERSION=5` pin and fixes `office-eat-lunch` through the override.",
+     "Entries publish from the first observation at a later second, which keeps 记忆层 byte-identical inside chains by construction.",
+     "Month and year tiers are virtual for runs under two months, so no dead model-call code is added for the 30-day calendar.",
+     "It is honest about measurability: lunch-repeat rates are 'directional only' at n=4, the M3 citation rate is the mechanism check, and P3 adds a 10-day run to exercise the 工作 and weekend rules."
+    ],
+    "flaws": [
+     "It places 待办层 before 记忆层 and claims 待办层 changes in only 2–11% of pairs. That figure was measured on today's 待办层, which has no orders. With 在途订单 including current-session orders, roughly 4 orders a day each placed and delivered make about 8 extra changes a day. Each invalidates the whole ≤11k-char 记忆层 behind it (about 4.6k tokens, ≈$0.0014), so about $0.01/day is lost, against its own cache thesis.",
+     "The same 在途订单 change happens inside same-second chains (purchase, then the next decision), but `life_continuation._view/_changes` (`life_continuation.py:40-53,111-122`) diffs only targets, paused, errands, day_plan, body, relationships and preferences. Without a new `changes` key the chain shows a stale 待办层.",
+     "P2 is a large bundle: per-round 今天, the 进度层 open-threads filter, the reorder, 长期 views, retiring the window and removing persona deltas. The 进度层 cut (median 14.7k → 1.8k) removes the in-session tool_call history (93.5% of 进度层). That is the single riskiest behavioural change across all three designs, and its effects get mixed with the other P2 changes in the pilot.",
+     "An optional catalog field with no format bump weakens format identity. `DeepFrozenModel` is `extra=\"forbid\"` (`foundation/models.py:42`), so old code rejects new rows that carry the same `format_version: 5`. The design flags this as an owner decision, but it is a policy deviation from `03-resource-engine.md:40`.",
+     "Rendering MEMORY.md only once at initialisation turns the `memory_md_identity_residue` metric (`tools/analysis/behavior/metrics.py:110`) and the viewer's subjective section into constants with no information.",
+     "It leaves plain conclude `memories` out of 今天; they reach only the digest and search. That is cheap, but it is one more category of persona text that disappears from the prompt the moment it is written.",
+     "search_memory has four required parameters, including `limit`, plus a range grammar (`~`). That means more strict-schema surface and no per-decision search cap; it relies on the last turn dropping query tools."
+    ],
+    "fatal": []
+   }
+  ],
+  "graft": [
+   "P0 first (economy): build `tools/analysis/memory_pilot.py` and record the V/B baselines before any runtime change. Use the mechanism metric (share of food decisions whose reasoning names a dish or date shown in memory) as the primary signal, not the lunch-repeat rate.",
+   "P1 deterministic only (economy and deterministic): calendar day key, 进度层 cut at local midnight (about −18% of 进度层 chars), per-category facts for the past three days built from events, kit-named dinners ('用 M月D日 收到的 〈食材包名〉' or '家里原有的食材'), and retiring threshold consolidation, which has no reader and makes 31 calls per 5 days. This fixes the pilot failure with zero new model calls.",
+   "Literal's layer order 人设→记忆→待办→工具→环境→进度 (待办 after 记忆), combined with economy's append-only 今天 as the last key of 记忆层 and fold hysteresis.",
+   "Deterministic's rule that 未到的订单 lists only orders placed before the current session, which keeps 待办层 stable inside same-second chains. Otherwise use literal's explicit 在途订单 added/removed in the chain `changes`.",
+   "Deterministic's subjective grounding: every model-written line must cite at least one of the persona's own note ids. The host assigns the category from the cited inputs, and the model never classifies or restates facts. Economy's lenient validation (lengths and nulls only) keeps the call from failing the run.",
+   "Economy's single digest call per day with category-separated output, gated on the P3 citation data. If 回顾 is not cited, ship deterministic-only and skip the quality bump.",
+   "Literal's name-guard (catalog names in the paragraph must appear in its input), used as a soft check that drops or nulls the offending text, never as a run-failing retry.",
+   "Event-derived idempotence (the digest event exists for (agent, period, key)) with settle on init, resume and checkpoint (literal and economy), on the `settle_pending_day_plans` precedent.",
+   "Deterministic's cap of 3 search_memory calls per decision with ok=False feedback, plus AND-keyword matching.",
+   "Literal's tiny `可查` index (earliest date, digested months and years) so the model knows what search can return. Month and year as deterministic rollups (deterministic) or virtual (economy), with no model-written month or year until runs exceed about 2 months.",
+   "Economy's per-package coverage report of derived categories, plus an optional `memory_category` override instead of a fail-closed field with a format bump.",
+   "Literal's collapse rules: merge same-second entries, keep only the latest note source per activity per segment, drop memories that equal their summary."
+  ],
+  "must_fix_in_any_design": [
+   "Do not bump the catalog `format_version` unless LabelKit-DataSet changes in the same step. It pins `CATALOG_FORMAT_VERSION = 5` exactly (`LabelKit-DataSet/persona/src/labelkit_dataset/datasets/persona/export_source.py:21,589`), so a bump makes every new export unconsumable. Prefer derived rules plus an optional override, and get an explicit owner ruling on whether an optional field is allowed without a bump, given that `DeepFrozenModel` is extra=forbid.",
+   "Keep 记忆层 and 待办层 byte-constant inside same-second chains, or extend the chain `changes`. `life_continuation.py:40-53,111-122` diffs only targets, paused, errands, day_plan, body, relationships and preferences, so any new in-session 在途订单 or 今天 delta goes stale silently.",
+   "Put every block that changes on purchase, delivery or segment end after the most stable blocks. A block that changes on orders must not sit in front of the ~11k-char memory block.",
+   "A digest or reflection validation failure must not fail a long run. The plan_day precedent raises ProtocolError once retries are exhausted (`runner.py:655-660`). Use lenient validation with a deterministic fallback (a null paragraph plus an event noting it), or document the accepted failure.",
+   "Model-written paragraphs must hold only subjective content, grounded in the persona's own notes and never restating times, prices or counts. They must not carry forward previous paragraphs without date and expiry, or they rebuild the undated persistent preference that caused the pilot failure.",
+   "A new model-call `purpose` is classified as 'unrecognized' (`quality.py:801-803`). Either add a call class with a quality schema bump, or reuse the existing reflection class, and decide which before the phase ships.",
+   "Do not remove persona `preferences` and `relationships` views from 人设层 in a phase before a dated, deduped, budgeted replacement carrier is in the prompt.",
+   "Cut 进度层 at local midnight in the first phase. It is the cheapest large cost and attention win (the overnight 23k→45.6k bloat) and carries little risk.",
+   "Use the frozen peak prices for all projections (`quality.py:61-62`: hit $0.006/M, miss $0.30/M, output $1.20/M) and convert chars to tokens per layer, not with one global 0.42 ratio.",
+   "Fix `office-eat-lunch` (no food signal) before judging food memory. Otherwise the lunch impressions, the exact signal the variety goal needs, are filed under 生活 or 工作.",
+   "Pilot power and cold start. New code cannot resume old-code branches (fingerprints), so every pilot starts with empty tiers. Four workday lunches per 5-day run is too few, and days 1–3 have partial history. Use at least one 10-day run and multiple seeds, report only post-warm-up days, and treat repeat rates as directional.",
+   "Bound search cost per decision (cap plus feedback). Running out of turns raises and fails the run (`life_agent.py:388-395`), and each search adds a history turn plus up to 4–6k chars of uncached tool result.",
+   "Use one day rule everywhere (local calendar date, as for the planner, `plan_date` and `rejected_today`), and test it at 23:59, 00:00:00, 00:10 and across an overnight sleep."
+  ]
+ }
+]

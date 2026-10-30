@@ -1,0 +1,152 @@
+{
+ "cells": [
+  {
+   "day": "10-09",
+   "cat": "饮食",
+   "digest_chars": 156,
+   "attitude_clause_chars": 13,
+   "views": 3,
+   "objects": 3,
+   "objects_mentioned": 2,
+   "mentioned": [
+    "番茄牛肉刀削面",
+    "盒马下单食材包"
+   ],
+   "view_chars": 149,
+   "attitude_chars_over_view_chars": 0.09
+  },
+  {
+   "day": "10-10",
+   "cat": "饮食",
+   "digest_chars": 156,
+   "attitude_clause_chars": 16,
+   "views": 3,
+   "objects": 3,
+   "objects_mentioned": 2,
+   "mentioned": [
+    "冰美式咖啡",
+    "盒马下单食材包"
+   ],
+   "view_chars": 149,
+   "attitude_chars_over_view_chars": 0.11
+  },
+  {
+   "day": "10-11",
+   "cat": "饮食",
+   "digest_chars": 149,
+   "attitude_clause_chars": 33,
+   "views": 3,
+   "objects": 3,
+   "objects_mentioned": 3,
+   "mentioned": [
+    "休息日在家做午饭",
+    "鱼香肉丝盖浇饭",
+    "土豆烧牛肉配清炒菌菇一人份食材包"
+   ],
+   "view_chars": 154,
+   "attitude_chars_over_view_chars": 0.21
+  },
+  {
+   "day": "10-08",
+   "cat": "工作",
+   "digest_chars": 143,
+   "attitude_clause_chars": 6,
+   "views": 3,
+   "objects": 3,
+   "objects_mentioned": 2,
+   "mentioned": [
+    "功能开发与自测",
+    "王磊"
+   ],
+   "view_chars": 124,
+   "attitude_chars_over_view_chars": 0.05
+  },
+  {
+   "day": "10-09",
+   "cat": "工作",
+   "digest_chars": 134,
+   "attitude_clause_chars": 19,
+   "views": 3,
+   "objects": 3,
+   "objects_mentioned": 2,
+   "mentioned": [
+    "功能开发与自测",
+    "王磊"
+   ],
+   "view_chars": 166,
+   "attitude_chars_over_view_chars": 0.11
+  },
+  {
+   "day": "10-10",
+   "cat": "工作",
+   "digest_chars": 141,
+   "attitude_clause_chars": 20,
+   "views": 7,
+   "objects": 7,
+   "objects_mentioned": 3,
+   "mentioned": [
+    "需求评审会议",
+    "王磊",
+    "下班前收尾"
+   ],
+   "view_chars": 381,
+   "attitude_chars_over_view_chars": 0.05
+  },
+  {
+   "day": "10-09",
+   "cat": "生活",
+   "digest_chars": 142,
+   "attitude_clause_chars": 46,
+   "views": 3,
+   "objects": 3,
+   "objects_mentioned": 3,
+   "mentioned": [
+    "午休刷视频",
+    "网易云音乐",
+    "哔哩哔哩"
+   ],
+   "view_chars": 160,
+   "attitude_chars_over_view_chars": 0.29
+  },
+  {
+   "day": "10-10",
+   "cat": "生活",
+   "digest_chars": 143,
+   "attitude_clause_chars": 56,
+   "views": 8,
+   "objects": 8,
+   "objects_mentioned": 4,
+   "mentioned": [
+    "抖音",
+    "哔哩哔哩",
+    "爱奇艺",
+    "微信读书"
+   ],
+   "view_chars": 395,
+   "attitude_chars_over_view_chars": 0.14
+  },
+  {
+   "day": "10-11",
+   "cat": "生活",
+   "digest_chars": 149,
+   "attitude_clause_chars": 28,
+   "views": 16,
+   "objects": 11,
+   "objects_mentioned": 8,
+   "mentioned": [
+    "休息日上午打扫卫生",
+    "网易云音乐",
+    "微信读书",
+    "母亲",
+    "腾讯视频",
+    "彩虹桥",
+    "彩虹桥往返步行",
+    "整理房间"
+   ],
+   "view_chars": 877,
+   "attitude_chars_over_view_chars": 0.03
+  }
+ ],
+ "objects": 44,
+ "objects_mentioned": 29
+}

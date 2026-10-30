@@ -1,0 +1,149 @@
+{
+ "a_level_variant_dummies": {
+  "coef": {
+   "cjk": 0.6409,
+   "alpha": 0.0622,
+   "digit": 0.5092,
+   "space": 0.9988,
+   "apunct": 0.6354,
+   "other": 0.9144,
+   "per_message": 15.8163
+  },
+  "r2": 0.999886,
+  "n": 921,
+  "resid_sd": 75.5,
+  "resid_mae": 53.9,
+  "resid_p95_abs": 134.9,
+  "resid_max_abs": 645.9,
+  "rel_resid_sd_pct": 3.49,
+  "rel_resid_p95_abs_pct": 0.7
+ },
+ "a_level_variant_dummies_V": {
+  "coef": {
+   "cjk": 0.711,
+   "alpha": 0.0748,
+   "digit": 0.5098,
+   "space": 1.0617,
+   "apunct": 0.6046,
+   "other": 0.3165,
+   "per_message": 15.1597
+  },
+  "r2": 0.999913,
+  "n": 454,
+  "resid_sd": 70.7,
+  "resid_mae": 51.2,
+  "resid_p95_abs": 124.1,
+  "resid_max_abs": 396.2,
+  "rel_resid_sd_pct": 1.38,
+  "rel_resid_p95_abs_pct": 0.67
+ },
+ "a_level_variant_dummies_B": {
+  "coef": {
+   "cjk": 0.5279,
+   "alpha": 0.0781,
+   "digit": 0.5597,
+   "space": 0.8573,
+   "apunct": 0.619,
+   "other": 1.8181,
+   "per_message": 29.4723
+  },
+  "r2": 0.999894,
+  "n": 467,
+  "resid_sd": 67.8,
+  "resid_mae": 46.6,
+  "resid_p95_abs": 122.3,
+  "resid_max_abs": 515.7,
+  "rel_resid_sd_pct": 3.82,
+  "rel_resid_p95_abs_pct": 0.77
+ },
+ "a_level_fresh_only": {
+  "coef": {
+   "cjk": 0.6779,
+   "alpha": 0.0574,
+   "digit": 0.4155,
+   "space": 1.144,
+   "apunct": 0.6598,
+   "other": 0.6254
+  },
+  "r2": 0.999815,
+  "n": 614,
+  "resid_sd": 56.7,
+  "resid_mae": 46.1,
+  "resid_p95_abs": 104.2,
+  "resid_max_abs": 130.9,
+  "rel_resid_sd_pct": 0.28,
+  "rel_resid_p95_abs_pct": 0.51
+ },
+ "b_first_diff_fresh": {
+  "coef": {
+   "cjk": 0.6683,
+   "alpha": 0.0823,
+   "digit": 0.5409,
+   "space": 1.1171,
+   "apunct": 0.5924,
+   "other": 0.5605
+  },
+  "r2": 0.999901,
+  "n": 612,
+  "resid_sd": 17.2,
+  "resid_mae": 10.7,
+  "resid_p95_abs": 30.7,
+  "resid_max_abs": 119.4,
+  "rel_resid_sd_pct": 24.94,
+  "rel_resid_p95_abs_pct": 14.18
+ },
+ "c_chain_deltas": {
+  "coef": {
+   "cjk": 0.6036,
+   "alpha": 0.2908,
+   "digit": 1.0734,
+   "space": 0.0693,
+   "apunct": 0.2585,
+   "other": 1.6407,
+   "per_added_message": 25.7693
+  },
+  "r2": 0.999675,
+  "n": 227,
+  "resid_sd": 36.6,
+  "resid_mae": 26.6,
+  "resid_p95_abs": 74.9,
+  "resid_max_abs": 161.3,
+  "rel_resid_sd_pct": 1.94,
+  "rel_resid_p95_abs_pct": 4.45,
+  "cache_hit_vs_prefix_tokens": {
+   "n": 227,
+   "median_hit_over_prefix": 1.0226,
+   "share_hit_within_64_below_prefix": 0.0132
+  }
+ },
+ "d_proxy_tokenizers": {
+  "cl100k": {
+   "coef": {
+    "k_per_proxy_token": 0.7232,
+    "per_message": 495.0652
+   },
+   "r2": 0.996689,
+   "n": 921,
+   "resid_sd": 406.7,
+   "resid_mae": 291.0,
+   "resid_p95_abs": 866.8,
+   "resid_max_abs": 2101.0,
+   "rel_resid_sd_pct": 3.23,
+   "rel_resid_p95_abs_pct": 4.57
+  },
+  "qwen3": {
+   "coef": {
+    "k_per_proxy_token": 0.9043,
+    "per_message": 209.2926
+   },
+   "r2": 0.999769,
+   "n": 921,
+   "resid_sd": 107.4,
+   "resid_mae": 69.6,
+   "resid_p95_abs": 219.6,
+   "resid_max_abs": 721.8,
+   "rel_resid_sd_pct": 2.11,
+   "rel_resid_p95_abs_pct": 1.42
+  }
+ }
+}

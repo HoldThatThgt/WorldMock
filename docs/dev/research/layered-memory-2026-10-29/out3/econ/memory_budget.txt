@@ -1,0 +1,7 @@
+entry 125 chars = 73.9 tok (0.591 tok/char); 记忆层 chars med/p90/max (7082, 11240, 13004), tokens (4411, 6860, 7885); fixed part (可查+近三天+keys) 1421 tok; entries fitting in 10k tok: 116 (= 16576 chars of 记忆层)
+entry 145 chars = 86.7 tok (0.598 tok/char); 记忆层 chars med/p90/max (7882, 12700, 14744), tokens (4921, 7774, 8996); fixed part (可查+近三天+keys) 1421 tok; entries fitting in 10k tok: 99 (= 16414 chars of 记忆层)
+entry 165 chars = 100.5 tok (0.609 tok/char); 记忆层 chars med/p90/max (8682, 14135, 16443), tokens (5476, 8771, 10178); fixed part (可查+近三天+keys) 1421 tok; entries fitting in 10k tok: 85 (= 16157 chars of 记忆层)
+decisions per day {'10-08': 81, '10-09': 84, '10-10': 83, '10-11': 69, '10-12': 89}
+fresh per day {'10-08': 67, '10-09': 62, '10-10': 63, '10-11': 48, '10-12': 65}
+decisions per fresh snapshot (chain length incl. head): max 3 mean 1.33 [(1, 207), (2, 95), (3, 3)]
+max actual prompt tokens (decision) 37421

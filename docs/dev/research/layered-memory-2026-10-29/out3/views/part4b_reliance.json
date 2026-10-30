@@ -1,0 +1,3436 @@
+{
+ "V": {
+  "counts": {
+   "with_views": 392,
+   "persona_only_views_total": 8243,
+   "wording_echo_ge8": 75,
+   "either": 85,
+   "subject_mention_view_only": 26,
+   "decisions": 406
+  },
+  "age_buckets": {
+   "0": 24,
+   "1-3": 53,
+   "none": 1,
+   ">=4": 7
+  },
+  "subjects": [
+   [
+    "饭前收尾工作",
+    10
+   ],
+   [
+    "功能开发与自测",
+    9
+   ],
+   [
+    "睡前刷短视频",
+    9
+   ],
+   [
+    "番茄牛肉刀削面",
+    7
+   ],
+   [
+    "下午成块写代码",
+    6
+   ],
+   [
+    "王磊",
+    5
+   ],
+   [
+    "哔哩哔哩",
+    5
+   ],
+   [
+    "一人份食材包",
+    5
+   ],
+   [
+    "下午专注开发",
+    5
+   ],
+   [
+    "午休刷视频",
+    5
+   ],
+   [
+    "网易云音乐",
+    5
+   ],
+   [
+    "盒马下单食材包",
+    5
+   ],
+   [
+    "自己做的番茄炒蛋配清炒青菜",
+    4
+   ],
+   [
+    "冰美式咖啡",
+    4
+   ],
+   [
+    "需求评审会议",
+    4
+   ],
+   [
+    "下班前收尾",
+    4
+   ],
+   [
+    "午休小睡",
+    3
+   ],
+   [
+    "下班打卡",
+    3
+   ],
+   [
+    "微信读书",
+    3
+   ],
+   [
+    "午睡五十分钟左右",
+    2
+   ],
+   [
+    "爱奇艺",
+    2
+   ],
+   [
+    "彩虹桥",
+    2
+   ],
+   [
+    "电影《七号轨道》",
+    1
+   ],
+   [
+    "自己做的晚饭",
+    1
+   ],
+   [
+    "休息日上午打扫卫生",
+    1
+   ]
+  ],
+  "rows": [
+   {
+    "t": "10-08 12:11",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "功能开发与自测",
+      "上午整段专注写代码效率最高，中途不看手机"
+     ],
+     [
+      "番茄牛肉刀削面",
+      "带汤的热面，番茄牛肉刀削面看着合口味，价格也合适。"
+     ],
+     [
+      "饭前收尾工作",
+      "挂着事，下午回来也能直接接着干。"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-08 13:17",
+    "fresh": true,
+    "tools": [
+     "report_status"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "功能开发与自测",
+      "上午整段专注写代码效率最高，中途不看手机"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-08 17:31",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "功能开发与自测",
+      "上午整段专注写代码效率最高，中途不看手机"
+     ],
+     [
+      "番茄牛肉刀削面",
+      "面确实好吃，汤头开胃、面也顶饱，以后"
+     ],
+     [
+      "饭前收尾工作",
+      "挂着事，下午回来也能直接接着干。"
+     ],
+     [
+      "王磊",
+      "效率高，他提意见直接、对事不对人，改完心里踏实。"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-08 19:00",
+    "fresh": true,
+    "tools": [
+     "report_status"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "哔哩哔哩",
+      "生活科普类的中短视频"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-08 19:15",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "哔哩哔哩",
+      "条收纳、生活科普类的中短视频"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-08 20:00",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "自己做的番茄炒蛋配清炒青菜",
+      "比点外卖踏实，吃完把厨房收拾干净心里也清爽，"
+     ],
+     [
+      "一人份食材包",
+      "再想吃什么都随手能定"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-08 23:45",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "哔哩哔哩",
+      "几条收纳、生活科普"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-09 09:00",
+    "fresh": true,
+    "tools": [
+     "report_status"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "功能开发与自测",
+      "上午整段专注写代码效率最高，中途不看手机能一次把自测跑通。"
+     ]
+    ],
+    "max_age": 1
+   },
+   {
+    "t": "10-09 09:35",
+    "fresh": true,
+    "tools": [
+     "report_status"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "功能开发与自测",
+      "上午整段专注写代码效率最高，中途不看手机能一次把自测跑通"
+     ]
+    ],
+    "max_age": 1
+   },
+   {
+    "t": "10-09 10:30",
+    "fresh": true,
+    "tools": [
+     "report_status"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "功能开发与自测",
+      "上午整段专注写代码效率最高，中途不看手机"
+     ]
+    ],
+    "max_age": 1
+   },
+   {
+    "t": "10-09 10:46",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "饭前收尾工作",
+      "饭前把消息清干净"
+     ],
+     [
+      "电影《七号轨道》",
+      "《七号轨道》这类"
+     ]
+    ],
+    "max_age": 1
+   },
+   {
+    "t": "10-09 10:46",
+    "fresh": false,
+    "tools": [
+     "start_main_activity"
+    ],
+    "mention": [
+     "饭前收尾工作"
+    ],
+    "echo": [],
+    "max_age": 1
+   },
+   {
+    "t": "10-09 11:37",
+    "fresh": true,
+    "tools": [
+     "start_side_activity"
+    ],
+    "mention": [
+     "番茄牛肉刀削面"
+    ],
+    "echo": [],
+    "max_age": 1
+   },
+   {
+    "t": "10-09 11:46",
+    "fresh": true,
+    "tools": [
+     "start_side_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "番茄牛肉刀削面",
+      "番茄牛肉刀削面确实好吃"
+     ]
+    ],
+    "max_age": 1
+   },
+   {
+    "t": "10-09 12:00",
+    "fresh": true,
+    "tools": [
+     "report_status"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "饭前收尾工作",
+      "饭前把消息清干净再吃饭"
+     ]
+    ],
+    "max_age": 1
+   },
+   {
+    "t": "10-09 12:09",
+    "fresh": true,
+    "tools": [
+     "report_status"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "饭前收尾工作",
+      "饭前把消息清干净再吃饭"
+     ]
+    ],
+    "max_age": 1
+   },
+   {
+    "t": "10-09 12:31",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "番茄牛肉刀削面",
+      "，汤头开胃、面也顶饱，"
+     ]
+    ],
+    "max_age": 1
+   },
+   {
+    "t": "10-09 13:00",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "王磊",
+      "他提意见直接、对事不对人，我改完"
+     ]
+    ],
+    "max_age": null
+   },
+   {
+    "t": "10-09 17:56",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "下午专注开发",
+      "把上午遗留的边界用例"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-09 19:10",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "自己做的番茄炒蛋配清炒青菜",
+      "，吃完把厨房收拾干净"
+     ]
+    ],
+    "max_age": 1
+   },
+   {
+    "t": "10-10 09:51",
+    "fresh": true,
+    "tools": [
+     "report_status"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "功能开发与自测",
+      "上午整段专注写代码最有效"
+     ]
+    ],
+    "max_age": 1
+   },
+   {
+    "t": "10-10 10:56",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "功能开发与自测",
+      "自测一次跑通再提交，"
+     ],
+     [
+      "冰美式咖啡",
+      "点一杯冰美式送到前台，等它到了再专心写代码，这个开场让我踏实。"
+     ]
+    ],
+    "max_age": 1
+   },
+   {
+    "t": "10-10 12:00",
+    "fresh": true,
+    "tools": [
+     "report_status"
+    ],
+    "mention": [
+     "午休刷视频"
+    ],
+    "echo": [],
+    "max_age": 1
+   },
+   {
+    "t": "10-10 12:13",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [
+     "午休刷视频"
+    ],
+    "echo": [
+     [
+      "午休刷视频",
+      "午休刷视频控制在半小时以内"
+     ]
+    ],
+    "max_age": 1
+   },
+   {
+    "t": "10-10 12:58",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "需求评审会议",
+      "模块的边界条件和风险点"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-10 13:55",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [
+     "下午专注开发"
+    ],
+    "echo": [
+     [
+      "下午专注开发",
+      "上午遗留的边界用例"
+     ],
+     [
+      "午休小睡",
+      "小睡五十多分钟到两点前"
+     ]
+    ],
+    "max_age": 1
+   },
+   {
+    "t": "10-10 15:25",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "下午专注开发",
+      "午睡起来后的这一段"
+     ]
+    ],
+    "max_age": 1
+   },
+   {
+    "t": "10-10 17:25",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "午睡五十分钟左右",
+      "清醒又不昏沉，比睡"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-10 18:15",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "下班前收尾",
+      "，回家也能真的放松下来。"
+     ],
+     [
+      "下班打卡",
+      "再动身，当班时段"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-10 18:45",
+    "fresh": true,
+    "tools": [
+     "report_status"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "网易云音乐",
+      "，不抢手上的事，"
+     ]
+    ],
+    "max_age": 1
+   },
+   {
+    "t": "10-10 18:54",
+    "fresh": true,
+    "tools": [
+     "report_status"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "网易云音乐",
+      "不抢手上的事，也不容易"
+     ]
+    ],
+    "max_age": 1
+   },
+   {
+    "t": "10-10 19:25",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "一人份食材包",
+      "盒马的一人份食材包"
+     ]
+    ],
+    "max_age": 2
+   },
+   {
+    "t": "10-10 20:00",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "自己做的晚饭",
+      "，食材包加两道家常菜，"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-10 20:07",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "盒马下单食材包",
+      "盒马把第二天的食材包"
+     ]
+    ],
+    "max_age": 1
+   },
+   {
+    "t": "10-10 21:56",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "爱奇艺",
+      "换脑子，超过一集就容易坐到十点以后，"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-11 09:00",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [
+     "休息日上午打扫卫生"
+    ],
+    "echo": [
+     [
+      "休息日上午打扫卫生",
+      "，做完坐下喝口水那"
+     ],
+     [
+      "王磊",
+      "对齐了，这种配合"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-11 11:30",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "微信读书",
+      "讲工作和表达的书，"
+     ]
+    ],
+    "max_age": 1
+   },
+   {
+    "t": "10-11 12:40",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "网易云音乐",
+      "节拍规整的背景音"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-11 13:30",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "微信读书",
+      "，挑讲方法和表达的书，读着不刺激又能把思路理顺，比刷视频更让我觉得这一上午没白过"
+     ],
+     [
+      "休息日在家做午饭",
+      "让我觉得这一天是从容的，想保持"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-11 16:06",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "彩虹桥",
+      "段步道平坦、视野开阔，晴天下午跑步不闷也不晒，"
+     ],
+     [
+      "彩虹桥往返步行",
+      "二十来分钟，来回正好把慢跑前后都热开、松下来，这条路线我愿意一直用。"
+     ],
+     [
+      "母亲",
+      "，这通电话让我整天都安稳"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-11 16:06",
+    "fresh": false,
+    "tools": [
+     "start_main_activity",
+     "start_side_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "网易云音乐",
+      "做家务时放巴洛克协奏曲"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-11 17:00",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "网易云音乐",
+      "，耳朵和屋子一起清爽"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-11 17:30",
+    "fresh": true,
+    "tools": [
+     "start_side_activity"
+    ],
+    "mention": [
+     "睡前刷短视频"
+    ],
+    "echo": [
+     [
+      "睡前刷短视频",
+      "睡前刷短视频半小时"
+     ]
+    ],
+    "max_age": 1
+   },
+   {
+    "t": "10-11 18:00",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [
+     "午休刷视频",
+     "睡前刷短视频"
+    ],
+    "echo": [
+     [
+      "午休小睡",
+      "饭后刷半小时视频"
+     ]
+    ],
+    "max_age": 2
+   },
+   {
+    "t": "10-11 18:02",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "彩虹桥",
+      "步道平坦、视野开阔，晴天下午"
+     ],
+     [
+      "整理房间",
+      "，做的时候放点音乐不觉得烦，做完坐下来明显舒服"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-11 18:02",
+    "fresh": false,
+    "tools": [
+     "start_side_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "微信读书",
+      "《写作训练·改稿》"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-11 18:32",
+    "fresh": true,
+    "tools": [
+     "report_status"
+    ],
+    "mention": [
+     "睡前刷短视频"
+    ],
+    "echo": [
+     [
+      "睡前刷短视频",
+      "睡前刷短视频半小时上下"
+     ]
+    ],
+    "max_age": 1
+   },
+   {
+    "t": "10-11 19:05",
+    "fresh": false,
+    "tools": [
+     "start_side_activity"
+    ],
+    "mention": [
+     "睡前刷短视频"
+    ],
+    "echo": [
+     [
+      "盒马下单食材包",
+      "第二天晚饭的食材包"
+     ],
+     [
+      "睡前刷短视频",
+      "睡前刷短视频半小时"
+     ]
+    ],
+    "max_age": 1
+   },
+   {
+    "t": "10-11 19:39",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "一人份食材包",
+      "不用再想吃什么都随手能定。"
+     ],
+     [
+      "盒马下单食材包",
+      "盒马把第二天晚饭的"
+     ]
+    ],
+    "max_age": 3
+   },
+   {
+    "t": "10-11 19:39",
+    "fresh": false,
+    "tools": [
+     "start_side_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "哔哩哔哩",
+      "等外卖这一小时刷哔哩哔哩正合适"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-11 20:30",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "音乐入门·和声与节奏",
+      "同一段旋律拆开听鼓点、低音和和弦，"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-11 20:30",
+    "fresh": false,
+    "tools": [
+     "start_side_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "腾讯视频",
+      "一天一集的界限比连着追更舒服"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-11 21:00",
+    "fresh": true,
+    "tools": [
+     "report_status"
+    ],
+    "mention": [
+     "睡前刷短视频"
+    ],
+    "echo": [],
+    "max_age": 1
+   },
+   {
+    "t": "10-12 08:00",
+    "fresh": true,
+    "tools": [
+     "start_side_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "冰美式咖啡",
+      "上班的早晨点一杯冰美式送到前台，等它到了再专心写代码"
+     ]
+    ],
+    "max_age": 2
+   },
+   {
+    "t": "10-12 08:34",
+    "fresh": false,
+    "tools": [
+     "start_main_activity",
+     "start_side_activity"
+    ],
+    "mention": [
+     "饭前收尾工作"
+    ],
+    "echo": [
+     [
+      "冰美式咖啡",
+      "等它到了再专心写代码"
+     ]
+    ],
+    "max_age": 4
+   },
+   {
+    "t": "10-12 08:36",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "冰美式咖啡",
+      "点一杯冰美式送到前台，等它到了再专心写代码，这个开场让我踏实。"
+     ]
+    ],
+    "max_age": 2
+   },
+   {
+    "t": "10-12 10:54",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "功能开发与自测",
+      "，这种成块的干法最"
+     ],
+     [
+      "需求评审会议",
+      "边界条件和风险点"
+     ]
+    ],
+    "max_age": 2
+   },
+   {
+    "t": "10-12 10:54",
+    "fresh": false,
+    "tools": [
+     "start_main_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "下午成块写代码",
+      "午睡起来先做评审和缺陷修复"
+     ]
+    ],
+    "max_age": 2
+   },
+   {
+    "t": "10-12 11:53",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "番茄牛肉刀削面",
+      "汤头开胃、面也顶饱，"
+     ],
+     [
+      "公仔点心面（海鲜味）",
+      "海鲜味的公仔点心面量小、"
+     ]
+    ],
+    "max_age": 3
+   },
+   {
+    "t": "10-12 11:54",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "需求评审会议",
+      "清楚，会上逐条过、当面定下来，"
+     ]
+    ],
+    "max_age": 2
+   },
+   {
+    "t": "10-12 11:54",
+    "fresh": false,
+    "tools": [
+     "start_main_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "饭前收尾工作",
+      "饭前把消息清干净再吃饭"
+     ]
+    ],
+    "max_age": 4
+   },
+   {
+    "t": "10-12 12:00",
+    "fresh": true,
+    "tools": [
+     "report_status"
+    ],
+    "mention": [
+     "饭前收尾工作"
+    ],
+    "echo": [],
+    "max_age": 4
+   },
+   {
+    "t": "10-12 12:13",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "饭前收尾工作",
+      "饭前把消息清干净再吃饭"
+     ]
+    ],
+    "max_age": 4
+   },
+   {
+    "t": "10-12 12:28",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [
+     "午休刷视频",
+     "午睡五十分钟左右"
+    ],
+    "echo": [
+     [
+      "番茄牛肉刀削面",
+      "汤头开胃、面也顶饱，一个人"
+     ],
+     [
+      "午休刷视频",
+      "午休刷视频控制在半小时以内"
+     ]
+    ],
+    "max_age": 3
+   },
+   {
+    "t": "10-12 12:58",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [
+     "午休刷视频"
+    ],
+    "echo": [
+     [
+      "午休刷视频",
+      "午休刷视频控制在半小时以内"
+     ],
+     [
+      "需求评审会议",
+      "，一小时就能定下来，"
+     ],
+     [
+      "抖音",
+      "家常菜和生活科普"
+     ],
+     [
+      "王磊",
+      "接上，这种当面对齐的配合让我干活有底"
+     ]
+    ],
+    "max_age": 3
+   },
+   {
+    "t": "10-12 13:48",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "午休小睡",
+      "午饭后刷半小时视频再小睡五十"
+     ]
+    ],
+    "max_age": 2
+   },
+   {
+    "t": "10-12 14:21",
+    "fresh": true,
+    "tools": [
+     "report_status"
+    ],
+    "mention": [
+     "下午专注开发"
+    ],
+    "echo": [],
+    "max_age": 3
+   },
+   {
+    "t": "10-12 14:51",
+    "fresh": true,
+    "tools": [
+     "report_status"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "下午成块写代码",
+      "午睡起来先做评审和缺陷修复，再整段两小时写新功能"
+     ]
+    ],
+    "max_age": 2
+   },
+   {
+    "t": "10-12 15:00",
+    "fresh": true,
+    "tools": [
+     "report_status"
+    ],
+    "mention": [
+     "下午成块写代码"
+    ],
+    "echo": [],
+    "max_age": 2
+   },
+   {
+    "t": "10-12 15:18",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "下午成块写代码",
+      "午睡起来先做评审和缺陷修复，"
+     ]
+    ],
+    "max_age": 2
+   },
+   {
+    "t": "10-12 15:18",
+    "fresh": false,
+    "tools": [
+     "start_main_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "下午成块写代码",
+      "两小时写新功能、一次自测提交，"
+     ]
+    ],
+    "max_age": 2
+   },
+   {
+    "t": "10-12 15:48",
+    "fresh": true,
+    "tools": [
+     "report_status"
+    ],
+    "mention": [
+     "下午成块写代码"
+    ],
+    "echo": [],
+    "max_age": 2
+   },
+   {
+    "t": "10-12 17:00",
+    "fresh": true,
+    "tools": [
+     "report_status"
+    ],
+    "mention": [
+     "下班打卡"
+    ],
+    "echo": [],
+    "max_age": 2
+   },
+   {
+    "t": "10-12 17:18",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [
+     "下午专注开发",
+     "下班前收尾"
+    ],
+    "echo": [
+     [
+      "王磊",
+      "有几处没收干净，但看得出"
+     ]
+    ],
+    "max_age": 3
+   },
+   {
+    "t": "10-12 17:30",
+    "fresh": true,
+    "tools": [
+     "report_status"
+    ],
+    "mention": [
+     "下班前收尾"
+    ],
+    "echo": [],
+    "max_age": 2
+   },
+   {
+    "t": "10-12 17:39",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "下班打卡",
+      "，回家的路上心里不挂着工作。"
+     ]
+    ],
+    "max_age": 2
+   },
+   {
+    "t": "10-12 18:00",
+    "fresh": true,
+    "tools": [
+     "start_side_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "自己做的番茄炒蛋配清炒青菜",
+      "下班回家自己炒两个家常菜"
+     ],
+     [
+      "一人份食材包",
+      "盒马的一人份食材包"
+     ]
+    ],
+    "max_age": 4
+   },
+   {
+    "t": "10-12 18:09",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "下班前收尾",
+      "那一刻是真的松下来了，"
+     ],
+     [
+      "开车回家",
+      "正好把工作状态放下来"
+     ]
+    ],
+    "max_age": 2
+   },
+   {
+    "t": "10-12 19:40",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "一人份食材包",
+      "盒马的一人份食材包"
+     ]
+    ],
+    "max_age": 4
+   },
+   {
+    "t": "10-12 19:50",
+    "fresh": true,
+    "tools": [
+     "start_side_activity"
+    ],
+    "mention": [
+     "盒马下单食材包"
+    ],
+    "echo": [
+     [
+      "盒马下单食材包",
+      "第二天晚饭的食材包"
+     ]
+    ],
+    "max_age": 2
+   },
+   {
+    "t": "10-12 19:54",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "自己做的番茄炒蛋配清炒青菜",
+      "，比点外卖踏实，"
+     ],
+     [
+      "盒马下单食材包",
+      "在盒马把第二天晚饭的食材包定好，二十"
+     ],
+     [
+      "喜马拉雅",
+      "有点吵，收掉反而清爽。"
+     ],
+     [
+      "自己做晚饭",
+      "想一直保持下去。"
+     ]
+    ],
+    "max_age": 4
+   },
+   {
+    "t": "10-12 19:54",
+    "fresh": false,
+    "tools": [
+     "start_side_activity"
+    ],
+    "mention": [
+     "睡前刷短视频"
+    ],
+    "echo": [
+     [
+      "睡前刷短视频",
+      "睡前刷短视频半小时上下"
+     ]
+    ],
+    "max_age": 2
+   },
+   {
+    "t": "10-12 21:30",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [
+     "睡前刷短视频"
+    ],
+    "echo": [
+     [
+      "爱奇艺",
+      "九点前后收手最合适"
+     ],
+     [
+      "睡前刷短视频",
+      "睡前刷短视频半小时上下就够"
+     ]
+    ],
+    "max_age": 2
+   },
+   {
+    "t": "10-12 22:10",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [
+     "睡前刷短视频"
+    ],
+    "echo": [
+     [
+      "哔哩哔哩",
+      "的老街生活题材电影，"
+     ],
+     [
+      "睡前刷短视频",
+      "睡前刷短视频半小时上下就够"
+     ]
+    ],
+    "max_age": 2
+   },
+   {
+    "t": "10-12 22:40",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [
+     "睡前刷短视频"
+    ],
+    "echo": [
+     [
+      "睡前刷短视频",
+      "睡前刷短视频半小时上下就够，收手后留着一段安静时间"
+     ]
+    ],
+    "max_age": 2
+   }
+  ],
+  "food_summary": {
+   "purchases": 21,
+   "repeat": 6,
+   "card_named": 5,
+   "with_view": 9,
+   "with_pos_view": 9,
+   "with_neg_view": 0,
+   "repeat_with_view": 5,
+   "with_view_not_card": 6,
+   "repeat_with_view_not_card": 3
+  },
+  "food": [
+   {
+    "t": "10-08 09:35",
+    "goods": "美式咖啡",
+    "repeat": false,
+    "card_named": true,
+    "views": []
+   },
+   {
+    "t": "10-08 11:33",
+    "goods": "番茄牛肉刀削面",
+    "repeat": false,
+    "card_named": false,
+    "views": []
+   },
+   {
+    "t": "10-08 19:21",
+    "goods": "可乐鸡翅配清炒菌菇一人份食材包",
+    "repeat": false,
+    "card_named": false,
+    "views": []
+   },
+   {
+    "t": "10-09 08:00",
+    "goods": "火腿芝士牛角三明治",
+    "repeat": false,
+    "card_named": false,
+    "views": []
+   },
+   {
+    "t": "10-09 08:42",
+    "goods": "冰美式咖啡",
+    "repeat": false,
+    "card_named": true,
+    "views": [
+     [
+      "美式咖啡",
+      "2026-10-08",
+      "pos"
+     ]
+    ]
+   },
+   {
+    "t": "10-09 11:46",
+    "goods": "番茄牛肉刀削面",
+    "repeat": true,
+    "card_named": false,
+    "views": [
+     [
+      "番茄牛肉刀削面",
+      "2026-10-08",
+      "pos"
+     ]
+    ]
+   },
+   {
+    "t": "10-09 20:00",
+    "goods": "香煎鸡胸肉配清炒时蔬一人份食材包",
+    "repeat": false,
+    "card_named": false,
+    "views": [
+     [
+      "一人份食材包",
+      "2026-10-08",
+      "pos"
+     ]
+    ]
+   },
+   {
+    "t": "10-09 22:38",
+    "goods": "奶香馒头",
+    "repeat": false,
+    "card_named": false,
+    "views": []
+   },
+   {
+    "t": "10-10 08:56",
+    "goods": "冰美式咖啡",
+    "repeat": true,
+    "card_named": true,
+    "views": [
+     [
+      "美式咖啡",
+      "2026-10-08",
+      "pos"
+     ]
+    ]
+   },
+   {
+    "t": "10-10 10:00",
+    "goods": "关东煮拼盘（玉米鸡蛋兰花干）",
+    "repeat": false,
+    "card_named": false,
+    "views": []
+   },
+   {
+    "t": "10-10 11:50",
+    "goods": "一荤一素工作餐",
+    "repeat": false,
+    "card_named": false,
+    "views": []
+   },
+   {
+    "t": "10-10 20:06",
+    "goods": "板栗烧鸡配清炒娃娃菜一人份食材包",
+    "repeat": false,
+    "card_named": false,
+    "views": [
+     [
+      "一人份食材包",
+      "2026-10-08",
+      "pos"
+     ]
+    ]
+   },
+   {
+    "t": "10-11 07:42",
+    "goods": "豆本豆豆奶",
+    "repeat": false,
+    "card_named": false,
+    "views": []
+   },
+   {
+    "t": "10-11 07:42",
+    "goods": "奶香馒头",
+    "repeat": true,
+    "card_named": false,
+    "views": []
+   },
+   {
+    "t": "10-11 18:00",
+    "goods": "鱼香肉丝盖浇饭",
+    "repeat": false,
+    "card_named": true,
+    "views": []
+   },
+   {
+    "t": "10-11 19:35",
+    "goods": "土豆烧牛肉配清炒菌菇一人份食材包",
+    "repeat": false,
+    "card_named": false,
+    "views": [
+     [
+      "一人份食材包",
+      "2026-10-08",
+      "pos"
+     ]
+    ]
+   },
+   {
+    "t": "10-12 08:34",
+    "goods": "美式咖啡",
+    "repeat": true,
+    "card_named": true,
+    "views": [
+     [
+      "美式咖啡",
+      "2026-10-08",
+      "pos"
+     ],
+     [
+      "冰美式咖啡",
+      "2026-10-10",
+      "pos"
+     ]
+    ]
+   },
+   {
+    "t": "10-12 08:54",
+    "goods": "公仔点心面（海鲜味）",
+    "repeat": false,
+    "card_named": false,
+    "views": []
+   },
+   {
+    "t": "10-12 08:54",
+    "goods": "高钙牛奶 10盒",
+    "repeat": false,
+    "card_named": false,
+    "views": []
+   },
+   {
+    "t": "10-12 11:50",
+    "goods": "番茄牛肉刀削面",
+    "repeat": true,
+    "card_named": false,
+    "views": [
+     [
+      "番茄牛肉刀削面",
+      "2026-10-09",
+      "pos"
+     ]
+    ]
+   },
+   {
+    "t": "10-12 19:50",
+    "goods": "可乐鸡翅配清炒菌菇一人份食材包",
+    "repeat": true,
+    "card_named": false,
+    "views": [
+     [
+      "一人份食材包",
+      "2026-10-08",
+      "pos"
+     ],
+     [
+      "土豆烧牛肉配清炒菌菇一人份食材包",
+      "2026-10-11",
+      "pos"
+     ]
+    ]
+   }
+  ]
+ },
+ "B": {
+  "counts": {
+   "with_views": 395,
+   "persona_only_views_total": 6022,
+   "wording_echo_ge8": 78,
+   "either": 85,
+   "subject_mention_view_only": 13,
+   "decisions": 409
+  },
+  "age_buckets": {
+   "0": 27,
+   "1-3": 46,
+   "none": 8,
+   ">=4": 4
+  },
+  "subjects": [
+   [
+    "微信读书",
+    23
+   ],
+   [
+    "网易云音乐",
+    12
+   ],
+   [
+    "在家做饭",
+    10
+   ],
+   [
+    "晚上做家务",
+    10
+   ],
+   [
+    "晚上整理房间",
+    8
+   ],
+   [
+    "抖音",
+    7
+   ],
+   [
+    "王磊",
+    7
+   ],
+   [
+    "功能开发与自测",
+    7
+   ],
+   [
+    "哔哩哔哩",
+    6
+   ],
+   [
+    "一边做家务一边听网易云音乐",
+    6
+   ],
+   [
+    "休息日下午的安排",
+    4
+   ],
+   [
+    "母亲",
+    4
+   ],
+   [
+    "盒马",
+    3
+   ],
+   [
+    "瑞幸咖啡",
+    2
+   ],
+   [
+    "需求评审会议",
+    2
+   ],
+   [
+    "在天鹅湖边散步",
+    2
+   ],
+   [
+    "天鹅湖",
+    2
+   ],
+   [
+    "在天鹅湖边散步和慢跑",
+    2
+   ],
+   [
+    "休息日午后的天鹅湖",
+    2
+   ],
+   [
+    "早上开车通勤",
+    2
+   ],
+   [
+    "悦来城家常菜馆",
+    1
+   ],
+   [
+    "休息日上午的安排",
+    1
+   ],
+   [
+    "东渡菜市场",
+    1
+   ],
+   [
+    "淘宝闪购",
+    1
+   ],
+   [
+    "下班开车回家",
+    1
+   ]
+  ],
+  "rows": [
+   {
+    "t": "10-08 10:50",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "瑞幸咖啡",
+      "用瑞幸下单冰美式"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-08 16:38",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "哔哩哔哩",
+      "刷哔哩哔哩的家常菜和生活类短视频"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-08 19:31",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "在家做饭",
+      "两道家常菜配一锅米饭当晚饭，量刚好、"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-08 20:45",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "盒马",
+      "家不用再想吃什么"
+     ],
+     [
+      "抖音",
+      "，不如留点时间做点家务或"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-08 22:00",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [
+     "晚上做家务"
+    ],
+    "echo": [],
+    "max_age": 0
+   },
+   {
+    "t": "10-09 13:00",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "哔哩哔哩",
+      "视频，节奏慢、不吵"
+     ]
+    ],
+    "max_age": 1
+   },
+   {
+    "t": "10-09 17:25",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "王磊",
+      "指出具体写法，改起来清楚不费劲。"
+     ]
+    ],
+    "max_age": null
+   },
+   {
+    "t": "10-09 18:20",
+    "fresh": true,
+    "tools": [
+     "start_main_activity"
+    ],
+    "mention": [
+     "晚上做家务"
+    ],
+    "echo": [
+     [
+      "晚上做家务",
+      "把洗衣服这种家务放在晚饭后做"
+     ],
+     [
+      "网易云音乐",
+      "晚上做家务、收拾房间时放纯器乐或室内乐最合适"
+     ]
+    ],
+    "max_age": 1
+   },
+   {
+    "t": "10-09 19:30",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [
+     "晚上做家务",
+     "晚上整理房间"
+    ],
+    "echo": [],
+    "max_age": 1
+   },
+   {
+    "t": "10-09 20:00",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "哔哩哔哩",
+      "，节奏慢、不吵，正好"
+     ],
+     [
+      "在家做饭",
+      "量刚好、不费劲，吃完当场"
+     ],
+     [
+      "网易云音乐",
+      "放纯器乐或室内乐"
+     ]
+    ],
+    "max_age": 1
+   },
+   {
+    "t": "10-09 20:00",
+    "fresh": false,
+    "tools": [
+     "start_side_activity",
+     "start_main_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "晚上整理房间",
+      "睡前把屋子归置一遍"
+     ]
+    ],
+    "max_age": 1
+   },
+   {
+    "t": "10-09 20:02",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "盒马",
+      "家不用再想吃什么。"
+     ]
+    ],
+    "max_age": 1
+   },
+   {
+    "t": "10-09 20:30",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "晚上整理房间",
+      "睡前把屋子归置一遍，"
+     ]
+    ],
+    "max_age": 1
+   },
+   {
+    "t": "10-09 20:50",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "抖音",
+      "饭后放松十几二十分钟"
+     ]
+    ],
+    "max_age": 1
+   },
+   {
+    "t": "10-09 21:00",
+    "fresh": true,
+    "tools": [
+     "start_main_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "晚上做家务",
+      "把洗衣服这种家务放在晚饭后做"
+     ]
+    ],
+    "max_age": 1
+   },
+   {
+    "t": "10-09 23:58",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "抖音",
+      "，不如把时间留给微信读书。"
+     ],
+     [
+      "微信读书",
+      "厨房和日常安排这类书"
+     ]
+    ],
+    "max_age": 1
+   },
+   {
+    "t": "10-10 08:44",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "瑞幸咖啡",
+      "用瑞幸下单冰美式"
+     ]
+    ],
+    "max_age": 2
+   },
+   {
+    "t": "10-10 09:09",
+    "fresh": true,
+    "tools": [
+     "report_status"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "功能开发与自测",
+      "再统一补单元测试"
+     ]
+    ],
+    "max_age": 1
+   },
+   {
+    "t": "10-10 09:39",
+    "fresh": true,
+    "tools": [
+     "report_status"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "功能开发与自测",
+      "统一补单元测试和边界用例、整体跑"
+     ]
+    ],
+    "max_age": 1
+   },
+   {
+    "t": "10-10 10:46",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "功能开发与自测",
+      "，再统一补单元测试和边界用例、整体跑一遍自测"
+     ]
+    ],
+    "max_age": 1
+   },
+   {
+    "t": "10-10 12:16",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "王磊",
+      "在异常输入处理上"
+     ]
+    ],
+    "max_age": null
+   },
+   {
+    "t": "10-10 12:58",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "哔哩哔哩",
+      "午休时刷哔哩哔哩的"
+     ]
+    ],
+    "max_age": 2
+   },
+   {
+    "t": "10-10 15:08",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "王磊",
+      "的意见都落在异常输入的具体写法上，"
+     ]
+    ],
+    "max_age": null
+   },
+   {
+    "t": "10-10 15:38",
+    "fresh": true,
+    "tools": [
+     "report_status"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "需求评审会议",
+      "盯实现方案和接口边界"
+     ]
+    ],
+    "max_age": 1
+   },
+   {
+    "t": "10-10 16:58",
+    "fresh": true,
+    "tools": [
+     "report_status"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "王磊",
+      "异常输入的具体写法"
+     ]
+    ],
+    "max_age": null
+   },
+   {
+    "t": "10-10 17:31",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "需求评审会议",
+      "比会后补想省事得多。"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-10 18:01",
+    "fresh": false,
+    "tools": [
+     "start_main_activity",
+     "start_side_activity"
+    ],
+    "mention": [
+     "晚上做家务"
+    ],
+    "echo": [
+     [
+      "网易云音乐",
+      "边做家务边放网易云音乐的器乐"
+     ]
+    ],
+    "max_age": 2
+   },
+   {
+    "t": "10-10 19:11",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "网易云音乐",
+      "晚间边做家务边放网易云音乐的器乐最顺手，两小时左右"
+     ]
+    ],
+    "max_age": 1
+   },
+   {
+    "t": "10-10 19:30",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "晚上做家务",
+      "，边听音乐边收拾"
+     ],
+     [
+      "网易云音乐",
+      "晚间边做家务边放网易云音乐"
+     ]
+    ],
+    "max_age": 2
+   },
+   {
+    "t": "10-10 19:50",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [
+     "晚上整理房间"
+    ],
+    "echo": [
+     [
+      "在家做饭",
+      "，吃完不油腻也不觉得累，比点外卖心里踏实"
+     ]
+    ],
+    "max_age": 1
+   },
+   {
+    "t": "10-11 10:01",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "微信读书",
+      "记不住，还挤掉睡觉"
+     ],
+     [
+      "一边做家务一边听网易云音乐",
+      "配着网易云音乐的轻快流行"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-11 10:15",
+    "fresh": false,
+    "tools": [
+     "start_main_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "网易云音乐",
+      "晚间做晚饭时放器乐"
+     ]
+    ],
+    "max_age": 1
+   },
+   {
+    "t": "10-11 10:53",
+    "fresh": true,
+    "tools": [
+     "report_status"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "微信读书",
+      "睡前读一小时左右最舒服，三四条内容就该收"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-11 11:00",
+    "fresh": true,
+    "tools": [
+     "report_status"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "微信读书",
+      "睡前读一小时左右最舒服，三四条内容就该收"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-11 11:30",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "微信读书",
+      "睡前读一小时左右最舒服，三四条内容就该收"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-11 13:00",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "悦来城家常菜馆",
+      "份量刚好，一个人"
+     ],
+     [
+      "休息日上午的安排",
+      "休息日上午先做家务再出门走动"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-11 13:00",
+    "fresh": false,
+    "tools": [
+     "start_side_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "东渡菜市场",
+      "晴天走过去正好活动一下"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-11 14:00",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [
+     "在家做饭",
+     "晚上做家务"
+    ],
+    "echo": [
+     [
+      "微信读书",
+      "睡前读一小时左右最舒服，三四条内容就该收"
+     ]
+    ],
+    "max_age": 3
+   },
+   {
+    "t": "10-11 15:04",
+    "fresh": true,
+    "tools": [
+     "report_status"
+    ],
+    "mention": [
+     "休息日下午的安排"
+    ],
+    "echo": [
+     [
+      "哔哩哔哩",
+      "午休时刷哔哩哔哩"
+     ],
+     [
+      "休息日下午的安排",
+      "收起来后最好出门走一走"
+     ]
+    ],
+    "max_age": 3
+   },
+   {
+    "t": "10-11 15:30",
+    "fresh": true,
+    "tools": [
+     "start_main_activity"
+    ],
+    "mention": [
+     "在家做饭"
+    ],
+    "echo": [],
+    "max_age": 1
+   },
+   {
+    "t": "10-11 15:34",
+    "fresh": true,
+    "tools": [
+     "report_status"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "在天鹅湖边散步",
+      "配着看一段慢节奏的视频走起来不枯燥"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-11 16:00",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "休息日下午的安排",
+      "看剧和读书各一小时上下"
+     ],
+     [
+      "在天鹅湖边散步",
+      "，配着看一段慢节奏的视频"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-11 16:04",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "一边做家务一边听网易云音乐",
+      "，不留在背景里。"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-11 16:35",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "母亲",
+      "，比只报平安更让她踏实。"
+     ]
+    ],
+    "max_age": null
+   },
+   {
+    "t": "10-11 16:38",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "休息日下午的安排",
+      "看剧和读书各一小时上下"
+     ],
+     [
+      "天鹅湖",
+      "闷在沙发上刷剧舒服"
+     ],
+     [
+      "休息日午后的天鹅湖",
+      "很合适，散步收心、慢跑补运动量，"
+     ],
+     [
+      "在天鹅湖边散步和慢跑",
+      "，散步收心、慢跑补运动量，"
+     ],
+     [
+      "母亲",
+      "多问她自己的日常安排和身体，"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-11 16:38",
+    "fresh": false,
+    "tools": [
+     "start_main_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "在家做饭",
+      "下班回家做两菜一饭"
+     ]
+    ],
+    "max_age": 1
+   },
+   {
+    "t": "10-11 17:00",
+    "fresh": true,
+    "tools": [
+     "start_side_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "网易云音乐",
+      "晚间做晚饭时放器乐很搭"
+     ]
+    ],
+    "max_age": 1
+   },
+   {
+    "t": "10-11 17:33",
+    "fresh": true,
+    "tools": [
+     "report_status"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "盒马",
+      "到，量刚好够一个人做两菜一饭。"
+     ]
+    ],
+    "max_age": 2
+   },
+   {
+    "t": "10-11 17:48",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [
+     "在家做饭"
+    ],
+    "echo": [],
+    "max_age": 1
+   },
+   {
+    "t": "10-11 17:48",
+    "fresh": false,
+    "tools": [
+     "start_main_activity",
+     "start_side_activity"
+    ],
+    "mention": [
+     "晚上整理房间",
+     "一边做家务一边听网易云音乐"
+    ],
+    "echo": [],
+    "max_age": 2
+   },
+   {
+    "t": "10-11 18:18",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "微信读书",
+      "睡前读一小时左右"
+     ],
+     [
+      "一边做家务一边听网易云音乐",
+      "活干完就关掉，不留在背景里。"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-11 19:00",
+    "fresh": true,
+    "tools": [
+     "report_status"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "微信读书",
+      "睡前读一小时左右最舒服"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-11 19:52",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "在家做饭",
+      "，一个人两菜一饭"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-11 19:52",
+    "fresh": false,
+    "tools": [
+     "start_side_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "微信读书",
+      "睡前读一小时左右最舒服"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-11 20:00",
+    "fresh": true,
+    "tools": [
+     "report_status"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "微信读书",
+      "睡前读一小时左右最舒服，三四条内容就该收"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-11 21:00",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "在家做饭",
+      "早点回家就先做饭，一个人两菜一饭、吃完当场收拾干净，"
+     ],
+     [
+      "抖音",
+      "十几二十分钟就够"
+     ],
+     [
+      "微信读书",
+      "睡前读一小时左右最舒服，三四条"
+     ],
+     [
+      "休息日下午的安排",
+      "看剧和读书各一小时上下"
+     ],
+     [
+      "天鹅湖",
+      "闷在沙发上刷剧舒服。"
+     ],
+     [
+      "休息日午后的天鹅湖",
+      "很合适，散步收心、慢跑补运动量，"
+     ],
+     [
+      "在天鹅湖边散步和慢跑",
+      "，散步收心、慢跑补运动量，"
+     ]
+    ],
+    "max_age": 2
+   },
+   {
+    "t": "10-11 21:44",
+    "fresh": true,
+    "tools": [
+     "report_status"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "抖音",
+      "抖音一次刷十几二十分钟就够"
+     ],
+     [
+      "微信读书",
+      "睡前读一小时左右最舒服"
+     ]
+    ],
+    "max_age": 2
+   },
+   {
+    "t": "10-11 22:13",
+    "fresh": false,
+    "tools": [
+     "start_side_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "微信读书",
+      "读到零点以后反而记不住"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-11 22:43",
+    "fresh": true,
+    "tools": [
+     "report_status"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "微信读书",
+      "睡前读一小时左右最舒服，三四条"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-11 23:03",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "微信读书",
+      "睡前读一小时左右最舒服，三四条"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-12 08:40",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "母亲",
+      "一周一次的问候保持住。"
+     ]
+    ],
+    "max_age": null
+   },
+   {
+    "t": "10-12 09:45",
+    "fresh": true,
+    "tools": [
+     "report_status"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "功能开发与自测",
+      "补单元测试和边界用例"
+     ]
+    ],
+    "max_age": 2
+   },
+   {
+    "t": "10-12 10:00",
+    "fresh": true,
+    "tools": [
+     "report_status"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "功能开发与自测",
+      "补单元测试和边界用例、整体跑"
+     ]
+    ],
+    "max_age": 2
+   },
+   {
+    "t": "10-12 11:30",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "功能开发与自测",
+      "写业务代码、再统一补单元测试和边界用例、"
+     ],
+     [
+      "淘宝闪购",
+      "单，淘宝闪购也能送到研发中心，"
+     ],
+     [
+      "早上开车通勤",
+      "早上自己开车走高架到园区，三十分钟上下，路上放着音乐不吵，"
+     ]
+    ],
+    "max_age": 2
+   },
+   {
+    "t": "10-12 12:29",
+    "fresh": false,
+    "tools": [
+     "start_side_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "哔哩哔哩",
+      "午休时刷哔哩哔哩的家常菜和生活类短视频"
+     ]
+    ],
+    "max_age": 4
+   },
+   {
+    "t": "10-12 14:30",
+    "fresh": true,
+    "tools": [
+     "report_status"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "王磊",
+      "落在异常输入的具体写法上，"
+     ]
+    ],
+    "max_age": null
+   },
+   {
+    "t": "10-12 14:40",
+    "fresh": true,
+    "tools": [
+     "report_status"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "王磊",
+      "都落在异常输入的具体写法上，"
+     ]
+    ],
+    "max_age": null
+   },
+   {
+    "t": "10-12 17:30",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "功能开发与自测",
+      "先写业务代码、再统一补单元测试"
+     ],
+     [
+      "王磊",
+      "，照着改一遍就有底，以后"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-12 18:00",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "早上开车通勤",
+      "，比挤公共交通省心。"
+     ]
+    ],
+    "max_age": 0
+   },
+   {
+    "t": "10-12 18:15",
+    "fresh": true,
+    "tools": [
+     "start_main_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "网易云音乐",
+      "晚间做晚饭时放器乐很搭"
+     ]
+    ],
+    "max_age": 2
+   },
+   {
+    "t": "10-12 18:45",
+    "fresh": true,
+    "tools": [
+     "report_status"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "网易云音乐",
+      "晚间做晚饭时放器乐很搭，一个半小时到两小时正好把饭和厨房一起收完"
+     ]
+    ],
+    "max_age": 2
+   },
+   {
+    "t": "10-12 19:00",
+    "fresh": true,
+    "tools": [
+     "report_status"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "网易云音乐",
+      "一个半小时到两小时正好把饭和厨房一起收完，收完就关掉"
+     ]
+    ],
+    "max_age": 2
+   },
+   {
+    "t": "10-12 19:25",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [
+     "在家做饭"
+    ],
+    "echo": [
+     [
+      "在家做饭",
+      "全套办完，晚上剩下的时间都松快。"
+     ],
+     [
+      "网易云音乐",
+      "一个半小时到两小时正好把饭和厨房一起收完，收完就关掉"
+     ],
+     [
+      "下班开车回家",
+      "，路上放点音乐，到家时人还清醒，晚上还能自己做饭。"
+     ]
+    ],
+    "max_age": 2
+   },
+   {
+    "t": "10-12 19:30",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [
+     "晚上做家务"
+    ],
+    "echo": [],
+    "max_age": 4
+   },
+   {
+    "t": "10-12 19:30",
+    "fresh": false,
+    "tools": [
+     "start_side_activity",
+     "start_main_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "晚上整理房间",
+      "半小时收拾一遍屋子很划算，睡前做完第二天早上心情就好"
+     ]
+    ],
+    "max_age": 3
+   },
+   {
+    "t": "10-12 20:00",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "晚上整理房间",
+      "，睡前做完第二天早上"
+     ]
+    ],
+    "max_age": 3
+   },
+   {
+    "t": "10-12 20:05",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "晚上整理房间",
+      "攒到周末一次做大扫除"
+     ],
+     [
+      "网易云音乐",
+      "，钢琴和木吉他的"
+     ],
+     [
+      "微信读书",
+      "睡前读一小时左右最舒服"
+     ],
+     [
+      "母亲",
+      "，我也放心；一周一次的问候"
+     ]
+    ],
+    "max_age": 1
+   },
+   {
+    "t": "10-12 20:15",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "微信读书",
+      "睡前读一小时左右"
+     ]
+    ],
+    "max_age": 1
+   },
+   {
+    "t": "10-12 20:45",
+    "fresh": true,
+    "tools": [
+     "report_status"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "微信读书",
+      "睡前读一小时左右最舒服，三四条"
+     ]
+    ],
+    "max_age": 1
+   },
+   {
+    "t": "10-12 21:00",
+    "fresh": true,
+    "tools": [
+     "report_status"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "微信读书",
+      "睡前读一小时左右最舒服，三四条内容就该收；读到零点以后反而记不住"
+     ]
+    ],
+    "max_age": 1
+   },
+   {
+    "t": "10-12 21:30",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "微信读书",
+      "睡前读一小时左右最舒服，三四条内容就该收"
+     ]
+    ],
+    "max_age": 1
+   },
+   {
+    "t": "10-12 22:00",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "抖音",
+      "一次刷十几二十分钟就够，超过半小时反而觉得零碎，不如把时间留给微信读书"
+     ],
+     [
+      "晚上做家务",
+      "把洗衣服这种家务放在晚饭后做"
+     ],
+     [
+      "微信读书",
+      "睡前读一小时左右最舒服，三四条就该收"
+     ],
+     [
+      "一边做家务一边听网易云音乐",
+      "家务配着网易云音乐"
+     ]
+    ],
+    "max_age": 4
+   },
+   {
+    "t": "10-12 22:00",
+    "fresh": false,
+    "tools": [
+     "start_main_activity",
+     "start_side_activity"
+    ],
+    "mention": [
+     "一边做家务一边听网易云音乐"
+    ],
+    "echo": [],
+    "max_age": 1
+   },
+   {
+    "t": "10-12 22:45",
+    "fresh": true,
+    "tools": [
+     "conclude_activity"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "抖音",
+      "刚好，超过半小时"
+     ],
+     [
+      "晚上做家务",
+      "做，边听音乐边收拾"
+     ],
+     [
+      "微信读书",
+      "，不让书挤掉睡觉的时间。"
+     ]
+    ],
+    "max_age": 4
+   },
+   {
+    "t": "10-12 23:00",
+    "fresh": true,
+    "tools": [
+     "report_status"
+    ],
+    "mention": [],
+    "echo": [
+     [
+      "微信读书",
+      "睡前读一小时左右"
+     ]
+    ],
+    "max_age": 0
+   }
+  ],
+  "food_summary": {
+   "purchases": 21,
+   "repeat": 4,
+   "card_named": 7
+  },
+  "food": [
+   {
+    "t": "10-08 08:55",
+    "goods": "冰美式咖啡",
+    "repeat": false,
+    "card_named": true,
+    "views": []
+   },
+   {
+    "t": "10-08 11:50",
+    "goods": "酸辣汤",
+    "repeat": false,
+    "card_named": false,
+    "views": []
+   },
+   {
+    "t": "10-08 11:50",
+    "goods": "鱼香肉丝盖浇饭",
+    "repeat": false,
+    "card_named": true,
+    "views": []
+   },
+   {
+    "t": "10-08 19:31",
+    "goods": "可乐鸡翅配清炒菌菇一人份食材包",
+    "repeat": false,
+    "card_named": false,
+    "views": []
+   },
+   {
+    "t": "10-09 08:48",
+    "goods": "火腿芝士牛角三明治",
+    "repeat": false,
+    "card_named": false,
+    "views": []
+   },
+   {
+    "t": "10-09 08:48",
+    "goods": "冰美式咖啡",
+    "repeat": true,
+    "card_named": true,
+    "views": []
+   },
+   {
+    "t": "10-09 11:58",
+    "goods": "黄金蛋炒饭",
+    "repeat": false,
+    "card_named": false,
+    "views": []
+   },
+   {
+    "t": "10-09 11:58",
+    "goods": "青椒肉丝",
+    "repeat": false,
+    "card_named": true,
+    "views": []
+   },
+   {
+    "t": "10-09 20:00",
+    "goods": "清蒸鲈鱼配清炒毛豆一人份食材包",
+    "repeat": false,
+    "card_named": false,
+    "views": []
+   },
+   {
+    "t": "10-10 08:44",
+    "goods": "冰美式咖啡",
+    "repeat": true,
+    "card_named": true,
+    "views": []
+   },
+   {
+    "t": "10-10 11:35",
+    "goods": "鲣鱼海苔饭团",
+    "repeat": false,
+    "card_named": false,
+    "views": []
+   },
+   {
+    "t": "10-10 11:35",
+    "goods": "香菇滑鸡盖浇饭",
+    "repeat": false,
+    "card_named": false,
+    "views": []
+   },
+   {
+    "t": "10-10 20:00",
+    "goods": "可乐鸡翅配清炒菌菇一人份食材包",
+    "repeat": true,
+    "card_named": false,
+    "views": []
+   },
+   {
+    "t": "10-11 10:11",
+    "goods": "素什锦炒面",
+    "repeat": false,
+    "card_named": false,
+    "views": []
+   },
+   {
+    "t": "10-11 19:47",
+    "goods": "清蒸鲈鱼配清炒毛豆一人份食材包",
+    "repeat": true,
+    "card_named": false,
+    "views": []
+   },
+   {
+    "t": "10-11 21:00",
+    "goods": "奶香馒头",
+    "repeat": false,
+    "card_named": false,
+    "views": []
+   },
+   {
+    "t": "10-12 08:00",
+    "goods": "高钙牛奶 10盒",
+    "repeat": false,
+    "card_named": false,
+    "views": []
+   },
+   {
+    "t": "10-12 09:30",
+    "goods": "美式咖啡",
+    "repeat": false,
+    "card_named": true,
+    "views": []
+   },
+   {
+    "t": "10-12 11:50",
+    "goods": "咖喱鸡肉便当",
+    "repeat": false,
+    "card_named": false,
+    "views": []
+   },
+   {
+    "t": "10-12 11:50",
+    "goods": "芹菜香干肉丝盖浇饭",
+    "repeat": false,
+    "card_named": true,
+    "views": []
+   },
+   {
+    "t": "10-12 19:30",
+    "goods": "木须肉配清炒豌豆尖一人份食材包",
+    "repeat": false,
+    "card_named": false,
+    "views": []
+   }
+  ]
+ }
+}

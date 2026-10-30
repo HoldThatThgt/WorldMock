@@ -1,0 +1,294 @@
+[
+ {
+  "critic": "facts",
+  "verdict": "Most statements about the current system hold up against the code at f67c25e5 and the V and B run data. Confirmed against code and data: the layer sizes table, the 11:50 layer sizes, the groceries reset and consume chain, the made-up dinner self-reports, the 3/4 noodle lunches, the routine count 138 of 160, the 10-12 plan text, the rule indices 13 and 19 and the 20-rule count, prices, schema versions (world 15, quality 9, manifest 7, export 8, catalog 5, rules 6), the LabelKit pins and the `{kind}` stripping, the read_query, dispatcher and tool-table seams, and nearly every path and test file named. Two statements are materially wrong. (1) The claims that yesterday's food never reaches today's prompt are contradicted by run data: \"only the midnight planner carries yesterday's food\", \"past meals never appear\", \"never sees facts\", \"midnight wipes yesterday's facts\". The overnight stay is filed by its end date, so yesterday evening's meals and kit orders do appear; what is lost is everything from sessions that ended before midnight, including the office lunch. (2) The catalog-field plan keeps format 5 even though current WorldMock rejects unknown catalog fields. About a dozen citations are off by one function or a few lines, or point at the wrong function. A few mechanism details and the 11:50 example also contradict the code, the data or the proposal's own rules. See the issues list.",
+  "issues": [
+   {
+    "severity": "major",
+    "location": "Ch1 gap #5 consequence (现在只有零点计划能把昨天的饮食带进今天); mechanisms bullet 1 (往日吃过什么从来不会出现); gap #11 (零点会清掉昨天的事实); P-metrics M3 baseline (从来看不到事实); mechanisms bullet 2 (唯一能把昨天的饮食带进今天的通道)",
+    "problem": "The proposal says yesterday's food facts are invisible today except through the midnight planner. In fact `earlier_today` files a session by the date it ended (memory_layer.py:104-107). The overnight home stay therefore carries yesterday evening's purchases, deliveries and dinners into today: first in 进度层 until departure, then in `earlier_today` for the rest of the day. Only sessions that ended before midnight are wiped, which includes the office stay where lunch happened. The proposal's own gap #8 (35–37% of characters are about the previous day) contradicts the 'only channel' claim.",
+    "evidence": "V, 10-12 09:10 and 11:50 first-turn requests: 记忆层.earlier_today[recorded_at 2026-10-12T08:03:52] settled contains '10月11日 18:02 买了鱼香肉丝盖浇饭…', '10月11日 19:05 鱼香肉丝盖浇饭…已送到…', '10月11日 19:39 买了土豆烧牛肉配清炒菌菇一人份食材包…' and '10月11日 19:55 …已送到'. At 10-12 07:48, 进度层.session_started_at is 2026-10-11T15:41:40 (41 events), so yesterday evening is in the prompt.",
+    "fix": "Narrow the claim: yesterday's lunch and every session that ended before 00:00 leave the prompt at midnight; evening facts from the overnight stay survive, misfiled under today. Present the planner as the only channel for yesterday's lunch and daytime meals. Fix M3's V baseline to say past-day facts appear only through the overnight session."
+   },
+   {
+    "severity": "major",
+    "location": "Ch2 类别 / 目录字段的写法; Ch2 分歧表 '目录类别信号'; Ch3 版本表 '目录 格式 5…只加一个可选字段'; Ch5 裁决 6",
+    "problem": "Option A is presented as compatible: an optional `memory_category` with format_version still 5. But WorldMock catalog rows reject unknown fields. Every WorldMock build up to HEAD would reject a package 0001 that carries the override, even though its format is also 5. Format 5 would then mean two incompatible row schemas, which is the case format_version exists to separate. The LabelKit statement (rows are indexed by identity and fields are not checked) is correct; the gap is on the WorldMock side.",
+    "evidence": "src/worldmock/foundation/models.py:39-42 `class DeepFrozenModel… model_config = ConfigDict(extra=\"forbid\", frozen=True)`; App and Content subclass it (resource_engine/catalog/models.py:59,225); docs/design/03-resource-engine.md:47 「未知字段不忽略、不翻译；旧格式直接拒绝。」; CatalogManifest.format_version: Literal[5] (models.py:51).",
+    "fix": "State the trade-off explicitly. Either bump to format 6 (with LabelKit's CATALOG_FORMAT_VERSION) or accept that format 5 stops being a reader-compatibility promise and that old builds cannot read the new package. Record that ruling in 03-resource-engine.md:40-47 alongside the existing 「未知字段不忽略」 rule."
+   },
+   {
+    "severity": "minor",
+    "location": "Ch2 零点回顾 校验: 「传输失败与 plan_day 一样处理：先提交证据，再抛出运行故障（runner.py:655-660）」",
+    "problem": "Wrong citation. Lines 655-660 are the attempt loop's request and parse. Transport failure is handled in `_call_plan_day`. Validation exhaustion is at 663-665, and there plan_day raises a run fault, unlike the proposed fallback to null.",
+    "evidence": "runner.py:675-692 `_call_plan_day` (except BaseException → failure_draft, append_evidence, raise); runner.py:663-665 `if attempt > …day_plan_validation_max_retries: append_evidence; raise ProtocolError(\"plan_day output validation retries exhausted\")`.",
+    "fix": "Cite runner.py:675-692 for transport failure. Note that the digest's null fallback deliberately differs from plan_day's validation exhaustion at runner.py:663-665."
+   },
+   {
+    "severity": "minor",
+    "location": "Ch2 search_memory: 「_earlier_changes 靠 result 来区分续接用的 tool 消息（life_continuation.py:111-121）」",
+    "problem": "Wrong line range. Lines 111-122 are `_view`.",
+    "evidence": "life_continuation.py:102-108 `def _earlier_changes(...)… return payload.get(\"changes\", {}) if \"result\" in payload else None`.",
+    "fix": "Cite life_continuation.py:102-108. In the P2 row, the `_overlay` range is :125-140 and `_view` is :111-122 (the proposal says 124-134)."
+   },
+   {
+    "severity": "minor",
+    "location": "Ch1 mechanisms: 「家里做饭只消耗 groceries 状态，不写菜名（simulation_engine/scheduling/callbacks/callbacks.py:255-265）」",
+    "problem": "The citation points at `reset_on_receipt`, the kit-receipt reset, and that event does record goods_id. Consumption happens elsewhere and records only content_id.",
+    "evidence": "callbacks.py:255-268 reset_on_receipt → StateResetResult(state, goods_id, before, after); consumption is simulation_engine/activities/content/interact.py:99-116 → ConsumeOnStartResult(state, content_id, …) (recording_engine/events/callback_contract.py:41 type consume_on_start).",
+    "fix": "Cite interact.py:99-116 for consumption. Mention that the reset event already carries goods_id, which is what makes the kit-name sentence derivable."
+   },
+   {
+    "severity": "minor",
+    "location": "Ch1 mechanisms: 「宿主按位置取层：_visible_names(data, layers[3])…一旦调整层序，这两处会悄悄取错层」; Ch2 交互 只读快照; Ch3 life_agent.py P2 row",
+    "problem": "`_visible_names` never reads its `todo` argument; recall names come from goal_bindings and activity_bindings. Reordering cannot make it pick the wrong layer, so the P2 change there is unnecessary. The access that is positional and silent is `write_prompt_snapshot(..., layers[2])`. A third positional access, `layers[-1]` for progress meta, was missed; it stays valid only because 进度层 remains last.",
+    "evidence": "custom/agents/life_agent.py:765-785 (`todo` parameter unused; grep finds 'todo' only in the signature); :482 `_progress_meta(data, layers[-1])`; :487 `write_prompt_snapshot(..., persona, layers[2])`.",
+    "fix": "Say that only layers[2] (snapshot) is silently position-dependent, and that layers[-1] at :482 depends on 进度层 staying last. Drop the parameter from `_visible_names` or make it name-based, but do not describe that as a bug fix."
+   },
+   {
+    "severity": "minor",
+    "location": "Ch2 退役的东西: 「episodes.jsonl 继续写入：…`memory_repetition_ratio` 指标也要读它」",
+    "problem": "memory_repetition_ratio reads the episode snapshots inside memory_updated events, not episodes.jsonl.",
+    "evidence": "tools/analysis/behavior/metrics.py:601-609 `_memory_repetition_gate(events, notes)` → `_episode_pairs(events)`; note text 「memory_updated 未提供 episodes 文本，记忆重复率无法计算」.",
+    "fix": "Justify keeping episodes.jsonl by the resume validation alone (runner.py:422-428 validate_existing), or cite the real reader."
+   },
+   {
+    "severity": "minor",
+    "location": "Ch1 gap #5 (阈值巩固的产出没有任何地方读取（life_memory.py:79-92）); mechanisms (没有任何地方读它); 退役表 (原本就没有读者)",
+    "problem": "Overstated. No decision prompt reads the summary, but it is rendered into MEMORY.md at every step and fed back as `current_subjective_summary` into the next consolidation. The run viewer and the metrics residue gate read MEMORY.md.",
+    "evidence": "life_memory.py:118-120 render_memory_view(..., store.read_subjective_summary()); :250 'current_subjective_summary': store.read_subjective_summary(); verify.json H4 (readers: tools/run-viewer, metrics.py:110 memory_md_identity_residue).",
+    "fix": "Write 'no decision or reflection prompt reads it; it reaches only MEMORY.md (viewer, residue gate) and the next consolidation's input'."
+   },
+   {
+    "severity": "minor",
+    "location": "Ch1 gap #4: 「AS2 仓库只有 conclude 会写入（life_agent.py:750-762）」",
+    "problem": "Wake reflection also appends to episodes.jsonl. Within a decision only conclude writes, but the store as a whole has a second writer.",
+    "evidence": "life_memory.py:140,173 (_run_reflection → store.append_episodes); V has 4 memory_updated events with trigger ['reflection'] and 20 records (verify.json M1).",
+    "fix": "Write 'among decision tools only conclude writes the store; wake reflection writes it too'."
+   },
+   {
+    "severity": "minor",
+    "location": "Ch1 mechanisms: 「睡醒反思…先无条件做一次巩固」",
+    "problem": "The wake-time consolidation skips the threshold check, but it is not unconditional: it returns early when nothing is unconsolidated.",
+    "evidence": "life_memory.py:139 calls _consolidate_subjective(…, \"daily reflection\"); :245-247 `episodes = store.unconsolidated_view(); if not episodes: return False`; docstring :128 「有未归纳的记录时先巩固一次」.",
+    "fix": "Write 'consolidates once without the threshold check whenever unconsolidated records exist'."
+   },
+   {
+    "severity": "minor",
+    "location": "Ch1 关键数字 F11: 「输入从 09:37–13:55 才开始，比零点计划晚约 8 小时」",
+    "problem": "Two facts are merged. The planner's window starts at 00:00, so a reflection input starting at 09:37–13:55 is about 9.6–14 h later. The '~8 h' in the brief is when the reflection arrives (at wake, around 08:00) relative to the 00:00 plan.",
+    "evidence": "brief F12 'the reflection for a day arrives about 8h after this plan'; verify.json M2 input windows 09:37–23:45, 10:46–22:58, 13:55–23:30, 13:45–22:08; day_plan_inputs.py:109-115 window starts at previous 00:00.",
+    "fix": "Split it: the input starts 09:37–13:55, missing the morning; the reflection is written about 8 h after the midnight plan."
+   },
+   {
+    "severity": "minor",
+    "location": "Ch1 关键数字 F7: 「10-11 14:30 之前有 33 次请求带着 23k–45.6k 字的进度层，而 earlier_today 为空」",
+    "problem": "The count and the size range do not match the compact-JSON measure used in the rest of the table, where 进度层 max is 42,812. 45.6k only appears with non-compact json.dumps.",
+    "evidence": "V read-only recount: 10-11 before 14:30 there are 30 decision model_requests (23 first-turn, 30 observations), all with earlier_today=[]; 进度层 compact-JSON 21,665–42,294; max non-compact = 45,605; the same table gives max 42,812.",
+    "fix": "Write '30 requests (23 first-turn), 进度层 21.7k–42.3k' (compact), or label 45.6k as a different serialization."
+   },
+   {
+    "severity": "minor",
+    "location": "Ch2 归日规则: 「现行窗口是闭区间（day_plan_inputs.py:44-50），零点整的事件会被算两次」",
+    "problem": "Only partly true. `covers()` is closed and is used for results, deliveries, endings and conclusions. `ends_within()` is already half-open and is used for verified experiences.",
+    "evidence": "day_plan_inputs.py:45-47 covers: start <= epoch <= end; :49-51 ends_within: start < epoch <= end (「左开右闭」); uses at :169 (ends_within) and :188,:195,:206,:233 (covers).",
+    "fix": "Say that the closed `covers()` predicate double-counts point events at exactly 00:00:00 and that experience intervals are already half-open."
+   },
+   {
+    "severity": "minor",
+    "location": "Ch1 mechanisms: 「提示指纹和工具指纹都冻结在模型身份里（life_prompt.py:172-177）」",
+    "problem": "The citation covers only the prompt fingerprint.",
+    "evidence": "Tool fingerprint: custom/agents/life_agent.py:953 life_tool_schema_sha256; both frozen at src/worldmock/runtime/framework/setup.py:83-89 (prompt_sha256=…, tool_schema_sha256=…).",
+    "fix": "Add life_agent.py:953 and setup.py:83-89."
+   },
+   {
+    "severity": "minor",
+    "location": "Ch2 示例 10-12 11:50 「长期」 and 「近三天·生活 10-11」 (claimed 「核验和看法的原文都取自 V 运行的事件」)",
+    "problem": "The hand-written example breaks its own rules: 长期 should fill newest first, merge near-duplicates, keep the newer item and include 关系. Many views older than 10-12 are missing while older ones are kept, so the 1,054-char 长期 figure is understated. 10-11 家务 also leaves out 打扫卫生.",
+    "evidence": "V conclude views (all completed): 冰美式咖啡 10-10 08:58 (should replace 美式咖啡 10-08 under the stated dedupe); work views on 10-10: 功能开发与自测 10:56, 需求评审会议 11:56, 下午成块写代码 17:25, 下班前收尾 17:45, 开车回家 18:15, all newer than 下午专注开发 10-09 and 饭前收尾工作 10-08, which are shown; 盒马下单食材包 10-10 20:07; 王磊 relationship on 10-08, 10-09 and 10-10 15:25 (missing from 关系). activities.jsonl: 打扫卫生 10-11 07:45–08:30 (45 min) is missing from 「家务：整理房间 1 小时、洗衣服 45 分」. synth/example.py builds 长期 by hand.",
+    "fix": "Regenerate the example with the stated rules, or label it explicitly as a hand-picked excerpt and recompute the sizes."
+   },
+   {
+    "severity": "minor",
+    "location": "Ch3 代码表: scripts/compare_runs.py 「字段路径改为 今天[].时刻」",
+    "problem": "compare_runs.py has no memory-layer field paths, and a simulated-time field would not be masked anyway. Only the digest's event-id path is plausibly needed.",
+    "evidence": "scripts/compare_runs.py masks: EVENT_MASKS {recorded_at, wall_elapsed_ms} (:44), event-id paths such as 'data.source_event_ids[]' (:82,121); grep finds no memory_layer, earlier_today or self_notes.",
+    "fix": "Keep only `data.digests.*.source_event_ids[]` as an event-id path, or name the concrete compare_runs code that would read 今天[].时刻."
+   },
+   {
+    "severity": "minor",
+    "location": "Ch1 mechanisms: LabelKit 「把目录格式钉死为 5（…export_source.py:21,589-590）」",
+    "problem": "Off by one. Line 21 holds the export, run-manifest, world and checkpoint versions; the catalog format constant is on line 22.",
+    "evidence": "LabelKit-DataSet/persona/src/labelkit_dataset/datasets/persona/export_source.py:21 `EXPORT_VERSION, RUN_MANIFEST_VERSION, WORLD_VERSION, CHECKPOINT_VERSION = 8, 7, 15, 1`; :22 `RULES_VERSION, CATALOG_FORMAT_VERSION, ENVIRONMENT_INPUT_VERSION = 6, 5, 2`; check at :589-590.",
+    "fix": "Cite :21-22 and :589-590."
+   },
+   {
+    "severity": "minor",
+    "location": "Ch2 家里做的饭叫得出名字: 「在 activity_sentence（settled_text.py:63-81）里…商品取…最近一条 reset_to_cap 的 goods_id」",
+    "problem": "The function exists at the cited lines, but its inputs are (context, activity, pauses, app_progress), with no access to callback events or the store. The kit lookup needs new plumbing (for example extending ActivityFacts in memory_layer `_build`, and in day_plan_inputs, which shares `ending_lines`).",
+    "evidence": "settled_text.py:63-64 signature; ActivityFacts built at memory_layer.py:161 from pause_intervals, endings and app_progress only.",
+    "fix": "Name the data path, for example a per-activity kit map added to ActivityFacts and built from environment_event callback_effect rows in both memory_layer and day_plan_inputs."
+   },
+   {
+    "severity": "minor",
+    "location": "Ch2 存储与事件记录: 「由 engine.register_day_digest 与证据一起提交，写法照 register_day_plan（time_advance.py:211-226）：状态不变，版本加一」",
+    "problem": "Misleading reference: register_day_plan does change state.",
+    "evidence": "time_advance.py:211-225 docstring 「写 day_plan 与 plan_submitted_dates」; staged.version = state.version + 1; commit_step(staged, [*evidence, draft]).",
+    "fix": "Write 'same commit mechanics as register_day_plan (staged version +1, evidence and draft in one commit), but unlike it the state is unchanged'."
+   },
+   {
+    "severity": "minor",
+    "location": "Ch2 分歧表 '重试预算字段' and Ch3 '运行清单 保持 7'",
+    "problem": "P4 retires the reflection call, which leaves `reflection_validation_max_retries` orphaned, and the proposal does not mention it. Removing the field changes the ModelConfig key set and bumps the run manifest, contradicting 'manifest stays 7'. Keeping it leaves a dead frozen field. The proposal reuses day_plan_validation_max_retries without considering the reflection field.",
+    "evidence": "src/worldmock/configuration/inputs/models.py:224 reflection_validation_max_retries (read at life_memory.py:187); docs/design/08-configuration.md:135.",
+    "fix": "Either reuse reflection_validation_max_retries for the digest, or state explicitly that it stays as a retained legacy field to keep manifest 7."
+   },
+   {
+    "severity": "minor",
+    "location": "Ch2 体量表 进度层 'P1 在零点截断，模拟结果为中位 11.5k、最大 34.1k'",
+    "problem": "The simulation filters 进度层 events purely by occurred_at >= midnight. That drops the carried records which P1 explicitly keeps, so the figures are a lower bound.",
+    "evidence": "scratchpad/memgap/owner_literal/cut.py: `keep=[ev for ev in prog[\"events\"] if …occurred_at>=midnight]` (rerun read-only: after median 11,502.5, max 34,122); P1 keeps carried records per progress_layer.py:143-166.",
+    "fix": "Label the result as a lower bound, or rerun the simulation keeping carried records."
+   },
+   {
+    "severity": "minor",
+    "location": "Ch1 关键数字 F13: 「79.6% 的决策能干净归到一类」",
+    "problem": "Not independently confirmed. The verifier says the figure came from the map stage and was not re-derived; the brief only supports 76–80%.",
+    "evidence": "verify.json runs C1: \"'Every stay mixes 4–7 categories' and the 79.6% figure come from MAP and were not re-derived\"; brief F13 '76–80%'.",
+    "fix": "Quote 76–80%, or re-derive 79.6% with a cited script."
+   }
+  ]
+ },
+ {
+  "critic": "complete",
+  "verdict": "Revise before freezing. The proposal answers every point the owner raised: terminology, 32 turns (keep 16), per-round entries, daily compaction, the 2x2, three categories, the day / 3-day / month / year ladder, what is sent each round, search_memory(category,time), system-prompt teaching, and the gap check. Most deviations are flagged as decisions, and it states model cost for each phase. Its contract handling is mostly sound: env-only mutation through a register_day_plan-style registration; environment_event with source_kind=model following the day_plan_generated precedent (day_planning.py:167); the planner and experience projection filter by kind, so the digest cannot leak into verified facts (experiences.py:127-128; day_plan_inputs.py:195); replay and resume read events; there is no AS2 patch; LabelKit trims unknown kinds (export_source.py:355-357). Rule renumbering (old 13→15, 19→21), memory-layer budget sums (100+2,200+4,000+6,000) and the example's part sizes (21/1,054/2,246/2,262 = 5,623 chars) check out.\n\nSeven findings break internal consistency or a contract:\n- **(1) Tool schema.** The search_memory schema uses maxLength, which deepseek_strict_schema rejects outright.\n- **(2) Reflection dating.** P1 \"unifies day attribution\" while reflections, still alive until P4, are checked by quality.py against the wake−1 rule.\n- **(3) Midnight cut.** P1's midnight truncation relies on carry-in, but carry-in covers only interact activities. The record of each night's sleep would drop out of the prompt every morning.\n- **(4) 长期 budget.** The 600-char-per-category newest-first budget holds only about one day of 生活/工作 views. The example's 长期 does not follow its own fill rule.\n- **(5) Daily paragraph.** The owner's daily paragraph compaction is gated, and P4-lite drops it entirely.\n- **(6) Category rules.** The rules contradict the example: 08:34–08:54 work before the 08:55 shift start classifies as 生活, yet the example labels it 工作.\n- **(7) Dead config field.** Retiring reflection leaves reflection_validation_max_retries as a dead frozen field, while the proposal reuses the plan_day retry field, whose exhaustion is fatal.\n\nThe minor items are budget arithmetic that does not close, a search cap that cannot return what is promised, orphan facts at day boundaries, undefined error shapes, incomplete test and doc lists, and unstated storage cost.",
+  "issues": [
+   {
+    "severity": "major",
+    "location": "Ch2 §search_memory tool definition",
+    "problem": "The proposed strict schema uses \"maxLength\":40, and nullability is written as a type array. The repo's strict-schema builder refuses maxLength, so tool construction raises at LifeAgent init. That also breaks the tool fingerprint (life_tool_schema_sha256) and _validate_registered_tool_surface.",
+    "evidence": "src/worldmock/state/interaction/schema.py:45-50 lists minLength/maxLength/minItems/maxItems/oneOf/default as _DEEPSEEK_UNSUPPORTED_SCHEMA_KEYS, and :76-78 raises ValueError on them; custom/agents/life_agent.py:935-945 builds every tool through deepseek_strict_schema; the existing MemorySearchRequest enforces its 200-char limit in a field_validator (life_agent.py:101-110), not in the schema.",
+    "fix": "Define SearchMemoryRequest as a pydantic model: keyword: str | None, which emits anyOf, not a type array; enforce the 40-char and ≤4-word caps in a field_validator; keep pattern for time. Add a test that deepseek_strict_schema accepts the model."
+   },
+   {
+    "severity": "major",
+    "location": "Ch2 §归日规则 (retire 「睡醒日减一」) vs P1 「统一归日规则」 and P1 acceptance 「质量版本仍是 9」",
+    "problem": "The single day rule retires wake−1, but no phase says when. P1 says it unifies day attribution, yet reflections keep running through P3. Quality and the recording contract recompute reflection sourcing and require reflection.date = wake date − 1. Re-dating reflections in P1 would flag every reflection as memory_update_without_source, which P1's acceptance does not test. If wake−1 is kept instead, it is an undeclared exception to the 'one rule' principle (design principle 2).",
+    "evidence": "quality.py:478-490 (_reflection_sourced requires filed.date == today − 1 day); docs/design/05-recording-engine.md:86,94 (反思登记 date from due_reflection = previous local day); simulation_engine/evidence/memory.py:31-34; the P1 code table does not list evidence/memory.py, quality.py or 05-recording-engine.md.",
+    "fix": "State that reflections keep wake−1 attribution through P3, as an explicit exception rendered under the date they are filed to. Retire wake−1 together with reflection in P4 or P4-lite. Add the 05-recording-engine.md 反思登记 removal (:84-96) and the call-class table edit (:642-643) to the P4 doc list."
+   },
+   {
+    "severity": "major",
+    "location": "Ch2 §与现有机制的交互 → 进度层 P1 (「带入记录的规则不变，所以零点时还在进行的活动仍会被带入」)",
+    "problem": "Carry-in covers only interact activities. Sleep (crosses midnight every night), purchases, queries and travel started before midnight lose their start request and result records once the P1 lower bound becomes max(session_lower, midnight). P1 publishes 今天 only at the end of a segment. So from wake until departure, the verified sleep ending and any overnight purchase or query result are in neither layer. That happens every morning, and P1 acceptance does not catch it.",
+    "evidence": "progress_layer.py:157-166 (_carried_activities filters activity.kind == ActivityKind.INTERACT); :128-140 (_session_calls reads only requests after lower); docs/design/06-agent.md:267 (带入 only for 用内容 app 或在地点做事); kinds.py:13-17 (SLEEP/TRAVEL/PURCHASE/QUERY are separate kinds).",
+    "fix": "In P1, extend carry-in across the midnight cut to every unfinished or awaiting-conclusion activity of any kind, which P2 already plans to do. Alternatively, publish the 00:00 sub-segment's ended activities into 今天 at the cut. Add a P1 test that sleep 23:30→07:30 shows its ending line at the 07:30 decision."
+   },
+   {
+    "severity": "major",
+    "location": "Ch2 §四格 budget table (长期 ≤600/category, newest-first) and §示例 长期",
+    "problem": "View inflow far exceeds the 长期 budget, so 长期 is really 'views of the last 1–2 days', not long-term memory. The 11:50 example also does not follow its own rules:\n- It keeps 美式咖啡 记于 10-08, but the newer 冰美式咖啡 view from 10-10 merges with it by containment and should win with its own date.\n- It omits the 10-10 view 盒马下单食材包.\n- Its 工作 list keeps 10-09 and 10-08 views although 10-10 alone has 6 work views (~510 chars).\n- Its 生活 list keeps a 10-10 view although 10-11 has ~14 生活 views (~1.2k chars).\nApplied literally, 饮食 at 10-12 fills to 573/600 with 7 items. The 10-09 刀削面 view, which the example's narrative relies on, sits at the edge and would drop out the next day.",
+    "evidence": "V footprints, conclude views per day/category in the proposal's item shape: 生活 10-10 651 chars, 10-11 1,229, 10-12 572; 工作 10-10 510, 10-12 447; 饮食 245–471 (scratchpad critic/viewrate.py). Simulated newest-first fill (critic/fill.py) keeps 休息日在家做午饭, 鱼香肉丝盖浇饭, 土豆烧牛肉…食材包, 自己做的晚饭, 盒马下单食材包, 冰美式咖啡(10-10), 番茄牛肉刀削面(10-09) = 573 chars. synth/example.py hand-wrote 长期.",
+    "fix": "Choose a selection rule that preserves durable views. Options: subjects re-affirmed on ≥2 distinct days; a per-day quota (e.g. ≤2 per category per day); or importance plus recency. Alternatively, raise the 长期 budget and accept it as recent views. Rebuild the example by running the rule, and re-check the cache and cost claims."
+   },
+   {
+    "severity": "major",
+    "location": "Ch4 P4 gate / P4-lite; Ch5 裁决 7, 8, 13",
+    "problem": "The owner explicitly asked that today's entries be compacted daily into a paragraph that feeds the next day, with each category compacting on its own. In the proposal the only paragraph is P4. P4 is gated on a ≥10% citation rate measured in P3. If the gate fails, P4-lite ships with no paragraph at all, only the last ≤2 self-notes. The gate is also weak:\n- It measures citation of the very reflections being replaced.\n- In 5-day runs, 'day 4 on' is 10-11 (Sunday, no work) and 10-12, so the work sample is a single day.\nThe deterministic 核验摘要 is per category but is not a paragraph, and it is not subjective.",
+    "evidence": "Owner text: 'Everyday these memory entries gets compacted into a paragraph, feeds the next day' and 'each of them append and compact of their own'. Proposal Ch4 P4: 门槛 …≥10%…; P4-lite 「不调用模型」. Package calendar: 10-11 is a rest day (persona.toml weekly 0–4, exceptions).",
+    "fix": "Make 'ship the daily paragraph unconditionally vs gated' an explicit decision in Ch5, stating that P4-lite drops a literal owner requirement. If a gate is kept, measure it on the 10-day P3 run (several workdays after day 4) and on a quality signal of the digest itself, not on old reflections."
+   },
+   {
+    "severity": "major",
+    "location": "Ch2 §类别 rules 4–5 vs §示例 今天 08:54 entry and 近三天 工作 cells",
+    "problem": "Rule 5 classifies work only 'within duty hours' (duty_status is clock-only). The 08:34–08:54 处理消息与收尾 at the office ends before the 08:55 shift start, so the rules give 生活, but the example labels it 工作. Office work outside scheduled hours (pre-shift, unscheduled stay-late) and work done during the 12:00–14:00 break also fall to 生活. Rules 4–5 do not say whether start time, end time or overlap decides.",
+    "evidence": "V input/persona.toml:84-86 starts=535 (08:55), ends=1050, breaks [[720,840]]; configuration/persona/work_schedule.py:56-65 (duty_status depends only on the clock: STATUS_BEFORE before start); V events 5724/5788: 处理消息与收尾 started 08:34:52 and concluded 08:54:52.",
+    "fix": "Use 'at the day's shift location on a workday, or within the duty span' for rule 5, or add a pre/post-shift margin. Specify the time test (e.g. majority overlap or start time). Re-derive the example's categories from the rules, and pin the 0001 derivation table, including pre-shift office activities."
+   },
+   {
+    "severity": "major",
+    "location": "Ch2 §压缩 校验 (reuse day_plan_validation_max_retries); Ch3 运行清单「保持 7」; P4 retire reflection",
+    "problem": "Retiring reflection in P4 leaves the frozen ModelConfig field reflection_validation_max_retries with no reader. That is a no-op configuration in model identity, and the proposal does not address it. Removing the field would change the stage identity key set and bump the run-manifest version that LabelKit pins at 7. Meanwhile the digest reuses day_plan_validation_max_retries, whose exhaustion is fatal (ProtocolError), unlike the digest's null/fallback path, so one field would carry two semantics.",
+    "evidence": "configuration/inputs/models.py:224-225; agents/memory/life_memory.py:187 (only reader); docs/design/08-configuration.md:135; tests pin it: tests/system/lifecycle/test_run_manifest.py:11, tests/unit/runtime/test_model_identity.py:39, tests/integration/runtime/test_strict_endpoint.py:16; runner.py:655-660 (plan_day exhaustion raises).",
+    "fix": "Reuse reflection_validation_max_retries for day_digest, since the digest replaces reflection, and redocument it in 08-configuration.md:135. That keeps the ModelConfig key set and manifest 7 unchanged and leaves day_plan semantics untouched."
+   },
+   {
+    "severity": "minor",
+    "location": "Ch2 §分级 (「一个月的格子约 17k 字，分页返回即可」「区间查询一次最多覆盖 31 天」) vs §search_memory caps",
+    "problem": "Results are capped at 12 items and 4,000 chars, and the tool has no page or offset parameter, so 'paged return' is impossible. A keyword-less 31-day range or month query returns about 3–5 days of 全部 cells, or about 9–12 days for one category, then 未列出. The claim that day-level search closes the day-4-to-month gap is overstated.",
+    "evidence": "Example cells average ~250 JSON chars (近三天 2,246 chars / 9 cells), so ~750 chars per day for 全部; the proposal's schema has only category/time/keyword.",
+    "fix": "Either add a page parameter (strict, required, nullable) or define a compact one-line-per-cell range form so that 31 days fit in 4,000 chars. Restate the month-gap claim accordingly."
+   },
+   {
+    "severity": "minor",
+    "location": "Ch2 §四格 budget table, §今天条目 折叠",
+    "problem": "Several budgets do not close:\n- 近三天: per-cell maxima (9 × (320+120) = 3,960) plus the ~60 chars of JSON overhead per cell seen in the example exceed the ≤4,000 total.\n- 今天: 「核验永远不删」 means the ≤6,000 cap and the fold-to-≤4,000 target cannot be guaranteed on a dense day. 核验 plus keys is already ~3.0–3.4k, so a heavier day could re-fold on every append and bust the cache. The claim 「合计 ≤12,300，上限由构建器自己保证」 is therefore unproven.\n- 在途订单 ≤6 rows has no overflow rule.\n- P1's 反思 and 「最后写下的 ≤2 条自述」 budgets are unspecified, yet P1 acceptance requires 「各级都不超预算」.",
+    "evidence": "Measured example overhead: 近三天 content ≈1.5k chars → 2,246 JSON; F16 settled 2.0–2.4k chars/day plus ~1.0k keys.",
+    "fix": "Define a layer-level trimming order with a terminal fallback, e.g. collapse the oldest 核验 into a count line plus a search hint. Size per-cell caps so that 9 cells plus overhead ≤ 4,000. Give numeric P1/P4-lite budgets, and say whether '≤2 自述' is per cell or per day."
+   },
+   {
+    "severity": "minor",
+    "location": "Ch2 §今天条目 窗口 (C_{k-1}, C_k] + 「只收这个条目所属日期的事实」",
+    "problem": "The first decision after midnight has a window that spans midnight. Facts settled late on day D after D's last decision (deliveries, natural ends, errand results) land in a D+1 window and are then filtered out by date. They appear in no entry and only in D's capped cell. That contradicts 「每个事实恰好落进一个窗口」 and the search tier 「每一天：那天的全部条目（不截断）」.",
+    "evidence": "Proposal text; the clock stops at midnight (time_advance.py:118-123 midnight boundary), but no decision is guaranteed between the last D event and 00:00, e.g. a persona asleep since 23:30 while a delivery arrives.",
+    "fix": "Split decision windows at the local-midnight boundary sequence number (the same boundary used for rejected_today), and emit a closing per-category entry for D, timed at the fact time, for the residue."
+   },
+   {
+    "severity": "minor",
+    "location": "Ch2 §search_memory errors (「第 4 次返回 ok=False」「查全部时要写关键词」 vs MEMORY_TIME_INVALID)",
+    "problem": "Error responses come in two undefined shapes. Not-ok query results must carry the five-field read_query error shape with items[].path, or the host's tool-message builder fails. No error codes or guidance entries are given for the cap or the missing keyword.",
+    "evidence": "custom/agents/life_agent.py:645-662 (_append_react_tool_result rewrites payload['items'][*]['path'] when not result.ok); life_env.py:172-180 (error_code/reason/fix/items/unmet).",
+    "fix": "Name the codes (e.g. MEMORY_SEARCH_LIMIT, MEMORY_KEYWORD_REQUIRED, MEMORY_TIME_INVALID), add rejection_guidance entries, and return all three through the same five-field shape."
+   },
+   {
+    "severity": "minor",
+    "location": "Ch2 §系统层规则 READONLY (P3 起), P1 今天 shape",
+    "problem": "Two phase leaks:\n- The P3 read-only rules mention 「回顾」, which exists only from P4. That breaks the proposal's own rule 「终稿之前的版本…不教尚未上线的」.\n- P1 adopts the new 今天 shape, including 「看法·」 items, while the views still sit in 人设层 preferences until P2. Every view is then shown twice in P1, and the P1 cost estimate ignores this.",
+    "evidence": "Proposal: READONLY rule 2 (P3) lists 「回顾」; P1 改动 「今天条目改为新形状」 while 人设层 is untouched until P2; F6: earlier_today currently has no views.",
+    "fix": "Drop 「回顾」 from the P3 read-only rules until P4. Either omit 「看法·」 items from 今天 until P2, or state the duplication and its cost."
+   },
+   {
+    "severity": "minor",
+    "location": "Ch3 §测试与门禁, §设计文档",
+    "problem": "The lists of pinned tests and docs to change are incomplete. Removing due_reflection, consolidation and the memory_* tools also strands public APIs that must be deleted to keep the zero-uncovered-public-interface gate.",
+    "evidence": "Missing tests:\n- tests/dataset_acceptance.py:188-210 (source mutations of due_reflection)\n- tests/integration/runtime/test_output_truncation.py:56,288,343\n- tests/unit/agent_protocol/test_decision_context_protocol.py:110,191\n- tests/integration/runtime/test_coverage_closure_agent.py:2,70\n- tests/integration/life/test_sleep_runtime.py:402\n- tests/integration/life/test_autoplay.py:458 and tests/unit/life/test_narration.py:96 (earlier_today)\n- tests/system/viewer/*.cjs\nMissing doc: 05-recording-engine.md:84-96 (反思登记) and :642-643 (call classes).\nStranded APIs: life_memory_store.unconsolidated_view (:98) and life_memory._consolidate_subjective (:240).",
+    "fix": "Extend the per-phase test and doc tables. List the APIs to delete in P1 (consolidation) and P4 (reflection tool, store and evidence paths), and confirm coverage_gate after each phase."
+   },
+   {
+    "severity": "minor",
+    "location": "Ch3 §事件、版本与下游; Ch4 费用",
+    "problem": "Several costs are missing or inconsistent:\n- Storage: memory_layer is a content-addressed observation part. Today it is identical in 384/405 consecutive observations. From P2 it changes on almost every new second, so roughly 200 new ~8k-char blobs per 5 days (several MB per run, larger exports), not mentioned.\n- Pilot total: the listed pilots sum to about $20 (P1 $7 + P2 $4–5 + P3 $5 + P4 $4), not $25–30.\n- Engineering and wall-clock effort is called 'the real cost' but never quantified.",
+    "evidence": "recording_engine/storage/observation_parts.py:21-22 (memory_layer is a WHOLE_PART_KEYS entry, stored once per distinct content); verify.json S1 (memory layer identical in 384/405).",
+    "fix": "Add a storage/export-size line per phase, correct the pilot total, and give a rough engineering estimate per phase."
+   },
+   {
+    "severity": "minor",
+    "location": "Ch3 WorldMock-Dataset 包 0001 row; Ch2 §分级 「10-08 能看到 09-28 到 09-30」",
+    "problem": "Two dataset-side gaps:\n- Adding memory_category rows to package 0001 changes catalog_content_sha256 and needs an environment_version bump (currently \"9\") and a manifest regeneration in WorldMock-Dataset. Pilots then run on a different environment version than V/B.\n- The 09-28–09-30 example cannot happen in the pilots: they start 10-08, so there are no earlier work days.",
+    "evidence": "WorldMock-Dataset/environment/0001-white-collar-lianqiu/package/catalog/manifest.json (environment_version \"9\", catalog_content_sha256); docs/design/03-resource-engine.md:47 (未知字段不忽略); V input/config.toml runs 10-08→10-13.",
+    "fix": "Add the package version bump and dataset tests to P1. Note the environment-version difference in the pilot comparison, and qualify the 09-28 example as applying to 30-day package runs only."
+   },
+   {
+    "severity": "minor",
+    "location": "Ch5 decisions list; Ch2 §今天条目 折叠",
+    "problem": "Three deviations from the owner's literal model are not raised as decisions:\n- 长期 views are put in the prompt, although the owner said everything beyond today and the last 3 days goes through search_memory.\n- Start-only decisions (133/406) produce no entry, although the owner said every round yields one. 裁决 2 covers only report_status.\n- Folding of 今天 is global (oldest first), not per category, although the owner wants each category to compact on its own.",
+    "evidence": "Owner text; proposal design principle 3 and the 分歧 table row 人设层的看法; F2 counts (start alone 113 + pairs 20).",
+    "fix": "Add these three as explicit decisions with the recommendation and its rationale. Consider per-category folding to honor 'compact of their own'."
+   },
+   {
+    "severity": "minor",
+    "location": "Ch2 §零点回顾 name guard; Ch4 M2",
+    "problem": "The name guard checks only catalog names of ≥3 chars that appear in the input. Fabricated dish names from the persona's own self-notes therefore pass, and the subjective 回顾 would carry them forward. This undercuts the motivation of fixing unnamed and invented dinners.",
+    "evidence": "V views: 10-08 「自己做的番茄炒蛋配清炒青菜」, although 10-08 cooked 家里原有的食材; the brief notes the 10-09 self-note invented 番茄炒蛋; the proposal's guard only checks catalog names.",
+    "fix": "For the 饮食 digest, require food names to appear in that day's 饮食 核验, or forbid dish names that 核验 does not contain. Report guard rejections under M10."
+   },
+   {
+    "severity": "minor",
+    "location": "Ch2 §search_memory 只读保证 / naming; Ch4 M9",
+    "problem": "Naming and guard inconsistencies:\n- The new QUERY_MODELS sits beside the existing _QUERY_TOOL_MODELS, and recall_task_summary stays excluded by name: two query mechanisms. The proposal does not say how _QUERY_TOOL_MODELS is redefined.\n- The 待办层 key 在途订单 is Chinese while the continuation delta key is English orders.\n- The M9 / P3 guardrail of ≤4 turns per decision contradicts allowed legitimate use (3 searches + recall + world request = 5).\n- Gap-table row 4 repeats the uncorrected claim 'only conclude writes the AS2 store'; the verifier found bedtime reflection appends 20 of 255 episodes.",
+    "evidence": "custom/agents/life_agent.py:182-183,197-199; verify.json M1 (runs and code lenses).",
+    "fix": "State _QUERY_TOOL_MODELS = {recall_task_summary, **QUERY_MODELS}, or move recall into QUERY_MODELS. Align the key names. Set the turn guard to ≤5 or exclude capped searches from it. Correct gap row 4."
+   }
+  ]
+ }
+]

@@ -1,0 +1,126 @@
+{
+ "pieces": {
+  "核验_strings": {
+   "chars": 643,
+   "deepseek_est": 415.5,
+   "deepseek_tpc": 0.6462,
+   "cl100k": 627,
+   "cl100k_tpc": 0.9751
+  },
+  "自述_strings": {
+   "chars": 1110,
+   "deepseek_est": 733.1,
+   "deepseek_tpc": 0.6604,
+   "cl100k": 1288,
+   "cl100k_tpc": 1.1604
+  },
+  "回顾_prose": {
+   "chars": 393,
+   "deepseek_est": 258.2,
+   "deepseek_tpc": 0.657,
+   "cl100k": 516,
+   "cl100k_tpc": 1.313
+  },
+  "entry_shell_2lists": {
+   "text": "{\"时刻\":\"08:36\",\"类别\":\"饮食\",\"核验\":[\"\"],\"自述\":[\"\"]},",
+   "chars": 45,
+   "deepseek_est": 27.2,
+   "deepseek_tpc": 0.6047,
+   "cl100k": 27,
+   "cl100k_tpc": 0.6
+  },
+  "entry_shell_1list": {
+   "text": "{\"时刻\":\"08:50\",\"类别\":\"饮食\",\"核验\":[\"\"]},",
+   "chars": 35,
+   "deepseek_est": 21.1,
+   "deepseek_tpc": 0.6039,
+   "cl100k": 23,
+   "cl100k_tpc": 0.6571
+  },
+  "day_shell": {
+   "text": "{\"日期\":\"2026-10-09\",\"星期\":\"星期五\",\"回顾\":\"\"},",
+   "chars": 39,
+   "deepseek_est": 23.4,
+   "deepseek_tpc": 0.5993,
+   "cl100k": 22,
+   "cl100k_tpc": 0.5641
+  },
+  "work_day_shell": {
+   "text": "{\"日期\":\"2026-10-09\",\"星期\":\"星期五\",\"安排\":\"工作日\",\"回顾\":\"\"},",
+   "chars": 50,
+   "deepseek_est": 30.3,
+   "deepseek_tpc": 0.6054,
+   "cl100k": 29,
+   "cl100k_tpc": 0.58
+  },
+  "wrapper": {
+   "text": "{\"layer\":\"记忆层\",\"可查\":{\"最早日期\":\"2026-10-08\"},\"近三天\":{\"饮食\":[],\"工作\":[],\"生活\":[]},\"今天\":[]}",
+   "chars": 82,
+   "deepseek_est": 47.1,
+   "deepseek_tpc": 0.5748,
+   "cl100k": 48,
+   "cl100k_tpc": 0.5854
+  },
+  "new_layer_whole": {
+   "chars": 3083,
+   "deepseek_est": 1968.7,
+   "deepseek_tpc": 0.6386,
+   "cl100k": 2938,
+   "cl100k_tpc": 0.953
+  }
+ },
+ "caps": {
+  "tpc_today_content": 0.6552,
+  "tpc_review": 0.657,
+  "today_entry_120": {
+   "content_tokens": 78.6,
+   "shell_tokens": 27.2,
+   "total_tokens": 105.8,
+   "rendered_chars": 165
+  },
+  "day_review_200_tokens": 131.4,
+  "month_review_800_tokens": 525.6,
+  "year_review_2000_tokens": 1314.0,
+  "near3days_full_caps": {
+   "chars_incl_wrapper": 2266,
+   "tokens": 1460.8
+  }
+ },
+ "chars_per_10k_tokens": {
+  "0.638": 15673,
+  "0.655": 15267,
+  "0.67": 14925,
+  "0.7": 14285,
+  "0.72": 13888
+ },
+ "budget_14000": {
+  "tokens_at": {
+   "0.638": 8932,
+   "0.655": 9170,
+   "0.67": 9380,
+   "0.7": 9800,
+   "0.72": 10080
+  },
+  "cl100k_tokens_at_0.91": 12740,
+  "capped_entries_that_fit_chars": 71,
+  "capped_entries_that_fit_10k_tokens": 80
+ },
+ "at_caps_by_entries": {
+  "60": {
+   "chars": 12166,
+   "tokens": 7811
+  },
+  "67": {
+   "chars": 13321,
+   "tokens": 8552
+  },
+  "81": {
+   "chars": 15631,
+   "tokens": 10034
+  },
+  "89": {
+   "chars": 16951,
+   "tokens": 10880
+  }
+ }
+}

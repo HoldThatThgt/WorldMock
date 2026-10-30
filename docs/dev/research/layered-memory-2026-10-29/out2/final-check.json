@@ -1,0 +1,145 @@
+{
+ "facts": {
+  "verdict": "我按 f67c25e5 的代码核对了第一到第三章几乎每一处 file:line 引用，它们大多确实指向文中说的内容。我也从 V 重算了一遍数字，以下这些都对得上：56 条看法、合并后 34 个对象、各类条数和字数（714/698/996/179，共 2,612）、记过天数与记于日期、11:50 请求里的层大小（记忆层 6,929、人设层 4,970、进度层 17,674）、近三天各格里的收货时刻和金额、工作时长和 app 用时前三、食材包的重置与消耗链，以及 160/138 条普通记忆和 31 次巩固（27 次阈值、4 次睡醒）。经得起反驳的问题有三类。一是 search_memory 的工具面调整：现有 LifeEnv 的启动核对会拦下它，第三章没有列出这处改动。二是 LabelKit 的一个行号差一行，这是上一轮修正时改错的。三是例子、区间检索容量和验收条件里各有几处与代码、数据或本文自身矛盾。",
+  "issues": [
+   {
+    "severity": "major",
+    "quote": "`life_action_tool_names` 改成 `_TOOL_MODELS` 减去 `QUERY_MODELS`（:197-199），不再按名字排除 recall",
+    "problem": "文中说 _validate_registered_tool_surface 只是另外多核对一项，第三章也只写了「放宽 read_query 白名单」。但 LifeEnv 启动时已有两项核对：REQUEST_MODELS 必须等于 _STABLE_TOOL_SURFACE（其中含 recall_task_summary，注释写明「恰好受理七个请求工具」）；life_action_tool_names() 必须等于 frozenset(REQUEST_MODELS)。照本文改法，如果 recall 留在 REQUEST_MODELS，第二项不相等，启动时抛 ProtocolError。如果 recall 移出 REQUEST_MODELS，第一项报漂移；另外 life_agent.py:612 的 REQUEST_MODELS[action] 会 KeyError；_prepared_action_error 遇到不在 REQUEST_MODELS 的动作直接返回空串，recall 在宿主一侧的 NAME_NOT_FOUND 名称纠错就不再执行。这些改动都不在第三章的改动面里。",
+    "evidence": "custom/envs/life_env.py:27-39（_STABLE_TOOL_SURFACE 含 recall_task_summary）、:127-134（registered=frozenset(REQUEST_MODELS)；与稳定工具面比较漂移；life_action_tool_names()!=registered 时抛 ProtocolError）；custom/agents/life_agent.py:197-199、:559-561（`if action not in REQUEST_MODELS: return \"\"`）、:612、:845-847（recall 的名称核对）；src/worldmock/state/interaction/requests.py:568-575；docs/design/06-agent.md:56,59",
+    "fix": "写明 recall_task_summary 从 REQUEST_MODELS 移出，并在第三章代码表补上以下几项：life_env.py 的 `_STABLE_TOOL_SURFACE` 改为六个世界请求；`_validate_registered_tool_surface` 改为核对「life_action_tool_names()==frozenset(REQUEST_MODELS)」，并核对「查询工具集==read_query 白名单」；life_agent.py:612 改为取 QUERY_MODELS；`_prepared_action_error` 对 recall_task_summary 继续做名称核对；06-agent.md 的工具表改为「世界请求六个、只读查询两个」。如果要保留 recall 在 REQUEST_MODELS，life_action_tool_names 就不能减去 QUERY_MODELS。"
+   },
+   {
+    "severity": "major",
+    "quote": "31 天全类别约 31×3 行，能放进上限",
+    "problem": "同一节和工具定义规定，检索结果最多 12 项、4,000 字。不带关键词的 31 天区间查询有 93 行紧凑行，远超 12 项。按本文自己给的例句（44 字）算，93×44 已经是 4,092 字，还没算键名，也超出 4,000 字。而且这个例句并不完整：它漏了 10-09 饮食格里自己列出的两样东西，即 20:20 收到的香煎鸡胸肉配清炒时蔬一人份食材包和 22:58 收到的奶香馒头。按 V 的实际内容，每天三类合计约 190 字，31 天约 5.9k 字。所以「第 4 天到月界的空档不需要模型调用就能补」这个结论不成立。",
+    "evidence": "文档第 343 行「结果最多 12 项、4,000 字」；第 246 行的例句共 44 字；V export/purchases.jsonl 的收货记录：kit-dinner-chicken-greens 于 10-09 20:20 收到，food-6923240600288（奶香馒头）于 10-09 22:58 收到；文档第 478 行的 10-09 饮食格也列了这两项",
+    "fix": "把不带关键词的区间查询限定为：类别为「全部」时至多 10 天，单一类别时至多 31 天。或者写明「12 项」只算条目，紧凑行另设 ≤4,000 字的上限，超出时只留最近的若干天并计入 `未列出`。同时把例句补成「10-09 饮食：火腿芝士牛角三明治、冰美式咖啡、番茄牛肉刀削面、做饭（可乐鸡翅食材包）、香煎鸡胸肉配清炒时蔬一人份食材包、奶香馒头」，并据此重新估算容量。"
+   },
+   {
+    "severity": "minor",
+    "quote": "但它把格式号钉死为 5（export_source.py:22,589-590）",
+    "problem": "行号差一。CATALOG_FORMAT_VERSION 定义在第 21 行，第 22 行是 ARTIFACT_FILES。上一轮评审说常量在第 22 行，这个说法本身是错的，文档照它改反而改错了。第三章代码表的「(export_source.py:22)」和下游表的「(export_source.py:22,589-590)」也是同样的错。",
+    "evidence": "LabelKit-DataSet/persona/src/labelkit_dataset/datasets/persona/export_source.py:20 `EXPORT_VERSION, RUN_MANIFEST_VERSION, WORLD_VERSION, CHECKPOINT_VERSION = 8, 7, 15, 1`；:21 `RULES_VERSION, CATALOG_FORMAT_VERSION, ENVIRONMENT_INPUT_VERSION = 6, 5, 2`；:22 `ARTIFACT_FILES = {`（该文件最后一次提交在 10-20）",
+    "fix": "第二章「目录字段的写法」、第三章代码表 LabelKit-DataSet 行、第三章「事件、版本与下游」LabelKit 行，三处统一改为「export_source.py:21,589-590」。"
+   },
+   {
+    "severity": "minor",
+    "quote": "驾车前往练秋湖研发中心（10月12日 08:03 起）：08:03–08:33，按计划结束",
+    "problem": "10-12 11:50 例子里的「今天」声称核验取自 V 的事件、用的是 settled_text 的现有句式，但有两句与 V 不符。出行的结束短语实际是「到达」，不是「按计划结束」。08:03 条目的微信句漏了现有句式带出的未完内容「（《洗手二十秒，最容易漏掉哪几处》未完）」。",
+    "evidence": "V run/footprints.sqlite event_seq 6015（10-12 11:50:02 的 model_request）记忆层 earlier_today 原文为「驾车前往练秋湖研发中心（10月12日 08:03 起）：08:03–08:33，到达」和「进行微信（10月12日 08:00 起）：08:00–08:03，结束使用，《大模型为什么会一本正经地编答案》（《洗手二十秒，最容易漏掉哪几处》未完）」",
+    "fix": "08:33 条目的核验改为「驾车前往练秋湖研发中心（10月12日 08:03 起）：08:03–08:33，到达」；08:03 条目的微信句末尾补上「（《洗手二十秒，最容易漏掉哪几处》未完）」；再相应重算「今天」的字数。"
+   },
+   {
+    "severity": "minor",
+    "quote": "一次决策最多是 3 次检索、1 次回看、1 个世界请求，共 5 个回合",
+    "problem": "这个上界并不成立。recall_task_summary 没有次数上限，只要剩余回合大于 1 就一直开放；参数或名称错误触发的协议纠错也要消耗回合；规则还允许只读查询同批调用。B 在完全没有检索的情况下就用过 3 个回合。P3 验收和 M9 护栏把「≤5 回合」当作硬条件，「有一项回退就不上线」，这会被与记忆无关的纠错回合误判为失败。",
+    "evidence": "custom/agents/life_agent.py:397-404（剩余回合 >1 时开放 `_QUERY_TOOL_MODELS`，recall 不计次数）、:541-553（`_decision_error` 纠错后重新请求模型）；src/worldmock/agents/prompt/life_prompt.py:32（「只读查询可以同批」）；brief F3：B 单次决策最多 3 个回合",
+    "fix": "改为「每次决策至多检索 3 次；回看和协议纠错不设次数上限，回合数仍受 16 的预算约束」。P3 验收和 M9 里的「单次决策 ≤5 回合」改为「回合用尽 0 次，单次决策回合数的 p99 和最大值只报告」；如果确实要一个硬上界，就同时给 recall_task_summary 设次数上限。"
+   },
+   {
+    "severity": "minor",
+    "quote": "「长期」「近三天」在同一天内逐字节不变；",
+    "problem": "这个新增测试在 P1–P3 期间不可能通过。P1 的「近三天」另附「反思」，而反思在当天第一次睡醒时才写入，归到前一天，所以「近三天」在同一天里会变化一次。体量表自己也写着「近三天 P4 起只在零点变」。测试清单没有注明这个测试只从 P4 开始适用。",
+    "evidence": "文档第 151 行「P4 起只在零点变」、第 621 行「近三天另附「反思」」；V 中 10-11 的反思是 10-12 07:48:52 才写入的（event_seq 5582，reflection.date=2026-10-11）；src/worldmock/simulation_engine/evidence/memory.py:13-34",
+    "fix": "改为「「长期」在同一天内逐字节不变；「近三天」P4 起在同一天内逐字节不变，P1–P3 期间除当天第一次睡醒时加入的反思外逐字节不变」。"
+   },
+   {
+    "severity": "minor",
+    "quote": "每个有自述的日子恰有一条回顾事件；",
+    "problem": "这条 P4 验收与本文的时机规则矛盾。本文规定「运行已经到终点时直接返回……所以最后一天不生成回顾」。V 和 B 的运行都在 10-13 00:00 结束，10-12 有自述却不会有回顾事件，按这条验收会判为不通过。",
+    "evidence": "文档第 259 行「所以最后一天不生成回顾」；src/worldmock/simulation_engine/scheduling/plans/day_planning.py:72-78（current_time >= end_time 时返回空）；V run/manifest.json window.end=1791820800（2026-10-13 00:00 +08:00）",
+    "fix": "改为「除运行最后一天外，每个有自述的日子恰有一条回顾事件」。"
+   },
+   {
+    "severity": "minor",
+    "quote": "人设层的偏好，实际上是唯一会进提示的长期记忆",
+    "problem": "这句不符合现状，也和本文差距表第 6 条「反思才是真正的长期记忆」自相矛盾。睡醒反思按日期放进 earlier_days，而且确实会出现在提示里，只是在傍晚常被 8000 字窗口删掉。",
+    "evidence": "src/worldmock/simulation_engine/observation/layers/memory_layer.py:225-237（_day_entries 把反思放进 earlier_days）；V event_seq 6015（10-12 11:50）请求的 earlier_days 带着 10-08 至 10-11 四天的反思 self_notes；文档第 52 行",
+    "fix": "改为「除了会被 8000 字窗口时有时无地删掉的睡醒反思，人设层的偏好是唯一始终留在提示里的长期记忆」。"
+   }
+  ]
+ },
+ "coverage": {
+  "verdict": "I checked the doc against the owner's request for coverage. It answers every point and gives a concrete design for each: terminology, 32 turns, per-round entries, a daily paragraph, the 2x2, three categories, the day / 3-day / month / year tiers, what is sent each round, search_memory, system-prompt teaching, and a gap table. Most deviations are flagged as 裁决 1–18. Six major problems remain.\n- Three deviations from the literal request have no decision in 第五章: 今天 is folded out of the prompt, which the doc itself expects to happen every evening; entries are merged per second and category and appear late; query answers are dropped from both the prompt and search, even though gap #4 names their loss as a defect.\n- Gap #7 tells the owner that no layer carries a category field. In fact the 待办层 goals carry the closed 11-value `intent_kind`, and the category design never considers it.\n- The 转述 paragraph defines a round as an activity's whole start-to-conclude span. That contradicts both the owner and the doc's own term table.\n- The month tier and 31-day range search cannot return the promised one-call view under the 12-item / 4,000-char cap. A lower-bound estimate from V's start requests (travel, queries, sleep and kit names excluded) is 4.3–5.1k chars for 31 days.\n\nThe minor problems:\n- The start-only exclusion contradicts the doc's 正文 rule and its own example.\n- The evidence appendix and the F-labels point to a session /tmp scratchpad, so readers cannot follow them.\n- The keyword added to search_memory is not flagged.\n- The progress today/long-term axis is redefined without saying so.\n- The \"at most 5 turns\" bound is not a real bound.",
+  "issues": [
+   {
+    "severity": "major",
+    "quote": "合计约 5.6–7.6k，因此傍晚以后通常会折叠一次",
+    "problem": "The owner says today's memories are sent at the start of every round (doc:13). The design removes the earliest self-notes of 今天 from the prompt once 今天 passes 6,000 chars, keeps folding until it is under 4,000, and expects this on most evenings. That is a deviation from the literal request, but 第五章 has no decision for it. 裁决 11 covers ordering and 裁决 12 covers routine memories. The earlier round asked for folding to become a decision; the doc only made it per-category.",
+    "evidence": "doc:13 (owner); doc:152 (≤6,000，超出就折叠到 ≤4,000); doc:161; doc:190 (折叠 rule); doc:192 (傍晚以后通常会折叠一次); 第五章 doc:730-776 contains no folding item",
+    "fix": "第五章新增一条：「19. 「今天」超预算时要不要折叠。选项 A：按类别收起最早的自述，全文用 search_memory 查「今天」；选项 B：照字面全部发送，「今天」上限放宽到约 8k、不折叠。推荐 A，代价是傍晚以后最早的自述不再随每次决策发送，每次折叠打断约 1.7k token 缓存。」"
+   },
+   {
+    "severity": "major",
+    "quote": "同一秒内的多次决策（开始组、续接链）每类合并成一条",
+    "problem": "The owner's model is that each round's log becomes one entry in today's memory and is sent at the start of the next round (doc:8,12,13). The design instead gives one entry per (decision second, category): same-second chain decisions (103 of 406) are merged, and a round that touches two categories becomes two entries. Entries are published only when the clock reaches the next second (P2), or not until the current segment ends (P1). Under P1, a long home stay such as 10-11 00:00–14:30 shows an empty 今天 while all of that day's decisions sit in 进度层. Every phase is declared independently shippable (doc:609). None of this has a 第五章 decision; it appears only in the 分歧表 row at doc:117. Two smaller errors sit in the same place. A 开始组 is one decision with two start calls, not several decisions. The P1 rule text says 「每次决策每类一条」, which contradicts the merge rule.",
+    "evidence": "doc:8,12-13 (owner); doc:40,135 (每个决策时刻、每个类别各一条); doc:117; doc:184; doc:186-188 (已发布界); doc:396 (P1 rule text: 每次决策每类一条); doc:609; brief F4 (103/406 in same-second chains); docs/design/10-runtime.md:83 (一个决策至多两条 actions); doc:80 (F2: 单独开始 113、开始组 20 are counted as decisions)",
+    "fix": "第五章新增一条：「20. 今天条目的粒度与发布时机。选项 A（本文）：按（时刻, 类别）合并，过了这一秒才收进来，P1 暂在本段结束时收进来；选项 B：照字面每次决策一条，下一次决策就可见（同秒链内记忆层会变，要放宽 life_continuation.py:8 的假定）。」写明推荐，并说明 P1 单独上线时长时间停留里的决策仍只在进度层。把「同一秒内的多次决策（开始组、续接链）」改为「续接链里同一秒的多次决策，以及开始组的两项」。P1 规则文字改为「同一时刻接连的几次决策每类合成一条」。"
+   },
+   {
+    "severity": "major",
+    "quote": "不包括 report_status 总结和查询答案",
+    "problem": "Gap #4 lists the loss of query answers as a consequence to fix (「回复正文、report_status 总结和查询答案，一离开当前 session 就从提示里消失」). The design fixes only reply bodies, and report_status is covered by 裁决 2. Query answers stay in the session's 进度层 (今天进度 / P2 carry-in), the 今天 核验 keeps only the query's ending line, and search_memory explicitly excludes answers. After the person leaves, an answer cannot be reached through the prompt, search or recall_task_summary. This contradicts the owner's 'the rest via search_memory' and the doc's own gap row, and no decision covers it.",
+    "evidence": "doc:50 (gap #4 consequence); doc:135 (核验写…查询结束); doc:137 (今天进度含「这段停留里的查询答案」); doc:341; doc:423 (P2 只带入本段查询); docs/design/06-agent.md:265 (人物出发后…记忆层只留这项活动的结束句，不带答案); src/worldmock/simulation_engine/actions/dispatcher.py:326-349 (_recall_activity returns name, place, phase, progress and note_history, not the answer)",
+    "fix": "二选一，并写进第五章：A. 查询结束的核验句附上答案里的前 N 行商品（名称、价格、途径），检索范围包括查询答案；B. 维持现状，新增裁决说明「查询答案只留在本段进度层，离开后不可见、不可检索」，并在差距 #4 的后果栏注明本设计只解决回复正文。"
+   },
+   {
+    "severity": "major",
+    "quote": "请求、仓库、事件、层都没有类别字段",
+    "problem": "This misleads the owner about the current system. The 待办层 that the model sees on every request already gives each day-plan goal an `intent_kind`. It comes from the closed 11-value INTENT_KINDS (睡眠 晨间例程 通勤 工作 用餐 休息 娱乐 社交 家务 运动 外出), and recall_task_summary matches goals by it. `ActivityState.plan_goal_intent_kind` also exists, but nothing writes it. The category design (类别 section, 裁决 4 and 裁决 6) never mentions this existing vocabulary or why it is not reused. An owner choosing between catalog format 6 and LabelKit coordination would not know the option exists.",
+    "evidence": "doc:53 (gap #7); src/worldmock/state/planning/schedule.py:58-70 (INTENT_KINDS); src/worldmock/agents/prompt/prompt_schemas.py:164 (_GOAL has intent_kind enum); src/worldmock/state/world/activity.py:53 (plan_goal_intent_kind); src/worldmock/simulation_engine/actions/dispatcher.py:351-358 (_recall_goal by intent_kind); V observation todo_layer: goals tagged 睡眠/通勤/工作/用餐/家务, and the nap goal 「午饭后在办公室小睡一小时…」 is tagged 用餐 (V 10-08 00:00 goal_bindings)",
+    "fix": "差距 #7 改为：「记忆的请求、仓库和事件都没有类别字段。只有零点计划给每个目标标 `intent_kind`（11 值闭集，schedule.py:58-70，待办层可见）；`ActivityState.plan_goal_intent_kind` 有字段但没有写入方。」在「类别」一节或裁决 4 补一句不复用它的理由：模型标注、噪声大（午睡目标被标成用餐）；活动上的字段从未写入；或者把「用 intent_kind 映射到三类」列为选项。"
+   },
+   {
+    "severity": "major",
+    "quote": "31 天全类别约 31×3 行，能放进上限",
+    "problem": "The owner's month tier (one entry per previous month, reached through search_memory) relies on this claim, and it does not hold. Results are capped at 12 items and 4,000 chars. A keyword-free 31-day range or month query with 全部 returns 93 one-line rows, which is more than 12 items however 项 is counted against rows; the doc never defines 项 for the compact form. By size it also overflows: V's distinct content, app and goods names per day are 102–130 chars, plus prefixes. That gives 138–166 chars per day, or 4,278–5,146 chars for 31 days, even before travel, queries, sleep, kit-name expansions and the month query's extra statistics. The 分级 table also says a month query returns 「当月每天的格子」, while doc:246 and doc:337 say it returns the compact form. The earlier round raised the paging problem, and the doc still overstates.",
+    "evidence": "doc:244 (再加当月每天的格子); doc:246; doc:337 (年-月 → 统计+紧凑形式); doc:343 (最多 12 项、4,000 字); query on V action_requested (interact detail, app and purchase names per day, deduplicated): 116/124/130/102/127 chars → 31 days ≈ 4,278–5,146 chars",
+    "fix": "写明：「类别为全部、不带关键词的 31 天区间或月查询放不进 12 项/4,000 字，只返回最新的若干天，其余计入未列出；要看整月请逐类查询。」或者把「项」定义为一天（月查询为一月），并把区间和月查询的上限放宽到约 7,000 字。分级表的「再加当月每天的格子」改为「再加每天每类一行的紧凑形式」。"
+   },
+   {
+    "severity": "major",
+    "quote": "一次活动从开始到收尾的决策过程叫一轮",
+    "problem": "The confirmation paragraph restates the owner's 'round' as an activity's whole span from start to conclusion. The owner says a start, pause or conclude call each ends one round (doc:4,7), and the doc's own term table says the same (「一次活动的开始或收尾；start、pause、conclude 结束一轮」). This is the paragraph the owner is asked to confirm, so it contradicts both the request and doc:37. It also omits the owner's 32-turn budget per round.",
+    "evidence": "doc:4,7 (owner); doc:28 (转述); doc:37 (term table)",
+    "fix": "改为：「一次活动的开始、暂停或收尾各算一轮，调用 start、pause、conclude 就结束一轮；每轮给模型 32 个回合的预算，一轮里每次模型调用叫一个回合。」"
+   },
+   {
+    "severity": "minor",
+    "quote": "下面这些决策不产生条目：只开始了活动而没有结算任何事",
+    "problem": "The inclusion rule in the same paragraph also creates an entry for any decision with a non-empty 正文, and 正文 categorization handles start decisions explicitly (「如果是开始组，取主槽位那一项」). The 11:50 example's 10:54 entry contains 「正文：开发活动已收尾。上午还剩一个钟头左右，正适合开需求评审会…」, which comes from a start_main_activity decision. Start-only decisions therefore do produce entries when they carry 正文, contrary to the exclusion list and to 裁决 18 option A (「不产生」). The 「多出约 1/3 的条目」 estimate also ignores this.",
+    "evidence": "doc:182 (inclusion rule and exclusion list); doc:213; doc:504 (example); V events 5949–5950 (10-12 10:54 response content 「开发活动已收尾…」 → start_main_activity 需求评审会议); query over V decisions: 18 of 133 start-only decisions have non-empty reply content",
+    "fix": "排除项改为「只开始了活动、没有结算任何事、正文也为空」。裁决 18 选项 A 补一句：「正文非空的开始决策（V 133 次中 18 次）仍产生条目。」"
+   },
+   {
+    "severity": "minor",
+    "quote": "文中的 scratchpad 都指 /private/tmp/claude-501/",
+    "problem": "Every evidence row in the appendix, the F2–F19 row labels in the 第一章 key-numbers table, the 「F17」 in 第三章, and the 「三份方案」/「三份设计和三份评审」 references all point to a session-specific temp scratchpad or to workflow drafts that are not in either repo. The owner and later reviewers cannot open them. The repo convention keeps this kind of evidence in docs/dev/research/.",
+    "evidence": "doc:780-804; doc:78-93 (F-labels); doc:551 (F17); doc:22, doc:105 (三份方案); CLAUDE.md: docs/dev/research/ holds the evidence behind design decisions",
+    "fix": "把 brief.md、verify.json 和所引脚本复制到 docs/dev/research/layered-memory/（或 WorldMock-Dataset 的证据目录），改写附录路径。关键数字表的「F2」等标签换成文内可读的名称，或在附录列出 F 编号对照表。「三份方案」改为「三份内部设计稿（未收录）」并附一句摘要。"
+   },
+   {
+    "severity": "minor",
+    "quote": "可选，多个关键词按「都出现」匹配",
+    "problem": "The owner specified search_memory(category, time). The design adds a third parameter, keyword (required in the schema, may be null), adds 全部 as a value for both category and time, and makes time=全部 require a keyword. These extensions change the owner's literal signature, but they are settled only in the 分歧表 and have no 第五章 decision.",
+    "evidence": "doc:13 (owner); doc:118; doc:323-325; doc:339; 第五章 doc:730-776",
+    "fix": "第五章新增一条：「search_memory 在 (category, time) 之外要不要加 keyword，以及「全部」的取值。推荐加：keyword 必填、可为 null；V 仅有的两次检索都是多关键词。」"
+   },
+   {
+    "severity": "minor",
+    "quote": "暂停活动、个人事务、新增的在途订单",
+    "problem": "The 2x2 mapping silently redefines the owner's progress axis. 长期进度 includes 今日计划, whose goals expire at the next midnight, plus same-day in-transit orders. 今天进度 in P2 holds only what is unsettled or arrived since the last decision, not the day's progress. So the axis really means 'this moment' versus 'carried across decisions', not today versus long-term. The doc neither defines this nor flags it.",
+    "evidence": "doc:137-138; src/worldmock/state/planning/schedule.py (day_end_seconds: 当日目标失效时刻：场景时区次日零点); V todo_layer day_plan carries its date",
+    "fix": "在四格表下加一句定义：「本文的今天进度指此刻尚未了结、上次决策以后的事；长期进度指跨决策保留的待办。今日计划按日失效，但因放在待办层而归长期进度。」或者把今日计划移到今天进度一格，并注明层位置不变。"
+   },
+   {
+    "severity": "minor",
+    "quote": "一次决策最多是 3 次检索、1 次回看、1 个世界请求，共 5 个回合",
+    "problem": "This is not an upper bound. recall_task_summary has no per-decision cap; queries are gated only on remaining turns. Argument errors from the new field_validator come back as protocol corrections, which also consume model turns. M9 and P3 treat more than 5 turns as a release blocker, so legitimate behaviour such as two recalls plus three searches would fail the gate. That weakens the stated basis for keeping 16 turns.",
+    "evidence": "doc:356; doc:669; doc:711; custom/agents/life_agent.py:182,400 (no recall cap, queries offered while remaining turns > 1); custom/agents/life_agent.py:388-390 (every model call consumes the budget)",
+    "fix": "改为「通常一次决策是至多 3 次检索、少量回看和 1 个世界请求；回看不限次数，参数纠错也占回合」。M9 的「单次决策 ≤5 回合」改为「回合用尽 0 次，≥6 回合的决策单独报告」，或者给 recall_task_summary 加每次决策的上限。"
+   }
+  ]
+ }
+}

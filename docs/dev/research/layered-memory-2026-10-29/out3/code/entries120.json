@@ -1,0 +1,56 @@
+{
+ "V": {
+  "entries": 406,
+  "entry_chars_median": 155.0,
+  "entry_chars_p90": 171,
+  "entry_chars_max": 224,
+  "conclude_decisions": 137,
+  "conclude_entries_untruncated": 11,
+  "conclude_entries_with_room_for_a_label": 135,
+  "over120_before_cap": 215,
+  "verified_over120": 2,
+  "today_chars_at_day_end": {
+   "2026-10-08": 10240,
+   "2026-10-09": 10730,
+   "2026-10-10": 10894,
+   "2026-10-11": 8747,
+   "2026-10-12": 11722
+  },
+  "entries_per_day": {
+   "2026-10-08": 81,
+   "2026-10-09": 84,
+   "2026-10-10": 83,
+   "2026-10-11": 69,
+   "2026-10-12": 89
+  },
+  "today_chars_seen_by_decision_median": 5186.5,
+  "today_chars_seen_by_decision_max": 11667
+ },
+ "B": {
+  "entries": 409,
+  "entry_chars_median": 148,
+  "entry_chars_p90": 171,
+  "entry_chars_max": 224,
+  "conclude_decisions": 137,
+  "conclude_entries_untruncated": 17,
+  "conclude_entries_with_room_for_a_label": 131,
+  "over120_before_cap": 179,
+  "verified_over120": 9,
+  "today_chars_at_day_end": {
+   "2026-10-08": 10202,
+   "2026-10-09": 10591,
+   "2026-10-10": 10374,
+   "2026-10-11": 10549,
+   "2026-10-12": 10672
+  },
+  "entries_per_day": {
+   "2026-10-08": 84,
+   "2026-10-09": 80,
+   "2026-10-10": 79,
+   "2026-10-11": 85,
+   "2026-10-12": 81
+  },
+  "today_chars_seen_by_decision_median": 5073,
+  "today_chars_seen_by_decision_max": 10617
+ }
+}

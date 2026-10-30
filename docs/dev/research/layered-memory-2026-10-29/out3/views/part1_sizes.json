@@ -1,0 +1,306 @@
+{
+ "V": {
+  "run": "V",
+  "decisions": 406,
+  "fresh_checked": 305,
+  "fresh_mismatch": 0,
+  "card_only_persona_chars": 1168,
+  "persona_total": {
+   "n": 406,
+   "median": 3072.0,
+   "p90": 4946.0,
+   "max": 5413,
+   "mean": 3196.1
+  },
+  "leaves_prompt_chars": {
+   "n": 406,
+   "median": 1904.0,
+   "p90": 3778.0,
+   "max": 4245,
+   "mean": 2028.1
+  },
+  "leaves_prompt_hanzi": {
+   "n": 406,
+   "median": 841.0,
+   "p90": 1649.0,
+   "max": 1874,
+   "mean": 886.4
+  },
+  "preferences_json": {
+   "n": 406,
+   "median": 1864.0,
+   "p90": 3697.0,
+   "max": 4154,
+   "mean": 1976.2
+  },
+  "relationship_view_chars": {
+   "n": 406,
+   "median": 42.0,
+   "p90": 93.0,
+   "max": 101,
+   "mean": 53.9
+  },
+  "n_preferences": {
+   "n": 406,
+   "median": 18.0,
+   "p90": 36.0,
+   "max": 40,
+   "mean": 19.3
+  },
+  "share_of_persona_layer": {
+   "n": 406,
+   "median": 0.62,
+   "p90": 0.764,
+   "max": 0.784,
+   "mean": 0.6
+  },
+  "by_day": {
+   "10-08": {
+    "decisions": 81,
+    "dyn_median": 395.0,
+    "dyn_max": 818,
+    "n_pref_max": 8,
+    "n_rel_max": 1
+   },
+   "10-09": {
+    "decisions": 84,
+    "dyn_median": 929.0,
+    "dyn_max": 1378,
+    "n_pref_max": 13,
+    "n_rel_max": 1
+   },
+   "10-10": {
+    "decisions": 83,
+    "dyn_median": 1904.0,
+    "dyn_max": 2598,
+    "n_pref_max": 25,
+    "n_rel_max": 1
+   },
+   "10-11": {
+    "decisions": 69,
+    "dyn_median": 3088.0,
+    "dyn_max": 3711,
+    "n_pref_max": 35,
+    "n_rel_max": 2
+   },
+   "10-12": {
+    "decisions": 89,
+    "dyn_median": 3778.0,
+    "dyn_max": 4245,
+    "n_pref_max": 40,
+    "n_rel_max": 2
+   }
+  },
+  "leaves_prompt_nonzero": {
+   "n": 392,
+   "median": 1917.0,
+   "p90": 3778.0,
+   "max": 4245,
+   "mean": 2100.6
+  },
+  "final_subjects": [
+   "美式咖啡",
+   "功能开发与自测",
+   "番茄牛肉刀削面",
+   "饭前收尾工作",
+   "哔哩哔哩",
+   "自己做的番茄炒蛋配清炒青菜",
+   "一人份食材包",
+   "电影《七号轨道》",
+   "午休刷视频",
+   "下午专注开发",
+   "自己做的晚饭",
+   "网易云音乐",
+   "盒马下单食材包",
+   "冰美式咖啡",
+   "需求评审会议",
+   "抖音",
+   "午休小睡",
+   "午睡五十分钟左右",
+   "下午成块写代码",
+   "下班前收尾",
+   "下班打卡",
+   "开车回家",
+   "爱奇艺",
+   "睡前刷短视频",
+   "微信读书",
+   "休息日上午打扫卫生",
+   "休息日在家做午饭",
+   "腾讯视频",
+   "彩虹桥",
+   "彩虹桥往返步行",
+   "整理房间",
+   "鱼香肉丝盖浇饭",
+   "音乐入门·和声与节奏",
+   "土豆烧牛肉配清炒菌菇一人份食材包",
+   "喜马拉雅",
+   "公仔点心面（海鲜味）",
+   "自己做晚饭",
+   "可乐鸡翅配清炒菌菇一人份食材包",
+   "沟通表达训练·结构化表达",
+   "睡前微信读书"
+  ],
+  "final_relationships": [
+   [
+    "王磊",
+    59
+   ],
+   [
+    "母亲",
+    38
+   ]
+  ],
+  "views_written_total": 76,
+  "views_by_type": {
+   "preference": 69,
+   "relationship": 7
+  },
+  "distinct_subjects": 42,
+  "distinct_subjects_normalized": 41
+ },
+ "B": {
+  "run": "B",
+  "decisions": 409,
+  "fresh_checked": 309,
+  "fresh_mismatch": 0,
+  "card_only_persona_chars": 1152,
+  "persona_total": {
+   "n": 409,
+   "median": 2273.0,
+   "p90": 3875.0,
+   "max": 4030,
+   "mean": 2592.9
+  },
+  "leaves_prompt_chars": {
+   "n": 409,
+   "median": 1121.0,
+   "p90": 2723.0,
+   "max": 2878,
+   "mean": 1440.9
+  },
+  "leaves_prompt_hanzi": {
+   "n": 409,
+   "median": 479.0,
+   "p90": 1244.0,
+   "max": 1334,
+   "mean": 636.2
+  },
+  "preferences_json": {
+   "n": 409,
+   "median": 1080.0,
+   "p90": 2640.0,
+   "max": 2782,
+   "mean": 1392.5
+  },
+  "relationship_view_chars": {
+   "n": 409,
+   "median": 45.0,
+   "p90": 94.0,
+   "max": 98,
+   "mean": 50.4
+  },
+  "n_preferences": {
+   "n": 409,
+   "median": 11.0,
+   "p90": 25.0,
+   "max": 26,
+   "mean": 13.7
+  },
+  "share_of_persona_layer": {
+   "n": 409,
+   "median": 0.493,
+   "p90": 0.703,
+   "max": 0.714,
+   "mean": 0.5
+  },
+  "by_day": {
+   "10-08": {
+    "decisions": 84,
+    "dyn_median": 271.0,
+    "dyn_max": 942,
+    "n_pref_max": 10,
+    "n_rel_max": 0
+   },
+   "10-09": {
+    "decisions": 80,
+    "dyn_median": 1042.0,
+    "dyn_max": 1125,
+    "n_pref_max": 11,
+    "n_rel_max": 1
+   },
+   "10-10": {
+    "decisions": 79,
+    "dyn_median": 1121.0,
+    "dyn_max": 1287,
+    "n_pref_max": 12,
+    "n_rel_max": 2
+   },
+   "10-11": {
+    "decisions": 85,
+    "dyn_median": 2052.0,
+    "dyn_max": 2614,
+    "n_pref_max": 24,
+    "n_rel_max": 2
+   },
+   "10-12": {
+    "decisions": 81,
+    "dyn_median": 2723.0,
+    "dyn_max": 2878,
+    "n_pref_max": 26,
+    "n_rel_max": 2
+   }
+  },
+  "leaves_prompt_nonzero": {
+   "n": 395,
+   "median": 1129.0,
+   "p90": 2723.0,
+   "max": 2878,
+   "mean": 1491.9
+  },
+  "final_subjects": [
+   "瑞幸咖啡",
+   "功能开发与自测",
+   "哔哩哔哩",
+   "在家做饭",
+   "盒马",
+   "抖音",
+   "晚上做家务",
+   "晚上整理房间",
+   "网易云音乐",
+   "微信读书",
+   "需求评审会议",
+   "代码评审与缺陷修复",
+   "一边做家务一边听网易云音乐",
+   "东渡菜市场",
+   "悦来城家常菜馆",
+   "休息日上午的安排",
+   "爱奇艺",
+   "休息日下午的安排",
+   "天鹅湖",
+   "在天鹅湖边散步",
+   "休息日午后的天鹅湖",
+   "在天鹅湖边散步和慢跑",
+   "淘宝闪购",
+   "休息日的一天",
+   "早上开车通勤",
+   "下班开车回家"
+  ],
+  "final_relationships": [
+   [
+    "王磊",
+    50
+   ],
+   [
+    "母亲",
+    52
+   ]
+  ],
+  "views_written_total": 55,
+  "views_by_type": {
+   "preference": 49,
+   "relationship": 6
+  },
+  "distinct_subjects": 28,
+  "distinct_subjects_normalized": 28
+ }
+}

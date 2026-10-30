@@ -1,0 +1,572 @@
+{
+ "V": {
+  "run": "V",
+  "relationship_view_categories": {
+   "王磊|工作": 5,
+   "母亲|生活": 2
+  },
+  "per_day_category": {
+   "10-08|工作": {
+    "n": 3,
+    "text_chars": 97,
+    "rendered_chars": 124,
+    "objects": 3,
+    "x_day_cap": 0.62
+   },
+   "10-08|生活": {
+    "n": 2,
+    "text_chars": 84,
+    "rendered_chars": 104,
+    "objects": 2,
+    "x_day_cap": 0.52
+   },
+   "10-08|饮食": {
+    "n": 5,
+    "text_chars": 175,
+    "rendered_chars": 232,
+    "objects": 4,
+    "x_day_cap": 1.16
+   },
+   "10-09|工作": {
+    "n": 3,
+    "text_chars": 139,
+    "rendered_chars": 166,
+    "objects": 3,
+    "x_day_cap": 0.83
+   },
+   "10-09|生活": {
+    "n": 3,
+    "text_chars": 134,
+    "rendered_chars": 160,
+    "objects": 3,
+    "x_day_cap": 0.8
+   },
+   "10-09|饮食": {
+    "n": 3,
+    "text_chars": 117,
+    "rendered_chars": 149,
+    "objects": 3,
+    "x_day_cap": 0.74
+   },
+   "10-10|工作": {
+    "n": 7,
+    "text_chars": 318,
+    "rendered_chars": 381,
+    "objects": 7,
+    "x_day_cap": 1.91
+   },
+   "10-10|生活": {
+    "n": 8,
+    "text_chars": 327,
+    "rendered_chars": 395,
+    "objects": 8,
+    "x_day_cap": 1.98
+   },
+   "10-10|饮食": {
+    "n": 3,
+    "text_chars": 119,
+    "rendered_chars": 149,
+    "objects": 3,
+    "x_day_cap": 0.74
+   },
+   "10-11|生活": {
+    "n": 16,
+    "text_chars": 739,
+    "rendered_chars": 877,
+    "objects": 11,
+    "x_day_cap": 4.38
+   },
+   "10-11|饮食": {
+    "n": 3,
+    "text_chars": 111,
+    "rendered_chars": 154,
+    "objects": 3,
+    "x_day_cap": 0.77
+   },
+   "10-12|工作": {
+    "n": 7,
+    "text_chars": 343,
+    "rendered_chars": 404,
+    "objects": 6,
+    "x_day_cap": 2.02
+   },
+   "10-12|生活": {
+    "n": 7,
+    "text_chars": 286,
+    "rendered_chars": 348,
+    "objects": 6,
+    "x_day_cap": 1.74
+   },
+   "10-12|饮食": {
+    "n": 6,
+    "text_chars": 206,
+    "rendered_chars": 279,
+    "objects": 5,
+    "x_day_cap": 1.4
+   }
+  },
+  "cat_饮食": {
+   "rendered_per_day": {
+    "n": 5,
+    "median": 154.0,
+    "p90": 260.2,
+    "max": 279,
+    "mean": 192.6
+   },
+   "views_per_day": {
+    "n": 5,
+    "median": 3.0,
+    "p90": 5.6,
+    "max": 6,
+    "mean": 4.0
+   },
+   "days_over_day_cap": 2
+  },
+  "cat_工作": {
+   "rendered_per_day": {
+    "n": 5,
+    "median": 166.0,
+    "p90": 394.8,
+    "max": 404,
+    "mean": 215.0
+   },
+   "views_per_day": {
+    "n": 5,
+    "median": 3.0,
+    "p90": 7.0,
+    "max": 7,
+    "mean": 4.0
+   },
+   "days_over_day_cap": 2
+  },
+  "cat_生活": {
+   "rendered_per_day": {
+    "n": 5,
+    "median": 348.0,
+    "p90": 684.2,
+    "max": 877,
+    "mean": 376.8
+   },
+   "views_per_day": {
+    "n": 5,
+    "median": 7.0,
+    "p90": 12.8,
+    "max": 16,
+    "mean": 7.2
+   },
+   "days_over_day_cap": 3
+  },
+  "view_text_len": {
+   "n": 76,
+   "median": 42.0,
+   "p90": 53.0,
+   "max": 64,
+   "mean": 42.0
+  },
+  "view_rendered_len": {
+   "n": 76,
+   "median": 52.0,
+   "p90": 64.5,
+   "max": 78,
+   "mean": 51.6
+  },
+  "views_over_entry_cap_alone": 0,
+  "conclude_decisions": 137,
+  "conclude_with_views": 75,
+  "conclude_views_chars": {
+   "n": 75,
+   "median": 52.0,
+   "p90": 65.0,
+   "max": 107,
+   "mean": 52.3
+  },
+  "conclude_summary_chars": {
+   "n": 137,
+   "median": 112.0,
+   "p90": 168.4,
+   "max": 277,
+   "mean": 119.7
+  },
+  "entry_budget_left_for_views_after_verified_and_summary": {
+   "n": 75,
+   "median": 0.0,
+   "p90": 0.0,
+   "max": 0,
+   "mean": 0.0
+  },
+  "entries_where_views_fit_after_verified": 62,
+  "entries_where_all_selfreport_fits": 0,
+  "mean_view_chars_per_view_decision": 52.3,
+  "objects_by_days_written": {
+   "1": 25,
+   "2": 10,
+   "3": 3,
+   "4": 2,
+   "5": 1
+  },
+  "recurring_objects": [
+   [
+    "生活",
+    "哔哩哔哩",
+    5
+   ],
+   [
+    "工作",
+    "功能开发与自测",
+    4
+   ],
+   [
+    "工作",
+    "王磊",
+    4
+   ],
+   [
+    "饮食",
+    "番茄牛肉刀削面",
+    3
+   ],
+   [
+    "饮食",
+    "自己做晚饭",
+    3
+   ],
+   [
+    "生活",
+    "网易云音乐",
+    3
+   ],
+   [
+    "饮食",
+    "盒马下单食材包",
+    2
+   ],
+   [
+    "饮食",
+    "冰美式咖啡",
+    2
+   ],
+   [
+    "工作",
+    "需求评审会议",
+    2
+   ],
+   [
+    "生活",
+    "抖音",
+    2
+   ],
+   [
+    "生活",
+    "午休小睡",
+    2
+   ],
+   [
+    "工作",
+    "下午成块写代码",
+    2
+   ],
+   [
+    "工作",
+    "下班前收尾",
+    2
+   ],
+   [
+    "工作",
+    "开车回家",
+    2
+   ],
+   [
+    "生活",
+    "微信读书",
+    2
+   ],
+   [
+    "生活",
+    "喜马拉雅",
+    2
+   ]
+  ],
+  "food_coverage_name_chars_per_day": {
+   "10-08": 26,
+   "10-09": 41,
+   "10-10": 42,
+   "10-11": 32,
+   "10-12": 44
+  }
+ },
+ "B": {
+  "run": "B",
+  "relationship_view_categories": {
+   "王磊|工作": 3,
+   "母亲|生活": 3
+  },
+  "per_day_category": {
+   "10-08|工作": {
+    "n": 1,
+    "text_chars": 32,
+    "rendered_chars": 43,
+    "objects": 1,
+    "x_day_cap": 0.21
+   },
+   "10-08|生活": {
+    "n": 6,
+    "text_chars": 229,
+    "rendered_chars": 279,
+    "objects": 6,
+    "x_day_cap": 1.4
+   },
+   "10-08|饮食": {
+    "n": 3,
+    "text_chars": 89,
+    "rendered_chars": 111,
+    "objects": 3,
+    "x_day_cap": 0.56
+   },
+   "10-09|工作": {
+    "n": 4,
+    "text_chars": 173,
+    "rendered_chars": 211,
+    "objects": 3,
+    "x_day_cap": 1.05
+   },
+   "10-09|生活": {
+    "n": 3,
+    "text_chars": 116,
+    "rendered_chars": 141,
+    "objects": 3,
+    "x_day_cap": 0.7
+   },
+   "10-09|饮食": {
+    "n": 2,
+    "text_chars": 79,
+    "rendered_chars": 93,
+    "objects": 2,
+    "x_day_cap": 0.47
+   },
+   "10-10|工作": {
+    "n": 4,
+    "text_chars": 186,
+    "rendered_chars": 226,
+    "objects": 4,
+    "x_day_cap": 1.13
+   },
+   "10-10|生活": {
+    "n": 2,
+    "text_chars": 90,
+    "rendered_chars": 105,
+    "objects": 2,
+    "x_day_cap": 0.53
+   },
+   "10-10|饮食": {
+    "n": 1,
+    "text_chars": 45,
+    "rendered_chars": 53,
+    "objects": 1,
+    "x_day_cap": 0.27
+   },
+   "10-11|生活": {
+    "n": 13,
+    "text_chars": 634,
+    "rendered_chars": 771,
+    "objects": 13,
+    "x_day_cap": 3.85
+   },
+   "10-11|饮食": {
+    "n": 3,
+    "text_chars": 122,
+    "rendered_chars": 149,
+    "objects": 3,
+    "x_day_cap": 0.74
+   },
+   "10-12|工作": {
+    "n": 4,
+    "text_chars": 179,
+    "rendered_chars": 216,
+    "objects": 4,
+    "x_day_cap": 1.08
+   },
+   "10-12|生活": {
+    "n": 7,
+    "text_chars": 337,
+    "rendered_chars": 390,
+    "objects": 6,
+    "x_day_cap": 1.95
+   },
+   "10-12|饮食": {
+    "n": 2,
+    "text_chars": 86,
+    "rendered_chars": 102,
+    "objects": 2,
+    "x_day_cap": 0.51
+   }
+  },
+  "cat_饮食": {
+   "rendered_per_day": {
+    "n": 5,
+    "median": 102.0,
+    "p90": 133.8,
+    "max": 149,
+    "mean": 101.6
+   },
+   "views_per_day": {
+    "n": 5,
+    "median": 2.0,
+    "p90": 3.0,
+    "max": 3,
+    "mean": 2.2
+   },
+   "days_over_day_cap": 0
+  },
+  "cat_工作": {
+   "rendered_per_day": {
+    "n": 5,
+    "median": 211.0,
+    "p90": 222.0,
+    "max": 226,
+    "mean": 139.2
+   },
+   "views_per_day": {
+    "n": 5,
+    "median": 4.0,
+    "p90": 4.0,
+    "max": 4,
+    "mean": 2.6
+   },
+   "days_over_day_cap": 3
+  },
+  "cat_生活": {
+   "rendered_per_day": {
+    "n": 5,
+    "median": 279.0,
+    "p90": 618.6,
+    "max": 771,
+    "mean": 337.2
+   },
+   "views_per_day": {
+    "n": 5,
+    "median": 6.0,
+    "p90": 10.600000000000001,
+    "max": 13,
+    "mean": 6.2
+   },
+   "days_over_day_cap": 3
+  },
+  "view_text_len": {
+   "n": 55,
+   "median": 43.0,
+   "p90": 55.800000000000004,
+   "max": 69,
+   "mean": 43.6
+  },
+  "view_rendered_len": {
+   "n": 55,
+   "median": 51.0,
+   "p90": 66.2,
+   "max": 81,
+   "mean": 52.5
+  },
+  "views_over_entry_cap_alone": 0,
+  "conclude_decisions": 137,
+  "conclude_with_views": 55,
+  "conclude_views_chars": {
+   "n": 55,
+   "median": 51.0,
+   "p90": 66.2,
+   "max": 81,
+   "mean": 52.5
+  },
+  "conclude_summary_chars": {
+   "n": 137,
+   "median": 104.0,
+   "p90": 159.0,
+   "max": 205,
+   "mean": 110.2
+  },
+  "entry_budget_left_for_views_after_verified_and_summary": {
+   "n": 55,
+   "median": 0.0,
+   "p90": 0.0,
+   "max": 0,
+   "mean": 0.0
+  },
+  "entries_where_views_fit_after_verified": 42,
+  "entries_where_all_selfreport_fits": 0,
+  "mean_view_chars_per_view_decision": 52.5,
+  "objects_by_days_written": {
+   "1": 16,
+   "2": 4,
+   "3": 5,
+   "4": 2,
+   "5": 1
+  },
+  "recurring_objects": [
+   [
+    "饮食",
+    "在家做饭",
+    5
+   ],
+   [
+    "工作",
+    "功能开发与自测",
+    4
+   ],
+   [
+    "生活",
+    "网易云音乐",
+    4
+   ],
+   [
+    "生活",
+    "抖音",
+    3
+   ],
+   [
+    "生活",
+    "晚上整理房间",
+    3
+   ],
+   [
+    "生活",
+    "微信读书",
+    3
+   ],
+   [
+    "工作",
+    "王磊",
+    3
+   ],
+   [
+    "生活",
+    "母亲",
+    3
+   ],
+   [
+    "生活",
+    "哔哩哔哩",
+    2
+   ],
+   [
+    "饮食",
+    "盒马",
+    2
+   ],
+   [
+    "工作",
+    "需求评审会议",
+    2
+   ],
+   [
+    "饮食",
+    "淘宝闪购",
+    2
+   ]
+  ],
+  "food_coverage_name_chars_per_day": {
+   "10-08": 30,
+   "10-09": 38,
+   "10-10": 33,
+   "10-11": 24,
+   "10-12": 42
+  }
+ }
+}

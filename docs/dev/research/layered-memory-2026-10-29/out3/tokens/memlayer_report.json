@@ -1,0 +1,248 @@
+{
+ "fresh_requests": 614,
+ "decisions_per_local_day": {
+  "V": {
+   "2026-10-08": 81,
+   "2026-10-09": 84,
+   "2026-10-10": 83,
+   "2026-10-11": 69,
+   "2026-10-12": 89
+  },
+  "B": {
+   "2026-10-08": 84,
+   "2026-10-09": 80,
+   "2026-10-10": 79,
+   "2026-10-11": 85,
+   "2026-10-12": 81
+  }
+ },
+ "per_layer_qwen_fit": {
+  "coef": {
+   "k_工具层": 0.8312,
+   "k_人设层": 0.9162,
+   "k_记忆层": 0.8866,
+   "k_待办层": 0.8561,
+   "k_环境层": 1.0071,
+   "k_进度层": 0.9027,
+   "c": 6221.725
+  },
+  "r2": 0.999817,
+  "n": 614,
+  "resid_sd": 56.3,
+  "resid_mae": 44.8,
+  "resid_p95_abs": 107.1,
+  "resid_max_abs": 179.6,
+  "rel_resid_sd_pct": 0.29,
+  "rel_resid_p95_abs_pct": 0.52
+ },
+ "per_layer_qwen_fit_V": {
+  "coef": {
+   "k_工具层": 0.7884,
+   "k_人设层": 0.922,
+   "k_记忆层": 0.8753,
+   "k_待办层": 0.8504,
+   "k_环境层": 0.9316,
+   "k_进度层": 0.9038,
+   "c": 6401.5717
+  },
+  "r2": 0.999827,
+  "n": 305,
+  "resid_sd": 61.8,
+  "resid_mae": 48.6,
+  "resid_p95_abs": 121.1,
+  "resid_max_abs": 189.9,
+  "rel_resid_sd_pct": 0.31,
+  "rel_resid_p95_abs_pct": 0.61
+ },
+ "per_layer_qwen_fit_B": {
+  "coef": {
+   "k_工具层": 0.8859,
+   "k_人设层": 0.9529,
+   "k_记忆层": 0.894,
+   "k_待办层": 0.7351,
+   "k_环境层": 2.097,
+   "k_进度层": 0.9025,
+   "c": 5819.8918
+  },
+  "r2": 0.999901,
+  "n": 309,
+  "resid_sd": 34.0,
+  "resid_mae": 27.2,
+  "resid_p95_abs": 63.6,
+  "resid_max_abs": 91.4,
+  "rel_resid_sd_pct": 0.2,
+  "rel_resid_p95_abs_pct": 0.42
+ },
+ "current_memory_layer_V": {
+  "n": 305,
+  "median_chars": 4380,
+  "max_chars": 7825,
+  "aggregate": {
+   "chars": 1186985,
+   "mix": {
+    "cjk": 0.5334,
+    "alpha": 0.1217,
+    "digit": 0.0995,
+    "space": 0.0232,
+    "apunct": 0.1516,
+    "other": 0.0707
+   },
+   "qwen3_tokens": 768452,
+   "tok_first_diff_fresh": 683187.8,
+   "tok_level_variant": 693420.9,
+   "tok_qwen_scaled": 681309.5,
+   "tpc_first_diff_fresh": 0.5756,
+   "tpc_level_variant": 0.5842,
+   "tpc_qwen_scaled": 0.574
+  },
+  "largest": {
+   "chars": 7825,
+   "mix": {
+    "cjk": 0.5599,
+    "alpha": 0.0841,
+    "digit": 0.1146,
+    "space": 0.0295,
+    "apunct": 0.1249,
+    "other": 0.087
+   },
+   "qwen3_tokens": 5481,
+   "tok_first_diff_fresh": 4685.5,
+   "tok_level_variant": 4779.9,
+   "tok_qwen_scaled": 4859.5,
+   "tpc_first_diff_fresh": 0.5988,
+   "tpc_level_variant": 0.6108,
+   "tpc_qwen_scaled": 0.621
+  }
+ },
+ "new_layer_proxy": {
+  "whole": {
+   "chars": 3083,
+   "mix": {
+    "cjk": 0.5514,
+    "alpha": 0.0016,
+    "digit": 0.1317,
+    "space": 0.0272,
+    "apunct": 0.2141,
+    "other": 0.074
+   },
+   "qwen3_tokens": 2166,
+   "tok_first_diff_fresh": 1968.7,
+   "tok_level_variant": 2008.4,
+   "tok_qwen_scaled": 1920.4,
+   "tpc_first_diff_fresh": 0.6386,
+   "tpc_level_variant": 0.6514,
+   "tpc_qwen_scaled": 0.6229
+  },
+  "近三天_only": {
+   "chars": 766,
+   "mix": {
+    "cjk": 0.5731,
+    "alpha": 0.0,
+    "digit": 0.094,
+    "space": 0.0,
+    "apunct": 0.2794,
+    "other": 0.0535
+   },
+   "qwen3_tokens": 483,
+   "tok_first_diff_fresh": 482.1,
+   "tok_level_variant": 491.5,
+   "tok_qwen_scaled": 428.2,
+   "tpc_first_diff_fresh": 0.6294,
+   "tpc_level_variant": 0.6416,
+   "tpc_qwen_scaled": 0.559
+  },
+  "回顾_text_only": {
+   "chars": 393,
+   "mix": {
+    "cjk": 0.8957,
+    "alpha": 0.0,
+    "digit": 0.0,
+    "space": 0.0,
+    "apunct": 0.0,
+    "other": 0.1043
+   },
+   "qwen3_tokens": 284,
+   "tok_first_diff_fresh": 258.2,
+   "tok_level_variant": 263.1,
+   "tok_qwen_scaled": 251.8,
+   "tpc_first_diff_fresh": 0.657,
+   "tpc_level_variant": 0.6695,
+   "tpc_qwen_scaled": 0.6407
+  },
+  "今天_only": {
+   "chars": 2262,
+   "mix": {
+    "cjk": 0.5513,
+    "alpha": 0.0,
+    "digit": 0.1441,
+    "space": 0.0371,
+    "apunct": 0.1848,
+    "other": 0.0827
+   },
+   "qwen3_tokens": 1657,
+   "tok_first_diff_fresh": 1455.9,
+   "tok_level_variant": 1485.7,
+   "tok_qwen_scaled": 1469.1,
+   "tpc_first_diff_fresh": 0.6436,
+   "tpc_level_variant": 0.6568,
+   "tpc_qwen_scaled": 0.6495
+  },
+  "今天_content_only": {
+   "chars": 1753,
+   "mix": {
+    "cjk": 0.6509,
+    "alpha": 0.0,
+    "digit": 0.1609,
+    "space": 0.0479,
+    "apunct": 0.0337,
+    "other": 0.1067
+   },
+   "qwen3_tokens": 1421,
+   "tok_first_diff_fresh": 1148.6,
+   "tok_level_variant": 1167.3,
+   "tok_qwen_scaled": 1259.9,
+   "tpc_first_diff_fresh": 0.6552,
+   "tpc_level_variant": 0.6659,
+   "tpc_qwen_scaled": 0.7187
+  },
+  "n_today_entries_in_synth": 11
+ },
+ "entry_shell": {
+  "text": "{\"时刻\":\"08:36\",\"类别\":\"饮食\",\"核验\":[\"\"],\"自述\":[\"\"]},",
+  "chars": 45,
+  "mix": {
+   "cjk": 0.2222,
+   "alpha": 0.0,
+   "digit": 0.0889,
+   "space": 0.0,
+   "apunct": 0.6889,
+   "other": 0.0
+  },
+  "qwen3_tokens": 22,
+  "tok_first_diff_fresh": 27.2,
+  "tok_level_variant": 28.1,
+  "tok_qwen_scaled": 19.5,
+  "tpc_first_diff_fresh": 0.6044,
+  "tpc_level_variant": 0.6244,
+  "tpc_qwen_scaled": 0.4333
+ },
+ "day_shell_近三天": {
+  "text": "{\"日期\":\"2026-10-09\",\"星期\":\"星期五\",\"回顾\":\"\"},",
+  "chars": 39,
+  "mix": {
+   "cjk": 0.2308,
+   "alpha": 0.0,
+   "digit": 0.2051,
+   "space": 0.0,
+   "apunct": 0.5641,
+   "other": 0.0
+  },
+  "qwen3_tokens": 22,
+  "tok_first_diff_fresh": 23.4,
+  "tok_level_variant": 23.8,
+  "tok_qwen_scaled": 19.5,
+  "tpc_first_diff_fresh": 0.6,
+  "tpc_level_variant": 0.6103,
+  "tpc_qwen_scaled": 0.5
+ }
+}
