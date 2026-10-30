@@ -125,7 +125,7 @@ const ContextView = {};
       <details open><summary>本轮完整原文</summary><pre id="ctx-raw">${esc(block.text)}</pre></details></div>`;
   }
 
-  /** @brief 按工具层与进度层的真实字段下钻；self_note 条目标明未经核验，不重构未出现的内容。 */
+  /** @brief 按工具层与进度层的真实字段下钻，不重构未出现的内容。 */
   function bindLayer(block) {
     const items = ViewerContext.drillItems(block);
     if (!items.length || state.view !== 'structure') return;
@@ -189,7 +189,7 @@ const ContextView = {};
     const warnings = model.current.warnings.map(text => `<p role="alert">${esc(text)}</p>`).join('');
     const displayed = state.view === 'comparison' ? [...blocks, ...(model.before?.blocks || [])] : blocks;
     const provenance = (displayed.some(block => block.interpretation === 'layer') ?
-      '<p class="cx-meta">首个 user 按顶层数组无损切片，每片可解析且层序符合七层合同；self_note 未经核验。</p>' : '') +
+      '<p class="cx-meta">首个 user 按顶层数组无损切片，每片可解析且层序符合七层合同；「自述」与「回顾」未经核验。</p>' : '') +
       (model.current.continuation ? '<p class="cx-meta">同秒续接：本决策首个请求多于两条消息；前序 assistant 按 ' +
         'tool_call 身份匹配来源决策，回复正文未经核验，回传思考单列，不另计字符。</p>' : '');
     const detail = state.view === 'growth' ? growth(block) : blockDetail(block);

@@ -83,15 +83,19 @@ def _situation_line(card: PersonaCard) -> str:
     return f"本周在忙{card.situation.busy_this_week}；在意{card.situation.cares_about}。"
 
 
+#: 亲密度的四档文字，由高到低。
+INTIMACY_LEVELS = ("很亲近", "较亲近", "一般", "疏远")
+
+
 def intimacy_text(intimacy: int) -> str:
     """@brief 亲密度 0-30 → 四档中文（≥22 很亲近 / ≥14 较亲近 / ≥7 一般 / 疏远）。"""
     if intimacy >= 22:
-        return "很亲近"
+        return INTIMACY_LEVELS[0]
     if intimacy >= 14:
-        return "较亲近"
+        return INTIMACY_LEVELS[1]
     if intimacy >= 7:
-        return "一般"
-    return "疏远"
+        return INTIMACY_LEVELS[2]
+    return INTIMACY_LEVELS[3]
 
 
 def _relationship_item(relationship: Relationship) -> str:

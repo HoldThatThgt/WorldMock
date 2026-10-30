@@ -80,6 +80,7 @@ EVENT_REFERENCES = {
     "data.data.activities[].data.accepted_event_id": "event",
     "data.data.memory_sources[].verified_event_ids[]": "event",
     "data.body_settlement_event_id": "event", "data.source_event_ids[]": "event",
+    "data.digests.*.source_event_ids[]": "event", "data.digests.*.cited_event_ids[]": "event",
     "data.errand.origin_event_id": "event",
     "data.observation_event_id": "event", "data.verified_event_ids[]": "event", "data.progress_event_ids[]": "event",
     "data.active_activities[].origin_request_event_id": "event",

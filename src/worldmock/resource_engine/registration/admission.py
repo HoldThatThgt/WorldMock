@@ -236,20 +236,22 @@ def _check_location_declarations(content, states: frozenset[str]) -> None:
 
 
 def _check_series(series: dict, episodes: set, content) -> None:
-    """@brief 同一系列各集的容器绑定、内容前提与凭的状态必须完全相同，集号不得重复；完成效果各集各写。
+    """@brief 同一系列各集的容器绑定、内容前提、凭的状态与记忆类别必须完全相同，集号不得重复；完成效果各集各写。
 
-    :param series: 系列名到先登记那一集的（容器绑定，内容前提，凭的状态）。
+    :param series: 系列名到先登记那一集的（容器绑定，内容前提，凭的状态，记忆类别）。
     :param episodes: 已登记的（系列名，集号）。
     """
     title, episode = content.series.title, content.series.episode
     binding = (content.app_ids, content.location_kinds)
-    first = series.setdefault(title, (binding, content.prerequisite, content.consumes_state))
+    first = series.setdefault(title, (binding, content.prerequisite, content.consumes_state, content.memory_category))
     if first[0] != binding or (title, episode) in episodes:
         raise RegistrationError("CONTENT_SERIES_INVALID")
     if first[1] != content.prerequisite:
         raise RegistrationError("CONTENT_SERIES_INVALID", f"{title} episodes declare different prerequisites.")
     if first[2] != content.consumes_state:
         raise RegistrationError("CONTENT_SERIES_INVALID", f"{title} episodes declare different consumed states.")
+    if first[3] != content.memory_category:
+        raise RegistrationError("CONTENT_SERIES_INVALID", f"{title} episodes declare different memory categories.")
     episodes.add((title, episode))
 
 

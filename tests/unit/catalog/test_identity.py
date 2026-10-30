@@ -112,7 +112,7 @@ def test_refresh_registers_new_optional_files_and_removes_deleted_ones(catalog_d
     assert _manifest(catalog_dir) == before
     assert {key: before[key] for key in ("format_version", "rules_version", "environment_id",
                                          "environment_version")} == {
-        "format_version": 5, "rules_version": 6, "environment_id": "artificial-test", "environment_version": "4"}
+        "format_version": 6, "rules_version": 6, "environment_id": "artificial-test", "environment_version": "4"}
 
 
 def test_refresh_without_a_required_file_keeps_the_old_manifest(catalog_dir):

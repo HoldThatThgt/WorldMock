@@ -327,7 +327,7 @@ class ActionHandlers:
         """@brief 活动回看：名称、地点、实际已做时长、阶段与自述历史。
 
         地点取活动最近所属会话的说法：路上开始的活动（含出行本身）为「去<目的地>的路上」，停留中的为该地点；
-        未归入会话的活动取开始地点。自述仍在记忆层时只写活动名与「已在记忆层」。
+        未归入会话的活动取开始地点。最新自述以整项照写留在记忆层「今天」里时只写活动名与「已在记忆层」。
         """
         del agent_id
         activity = state.activities[row["activity_id"]]
@@ -497,7 +497,7 @@ def _with_names(result: ActionResult, pairs) -> ActionResult:
     return result.model_copy(update={"data": resolution_data(result.data, resolved, ())}) if resolved else result
 
 def _recall_names(observed: dict) -> list[str]:
-    """@brief 回看可以写的名称：任务名、待办层写出的目标文字、本轮活动名与记忆层 self_notes 所写的活动名（note_labels）。"""
+    """@brief 回看可以写的名称：任务名、待办层写出的目标文字、本轮活动名与记忆层「今天」自述前缀所写的活动标注（note_labels）。"""
     return [
         *(row["task_name"] for row in observed["goal_bindings"]),
         *(row["name"] for row in observed["activity_bindings"]),
@@ -509,10 +509,9 @@ def _self_report(note: str) -> dict:
     return {"progress_note": note} if note else {}
 
 def _remembered(observed: dict, activity: ActivityState | None) -> dict | None:
-    """@brief 活动的最新自述仍在本轮记忆层 self_notes 中时的回看结果：只写它在记忆层中的活动名与「已在记忆层」，
-    不写其他回看事实；否则为 None（docs/design/06-agent.md「进度、待办与记忆」）。"""
+    """@brief 活动的最新自述以整项照写的总结或进展留在本轮记忆层「今天」里时的回看结果：只写它在「今天」里的标注与
+    「已在记忆层」，不写其他回看事实；否则为 None（docs/design/06-agent.md「今天条目」）。"""
     if activity is None or not activity.progress_note:
         return None
-    names = {row["activity_id"]: row["name"] for row in observed["activity_bindings"]}
-    label = memory_layer.noted_label(observed["memory_layer"], names[activity.activity_id], activity.progress_note)
+    label = memory_layer.noted_label(observed["memory_layer"], activity)
     return None if label is None else {"activity": label, "progress_note": RECALL_IN_MEMORY_LAYER}

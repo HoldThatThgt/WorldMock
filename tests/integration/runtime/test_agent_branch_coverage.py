@@ -1,5 +1,5 @@
 from tests.integration.runtime.current_contract_fixtures import profile as current_profile
-"""当前工具协议的观察冻结、名称守卫、受限轮不收窄工具面与记忆查询分支。"""
+"""当前工具协议的观察冻结、名称守卫、受限轮不收窄工具面与检索记忆分支。"""
 
 
 import copy
@@ -16,9 +16,6 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 from agentsociety2.agent.base import ReactDecision, ReactLoopRequest, ReactToolResult
 from custom.agents.life_agent import (
     LifeAgent,
-    MemoryRecentRequest,
-    MemorySearchRequest,
-    MemoryTimeRangeRequest,
     ReadonlyFinishRequest,
 )
 from tests.integration.runtime.test_life_agent_protocol import (
@@ -68,24 +65,6 @@ def _decision(name: str, values: dict) -> ReactDecision:
     return ReactDecision("", name, values, "")
 
 
-def test_memory_request_models_preserve_semantic_bounds() -> None:
-    """记忆数量、时间和正文仍由领域模型约束。"""
-    assert MemoryRecentRequest(limit=50).limit == 50
-    with pytest.raises(ValidationError):
-        MemoryRecentRequest(limit=0)
-    assert MemorySearchRequest(query="keyword", limit=1).query == "keyword"
-    with pytest.raises(ValidationError):
-        MemorySearchRequest(query="word " * 41 + "x", limit=1)
-    with pytest.raises(ValidationError):
-        MemoryTimeRangeRequest(
-            start_time="2026-01-06T00:00:00+08:00",
-            end_time="2026-01-05T00:00:00+08:00", limit=10)
-    with pytest.raises(ValidationError):
-        MemoryTimeRangeRequest(
-            start_time="2026-01-05T00:00:00",
-            end_time="2026-01-05T01:00:00", limit=10)
-
-
 def test_memory_entries_and_finish_keep_content_limits() -> None:
     """收尾记忆条目与只读答复仍有各自语义上限；记忆不带 refs，来源不由模型填写（第七章）。"""
     memory = _memory("我等了一会儿。")
@@ -118,7 +97,8 @@ def _misaligned_meta(data: dict) -> None:
     (lambda data: data.update(environment_layer=[]), "observation layer environment_layer is unavailable"),
     (lambda data: data.pop("progress_layer"), "observation layer progress_layer is unavailable"),
     (lambda data: data.pop("persona_views"), "persona views are invalid"),
-    (lambda data: data["persona_views"].update(preferences=None), "persona views are invalid"),
+    (lambda data: data["persona_views"].update(relationships=None), "persona views are invalid"),
+    (lambda data: data["persona_views"]["relationships"].append({"view": "可靠。"}), "persona views are invalid"),
     (_misaligned_meta, "progress metadata is invalid"),
     (lambda data: data.update(progress_meta=[{"protected": "yes", "lines": []}]), "progress metadata is invalid"),
     (lambda data: data.pop("interaction_bindings"), "interaction bindings must be a list"),
@@ -140,7 +120,7 @@ def _misaligned_meta(data: dict) -> None:
     (lambda data: data["errand_item_bindings"].append("现有食品"), "errand_item_bindings are invalid"),
 ])
 def test_corrupt_observation_fails_before_any_model_tool(change, match: str) -> None:
-    """缺层或层名不符、看法偏好或进度层元数据损坏、私有绑定损坏（含两类私有事务绑定缺失、缺键或不是对象）、菜单或唤醒
+    """缺层或层名不符、关系看法或进度层元数据损坏、私有绑定损坏（含两类私有事务绑定缺失、缺键或不是对象）、菜单或唤醒
     原因损坏的观察不能转成模型请求：都是损坏的宿主观察，在任何模型调用之前失败。"""
     data = copy.deepcopy(_observations()[0]["data"])
     change(data)
@@ -285,31 +265,6 @@ def test_action_validation_rejects_unseen_object_wrong_action_and_second_action(
 
 
 @pytest.mark.asyncio
-async def test_memory_dispatch_returns_retry_feedback_and_hides_episode_identities() -> None:
-    """记忆运行时失败作为工具失败反馈、不杀人物决策；成功结果只投影 {type, text, time, epistemic_status}。"""
-    person = _prepared()
-    person._memory_runtime = type("Memory", (), {
-        "dispatch_tool": lambda self, action, args: (False, "memory unavailable", None),
-    })()
-    failure = await person.dispatch_react_tool("memory_recent", {"limit": 1})
-    assert isinstance(failure, ReactToolResult)
-    assert failure.ok is False
-    assert "memory unavailable" in failure.observation
-    stored = {"id": "m_00000060_000001", "agent_id": 7, "type": "goal", "text": "想早点睡",
-              "time": "2026-01-04T22:00:00+08:00", "importance": 0.4, "keywords": ["睡觉"],
-              "source": "activity_conclusion", "refs": [], "epistemic_status": "subjective"}
-    person._memory_runtime = type("Memory", (), {
-        "dispatch_tool": lambda self, action, args: (True, "{}", {"episodes": [dict(stored)]}),
-    })()
-    success = await person.dispatch_react_tool("memory_search", {"query": "睡觉", "limit": 1})
-    assert success.ok is True
-    assert success.data == {"epistemic_status": "subjective", "episodes": [
-        {"type": "goal", "text": "想早点睡", "time": "2026-01-04T22:00:00+08:00", "epistemic_status": "subjective"}]}
-    assert json.loads(success.observation) == success.data
-    assert stored["id"] not in success.observation
-
-
-@pytest.mark.asyncio
 async def test_life_agent_host_guards_fail_closed_on_unprepared_or_wrong_state() -> None:
     """宿主调用越界时明确失败：只读模式不提交世界请求，未知工具不分派（宿主内部错误，不是人物可触发的业务情形）。"""
     person = _prepared()
@@ -340,30 +295,29 @@ async def test_recall_dispatch_without_an_environment_fails_closed() -> None:
 
 
 def test_tool_messages_follow_memory_queries_only() -> None:
-    """记忆查询结果只序列化一次写进 tool 消息，失败写 {"error": 原因}；世界请求登记不追加任何消息；缺调用身份即失败。"""
+    """只读查询的结果只序列化一次写进 tool 消息；search_memory 的失败结果（ok 为假）把明细路径改写到实际调用位置；
+    世界请求登记不追加任何消息；缺调用身份即失败。"""
     person = _prepared()
     person._react_messages = []
     for tool, arguments in ((MAIN_TOOL, _WAIT_CHOICE), (SIDE_TOOL, _WORK_CHOICE)):
         person._append_react_tool_result(_decision(tool, arguments), ReactToolResult(True, "{}", {}))
     assert person._react_messages == []
-    success = {"epistemic_status": "subjective", "episodes": []}
-    person._append_react_tool_result(ReactDecision("", "memory_recent", {"limit": 1}, "", "call-1"),
-                                     ReactToolResult(True, json.dumps(success), success))
-    failure = person._dispatch_strict_memory
-    person._memory_runtime = type("Memory", (), {
-        "dispatch_tool": lambda self, action, args: (False, "memory unavailable", None),
-    })()
-    decision = ReactDecision("", "memory_search", {"query": "x", "limit": 1}, "", "call-2")
-    assert person.validate_react_decisions([
-        ReactDecision("", "memory_recent", {"limit": 1}, "", "call-1"), decision], False) == ""
-    result = failure(decision.action, decision.args)
-    person._append_react_tool_result(decision, result)
+    success = {"类别": "全部", "时间": "今天", "关键词": None, "结果": [], "未列出": []}
+    first = ReactDecision("", "search_memory", {"category": "全部", "time": "今天", "keyword": None}, "", "call-1")
+    decision = ReactDecision("", "search_memory", {"category": "饮食", "time": "2026-02-30", "keyword": None}, "",
+                             "call-2")
+    assert person.validate_react_decisions([first, decision], False) == ""
+    person._append_react_tool_result(first, ReactToolResult(True, json.dumps(success), success))
+    refused = {"error_code": "MEMORY_TIME_INVALID", "reason": "bad time", "fix": "fix it", "unmet": [],
+               "items": [{"path": ["tool_calls", 0, "function", "arguments", "time"], "written": "2026-02-30",
+                          "error_code": "MEMORY_TIME_INVALID", "allowed_values": [], "expected": "e", "why": "w",
+                          "candidates": []}]}
+    person._append_react_tool_result(decision, ReactToolResult(False, json.dumps(refused), refused))
     assert json.loads(person._react_messages[0]["content"]) == success
     feedback = json.loads(person._react_messages[1]["content"])
     assert set(feedback) == {"error_code", "reason", "fix", "items", "unmet"}
-    assert feedback["error_code"] == "MEMORY_QUERY_FAILED"
-    assert feedback["items"][0]["path"] == ["tool_calls", 1]
-    assert feedback["items"][0]["allowed_values"] == []
+    assert feedback["error_code"] == "MEMORY_TIME_INVALID"
+    assert feedback["items"][0]["path"] == ["tool_calls", 1, "function", "arguments", "time"]
     with pytest.raises(RuntimeError, match="Native tool call id is unavailable"):
-        person._append_react_tool_result(_decision("memory_recent", {"limit": 1}),
+        person._append_react_tool_result(_decision("search_memory", first.args),
                                          ReactToolResult(True, json.dumps(success), success))

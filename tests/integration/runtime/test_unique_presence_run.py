@@ -4,6 +4,7 @@ import pytest
 from tests.integration.runtime.current_contract_fixtures import decide, ToolResponse
 from tests.life.conftest import SIDE_TOOL, side_arguments, stage_day_plan, advance_until_ready, context
 from worldmock.state.planning.schedule import PlanGoal
+from worldmock.agents.prompt.life_prompt import user_layer
 from worldmock.agents.prompt.tool_groups import expand_tool_layer
 
 PRIVATE_KEYS = {"activity_id", "content_id", "app_id", "location_id", "goods_id", "session_id",
@@ -40,7 +41,7 @@ async def test_actual_query_and_start_requests_keep_facts_public_and_names_uniqu
         for value in public_messages(request):
             assert_public(value)
         layers = public_messages(request)[0]
-        targets = expand_tool_layer(layers[0])["targets"]
+        targets = expand_tool_layer(user_layer(layers, "工具层"))["targets"]
         assert len({row["name"] for row in targets}) == len(targets)
         assert len([row for row in layers if row["layer"] == "环境层"]) == 1
     assert "c-welcome" not in json.dumps(requests, ensure_ascii=False)

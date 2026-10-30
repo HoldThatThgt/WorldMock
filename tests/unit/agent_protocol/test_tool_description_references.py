@@ -18,17 +18,12 @@ import re
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
 
-from custom.agents.life_agent import (
-    MemoryRecentRequest,
-    MemorySearchRequest,
-    MemoryTimeRangeRequest,
-    ReadonlyFinishRequest,
-)
+from custom.agents.life_agent import ReadonlyFinishRequest
 from worldmock.agents.prompt.life_prompt import LIFE_SYSTEM_LAYER, TOOL_DESCRIPTIONS  # noqa: E402
 from worldmock.exchange_engine.conditions.activity_rules import MAIN_ACTIVITY_ACTIONS, SIDE_ACTIVITY_ACTIONS
 from worldmock.state.interaction.actions import START_TOOLS  # noqa: E402
 from worldmock.state.interaction.control_items import CONTROL_TOOLS  # noqa: E402
-from worldmock.state.interaction.requests import REQUEST_MODELS
+from worldmock.state.interaction.requests import QUERY_MODELS, REQUEST_MODELS
 from worldmock.state.interaction.schema import deepseek_strict_schema  # noqa: E402
 from worldmock.agents.prompt.narration import FORBIDDEN_OBSERVATION_KEYS  # noqa: E402
 
@@ -41,9 +36,8 @@ _PROTOCOL_PHRASES = ("exactly one", "only tool call", "registering", "registered
                      "reason")
 #: 规则、上限与校验的说法（旧参数说明来自请求模型的开发 docstring）：出现在任何说明里即违规。
 _RULE_PHRASES = ("不超过", "至多", "合计", "名额", "拒绝", "必填", "照填", "由系统", "不合法", "释放")
-#: 发给模型的全部原生工具参数模型，包含回看任务、记忆查询与只读结束。
-_PARAMETER_MODELS = {**REQUEST_MODELS, "memory_recent": MemoryRecentRequest, "memory_search": MemorySearchRequest,
-                     "memory_time_range": MemoryTimeRangeRequest, "finish": ReadonlyFinishRequest}
+#: 发给模型的全部原生工具参数模型，包含回看任务、检索记忆与只读结束。
+_PARAMETER_MODELS = {**REQUEST_MODELS, **QUERY_MODELS, "finish": ReadonlyFinishRequest}
 MAIN_TOOL, SIDE_TOOL = START_TOOLS
 #: 用途句里放行的拉丁字母单词：只有副工具写「内容 app」。
 _PURPOSE_WORDS = {SIDE_TOOL: frozenset({"app"})}

@@ -115,7 +115,7 @@ def test_quality_report_carrying_the_previous_structure_number_is_rejected(real_
     manifest, _ = read_export(real_export)
     path = real_export / "quality.json"
     quality = json.loads(path.read_bytes())
-    assert quality["schema_version"] == 9
+    assert quality["schema_version"] == 10
     retired = canonical_json({**quality, "schema_version": 8})
     path.write_bytes(retired)
     with pytest.raises(IntegrityError, match="^Export quality report bytes do not match its manifest$"):

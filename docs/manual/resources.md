@@ -6,7 +6,7 @@ content-catalog.jsonl、location.jsonl、merchant-catalog.jsonl 五个文件，�
 callbacks.jsonl 写回调声明，map.jsonl 写两地的距离，travel-method.jsonl 写步行以外的出行方式。
 可选文件不放等于零行：没有回调就不放 callbacks.jsonl，不需要声明距离就不放 map.jsonl，
 不放 travel-method.jsonl 时人物只能步行。其他名字的文件一律拒绝，文件名用连字符。
-每行是一项完整 JSON 对象，使用 UTF-8 无 BOM 与 LF。清单的 format_version 写 5，rules_version 写 6。
+每行是一项完整 JSON 对象，使用 UTF-8 无 BOM 与 LF。清单的 format_version 写 6，rules_version 写 6。
 字段、显示名、绑定与发布摘要合同见[资源引擎](../design/03-resource-engine.md)。
 
 地点逐项声明，不使用 count 扩张或生成地址。给本人住处声明 is_home，为一个实际地点声明 accepts_parcels，
@@ -74,7 +74,7 @@ travel_method_ids 逐个写它能导航的出行方式身份（步行写 walking
 
 商品只声明零食、食品、饮料、商品四类价格与地点类型或内容 app 绑定。
 内容用 app_ids 或 location_kinds 显式绑定，填写实际时长、体力档位、两项心理缓解档位和 pushable。
-不要添加内容分类、manner、动作菜单、消息、聊天对象或商家账户。
+不要添加内容分类（记忆的类别只用下文的 memory_category 覆盖）、manner、动作菜单、消息、聊天对象或商家账户。
 
 用 location_kinds 绑定到地点的内容，要把名字当成人物读和写的名字来起：人物在地点做哪件事，是照这个名字点名的。
 不属于系列的内容写 title，系列写 series.title；系列各集的 title 不能点名；每次点名从第一集做起，一集做完自动接下一集，人物中途结束时整件事算做完一轮。
@@ -139,6 +139,9 @@ completion_effects 写这件事做完时的一次性效果。「买菜做饭」�
 - 两个字段只能写在地点内容上，互不要求：只写 completion_effects 就是随时能做、做完有效果的事，例如父母家的「吃饭」写
   {"food":"meal","social_relief":"high"}。不要让同一顿饭算两次：公司的「吃午饭」写了 food，人物点了外卖再去吃午饭就吃了两顿。
 - 系列各集的 consumes_state 必须相同；开始这件事减一次，自动接下一集不再减。
+- 状态被一件供餐的内容凭着（凭它的内容里有一条写了 completion_effects.food）、又写了 reset_on_goods 时，人物开始做饭的结果、
+  做完的结束句和零点计划都写出这次用的是哪天收到的哪件商品，例如「用的是1月5日收到的蔬菜包」；运行开始以来还没收到过时写
+  「用的是家里原有的食材」。
 - 状态的 cap 写 0 时这件事永远不会出现；状态被用掉时也能触发回调的阈值规则，例如食材用完时让买菜 app 推一条提醒。
 
 写了 completion_effects.food 的地点内容做完时，人物得到与收到一件食品（meal）或零食（snack）相同的能量，不花钱，没写 consumes_state 时也不需要先买食材；
@@ -149,6 +152,19 @@ completion_effects 写这件事做完时的一次性效果。「买菜做饭」�
 ```json
 {"content_id":"dinner-2-eat","title":"吃晚饭","series":{"title":"做晚饭","episode":2},"location_kinds":["home"],"duration_seconds":1500,"exertion":"idle","pushable":false,"relaxation_relief":"none","social_relief":"none","summary":"在家吃晚饭。","summary_source":{"kind":"synthetic","url":null,"notice":"数据集作者编写"},"completion_effects":{"food":"meal"}}
 ```
+
+人物的记忆按饮食、工作、生活三类整理。每一行内容和每个 app 归哪一类由引擎推导：看商品类别、内容做完补不补能、凭不凭供餐的状态，
+看人设工作安排里的班次地点和班次时段，不用在目录里写。推导不合意时，给内容行或 app 行写 memory_category，取「饮食」「工作」「生活」之一。
+例如研发中心的「吃午饭」本身没有食品信号（饭在外卖收货时已经补能），在班次地点做的事按推导归工作，写上覆盖就归饮食：
+
+```json
+{"content_id":"office-eat-lunch","title":"吃午饭","location_kinds":["研发中心"],"duration_seconds":900,"exertion":"idle","pushable":false,"relaxation_relief":"low","social_relief":"low","summary":"外卖送到后在工位旁的茶水间吃午饭，顺便和同事聊几句。","summary_source":{"kind":"synthetic","url":null,"notice":"数据集作者编写"},"memory_category":"饮食"}
+```
+
+- 覆盖只决定记忆的类别，不改变人物看到的内容、能不能做和结算。
+- 系列各集写同一个值或都不写；各集不同时以 CONTENT_SERIES_INVALID 拒绝。
+- 不覆盖就省略这个字段；写成 null 以 ENVIRONMENT_KIND_INVALID 拒绝。
+- 每一行推导出的类别和理由用 tools/analysis/memory_categories.py 逐行查看。
 
 ```mermaid
 flowchart LR
@@ -166,9 +182,31 @@ flowchart LR
 验证失败按返回的所属路径与英文原因修正，原因里带着行号、文件名或路线等详情；
 不能删除未知字段错误或靠旧格式混读运行。
 报 ENVIRONMENT_STALE_FILE 时删除或改正那个文件名；报 ENVIRONMENT_FILE_UNLISTED 时刷新清单；
-报 RULES_VERSION_MISMATCH 时把清单的 format_version 改成 5、rules_version 改成 6，并按当前格式改完各文件；
+报 RULES_VERSION_MISMATCH 时把清单的 format_version 改成 6、rules_version 改成 6，并按当前格式改完各文件；
+格式 5 的包报 ENVIRONMENT_KIND_INVALID：把清单的 format_version 改成 6 再刷新清单，目录行不用改（格式 6 只多出可选的 memory_category）。
 从规则版本 5 升到 6 时，还要按上文把打卡、电话、聊天、邮件、天气这类内容的 pushable 改成 false。
 操作命令见[运行手册](runtime.md)，作者说明放在环境包外。
+
+<a name="resources-检查内容行的记忆类别"></a>
+## 检查内容行的记忆类别
+
+在仓库根对一个环境包执行：
+
+```powershell
+uv run python -m tools.analysis.memory_categories --package <包目录> [--output <文件>]
+```
+
+命令按运行时同样的规则加载并校验这个包，不访问模型服务；包加载失败时写错误日志并返回 1，不产生结果。
+不给 `--output` 时结果写到标准输出；给了时文件必须还不存在，已存在时拒绝且不覆盖。
+
+- `workplace_kind` 是人设工作安排里班次地点的地点类型，没有工作安排时为 null。
+- `rows` 逐行列出全部内容行（按 content_id）和全部 app 行（按 app_id），每行带名称、内容行的 location_kinds 与 app_ids。
+- `category` 是这一行推导出的记忆类别；`rule` 是命中的规则编号，0 表示目录行写了 memory_category，3、5、7 只出现在地点内容上，
+  6 只出现在 app 内容和 app 行上，编号的含义见[人物设计](../design/06-agent.md#agent-记忆的类别)「记忆的类别」；
+  `reason` 用一句话写明这一行为什么归这一类。
+- 目录行没有时刻，地点内容实际归哪一类还看人物开始的时刻和地点：`rule` 为 5、7 的行，`reason` 写明工作日、休息日与在岗时段的条件。
+
+改了 memory_category 之后，照上文刷新清单、重建环境包，再运行一遍，核对那一行的 `rule` 是否为 0、`category` 是否为写的值。
 
 <a name="resources-固定规则怎样落到手机时间线"></a>
 ## 固定规则怎样落到手机时间线

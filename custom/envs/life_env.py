@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 from worldmock.runtime.framework.setup import stage_model_identity
-from worldmock.runtime.lifecycle.runner import settle_pending_day_plans
-from custom.agents.life_agent import life_action_tool_names
+from worldmock.runtime.lifecycle.runner import settle_pending_day_plans, settle_pending_memory_digests
+from custom.agents.life_agent import life_action_tool_names, life_query_tool_names
 from worldmock.configuration.inputs.environment import load_environment
 
 import logging
@@ -18,9 +18,9 @@ from agentsociety2.society import SocietyCheckpointRequest
 from worldmock.foundation.errors import BusinessRuleError, ProtocolError
 from worldmock.recording_engine.storage.checkpoint import snapshot_directory
 from worldmock.simulation_engine.engine import LifeEngine
-from worldmock.simulation_engine.observation.wording.guidance import rejection_guidance
+from worldmock.simulation_engine.observation.wording.guidance import query_rejection
 from worldmock.state.decisions.results import CounterfactualIntervention
-from worldmock.state.interaction.requests import REQUEST_MODELS
+from worldmock.state.interaction.requests import REQUEST_MODELS, RecallTaskSummaryRequest, SearchMemoryRequest
 from worldmock.state.identity import RunIdentity
 from worldmock.runtime.monitoring.status import write_status
 
@@ -37,6 +37,10 @@ _STABLE_TOOL_SURFACE = frozenset(
         "revise_day_plan",
     }
 )
+
+#: read_query 的白名单：回看任务与 QUERY_MODELS 的只读查询，工具名 → 请求类型（docs/design/06-agent.md「提示与工具」）；
+#: 与稳定工具面一样由环境一侧显式写出，init 时与人物侧的只读查询工具集核对。
+_READ_QUERY_MODELS = {"recall_task_summary": RecallTaskSummaryRequest, "search_memory": SearchMemoryRequest}
 
 
 class LifeEnv(EnvBase):
@@ -75,11 +79,11 @@ class LifeEnv(EnvBase):
         )
 
     async def init(self, start_datetime: datetime) -> None:
-        """@brief 校验起始时钟并创建或明确打开运行；普通恢复在首次决策之前补齐缺失的当日计划。
+        """@brief 校验起始时钟并创建或明确打开运行；普通恢复在首次决策之前先补齐缺失的回顾，再补齐缺失的当日计划。
 
-        锁定的 AS2 在恢复模式不形成初始检查点、首轮决策又先于推进，从计划尚未生成的检查点普通恢复时，
-        零点计划只能在这里执行（docs/design/04-simulation-engine.md「唤醒、日计划与个人事务」）；此调用早于 AS2 登记
-        运行故障的范围，任务异常先经 engine.fail_run 登记再抛出。反事实分支在干预检查点之后执行。
+        锁定的 AS2 在恢复模式不形成初始检查点、首轮决策又先于推进，从回顾或计划尚未生成的检查点普通恢复时，
+        零点的回顾与计划只能在这里执行（docs/design/04-simulation-engine.md「唤醒、日计划与个人事务」）；此调用早于 AS2
+        登记运行故障的范围，任务异常先经 engine.fail_run 登记再抛出。反事实分支在干预检查点之后执行。
         """
         await super().init(start_datetime)
         if self.environment_root is None or self.run_dir is None:
@@ -104,24 +108,24 @@ class LifeEnv(EnvBase):
         self._validate_registered_tool_surface()
         self._workspace_root = self.run_dir
         if self.open_existing and self.engine.context.store.manifest.get("branch_kind") == "resume":
-            await self._settle_day_plans_on_resume(self.engine)
+            await self._settle_midnight_tasks_on_resume(self.engine)
 
-    async def _settle_day_plans_on_resume(self, engine: LifeEngine) -> None:
-        """@brief 普通恢复时执行零点计划后台任务；异常先登记运行故障再抛出。"""
+    async def _settle_midnight_tasks_on_resume(self, engine: LifeEngine) -> None:
+        """@brief 普通恢复时依次执行回顾与零点计划两个后台任务；任一异常先登记运行故障再抛出。"""
 
         try:
+            await settle_pending_memory_digests(engine)
             await settle_pending_day_plans(engine)
         except Exception as error:
             engine.fail_run(repr(error))
             raise
 
     def _validate_registered_tool_surface(self) -> None:
-        """@brief 核对环境与人物两侧登记的完整新工具 Schema 闭集。
+        """@brief 核对环境与人物两侧登记的工具闭集：请求工具与稳定工具面一致、人物侧生活动作工具与请求工具一致、
+        人物侧只读查询工具与 read_query 白名单一致。
 
-        LifeEnv 的工具登记 = 领域 REQUEST_MODELS（引擎 _dispatch 的唯一
-        受理闭集）。它与稳定工具面不一致说明领域模型未迁移完成；人物侧
-        开放集合与登记闭集不一致说明 agent/env 工具面漂移——两者都在
-        init 时 fail-closed，而不是运行中 KeyError。
+        LifeEnv 的工具登记 = 领域 REQUEST_MODELS（引擎 _dispatch 的唯一受理闭集）；任何一项不一致都在 init 时
+        fail-closed，而不是运行中 KeyError。
         """
 
         registered = frozenset(REQUEST_MODELS)
@@ -132,6 +136,8 @@ class LifeEnv(EnvBase):
             )
         if life_action_tool_names() != registered:
             raise ProtocolError("LifeEnv tool surface disagrees with the LifeAgent action tool set")
+        if life_query_tool_names() != frozenset(_READ_QUERY_MODELS):
+            raise ProtocolError("LifeEnv read query surface disagrees with the LifeAgent query tool set")
 
     async def begin_decision_round(self, contexts: tuple[Any, ...]) -> str:
         """@brief 登记共同版本和实际结算顺序。"""
@@ -144,21 +150,18 @@ class LifeEnv(EnvBase):
         """@brief 返回严格人物视图并追加只读观察证据。"""
         return self._require_engine().observe(context)
 
-    async def due_reflection(self, context: Any) -> dict | None:
-        """@brief 只读：人物取观察之前询问此刻该不该先做就寝反思，返回空或归属日期与所属睡眠。"""
-        return self._require_engine().due_reflection(context)
-
     async def submit_action(self, call: Any):
         """@brief 登记宿主绑定的有类型生活动作。"""
         engine = self._require_engine()
         return engine.submit_action(call)
 
     async def read_query(self, context: Any, tool: str, request: Any) -> dict:
-        """@brief 对已冻结观察即时回答回看任务，不产生世界动作、进度事件或人物记忆；别的工具名一律是协议错误。"""
+        """@brief 对已冻结观察即时回答回看任务与检索记忆，不产生世界动作、事件或人物记忆；白名单以外的工具名或与工具名
+        不符的请求类型一律是协议错误，业务拒绝以五字段形状返回。"""
         engine = self._require_engine()
         engine.decisions.validate_context(context)
         engine.decisions.require_round(context.round_id)
-        if tool != "recall_task_summary" or type(request) is not REQUEST_MODELS["recall_task_summary"]:
+        if type(request) is not _READ_QUERY_MODELS.get(tool):
             logging.error("Read query tool and request type do not match: %s", tool)
             raise ProtocolError("Read query tool and request type do not match")
         rows = engine.context.store.read_decision_observations(
@@ -166,18 +169,12 @@ class LifeEnv(EnvBase):
         if len(rows) != 1:
             logging.error("Read query requires one frozen decision observation, found %d", len(rows))
             raise ProtocolError("Read query requires one frozen decision observation")
-        observed = rows[0].data
         try:
-            return engine.read_task_summary(context.agent_id, request, observed)
+            if tool == "recall_task_summary":
+                return engine.read_task_summary(context.agent_id, request, rows[0].data)
+            return engine.search_memory(context.agent_id, request, rows[0])
         except BusinessRuleError as error:
-            guidance = rejection_guidance(error)
-            return {
-                "error_code": str(error),
-                "reason": guidance["reason"],
-                "fix": guidance.get("fix"),
-                "items": guidance.get("items", []),
-                "unmet": list(getattr(error, "unmet", []) or []),
-            }
+            return query_rejection(error)
 
     async def commit_decision_round(self, round_id: str):
         """@brief 原子结算唯一人物的决策批次并提交真实环境证据。"""
@@ -203,14 +200,15 @@ class LifeEnv(EnvBase):
         self._require_engine().record_memory_update(evidence)
 
     async def checkpoint(self, request: Any):
-        """@brief 对全部人物工作区取不可变快照并提交共同检查点，随后为缺当日计划的人物执行零点计划。
+        """@brief 对全部人物工作区取不可变快照并提交共同检查点，随后先补齐待生成的回顾，再为缺当日计划的人物执行零点计划。
 
         覆盖新建运行的初始检查点与反事实分支的干预检查点（启动路径，docs/design/04-simulation-engine.md）；
-        新计划由下一个共同检查点封存。无人缺当日计划时任务不构造客户端即返回。
+        新登记的回顾与计划由下一个共同检查点封存。没有待生成的回顾、无人缺当日计划时两个任务都不构造客户端即返回。
         """
         engine = self._require_engine()
         write_status(engine.context.store.run_dir, "running", "checkpointing")
         committed = self._checkpoint(engine, request)
+        await settle_pending_memory_digests(engine)
         await settle_pending_day_plans(engine)
         return committed
 
@@ -233,11 +231,12 @@ class LifeEnv(EnvBase):
         return engine.checkpoint(snapshots)
 
     async def step(self, tick: int, t: datetime) -> None:
-        """@brief 直接推进到 Society 已选定的下一个严格边界；零点边界先生成当日计划，再判定该秒的唤醒与决策。"""
+        """@brief 直接推进到 Society 已选定的下一个严格边界；零点边界先生成回顾，再生成当日计划，最后判定该秒的唤醒与决策。"""
         engine = self._require_engine()
         write_status(engine.context.store.run_dir, "running", "advancing")
         engine.advance(tick, t)
         if engine.midnight_rhythm_pending:
+            await settle_pending_memory_digests(engine)
             await settle_pending_day_plans(engine)
             engine.decide_midnight_rhythm()
         self.t = t
@@ -286,7 +285,8 @@ class LifeEnv(EnvBase):
         return module
 
     async def close(self) -> None:
-        """@brief 在本 actor 的事件循环里关闭并移出 LiteLLM 缓存的异步客户端（零点计划用过的），再关闭持久连接并释放环境实例。"""
+        """@brief 在本 actor 的事件循环里关闭并移出 LiteLLM 缓存的异步客户端（零点计划与回顾用过的），再关闭持久连接并释放
+        环境实例。"""
         try:
             await close_cached_async_clients()
         finally:

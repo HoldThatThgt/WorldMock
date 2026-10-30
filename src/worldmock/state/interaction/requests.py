@@ -196,6 +196,37 @@ class RecallTaskSummaryRequest(ToolRequestModel):
     task_name: str = Field(pattern=r"\S")
 
 
+#: 检索记忆关键词的上限：去掉首尾空白后的字数与按空白拆开的词数（DeepSeek strict 禁 maxLength，由本地校验执行）。
+MEMORY_KEYWORD_MAX_CHARS = 40
+MEMORY_KEYWORD_MAX_WORDS = 4
+
+
+class SearchMemoryRequest(ToolRequestModel):
+    """@brief 按类别和时间查自己过去的记忆，可以加关键词，不改变世界。"""
+
+    category: Literal["饮食", "工作", "生活", "全部"]
+    time: str = Field(pattern=r"^(今天( \d{2}:\d{2}(~\d{2}:\d{2})?)?|全部|\d{4}(-\d{2}(-\d{2}(~\d{4}-\d{2}-\d{2})?)?)?)$")
+    keyword: str | None
+
+    @field_validator("keyword")
+    @classmethod
+    def validate_keyword(cls, keyword: str | None) -> str | None:
+        """@brief 关键词去掉首尾空白后非空、至多 40 字、按空白拆开至多 4 个词（DeepSeek strict 禁 maxLength，由本地校验兜住）。"""
+        if keyword is None:
+            return None
+        words = keyword.split()
+        if not words:
+            _LOGGER.error("Memory search keyword is blank")
+            raise ValueError("memory search keyword must contain a word or be null")
+        if len(keyword.strip()) > MEMORY_KEYWORD_MAX_CHARS:
+            _LOGGER.error("Memory search keyword exceeds its character limit")
+            raise ValueError("memory search keyword exceeds 40 characters")
+        if len(words) > MEMORY_KEYWORD_MAX_WORDS:
+            _LOGGER.error("Memory search keyword has too many words")
+            raise ValueError("memory search keyword has more than four words")
+        return keyword
+
+
 
 #: 控制工具每项活动名的「格式与来源」说明。字段级说明是参数 Schema 的一部分，不是工具 description：只写格式与来源，
 #: 不写规则与上限（上限由本地校验执行，docs/design/04-simulation-engine.md）。
@@ -420,10 +451,17 @@ _MEMORY_HEX_IDENTITY = re.compile(r"[0-9a-fA-F]{8,}")
 
 
 
+def contains_hex_identity(text: str) -> bool:
+    """@brief 文字是否含八位以上十六进制串；主观记忆文字与日、月、年回顾正文共用这一条规则。"""
+    return _MEMORY_HEX_IDENTITY.search(text) is not None
+
+
+
 def validate_memory_text(text: str) -> str:
     """@brief 进入主观记忆的文字的共用校验：不超过 1000 字符且不含八位以上十六进制身份。
 
-    收尾记忆、看法与就寝反思的洞见三处共用这一个函数（docs/design/06-agent.md），不区分条目来源。
+    收尾记忆与看法两处共用这一个函数（docs/design/06-agent.md），不区分条目来源；其中的十六进制身份检查
+    contains_hex_identity 另与日、月、年回顾正文共用。
 
     :param text: 模型写下的一条记忆文字。
     :returns: 通过校验的原文。
@@ -432,7 +470,7 @@ def validate_memory_text(text: str) -> str:
     if len(text) > MEMORY_TEXT_MAX_CHARS:
         _LOGGER.error("Memory text exceeds its character limit")
         raise ValueError("memory text exceeds 1000 characters")
-    if _MEMORY_HEX_IDENTITY.search(text):
+    if contains_hex_identity(text):
         _LOGGER.error("Memory text contains a hexadecimal identifier")
         raise ValueError("memory text contains a hexadecimal identifier")
     return text
@@ -573,3 +611,7 @@ REQUEST_MODELS: dict[str, type[FrozenModel]] = {
     "conclude_activity": ConcludeActivityRequest,
     "revise_day_plan": ReviseDayPlanRequest,
 }
+
+#: 只读查询的工具模型：不进 REQUEST_MODELS，也不进 ActionRequest，由 LifeEnv.read_query 回答
+#: （docs/design/06-agent.md「检索记忆」）。
+QUERY_MODELS: dict[str, type[FrozenModel]] = {"search_memory": SearchMemoryRequest}

@@ -4,6 +4,9 @@
 
 运行的权威记录是按提交顺序保存的事件和共同世界状态。导出、查看器、记忆层与评估只消费这些事实，
 不能根据模型自述、资金变化或活动名称补造内容、收货和世界事件。
+进度层与记忆层「今天」不按 session 的事件序号区间投影，两层按来源事件序号不相交，只有两处写明的重叠；session 的事件序号下界
+（[session_bounds.py](../../src/worldmock/recording_engine/projections/activities/session_bounds.py)）只用来判定这段停留或路程里做完的查询
+与同秒续接里 session 换没换；已发布界、重叠与带入规则只在[人物](06-agent.md)「进度层的下界与带入的记录」定义。
 
 ```mermaid
 flowchart LR
@@ -24,7 +27,7 @@ flowchart LR
   世界的规范 JSON 逐字节相同，不同即以 `Engine world differs from the committed world` 拒绝；新世界在写入前已按加载口径
   复校。事件的 `state_version_before` 与 `state_version_after` 是推进前后的两个版本。
 - **证据追加**：只写事件，不接收、不改写世界。观察、模型请求与响应、记忆更新、`decision_started` 与
-  `action_requested`、`run_failed` 和零点计划失败时的模型证据都是证据追加，事件的前后版本都等于当前已提交版本。
+  `action_requested`、`run_failed` 和零点计划与回顾失败时的模型证据都是证据追加，事件的前后版本都等于当前已提交版本。
   证据追加不能带资金变化；初始注资只属于创建世界的那一步推进。
 
 检查点不改世界：调用方交上的世界必须与已提交世界逐字节相同，载荷只按规范 JSON 编码一次，`record_sha256` 是这份字节的
@@ -51,6 +54,27 @@ SHA-256，存储的正文是它的 zlib 流（见「冻结输入、检查点与�
 callback_effect、callback_reminder、time_trigger、weather 使用闭合字段合同。
 效果包含一项实际触发原因和完整类型化结果；收入支出方向与信封资金变化一致，未支付结果没有资金变化。
 独立时间事实不能伪装成上游事件的附加效果，天气条件与速度系数必须来自固定世界天气表。
+
+日、月、年回顾的登记事件 `memory_digest_generated` 同样使用闭合字段合同。信封是 `environment_event`，来源 `model`、可见性
+`system`、属于一个人物、没有资金变化，起因恰一项，是这一期最后一次模型响应；决策、动作与活动身份为 null。`data` 恰为
+`{kind, tier, period, digests, fallback}`：`tier` 是 `day`、`month` 或 `year`，`period` 依次写成 `YYYY-MM-DD`、`YYYY-MM` 或
+`YYYY`；`digests` 恰有 `food`、`work`、`life` 三个键，每项为 null 或 `{text, source_event_ids, cited_event_ids}`。`text` 是模型
+写的原文，不修剪、不改写；`source_event_ids` 是这一类全部输入行背后的事件（日回顾是各行所属今天条目的来源事件，月回顾是那天
+的日回顾事件，年回顾是那个月的月回顾事件），按行序去重；`cited_event_ids` 由模型交的编号 `refs` 推出，按 refs 次序去重，只是
+模型自报的依据，不作来源证明。`fallback` 是校验重试用尽、没能整理的类别键，按 `food`、`work`、`life` 次序：某类为 null 且在
+`fallback` 里表示没能整理，为 null 而不在里面表示这一期没有这一类的输入；三类都没有输入的期次不写事件。登记事件与这一期的
+模型请求、响应证据在版本加一的同一次提交里写入，世界除版本外不变。回顾正文是整理出来的主观回忆，不是核验事实，环境从不据它
+结算或核验请求；同一人物同一级同一期至多一条，读到第二条是完整性故障。写入与读取时只核对形状（不重跑生成时依赖目录与输入的
+守卫），任一条不成立都先写同文错误日志再拒绝：
+
+| 检查 | 拒绝消息 |
+| --- | --- |
+| `data` 的键集恰为五个；来源 `model`、可见性 `system`、没有资金变化、属于一个人物、起因恰一项 | `Memory digest event fields or source are invalid` |
+| `tier` 是三级之一；`period` 是字符串且与 `tier` 对应：日期往返为同一个 ISO 日期，月份为 ASCII 数字的 `YYYY-MM`（01–12），年份为四位 ASCII 数字 | `Memory digest event tier or period is invalid` |
+| `digests` 恰有三个键；每项为 null 或恰有三个键，`text` 去掉首尾空白后非空、不超过该级上限（日 200、月 800、年 2000 字），两种身份列表非空、元素是非空白字符串且不重复，`cited_event_ids` 是 `source_event_ids` 的子集；至少一类非 null 或 `fallback` 非空 | `Memory digest event digests are invalid` |
+| `fallback` 是列表，元素属于三个键、不重复、按 `food`、`work`、`life` 的相对次序，其中每一类在 `digests` 里为 null | `Memory digest event fallback is invalid` |
+
+生成规则见[人物](06-agent.md#agent-日月年回顾)「日、月、年回顾」。
 
 状态效果有三种正文：回调规则的增量 `state_delta`、收货把状态置为上限的 `reset_to_cap`，以及凭状态的地点内容开始时把状态减 1 的 `consume_on_start`。
 `consume_on_start` 的 `data` 恰为 `{kind, type, rule_id, state, content_id, before, after}`：`kind` 为 `callback_effect`，`type` 为 `consume_on_start`，
@@ -79,16 +103,20 @@ callback_effect、callback_reminder、time_trigger、weather 使用闭合字段�
 
 `memory_updated` 登记人物工作区已落盘的记忆，所有登记用同一组键：`operation`、`created_episode_ids`、
 `merged_episode_ids`、`episodes`、四个文件身份、`consolidated`、`observation_event_id`、`verified_event_ids`、
-`trigger`、`decision_id` 和 `reflection`。环境按 `observation_event_id` 是否为空分两路核对。
+`trigger`、`decision_id` 和 `reflection`。环境只接受步尾登记，要求如下：
 
-| 登记 | `observation_event_id` | `trigger` | `reflection` | 另外要求 |
-| --- | --- | --- | --- | --- |
-| 反思登记 | `null` | 恰为 `["reflection"]` | `{date, sleep_activity_id}`，由环境按 `due_reflection` 写入 | `due_reflection` 此刻非空；这次决策还没有观察；本人在这一时刻还没有登记过反思；`operation` 是 `append_episodes`；每条快照的来源都是 `reflection`；`verified_event_ids` 为空；`MEMORY.md` 的前后身份相等 |
-| 步尾登记 | 本决策的冻结观察 | `[]` 或 `["activity_conclusion"]` | `null` | 观察属于本决策，事实窗口一致；快照里没有来源为 `reflection` 的条目 |
+| 键 | 要求 |
+| --- | --- |
+| `observation_event_id` | 非空字符串，是本决策的冻结观察 |
+| `consolidated` | 恰为 `false` |
+| `trigger` | 环境推导：`[]` 或 `["activity_conclusion"]` |
+| `reflection` | 环境写入 `null` |
+| 其余 | 观察属于本决策，事实窗口与观察里的 `verified_experiences` 一致；快照里没有来源为 `reflection` 的条目 |
 
-任一条不满足先记英文错误日志，再以 `ProtocolError("Memory update evidence is invalid")` 作为运行故障拒绝。
-睡醒那一步最多有两个 `memory_updated`，先反思、后步尾，两类登记不出现在同一个事件里。
+任一条不满足先记英文错误日志，再以 `ProtocolError("Memory update evidence is invalid")` 作为运行故障拒绝。每一步至多一条 `memory_updated`。
 
+键 `consolidated` 与 `reflection` 保留，使本规格交付之前的历史运行仍按同一形状重新认证：那时人物一侧有记忆巩固（`consolidated` 可为真）和睡醒时的反思登记（`observation_event_id` 为 `null`、`trigger` 恰为 `["reflection"]`、`reflection` 为 `{date, sleep_activity_id}`）。
+下面的反思来源核对只用于重新认证这些历史运行，新运行里没有这类登记。
 质量报告对每个 `reflection` 非空的记忆更新只凭事件独立重算四件事，任一不成立记一条 `memory_update_without_source`：
 同一人物有一条 `activity_progress` 事件，快照是已完成的睡眠，结束时刻等于这次更新的发生时刻；
 这是该人物在这个本地日（时区取运行清单的窗口时区）最早的一次睡醒；`reflection.date` 是这个本地日的前一天；
@@ -97,7 +125,7 @@ callback_effect、callback_reminder、time_trigger、weather 使用闭合字段�
 
 手机上的三类事由引擎写成四种环境事件：app 的开和关、进出地点、订单通知。
 它们都是 `environment_event`，来源是环境，可见性是 `system`，不带资金变化，事件类型的闭集不变。
-人物看不到它们：不进任何提示层、记忆、零点计划和就寝反思的输入，不能被回调规则订阅，不产生公开评估证据；
+人物看不到它们：不进任何提示层、记忆、零点计划和回顾的输入，不能被回调规则订阅，不产生公开评估证据；
 它们也不是决策机会，不新增唤醒原因，不改人物的下一次决策时刻。
 人物从购买结果的 `channel` 读到实际的下单 app，从查询的答案读到是在哪个 app 里查的；来源是商品履约记录和查询活动，不是这四种事件。
 恢复和重放读已提交的事件，不重写、不重抽。
@@ -127,7 +155,7 @@ callback_effect、callback_reminder、time_trigger、weather 使用闭合字段�
 
 - **模型证据**：模型调用逐次留证。
   - 请求事件 `model_request` 的 `data.request` 是实际发出的完整请求，消息、工具与参数原样。
-  - 同一调用的响应或失败事件 `model_response` 的 `data.request` 恒为 null（键照常出现），`caused_by` 恰一项，指向它的请求事件。请求只存一次；零点计划的证据本就如此。其余键照旧：`phase`、`call_id`、`attempt`、`response`、`error`，响应带 `protocol_feedback` 时也照旧。
+  - 同一调用的响应或失败事件 `model_response` 的 `data.request` 恒为 null（键照常出现），`caused_by` 恰一项，指向它的请求事件。请求只存一次；零点计划与回顾的证据本就如此。其余键照旧：`phase`、`call_id`、`attempt`、`response`、`error`，响应带 `protocol_feedback` 时也照旧。
   - 环境登记请求时记下请求规范 JSON 的 sha256；登记响应或失败时，核对它带来的请求与之相同。比较按规范内容，内容相同、只是重新构造（例如跨进程传送后键的插入次序不同）的请求照常接受。
   - 不同说明请求在调用途中被改动：先写英文错误日志 `Model <phase> for call <call_id> carries a request that differs from its recorded request`，再抛 `ProtocolError("Model exchange request differs from its recorded request")`。这条响应不写入，运行按故障停下。
 - **观察分件**：观察里七张随时间增长或几乎不变的表按内容单独存放一次，观察事件的正文只带它们的 sha256。存储形式如下表。
@@ -275,9 +303,10 @@ flowchart TD
 - 一行覆盖几条事件，就按事件的先后把它们指向的内容依次列出，每条一个书名号，书名号之间不加任何字符；相邻两条是同一条内容（`content_id` 相同）时只写一次。
 - 没看完、没做完的也照列，不标「未完」。一行覆盖哪些事件，四处各不相同，见「四处各自怎样写」。
 - 去掉相邻重复之后多于三条时只写前三条，后接「等 K 条」，K 是去重之后的总条数，数字两侧各一个半角空格，例如「《一》《二》《三》等 12 条」；
-  恰好三条及以下照列。用 app 和在地点做系列都一样。上限是 `display_wording` 的常量 `TITLE_LIST_LIMIT`（3），截断只由同一个公开函数 `title_list` 完成，
-  人物结束句里的标题（见[人物](06-agent.md)「进度、待办与记忆」）也调用它，进度层结果的 `details.contents` 只列这么多行（见[模拟引擎](04-simulation-engine.md)「出行、内容与查询」），
-  查看器的镜像与它一字不差。没写出来的各条仍逐条按身份取名，取不到照「取不到名称」处理。
+  恰好三条及以下照列。用 app 和在地点做系列都一样。上限是 `display_wording` 的常量 `TITLE_LIST_LIMIT`（3），四处的截断只由同一个公开函数 `title_list` 完成，
+  查看器的镜像与它一字不差，零点计划「动作结果」里的活动句（见[人物](06-agent.md)「零点计划」）也调用它。没写出来的各条仍逐条按身份取名，取不到照「取不到名称」处理。
+- 同一个上限另有两处使用：今天条目结束行的标题段，写法只在[人物](06-agent.md)「今天条目」里定义（「等N条」，数字两侧不留空格）；
+  进度层结果的 `details.contents` 只列这么多行（见[模拟引擎](04-simulation-engine.md)「出行、内容与查询」）。
 
 **在地点做的事。**
 
@@ -621,12 +650,12 @@ gzip 头部固定为 `1f 8b 08 00 00 00 00 00 00 ff`：修改时刻为 0、不�
 每个值是 `{path, rows, sha256}`，`location_stays` 的 `path` 是 `location-stays.jsonl`；
 结构号不符报 `Export manifest is not a committed supported version`，键集不符报 `Export artifact set is invalid`。
 app 的开关、订单通知和地点停留只进事件与这些工件，不进质量报告。
-质量报告 `quality.json` 的结构号是 9。它的 `input_warnings.code_counts` 的键恰为运行输入警告码闭集的两个值
+质量报告 `quality.json` 的结构号是 10。它的 `input_warnings.code_counts` 的键恰为运行输入警告码闭集的两个值
 `CONTENT_EMPTY_WITH_MEDIA_TASTES` 与 `LOCATION_NAME_SUSPICIOUS`（见[配置](08-configuration.md)「校验与输入冻结」），
 闭集之外的码只计入 `unrecognized_code_counts`。
 质量报告的 `lineage` 节只读冻结清单：父运行各段 `parents`（身份、检查点、结束原因、错误、丢弃事件数、停机秒数 =
 分出时刻减父运行最后一条事件的落盘时刻）、按结束原因的计数、停机总秒数与段数 `segment_count`；这一节是结构号升到 9
-的原因。冻结清单的 `lineage` 不是数组时报 `Quality report manifest has no lineage`。它不计入
+的原因，调用类 `memory_digest` 是结构号升到 10 的原因。冻结清单的 `lineage` 不是数组时报 `Quality report manifest has no lineage`。它不计入
 `transport_or_terminal_failures`，后者仍只数导出事件里失败阶段的模型证据。导出认证按已认证的事件重算整份质量报告并逐值比较，
 结构号或任何一个键与当前代码算出的不同，都报 `Export quality report disagrees with authoritative events`。
 
@@ -639,11 +668,12 @@ app 的开关、订单通知和地点停留只进事件与这些工件，不进�
 | `fresh_decision_turn` | 没有 purpose 的行动请求（工具含 `start_main_activity`、思考开启），消息恰为 system、user 两条 |
 | `turn_with_history` | 同样的行动请求，消息角色序列不是恰好 system、user 两条；正常运行包括本次决策的后续回合及同一秒续接链 |
 | `truncation_retry` | 没有 purpose，工具含 `start_main_activity`，`extra_body` 恰为关闭思考 `{"thinking": {"type": "disabled"}}`：截断之后的那一次重试 |
-| `consolidation` | 没有 purpose，不带工具：记忆巩固，含反思阶段的那一次 |
-| `reflection` | 没有 purpose，工具恰为 `submit_reflection`：就寝反思及其校验重试 |
+| `consolidation` | 没有 purpose，不带工具：记忆巩固；只出现在本规格交付之前的历史运行里，新运行恒为 0 |
+| `reflection` | 没有 purpose，工具恰为 `submit_reflection`：就寝反思及其校验重试；只出现在历史运行里，新运行恒为 0 |
 | `plan_day` | purpose 为 `plan_day`：零点计划及其校验重试 |
+| `memory_digest` | purpose 为 `memory_digest`：日、月、年回顾及其校验重试 |
 
-六类按上表次序总是列出；请求形状不属于任何一类、或终态响应没有对应请求事件的调用归入 `unrecognized`，这一行只在出现时
+七类按上表次序总是列出；请求形状不属于任何一类、或终态响应没有对应请求事件的调用归入 `unrecognized`，这一行只在出现时
 列在最后。每行给出请求事件数、提供商响应数、已知 token（与 `model_usage.token_usage` 同一口径）、可计价响应数、
 可计价响应的缓存命中输入、未命中输入与输出 token 合计、峰时响应数、峰时占比（峰时响应数除以可计价响应数，保留六位小数）
 与估算成本；没有可计价响应时，按计价拆开的 token、峰时占比和估算成本为 null，峰时响应数为零。
@@ -728,7 +758,9 @@ app 的开关、订单通知和地点停留只进事件与这些工件，不进�
   世界状态中的 `agents.*.errands.*.origin_event_id` 与 `pending_events[].caused_by[]` 也是事件引用，
   在重启点、日终、全部检查点与终态比较中按所指事件的序号映射。未知事件身份报告 `REFERENCE_NOT_AN_ID`；
   自由文本中的身份与未声明路径上的同名字段照原文比较，不按字段名或 UUID 形状统一替换。
-- **壁钟**：只有事件顶层的 `recorded_at` 与 `wall_elapsed_ms`、人物工作区 AGENT.json 的 `initialized_at`、运行清单 `lineage` 各项的 `last_recorded_at` 与 `branched_at`、质量报告 `acceleration` 下的实测墙钟项、按记录时刻定峰谷的估价项与峰时计数、`lineage` 节的停机秒数。嵌套的同名字段是模拟时间（例如记忆层 `earlier_today[].recorded_at`），照常比较。
+  回顾事件 `memory_digest_generated` 的 `data.digests.*.source_event_ids[]` 与 `data.digests.*.cited_event_ids[]`
+  同样映射到所指事件的序号；某一类为 null 时照常比较 null。
+- **壁钟**：只有事件顶层的 `recorded_at` 与 `wall_elapsed_ms`、人物工作区 AGENT.json 的 `initialized_at`、运行清单 `lineage` 各项的 `last_recorded_at` 与 `branched_at`、质量报告 `acceleration` 下的实测墙钟项、按记录时刻定峰谷的估价项与峰时计数、`lineage` 节的停机秒数。data 里的模拟时刻是事实，照常比较，例如记忆层「今天」各条的「时刻」。
 - **传输记录**：`model_response` 信封里的 `transport_attempts`（失败发送的壁钟毫秒数与传输错误），不进任何提示。
 - **丢弃尾段**：`lineage` 各项描述父运行越过重启点走了多远、为何停下（`last_event_seq`、`last_event_time`、`discarded_events`、`end_reason`、`end_error`）及质量报告 `lineage` 节里对应的项。重放以拒绝重启点之后的第一次调用重现重启，来源那一段可能是被杀或传输失败，所以这几项在来源与重放之间本来就不同；丢弃尾段本身不比较。
 - **运行位置与代码身份**：运行清单与人物工作区里的模型服务地址（`base_url`、`metadata_url`），人物工作区 AGENT.json 的 `workspace.root`（工作区所在目录），以及 `code_sha256`、`git_commit`、`git_dirty`。`config_sha256` 不屏蔽：去掉两项地址后按 config.toml 原文重算摘要，再比较。

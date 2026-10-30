@@ -28,16 +28,20 @@ flowchart LR
 
 | 文件 | 是否必需 | 登记内容 | 不存在时 |
 | --- | --- | --- | --- |
-| `manifest.json` | 必需 | `format_version: 5`、环境身份和版本、`rules_version: 6`、每个存在的目录 JSONL 的路径、摘要和字节数，以及 `catalog_content_sha256` | 加载失败 |
-| `app-catalog.jsonl` | 必需 | app 身份、名称、角色，以及功能 app 的购买绑定与出行方式绑定 | 加载失败 |
+| `manifest.json` | 必需 | `format_version: 6`、环境身份和版本、`rules_version: 6`、每个存在的目录 JSONL 的路径、摘要和字节数，以及 `catalog_content_sha256` | 加载失败 |
+| `app-catalog.jsonl` | 必需 | app 身份、名称、角色，以及功能 app 的购买绑定与出行方式绑定，可选的记忆类别覆盖 `memory_category` | 加载失败 |
 | `location.jsonl` | 必需 | 全部实际地点、显示名、自由类型、内容 app、住宿和驿站资格、营业安排 | 加载失败 |
 | `merchant-catalog.jsonl` | 必需 | 商品身份、名称、四类商品、固定价格、地点类型或内容 app 绑定 | 加载失败 |
-| `content-catalog.jsonl` | 必需 | 内容身份、标题、时长、体力消耗、推送与自动接续资格、心理缓解档位、摘要与容器；绑定到 app 的内容可以另写前提 `prerequisite`；绑定到地点类型的内容可以另写凭状态 `consumes_state` 与完成效果 `completion_effects` | 加载失败 |
+| `content-catalog.jsonl` | 必需 | 内容身份、标题、时长、体力消耗、推送与自动接续资格、心理缓解档位、摘要与容器；绑定到 app 的内容可以另写前提 `prerequisite`；绑定到地点类型的内容可以另写凭状态 `consumes_state` 与完成效果 `completion_effects`；任何内容都可以另写记忆类别覆盖 `memory_category` | 加载失败 |
 | `callbacks.jsonl` | 可选 | 状态声明和触发规则 | 没有状态，没有规则 |
 | `map.jsonl` | 可选 | 声明的两地距离 | 没有声明，地图全部随机生成 |
 | `travel-method.jsonl` | 可选 | 数据集定义的出行方式 | 只有引擎自带的步行 |
 
-规则版本 `RULES_VERSION` 是 6，目录格式 `format_version` 是 5；这两个号只在本节维护。
+规则版本 `RULES_VERSION` 是 6，目录格式 `format_version` 是 6；这两个号只在本节维护。
+
+内容行与 app 行的 `memory_category` 取「饮食」「工作」「生活」之一，省略表示按推导规则；它只用于记忆的类别（[人物](06-agent.md#agent-记忆的类别)「记忆的类别」的规则 0），不参与索引、准入、结算、名称解析和任何提示层。
+写成 `null` 由行模型拒绝；同一系列各集必须写同一个值或都不写，系列检查在比较 `consumes_state` 之后比较它。
+
 四个必需文件名是 `catalog.identity` 的 `REQUIRED_CATALOG_FILES`，三个可选文件名是 `OPTIONAL_CATALOG_FILES`，其余模块只引用这两个常量。
 可选文件「存在」指 `catalog/` 下有这个名字的目录条目，不论类型；存在的条目必须是普通文件，链接和目录由安全文件边界拒绝。
 可选文件允许零字节。零字节表示零行，加载出的目录、地图和运行行为与文件不存在完全相同；两者只在清单文件表和目录摘要上不同。
@@ -119,7 +123,7 @@ app、地点显示名、商品名分别在所属文件唯一。app 名不得与�
 | `ENVIRONMENT_LINE_INVALID` | 某行不是恰好一个 JSON 对象，含 `map.jsonl` 与 `travel-method.jsonl` 的行 |
 | `ENVIRONMENT_ID_DUPLICATE` | 身份、名称或引用列表重复，含内容前提的 `location_kinds`；`map.jsonl` 同一对地点出现两行；出行方式的身份或名称重复、使用保留身份 `walking` 或自带名称「步行」；同一地点类型下单元名重复时详情为 `content-catalog.jsonl:<先登记一行的行号> and content-catalog.jsonl:<当前行的行号> give location kind <类型> the same activity name <先登记的单元名>.` |
 | `ENVIRONMENT_REF_UNKNOWN` | app、商品等对象引用未登记；`map.jsonl` 的端点不是登记地点；功能 app 或回调规则引用的出行方式既没有登记、也不是 `walking`；地点内容的 `consumes_state` 不是登记的状态 |
-| `ENVIRONMENT_KIND_INVALID` | 未知字段、非法闭集值、坏字符串或布尔、未排序列表、非法营业时段；`map.jsonl` 的端点不满足 `a < b` 或行未排序；`travel-method.jsonl` 的行未按身份升序；功能 app 的 `actions` 出现 `purchase` 以外的值；回调的出行触发缺少 `travel_method_id`，或其他动作触发带了它。内容前提写成 `null`、不是对象或含未知键，`location_kinds` 不是字符串数组、有空白项或未按升序，前提的 `opens` 写成 `null`、形状不符或时段写法不合法，都属于这一项；两种 `null` 的详情分别是 `A declared content prerequisite must be an object.` 与 `A declared opening schedule must be an object.`，后一句地点行与内容前提共用。app 行写了已删除的 `browse_duration_seconds` 按未知字段处理，详情以 `app-catalog.jsonl:<行号>` 开头、含字段名和 `Extra inputs are not permitted`。app 内容写了 `consumes_state` 或 `completion_effects`；`consumes_state` 类型不对、空白或写成 `null`；`completion_effects` 不是对象、写成 `null`、为空、有未知成员，或成员的档位不在表内（含 `none`、数字和 `null`），都属于这一项；三种 `null` 的详情分别带 `A declared consumed state must be a state name.`、`A declared completion effect must be an object.` 与 `A declared completion effect tier must be a tier name.`，登记核对的两句详情见上文的次序表 |
+| `ENVIRONMENT_KIND_INVALID` | 未知字段、非法闭集值、坏字符串或布尔、未排序列表、非法营业时段；`map.jsonl` 的端点不满足 `a < b` 或行未排序；`travel-method.jsonl` 的行未按身份升序；功能 app 的 `actions` 出现 `purchase` 以外的值；回调的出行触发缺少 `travel_method_id`，或其他动作触发带了它。内容前提写成 `null`、不是对象或含未知键，`location_kinds` 不是字符串数组、有空白项或未按升序，前提的 `opens` 写成 `null`、形状不符或时段写法不合法，都属于这一项；两种 `null` 的详情分别是 `A declared content prerequisite must be an object.` 与 `A declared opening schedule must be an object.`，后一句地点行与内容前提共用。app 行写了已删除的 `browse_duration_seconds` 按未知字段处理，详情以 `app-catalog.jsonl:<行号>` 开头、含字段名和 `Extra inputs are not permitted`。app 内容写了 `consumes_state` 或 `completion_effects`；`consumes_state` 类型不对、空白或写成 `null`；`completion_effects` 不是对象、写成 `null`、为空、有未知成员，或成员的档位不在表内（含 `none`、数字和 `null`），都属于这一项；三种 `null` 的详情分别带 `A declared consumed state must be a state name.`、`A declared completion effect must be an object.` 与 `A declared completion effect tier must be a tier name.`，登记核对的两句详情见上文的次序表。内容行或 app 行的 `memory_category` 写成 `null`（详情带 `A declared memory category must be a category name.`）或闭集外的值（空串、别的词、数字、数组）也属于这一项 |
 | `ENVIRONMENT_NUMBER_INVALID` | 严格整数类型或范围不符；`map.jsonl` 的 `length_m` 缺失、不是严格整数或小于 1；出行方式的速度不是大于 0 的有限数值，或两个价格不是不小于 0 的严格整数 |
 | `HOME_LOCATION_REQUIRED` | 没有显式住宿地点，或人物住处未解析到住宿地点 |
 | `HOME_NOT_SLEEPABLE` | 人物住处没有标 `sleepable`；原因 `The persona home must be marked sleepable.`，详情 `persona.home_location` |
@@ -131,7 +135,7 @@ app、地点显示名、商品名分别在所属文件唯一。app 名不得与�
 | `CONTENT_CONTAINER_MISSING`、`CONTENT_CONTAINER_SIDE_EXCLUSIVE` | 内容容器缺失、两侧同时绑定 |
 | `CONTENT_BINDING_DANGLING` | 内容写的地点类型没有任何登记地点声明，顶层绑定与内容前提的 `location_kinds` 都算；原因 `A content names a location kind that no registered location declares.`，前提悬空时详情为 `<content_id> prerequisite names <kind>.` |
 | `CONTENT_PREREQUISITE_INVALID` | 内容前提写在绑定到地点类型的内容上，或 `location_kinds` 为空且没写 `opens`；原因 `A content prerequisite must belong to an app content and declare location kinds, opening hours, or both.`，详情分别是 `<content_id> is a location content.` 与 `<content_id> declares neither location kinds nor opening hours.` |
-| `CONTENT_SERIES_INVALID` | 同系列容器不同、集号重复，各集的内容前提不完全相同，或各集的 `consumes_state` 不同；原因 `Episodes of a series must share one container binding and one prerequisite and have unique episode numbers.`，前提不同时详情为 `<series.title> episodes declare different prerequisites.`，`consumes_state` 不同时详情为 `<series.title> episodes declare different consumed states.` |
+| `CONTENT_SERIES_INVALID` | 同系列容器不同、集号重复，各集的内容前提不完全相同，各集的 `consumes_state` 不同，或各集的 `memory_category` 不同；原因 `Episodes of a series must share one container binding and one prerequisite and have unique episode numbers.`，前提不同时详情为 `<series.title> episodes declare different prerequisites.`，`consumes_state` 不同时详情为 `<series.title> episodes declare different consumed states.`，`memory_category` 不同时详情为 `<series.title> episodes declare different memory categories.` |
 | `CONTENT_SUMMARY_TOO_LONG`、`CONTENT_SOURCE_URL_MISSING` | 摘要超过 200 字符或真实来源缺少 URL |
 | `CALLBACK_STATE_UNREGISTERED`、`CALLBACK_FOOTPRINT_EMPTY`、`CALLBACK_NOTIFY_MISMATCH` | 回调状态未知、足迹为空、提醒与效果不配对 |
 | `MAP_DISTANCE_CONTRADICTED` | 某条声明边的两端经其他声明边有一条严格更短的路线，详情指出行号、声明值、更短的路线和它的总长 |

@@ -91,11 +91,14 @@ class TestFieldBlacklist:
         with pytest.raises(ForbiddenObservationFieldError, match="numeric body state"):
             enforce_field_blacklist({"body": {body_key: 0.6}})
 
-    def test_activity_names_in_memory_notes_and_outcomes_pass(self) -> None:
-        """七层字段 activity 是可读活动名（记忆层 self_notes、结果 outcome），不是完整活动快照。"""
-        enforce_field_blacklist({"layer": "记忆层", "earlier_days": [], "earlier_today": [
-            {"recorded_at": "2026-09-18T09:00:00+08:00", "settled": [],
-             "self_notes": [{"activity": "写周报（9月18日 08:30 起）", "text": "写完一半。"}]}]})
+    def test_activity_names_in_outcomes_and_chinese_memory_keys_pass(self) -> None:
+        """结果 outcome 的字段 activity 是可读活动名，不是完整活动快照；新形状记忆层的中文键（可查、最早日期、近三天、
+        今天、时刻、类别、条数）都不在禁键之列；禁键 activities 照旧被拒。"""
+        enforce_field_blacklist({"layer": "记忆层", "可查": {"最早日期": "2026-09-18"}, "近三天": {"饮食": []}, "今天": [
+            {"时刻": "09:00", "类别": "工作", "核验": ["写周报 08:30–09:00"], "自述": ["写周报：写完一半。"]},
+            {"时刻": "10:00–11:00", "类别": "工作", "条数": 3}]})
+        enforce_field_blacklist({"result": {"details": {"outcome": [
+            {"activity": "写周报（9月18日 08:30 起）", "outcome": "提前结束"}]}}})
         with pytest.raises(ForbiddenObservationFieldError, match="activities"):
             enforce_field_blacklist({"layer": "待办层", "day_plan": {"activities": []}})
 

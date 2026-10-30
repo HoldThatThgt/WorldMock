@@ -1,20 +1,19 @@
 from tests.integration.runtime.current_contract_fixtures import profile as current_profile
 """一轮决策以一个世界请求（或两个开始工具各一次的开始组）结束；记忆只经 conclude_activity 写入、来源由系统登记；
-发给人物模型的内容不含内部身份；
-阈值巩固只计结束活动写入的条目。
+发给人物模型的内容不含内部身份。
 
 对应 docs/design/04-simulation-engine.md 第七章「finish 并入 conclude_activity」「发给模型的内容不含内部身份」与验收台账
 「会话、活动与记忆」；实施台账「七·记忆新增」。
 """
 
 
+from worldmock.agents.prompt.life_prompt import user_layer
 from worldmock.agents.prompt.tool_groups import expand_tool_layer
 
 import copy
 import json
 import os
 import re
-from collections import Counter
 from collections.abc import Callable
 from datetime import timedelta
 from itertools import islice
@@ -31,7 +30,7 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 from agentsociety2.agent.base import ReactDecision, ReactLoopRequest
 from agentsociety2.agent.runner import _step_agent_batch_async
 import agentsociety2.society.society as society_module
-from agentsociety2.society import AgentSociety, AgentSocietyConfig, DecisionContext, DirectToolCall
+from agentsociety2.society import AgentSociety, AgentSocietyConfig, DirectToolCall
 from custom.agents.life_agent import LifeAgent, _conclusion_memories, life_action_tool_names
 from worldmock.agents.protocol.life_feedback import FEEDBACK_INSTRUCTION
 from custom.envs.life_env import LifeEnv
@@ -41,8 +40,8 @@ from tests.integration.runtime.test_life_agent_protocol import (
     _MEMORY_TOOL_NAMES,
     _ModelResponse,
     _MultipleModelResponse,
-    _TextResponse,
     _OBSERVED_AT,
+    _SEARCH,
     _StepDispatcher,
     _StepEnvironment,
     _WAIT,
@@ -97,8 +96,7 @@ def _observed(*activities: tuple[str, str]) -> list[dict]:
 
 
 def _action_requests(requests: list[dict]) -> list[dict]:
-    """行动阶段的请求：工具中有 start_main_activity（docs/design/10-runtime.md 「身份与判定」）；不带工具的记忆
-    巩固与只带 submit_reflection 的就寝反思都不算。"""
+    """行动阶段的请求：工具中有 start_main_activity（docs/design/10-runtime.md 「身份与判定」）。"""
     return [request for request in requests
             if MAIN_TOOL in {item["function"]["name"] for item in request.get("tools") or []}]
 
@@ -120,7 +118,7 @@ def _decision(tool: str, arguments: dict) -> ReactDecision:
 
 @pytest.mark.parametrize("stage", [item.value for item in SameMomentStage])
 def test_life_tool_surface_never_offers_finish(stage: str) -> None:
-    """每个同刻阶段的生活决策工具面都是同样的七个请求工具与记忆查询，没有 finish；只读问答另有只答复的 finish。"""
+    """每个同刻阶段的生活决策工具面都是同样的七个请求工具与检索记忆，没有 finish；只读问答只有只答复的 finish。"""
     observations = _observed((_WORK, PHASE_ACTIVE), (_WAIT, PHASE_PENDING))
     observations[0]["data"]["same_moment_stage"] = stage
     agent = LifeAgent()
@@ -137,18 +135,18 @@ def test_life_tool_surface_never_offers_finish(stage: str) -> None:
     readonly.prepare_react_loop(ReactLoopRequest(0, _OBSERVED_AT, [], "今天过得怎么样？", True))
     functions = {item["function"]["name"]: item["function"]
                  for item in readonly.build_react_tool_schemas(readonly=True)}
-    assert set(functions) == _MEMORY_TOOL_NAMES | {"finish"}
+    assert set(functions) == {"finish"}
     assert set(functions["finish"]["parameters"]["properties"]) == {"answer"}
 
 
 @pytest.mark.asyncio
 async def test_registered_world_request_ends_the_decision_and_memory_queries_do_not() -> None:
-    """记忆查询是观察，可在请求前多次使用、不结束本轮；生活决策里的 finish 零执行；世界请求登记即结束本轮。"""
+    """检索记忆是只读查询，可在请求前多次使用、不结束本轮；生活决策里的 finish 零执行；世界请求登记即结束本轮。"""
     conclusion = _conclude_args(_WAIT, memories=[[_memory("等了一会儿，脑子清楚多了。")]])
     dispatcher = _GroundedCorrectionDispatcher(responses=[
-        _ModelResponse("call-memory-1", "memory_recent", '{"limit":1}'),
+        _ModelResponse("call-memory-1", "search_memory", _SEARCH),
         _ModelResponse("call-finish", "finish", json.dumps({"memories": []})),
-        _ModelResponse("call-memory-2", "memory_recent", '{"limit":1}'),
+        _ModelResponse("call-memory-2", "search_memory", _SEARCH),
         _ModelResponse("call-conclude", "conclude_activity", json.dumps(conclusion, ensure_ascii=False)),
         _ModelResponse("call-never-requested", MAIN_TOOL, json.dumps(_WAIT_CHOICE, ensure_ascii=False)),
     ])
@@ -165,9 +163,9 @@ async def test_registered_world_request_ends_the_decision_and_memory_queries_do_
     assert len(_action_requests(dispatcher.requests)) == 4
     assert all("finish" not in names for names in _tool_names(dispatcher.requests))
     assert _response_errors(environment) == [None, "TOOL_CALL_REQUIRED: The tool call batch is invalid.", None, None]
-    assert len(agent._memory_runtime.calls) == 2
+    assert [tool for tool, _ in environment.queries] == ["search_memory", "search_memory"]
     assert [item["action"] for item in request.observations] == [
-        "observe", "memory_recent", "memory_recent", "conclude_activity"]
+        "observe", "search_memory", "search_memory", "conclude_activity"]
 
 
 @pytest.mark.asyncio
@@ -410,7 +408,7 @@ class _ScriptedModel:
 
 def _offered_activity(request: dict) -> str:
     """一次模型请求的工具层里唯一的活动目标名：宿主实际列给模型的活动名。"""
-    tool_layer = expand_tool_layer(json.loads(request["messages"][1]["content"])[0])
+    tool_layer = expand_tool_layer(user_layer(json.loads(request["messages"][1]["content"]), "工具层"))
     [name] = [target["name"] for target in tool_layer["targets"] if target["kind"] == "activity"]
     return name
 
@@ -478,7 +476,7 @@ def _engine_with_paused_app_and_pending_wait(engine) -> tuple[Any, LifeEnv, str,
 
 
 async def _person(environment: LifeEnv, workspace: Path, model: _ScriptedModel) -> LifeAgent:
-    """从全新工作区装配启用记忆的真实 LifeAgent（巩固阈值取默认值），绑定真实环境。"""
+    """从全新工作区装配启用记忆的真实 LifeAgent，绑定真实环境。"""
     LifeAgent.create(workspace, {**current_profile(), "id": 1, "name": "陈曦", "occupation": "engineer"},
                      {"enable_memory": True, "enable_todo_list": False, "max_react_turns": 8})
     service = SimpleNamespace(env=environment, llm=SimpleNamespace(default=model), trace=None)
@@ -650,14 +648,15 @@ def _identity_leaks(text: str, private: set[str], now: int) -> list[str]:
 
 @pytest.mark.asyncio
 async def test_nothing_sent_to_the_person_model_carries_an_internal_identity(_engine_factory, tmp_path) -> None:
-    """系统层、六层 user、工具 Schema 与工具返回（记忆查询、协议纠错）中都没有内部身份；登记后没有工具返回。
+    """系统层、六层 user、工具 Schema 与工具返回（检索记忆、协议纠错）中都没有内部身份；登记后没有工具返回。
 
     模型按工具层实际列出的活动名点名收尾，名称里混进的内部身份由身份断言检出，而不是让脚本对话提前中断。"""
     engine, environment, wait_id = _engine_with_pending_wait(_engine_factory)
     name = activity_name(engine, wait_id)
     model = _ScriptedModel([
-        _ModelResponse("call-recent", "memory_recent", '{"limit":5}'),
-        _ModelResponse("call-search", "memory_search", json.dumps({"query": "散步", "limit": 5}, ensure_ascii=False)),
+        _ModelResponse("call-recent", "search_memory", _SEARCH),
+        _ModelResponse("call-search", "search_memory",
+                       json.dumps({"category": "生活", "time": "今天", "keyword": "散步"}, ensure_ascii=False)),
         _naming_offered("call-mismatch", lambda offered: {"items": [
             {"activity_name": offered, "summary": "等完了。", "memories": []}], "errands": []}),
         _naming_offered("call-conclude", lambda offered: _conclude_args(
@@ -687,20 +686,21 @@ async def test_nothing_sent_to_the_person_model_carries_an_internal_identity(_en
     assert [leak for text in visible for leak in _identity_leaks(text, private, now)] == []
     assert any(observed.data["environment_layer"]["observed_at"] in text for text in visible)
     returned = [json.loads(message["content"]) for message in person._react_messages if message.get("role") == "tool"]
-    episodes = [episode for payload in returned for episode in payload.get("episodes", [])]
-    assert len(episodes) >= 3
-    assert all(set(episode) == {"type", "text", "time", "epistemic_status"} for episode in episodes)
+    searched = [payload for payload in returned if "未列出" in payload]
+    assert [payload["关键词"] for payload in searched] == [None, "散步"]
     assert any(payload.get("instruction") == FEEDBACK_INSTRUCTION for payload in returned)
     assert len(returned) == 3 and person._react_messages[-1]["role"] == "assistant"
     assert any(row["name"] == name and row["kind"] == "activity" and row["phase"] == "刚结束"
-               for row in expand_tool_layer(json.loads(model.requests[0]["messages"][1]["content"])[0])["targets"])
+               for row in expand_tool_layer(user_layer(json.loads(model.requests[0]["messages"][1]["content"]),
+                                                       "工具层"))["targets"])
     assert [_offered_activity(request) for request in model.requests[2:]] == [name, name]
 
 
 @pytest.mark.asyncio
-async def test_memory_queries_and_the_reply_body_reach_the_next_progress_layer(_engine_factory, tmp_path) -> None:
-    """真实宿主证据进入同一段停留的下一次进度层：记忆查询只写条数，收尾调用带回复正文 self_note，
-    参数略去 relationship、preference 记忆；记忆条目正文不出现在进度层。"""
+async def test_the_reply_body_and_the_conclusion_stay_out_of_the_next_progress_layer(_engine_factory,
+                                                                                    tmp_path) -> None:
+    """真实宿主先查记忆、再收尾：下一次观察的进度层没有收尾请求的记录，不含 self_note，也不含收尾写下的记忆与看法正文
+    （回复正文与收尾都在今天条目里）；search_memory 不在进度层、只在模型请求证据里，记忆条目正文不出现在进度层。"""
     engine, environment, wait_id = _engine_with_pending_wait(_engine_factory)
     name = activity_name(engine, wait_id)
     memories = [_memory("等完这一刻钟，心里踏实了。", importance=0.2)]
@@ -708,7 +708,7 @@ async def test_memory_queries_and_the_reply_body_reach_the_next_progress_layer(_
     conclusion = {"items": [{"activity_name": name, "summary": "等完了。", "memories": memories, "views": views}],
                   "errands": []}
     model = _ScriptedModel([
-        _ModelResponse("call-recent", "memory_recent", '{"limit":5}'),
+        _ModelResponse("call-recent", "search_memory", _SEARCH),
         _ModelResponse("call-conclude", "conclude_activity", json.dumps(conclusion, ensure_ascii=False),
                        content="  等够了，收个尾。 "),
     ])
@@ -723,15 +723,17 @@ async def test_memory_queries_and_the_reply_body_reach_the_next_progress_layer(_
 
     after = context(engine, "after-query")
     engine.begin_decision_round([after])
-    records = [event for event in engine.observe(after)["progress_layer"]["events"] if event["type"] == "tool_call"]
-    assert not any(record["tool"] == "memory_recent" for record in records)
+    progress = engine.observe(after)["progress_layer"]
+    records = [event for event in progress["events"] if event["type"] == "tool_call"]
+    assert not any(record["tool"] == "search_memory" for record in records)
+    assert "search_memory" not in json.dumps(progress, ensure_ascii=False)
     evidence = _events(engine, "model_request", decision.decision_id)
-    assert any("memory_recent" in json.dumps(event.data) for event in evidence)
-    assert "散步很舒服" not in json.dumps(records, ensure_ascii=False)
-    concluded = next(record for record in records if record["tool"] == "conclude_activity")
-    assert concluded["self_note"] == "等够了，收个尾。"
-    assert concluded["arguments"] == {"items": [{"activity_name": name, "summary": "等完了。", "memories": memories}]}
-    assert views[0]["text"] not in json.dumps(records, ensure_ascii=False)
+    assert any('"name": "search_memory"' in json.dumps(event.data["request"]["messages"]) for event in evidence)
+    text = json.dumps(progress, ensure_ascii=False)
+    assert "散步很舒服" not in text
+    assert not any(record["tool"] == "conclude_activity" for record in records)
+    assert "self_note" not in text and "等够了，收个尾。" not in text
+    assert memories[0]["text"] not in text and views[0]["text"] not in text
 
 
 def _society(monkeypatch, tmp_path: Path, environment: _StepEnvironment, dispatcher) -> AgentSociety:
@@ -764,7 +766,7 @@ async def test_budget_exhausted_without_a_registered_world_request_fails_the_run
     _create_step_workspace(tmp_path / "as2" / "agents" / "agent_0007")
     environment = _StepEnvironment()
     dispatcher = _StepDispatcher()
-    dispatcher.responses = [_ModelResponse(f"call-memory-{index}", "memory_recent", '{"limit":1}')
+    dispatcher.responses = [_ModelResponse(f"call-memory-{index}", "search_memory", _SEARCH)
                             for index in range(4)]
     society = _society(monkeypatch, tmp_path, environment, dispatcher)
 
@@ -784,9 +786,9 @@ async def test_budget_exhausted_without_a_registered_world_request_fails_the_run
 
 @pytest.mark.asyncio
 async def test_readonly_finish_batched_with_another_tool_is_rejected() -> None:
-    """只读问答的 finish 必须单独返回：与记忆查询同批时整批零执行、按协议错误重试，单独的 finish 才给出答案。"""
+    """只读问答只开放 finish：与 search_memory 同批时整批零执行、按未开放的工具纠错，单独的 finish 才给出答案。"""
     dispatcher = _GroundedCorrectionDispatcher(responses=[
-        _MultipleModelResponse([("call-memory", "memory_recent", '{"limit":1}'),
+        _MultipleModelResponse([("call-memory", "search_memory", _SEARCH),
                                 ("call-finish", "finish", '{"answer":"同批的答复"}')]),
         _ModelResponse("call-finish-alone", "finish", json.dumps({"answer": "我记得昨天等过人。"}, ensure_ascii=False)),
     ])
@@ -798,139 +800,15 @@ async def test_readonly_finish_batched_with_another_tool_is_rejected() -> None:
     answer = await agent.run_react_loop(ReactLoopRequest(0, _OBSERVED_AT, [], "昨天做了什么？", True))
 
     assert answer == "我记得昨天等过人。"
-    assert agent._memory_runtime.calls == []
-    assert environment.calls == []
-    reason = ("Submit one world request, start_main_activity together with start_side_activity, "
-              "or a batch containing only read queries.")
-    assert _response_errors(environment) == [f"TOOL_CALL_REQUIRED: {reason}", None]
+    assert environment.queries == [] and environment.calls == []
+    assert _response_errors(environment) == ["TOOL_CALL_REQUIRED: The tool call batch is invalid.", None]
     feedback = [json.loads(message["content"]) for message in dispatcher.requests[1]["messages"]
                 if message.get("role") == "tool"]
-    assert [(item["error_code"], item["reason"], item["fix"]) for item in feedback] == [
-        ("TOOL_CALL_REQUIRED", reason,
-         "Submit one world request, the two start tools together, or only read queries.")] * 2
-
-
-#: 结束活动写下的主观记忆（类型各异、正文互不相似，避免按相似度合并）。
-_CONCLUSION_MEMORIES = (
-    ("routine", "晚上把碗洗了，厨房总算清爽。"),
-    ("goal", "想在月底前读完那本小说。"),
-    ("routine", "给妈妈打电话时她声音很精神。"),
-    ("preference", "比起外卖，我还是喜欢自己煮面。"),
-    ("commitment", "答应了同事周五前交方案初稿。"),
-    ("conflict", "和房东为了热水器又争了几句。"),
-    ("resolution", "决定以后每周三晚上去游泳。"),
-    ("identity", "我越来越像个能自己拿主意的人。"),
-    ("routine", "早起先喝一杯温水已经成了习惯。"),
-    ("goal", "这个季度想把英语口语练起来。"),
-    ("routine", "楼下的邻居送了我一袋橘子。"),
-    ("preference", "下雨天最适合窝在沙发上听播客。"),
-)
-#: relationship 与 preference 记忆写下的对象（relationship 的对象是档案里的场景联系人）。
-_SUBJECTS = {"preference": "整理会议纪要"}
-#: 就寝反思的五条洞见（AS2 固定重要度 0.8，合计 4.0，已超过重要度阈值）。
-_INSIGHTS = ("我其实很在意家里整不整洁。", "和家人的联系让我踏实。", "工作上的承诺我都记在心里。",
-             "独处的时候我最放松。", "我想让日子过得更有规律。")
-
-
-class _DayModel:
-    """脚本化人物模型：按请求形状回答收尾请求、阈值巩固与就寝反思，并留存巩固载荷。"""
-
-    model_name = "test-model"
-
-    def __init__(self) -> None:
-        self.conclusions: list[dict] = []
-        self.consolidations: list[dict] = []
-        self.reflections = 0
-
-    async def call(self, **request):
-        """按工具分流：工具唯一为 submit_reflection 的是就寝反思，以这一个工具调用作答（五条洞见都引用输入里的第一条
-        记忆）；工具中有 start_main_activity 的是行动请求，取下一条收尾；不带工具的是阈值巩固。"""
-        names = [item["function"]["name"] for item in request.get("tools", [])]
-        user = request["messages"][-1]["content"]
-        if names == ["submit_reflection"]:
-            self.reflections += 1
-            body = user.split("<memory_reflection_input>", 1)[1].split("</memory_reflection_input>", 1)[0]
-            cited = json.loads(body)["episodes"][0]["id"]
-            insights = [{"insight": text, "refs": [cited]} for text in _INSIGHTS]
-            return _ModelResponse(f"reflection-{self.reflections}", "submit_reflection",
-                                  json.dumps({"insights": insights}, ensure_ascii=False))
-        if MAIN_TOOL in names:
-            arguments = self.conclusions.pop(0)
-            return _ModelResponse(f"call-{len(self.conclusions)}", "conclude_activity",
-                                  json.dumps(arguments, ensure_ascii=False))
-        assert not names, names
-        self.consolidations.append(json.loads(user))
-        return _TextResponse("我在意把日子过得有条理。")
-
-
-class _DayEnvironment(_StepEnvironment):
-    """一日里的决策观察：两项进行中的活动可以带记忆结束；已有当日计划；woke 为真的那一轮是当天第一次睡醒。"""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.woke = False
-
-    async def due_reflection(self, context: DecisionContext) -> dict | None:
-        """当天第一次睡醒的那一轮给出归属日期，其余为空。"""
-        return {"date": "2026-01-04", "sleep_activity_id": "sleep-1"} if self.woke else None
-
-    async def observe(self, context: DecisionContext) -> dict:
-        """在一项进行中等待的观察上再加一项进行中的工作。"""
-        data = _with_activities(await super().observe(context), (_WORK, PHASE_ACTIVE))
-        data["todo_layer"]["day_plan"] = {"date": "2026-01-05", "goals": []}
-        return data
-
-
-@pytest.mark.asyncio
-async def test_threshold_consolidation_counts_conclusion_entries_but_not_bedtime_reflection(tmp_path) -> None:
-    """就寝反思之后，经结束活动写满 10 条、重要度合计 2.0（低于 3.0）时恰好触发一次巩固；此前的反思条目不计入。
-    反思在当天第一次睡醒那一步取观察之前做，随它的巩固原因是 daily reflection，登记不绑定观察。
-
-    巩固载荷每条只有 {type, text, time}，不带条目身份（第七章「finish 并入 conclude_activity」「发给模型的内容不含内部身份」）。
-    """
-    workspace = tmp_path / "agent_0007"
-    LifeAgent.create(workspace, {**current_profile(), "id": 7, "name": "Alice", "occupation": "engineer"},
-                     {"enable_memory": True, "enable_todo_list": False, "max_react_turns": 4})
-    environment, model = _DayEnvironment(), _DayModel()
-    agent = await LifeAgent.from_workspace(workspace, _service(environment, model))
-    texts = iter(_CONCLUSION_MEMORIES)
-    days = ((False, ((_WAIT, 1),)), (True, ((_WORK, 4), (_WAIT, 4))), (False, ((_WORK, 2),)),
-            (False, ((_WAIT, 1),)))
-    unconsolidated_after_step = []
-    for index, (woke, groups) in enumerate(days, start=1):
-        environment.woke = woke
-        chunks = [list(islice(texts, count)) for _, count in groups]
-        memories = [[_memory(text, kind=kind, importance=0.2) for kind, text in chunk if kind not in _SUBJECTS]
-                    for chunk in chunks]
-        views = [[_view(_SUBJECTS[kind], text, kind=kind, importance=0.2) for kind, text in chunk if kind in _SUBJECTS]
-                 for chunk in chunks]
-        model.conclusions.append(_conclude_args(*(name for name, _ in groups), memories=memories, views=views))
-        agent.bind_decision_context(DecisionContext("run", f"round-{index}", f"decision-{index}", 7, _OBSERVED_AT, 3))
-        assert await agent.step(0, _OBSERVED_AT) == "conclude_activity registered"
-        unconsolidated_after_step.append(agent._memory_runtime.store.unconsolidated())
-
-    assert [update.consolidated for update in environment.memory_updates] == [False, True, False, True, False]
-    assert [update.observation_event_id is None for update in environment.memory_updates] == [
-        False, True, False, False, False]
-    reflected = environment.memory_updates[1]
-    assert reflected.operation == "append_episodes" and reflected.verified_event_ids == ()
-    assert reflected.memory_before_sha256 == reflected.memory_sha256
-    assert {item.get("source") for item in reflected.episodes} == {"reflection"}
-    assert not [item for update in environment.memory_updates if update is not reflected
-                for item in update.episodes if "source" in item]
-    assert model.reflections == 1
-    assert [payload["reason"] for payload in model.consolidations] == ["daily reflection", "pending episode threshold"]
-    after_eight = unconsolidated_after_step[1]
-    reflections = [item for item in after_eight if item["source"] == "reflection"]
-    assert len(after_eight) == 13 and len(reflections) == 5
-    assert sum(item["importance"] for item in reflections) >= 3.0
-    threshold = model.consolidations[1]["new_subjective_episodes"]
-    assert len(threshold) == 15
-    assert all(set(item) == {"type", "text", "time"} for item in threshold)
-    stored = agent._memory_runtime.store.iter_episodes()
-    importance = {item["text"]: item["importance"] for item in stored}
-    counted = [item for item in threshold if item["type"] != "reflection"]
-    assert len(counted) == 10
-    assert sum(importance[item["text"]] for item in counted) == pytest.approx(2.0)
-    assert Counter(item["source"] for item in stored) == {"activity_conclusion": 12, "reflection": 5}
-    assert [len(update.created_episode_ids) for update in environment.memory_updates] == [1, 5, 8, 2, 1]
+    assert len(feedback) == 2
+    for item in feedback:
+        assert (item["error_code"], item["reason"], item["fix"]) == (
+            "TOOL_CALL_REQUIRED", "The tool call batch is invalid.",
+            "Submit one world request, the two start tools together, or only read queries.")
+        assert [(row["path"], row["written"], row["allowed_values"], row["why"]) for row in item["items"]] == [
+            (["tool_calls", 0, "function", "name"], "search_memory", ["finish"],
+             "The tool is not offered in this round.")]

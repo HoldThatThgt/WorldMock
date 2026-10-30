@@ -27,6 +27,9 @@ from tests.life.conftest import (
 from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
 from tests.life.environment_runtime import act, act_group, events, settle_decision
 from worldmock.foundation.randomness import random_stream
+from worldmock.agents.prompt.narration import render_layer_json
+from worldmock.simulation_engine.observation.memory.days import published_today
+from worldmock.simulation_engine.observation.memory.entries import entry_full
 
 ZONE = ZoneInfo("Asia/Shanghai")
 APP_NAMES = {"bilibili": "哔哩哔哩", "eleme": "饿了么", "meituan": "美团"}
@@ -87,7 +90,9 @@ def _asked(engine, label, *targets, prefer=None):
     done = _finish(engine, result.activity_id)
     assert done.status == "completed"
     observed = engine.observe(context(engine, f"{label}-read"))
-    result = progress_calls(observed, SIDE_TOOL)[-1]["result"]
+    calls = progress_calls(observed, SIDE_TOOL)
+    assert calls, observed["progress_layer"]
+    result = calls[-1]["result"]
     assert result["status"] == "completed" and "query" in result["details"], result
     return done, result["details"]["query"]
 
@@ -299,7 +304,8 @@ def test_answer_is_the_second_result(engine_factory):
 
 
 def test_answer_stays_for_the_stay_and_leaves_a_settled_line_after_departure(engine_factory):
-    """同一段停留里之后两次观察都读得到这条答案；出发后进度层没有它，到达后记忆层有这项查询的结束句，不带答案。"""
+    """同一段停留里之后两次观察都读得到这条答案；出发后进度层没有它，到达后记忆层「今天」只有这项查询的查完行，
+    不带店名与答案行；答案在条目全文的「当时查到」里。"""
     engine = engine_factory()
     done, answer = _asked(engine, "tea", "柠檬茶")
     _, chat = act(engine, "chat", do_at("家", "测试闲聊"))
@@ -314,9 +320,15 @@ def test_answer_stays_for_the_stay_and_leaves_a_settled_line_after_departure(eng
     _finish(engine, trip.activity_id)
     arrived = engine.observe(context(engine, "arrived"))
     assert not [row for row in progress_calls(arrived) if row["arguments"].get("action") == "query"]
-    start, end = (datetime.fromtimestamp(moment, ZONE).strftime("%H:%M") for moment in (done.started_at, done.ended_at))
-    sentence = f"{done.name}：{start}–{end}，按计划结束"
-    assert sentence in str(arrived["memory_layer"]) and "一心面馆" not in str(arrived["memory_layer"])
+    lines = [text for item in arrived["memory_layer"]["今天"] for text in item.get("核验", ()) if text.startswith("查完")]
+    assert len(lines) == 1 and "·柠檬茶：" in lines[0]
+    assert "一心面馆" not in render_layer_json(arrived["memory_layer"])
+    today = published_today(engine.context.inputs, engine.context.store, 1, engine.context.state.current_time,
+                            engine.context.store.last_event_seq)
+    (full,) = [entry_full(entry) for entry in today.entries if any(line.kind == "query" for line in entry.lines)]
+    rows = [f"{row['product']} {row['price'].replace(' ', '')}{'' if row['now'] == '可以下单' else '，当时不可买'}"
+            for row in answer["rows"]]
+    assert full["当时查到"][1:len(rows) + 1] == rows
 
 
 def test_goods_only_in_the_answer_are_not_an_exposure(engine_factory):

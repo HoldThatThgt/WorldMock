@@ -255,7 +255,8 @@ def test_activity_recall_is_readonly_and_returns_real_progress_and_note_history(
     count = engine.context.store.last_event_seq
     recalled = engine.read_task_summary(1, RecallTaskSummaryRequest(task_name=activity.name), observed)
     assert recalled["recall"]["kind"] == "activity"
-    assert recalled["recall"].get("progress_note") in {"看了一段内容。", "已在记忆层"}
+    assert recalled["recall"]["progress_note"] == "已在记忆层"
+    assert recalled["recall"]["activity"] == "哔哩哔哩"
     assert engine.context.state.model_dump(mode="json") == before
     assert engine.context.store.last_event_seq == count
     with pytest.raises(BusinessRuleError, match="TASK_NOT_FOUND"):

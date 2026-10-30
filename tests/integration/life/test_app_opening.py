@@ -54,7 +54,7 @@ def test_opening_an_app_returns_content_only(engine_factory):
     _, result = act(engine, "open", use_app("哔哩哔哩"))
     assert result.status == "in_progress", result.error_code
     assert set(result.data) == {"activities", "orders"}
-    details = public_result(result.model_dump(mode="json"), engine.context.inputs)["details"]
+    details = public_result(result.model_dump(mode="json"), engine.context.inputs, {})["details"]
     assert set(details) == {"planned", "content"}
     [stored] = [row for row in events(engine, "action_result") if row.action_id == result.action_id]
     assert "goods" not in stored.data and set(stored.data["data"]) == {"activities", "orders"}
@@ -199,7 +199,7 @@ def test_coffee_decision_is_refused_then_bought_with_prefer(engine_factory, tmp_
     [order] = engine.context.state.deliveries.values()
     assert (order.goods_id, order.store_id, order.app_id, order.expected_at) == (
         "iced-americano", "cafe", "luckin", moment(9, 1))
-    details = public_result(bought.model_dump(mode="json"), engine.context.inputs)["details"]
+    details = public_result(bought.model_dump(mode="json"), engine.context.inputs, {})["details"]
     assert [row["channel"] for row in details["purchases"]] == ["瑞幸咖啡"]
     reach(engine, moment(9, 1))
     assert engine.context.state.deliveries[order.order_id].received_at == moment(9, 1)

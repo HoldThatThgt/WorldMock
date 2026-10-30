@@ -1,5 +1,6 @@
-"""带入的记录：用内容 app 或在地点做事的开始请求，在这项活动仍在进行或在其中结束的每一段里都有记录；出行、购买和
-暂停着的活动不带入。经真实请求、引擎与 SQLite，读观察里的进度层、待办层与记忆层。"""
+"""带入的记录：占槽位的本人活动不分种类（进行中或待收尾，出行、购买、睡眠、查询、用内容 app 与在地点做事都算）、这段
+停留或路程里做完的查询，不看段的下界，跨过 session 照样在；暂停着的活动不带入，收尾之后离开进度层。经真实请求、引擎与
+SQLite，读观察里的进度层、待办层与记忆层。"""
 
 from __future__ import annotations
 
@@ -32,9 +33,12 @@ from tests.life.environment_runtime import (
     finish_activity,
     observe_only,
     one_hour_every_five_minutes,
+    settle_decision,
     until_ended,
 )
 from worldmock.simulation_engine.activities.lifecycle import sessions
+from worldmock.simulation_engine.observation.layers.progress_layer import order_label
+from worldmock.simulation_engine.observation.layers.result_projection import public_result
 
 
 def _keep(observed: dict) -> list[dict]:
@@ -170,16 +174,19 @@ def test_location_activity_resumed_in_a_later_stay_is_recorded_there(engine_fact
         {"title": "测试休息", "summary": "测试休息的测试用合成摘要。", "duration": "约 15 分钟", "finished": True}]
 
 
-def test_paused_activity_concluded_elsewhere_is_recorded_where_it_ended(engine_factory):
-    """暂停的地点活动在别处被结束：结束它的那一段里有开始请求的记录，结果是 cancelled 的第二条，带 contents。"""
+def test_paused_activity_concluded_elsewhere_leaves_the_progress_layer(engine_factory):
+    """暂停的地点活动在别处被结束：结束之后的观察里没有它开始请求的记录（已收尾，事实在今天条目里）；它的终态
+    action_result 事件是 cancelled，带 contents。"""
     engine, rest, name = _paused_rest(engine_factory)
     _go(engine, "五里公园", "out")
     assert not _rest(observe_only(engine, "at-park"))
     _, ended = act(engine, "conclude", conclude_request(name), "conclude_activity")
     assert ended.status == "completed", ended.error_code
-    (record,) = _rest(observe_only(engine, "ended"))
-    assert (record["result"]["status"], record["result"]["message"]) == ("cancelled", "Activity cancelled")
-    assert record["result"]["details"] == {"contents": [
+    assert not _rest(observe_only(engine, "ended"))
+    (terminal,) = [row for row in events(engine, "action_result") if row.action_id == rest.action_id][1:]
+    result = public_result(terminal.data, engine.context.inputs, {})
+    assert (result["status"], result["message"]) == ("cancelled", "Activity cancelled")
+    assert result["details"] == {"contents": [
         {"title": "测试休息", "summary": "测试休息的测试用合成摘要。", "duration": "约 15 分钟", "finished": False}]}
 
 
@@ -206,8 +213,8 @@ def _with_text(response: ToolResponse, text: str) -> ToolResponse:
 
 @pytest.mark.asyncio
 async def test_carried_record_has_no_self_note(engine_factory):
-    """经真实宿主：一次决策只打开 Keep，回复带正文，这条 action_requested 有自述，出发前的观察里这条记录带 self_note；
-    下一次决策出发，路上带入的同一条记录没有 self_note。"""
+    """经真实宿主：一次决策只打开 Keep，回复带正文，这条 action_requested 有自述；出发前的观察里这条带入的记录没有
+    self_note（正文只在今天条目里），下一次决策出发，路上带入的同一条记录也没有。"""
     engine = engine_factory(mutate=every_five_minutes)
     stage_day_plan(engine, submitted=True)
     note = "先刷一会儿 Keep。"
@@ -218,7 +225,7 @@ async def test_carried_record_has_no_self_note(engine_factory):
     assert requested.action_id == results[0].action_id and requested.data["self_note"] == note
     assert advance_until_ready(engine)
     (home,) = _keep(observe_only(engine, "home"))
-    assert home["self_note"] == note
+    assert "self_note" not in home
     _, trip = act(engine, "leave", travel("公司", "步行"))
     assert trip.status == "in_progress", trip.error_code
     assert advance_until_ready(engine) and _on_road(engine)
@@ -226,17 +233,29 @@ async def test_carried_record_has_no_self_note(engine_factory):
     assert "self_note" not in record and record["arguments"] == home["arguments"]
 
 
-def test_departure_and_purchase_records_are_not_carried(engine_factory):
-    """出发加快递购买的开始组：路上的进度层没有这两条开始请求的记录；付款后的购买句照旧在记忆层出发地那一段。"""
+def test_departure_and_purchase_records_are_carried_while_they_hold_a_slot(engine_factory):
+    """出发加快递购买的开始组：购买付完款、待收尾时，路上的进度层里出行与购买各有一条带入的记录，购买的结果是终态
+    结果；待办层 orders 恰是那件笔记本的一行。付款后的购买行在它之后那次决策的今天条目里，下一次决策起出现在记忆层
+    「今天」。"""
     engine = engine_factory(mutate=every_five_minutes)
     _, (trip, bought) = act_group(engine, "depart-and-buy", travel("公司", "步行"), purchase("平台笔记本"))
     assert (trip.status, bought.status) == ("in_progress", "in_progress"), (trip.error_code, bought.error_code)
     until_ended(engine, bought.activity_id)
     assert _on_road(engine) and engine.context.state.activities[bought.activity_id].status == "completed"
     observed = observe_only(engine, "road")
-    assert not progress_calls(observed, "start_main_activity") and not progress_calls(observed, SIDE_TOOL)
-    (home,) = observed["memory_layer"]["earlier_today"]
-    assert [line for line in home["settled"] if "买了平台笔记本 1 份" in line], home["settled"]
+    (departure,) = progress_calls(observed, "start_main_activity")
+    (purchased,) = progress_calls(observed, SIDE_TOOL)
+    assert departure["arguments"]["action"] == "travel" and departure["result"]["status"] == "in_progress"
+    terminal = [row for row in events(engine, "action_result") if row.action_id == bought.action_id][-1]
+    assert purchased["result"] == public_result(terminal.data, engine.context.inputs, {})
+    assert purchased["result"]["status"] == "completed" and "paid" in purchased["result"]["details"]["purchases"][0]
+    (order,) = [item for item in engine.context.state.deliveries.values() if item.goods_id == "online-notebook"]
+    assert [row["order"] for row in observed["todo_layer"]["orders"]] == [
+        order_label(order.model_dump(), {"online-notebook": "平台笔记本"},
+                    (engine.context.config.timezone, engine.context.state.current_time))]
+    settle_decision(engine, "after-purchase")
+    today = observe_only(engine, "next")["memory_layer"]["今天"]
+    assert [line for item in today for line in item.get("核验", ()) if line.startswith("买平台笔记本1份，")], today
 
 
 @pytest.mark.parametrize("case", ["paused-in-an-earlier-stay", "paused-after-being-carried"])
@@ -258,7 +277,7 @@ def test_paused_activity_is_not_carried_until_resumed(engine_factory, case):
     assert paused.status == "completed", paused.error_code
     held = observe_only(engine, "held")
     assert not _rest(held) and _paused_rows(held) == [name]
-    assert progress_calls(held, "pause_activity")
+    assert not progress_calls(held, "pause_activity")
     _, again = act(engine, "resume-again", report_request(name), "report_status")
     assert again.status == "completed", again.error_code
     (record,) = _rest(observe_only(engine, "resumed-again"))
@@ -280,10 +299,10 @@ def keep_as_long_as_the_drive(engine_factory, tmp_path):
     return root
 
 
-def test_activity_finishing_at_the_arrival_second_is_told_by_the_memory_layer(engine_factory,
-                                                                             keep_as_long_as_the_drive):
-    """Keep 恰在到达那一秒放完：第二条结果算在路上那一段，到达后的进度层没有它的记录；记忆层路上那一段的条目里有
-    带标题的结束句。"""
+def test_activity_finishing_at_the_arrival_second_is_carried_into_the_stay(engine_factory,
+                                                                          keep_as_long_as_the_drive):
+    """Keep 恰在到达那一秒放完：它待收尾、仍占槽位，到达后的进度层里有它的带入记录，结果是终态结果；带标题的结束行在
+    到达之后那次决策的今天条目里，下一次决策起出现在记忆层「今天」。"""
     engine = engine_factory(keep_as_long_as_the_drive)
     _, (trip, keep) = act_group(engine, "depart", travel("公司", "驾车"), use_app("Keep"))
     assert (trip.status, keep.status) == ("in_progress", "in_progress"), (trip.error_code, keep.error_code)
@@ -293,11 +312,14 @@ def test_activity_finishing_at_the_arrival_second_is_told_by_the_memory_layer(en
     assert engine.context.state.agents[1].location_id == "office"
     assert engine.context.state.activities[keep.activity_id].status == "completed"
     observed = observe_only(engine, "arrived")
-    assert not _keep(observed) and not _on_road(engine)
-    name = engine.context.state.activities[keep.activity_id].name
-    (road,) = observed["memory_layer"]["earlier_today"][-1:]
-    (sentence,) = [line for line in road["settled"] if line.startswith(name)]
-    assert sentence.endswith("，按计划结束，《测试慢跑》")
+    (record,) = _keep(observed)
+    assert not _on_road(engine)
+    assert record["result"]["status"] == "completed"
+    assert [(row["title"], row["finished"]) for row in record["result"]["details"]["contents"]] == [("测试慢跑", True)]
+    settle_decision(engine, "after-arrival")
+    today = observe_only(engine, "next")["memory_layer"]["今天"]
+    (sentence,) = [line for item in today for line in item.get("核验", ()) if line.startswith("Keep 08:00–")]
+    assert sentence.endswith("，《测试慢跑》")
 
 
 def _stored_observation(engine, observed: dict):
@@ -328,8 +350,8 @@ def test_carried_record_sources_resolve_and_the_export_certifies(engine_factory,
 
 
 def test_carried_record_sorts_first(engine_factory):
-    """路上的进度层里带入的记录排在首位：它的 occurred_at 是出发那一秒，不晚于这段路的 session_started_at，排在路上
-    提交的播报记录之前。"""
+    """路上 report_status 之后：前两条是出行与 Keep 的带入记录（按请求序号），occurred_at 都是出发那一秒，不晚于这段路的
+    session_started_at；进度层没有 report_status 的记录（它的事实在今天条目里）。"""
     engine, trip, _ = _departed_with_keep(engine_factory)
     assert advance_until_ready(engine) and _on_road(engine)
     name = engine.context.state.activities[trip.activity_id].name
@@ -337,5 +359,7 @@ def test_carried_record_sorts_first(engine_factory):
     assert reported.status == "completed", reported.error_code
     layer = observe_only(engine, "road")["progress_layer"]
     first, second = layer["events"][:2]
-    assert first["tool"] == SIDE_TOOL and first["arguments"]["target"] == ["Keep"]
-    assert first["occurred_at"] <= layer["session_started_at"] and second["tool"] == "report_status"
+    assert (first["tool"], first["arguments"]["action"]) == ("start_main_activity", "travel")
+    assert second["tool"] == SIDE_TOOL and second["arguments"]["target"] == ["Keep"]
+    assert max(first["occurred_at"], second["occurred_at"]) <= layer["session_started_at"]
+    assert not progress_calls({"progress_layer": layer}, "report_status")

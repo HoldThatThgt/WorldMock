@@ -32,7 +32,7 @@ import worldmock.runtime.lifecycle.runner as runtime_module
 from agentsociety2.agent.base import ModelCallEvidence, MemoryUpdateEvidence
 from agentsociety2.society import DecisionContext, DirectToolCall, SocietyCheckpointRequest
 from custom.envs.life_env import LifeEnv
-from tests.life.conftest import MAIN_TOOL, StubPlanDayClient, do_at
+from tests.life.conftest import MAIN_TOOL, StubMemoryDigestClient, StubPlanDayClient, do_at
 from worldmock.foundation.errors import ProtocolError
 from worldmock.state.decisions.results import CounterfactualIntervention
 from worldmock.state.identity import ModelIdentity, RunIdentity
@@ -77,10 +77,11 @@ def _context_for(env: LifeEnv, round_id: str, agent_id: int = 1) -> DecisionCont
                            observed, env.engine.context.state.version)
 
 
-def _inject_plan_day_client(monkeypatch) -> list[StubPlanDayClient]:
+def _inject_plan_day_client(monkeypatch, order: list[str] | None = None) -> list[StubPlanDayClient]:
     """在 worldmock.runtime.lifecycle.runner 上替换零点计划客户端类（同替换 ContactReplyClient），返回按构造顺序记录的桩。
 
-    LifeEnv 的检查点（启动路径）与零点推进经它生成确定性空清单，不调用真实模型（时间与能量规格第四章）。
+    LifeEnv 的检查点（启动路径）与零点推进经它生成确定性空清单，不调用真实模型（时间与能量规格第四章）；给出 order 时每次
+    调用在它末尾记一个 plan_day。
     """
     built: list[StubPlanDayClient] = []
 
@@ -89,8 +90,83 @@ def _inject_plan_day_client(monkeypatch) -> list[StubPlanDayClient]:
             super().__init__(model_identity)
             built.append(self)
 
+        async def call(self, request):
+            if order is not None:
+                order.append("plan_day")
+            return await super().call(request)
+
     monkeypatch.setattr(runtime_module, "PlanDayClient", PlanDayStub)
     return built
+
+
+def _inject_memory_digest_client(monkeypatch, order: list[str], raises: BaseException | None = None) -> list:
+    """与 _inject_plan_day_client 并列，替换回顾客户端类：每次调用在共用的 order 末尾记一个 memory_digest；raises 非空时
+    每次调用都抛出它。"""
+    built: list[StubMemoryDigestClient] = []
+
+    class MemoryDigestStub(StubMemoryDigestClient):
+        def __init__(self, model_identity):
+            super().__init__(model_identity, raises=raises)
+            built.append(self)
+
+        async def call(self, request):
+            order.append("memory_digest")
+            return await super().call(request)
+
+    monkeypatch.setattr(runtime_module, "MemoryDigestClient", MemoryDigestStub)
+    return built
+
+
+def _wrap_midnight_tasks(monkeypatch, order: list[str]) -> None:
+    """把 custom.envs.life_env 的两个零点任务换成先记下调用次序、再转调原函数的包装。"""
+    for name in ("settle_pending_memory_digests", "settle_pending_day_plans"):
+        original = getattr(life_env_module, name)
+
+        async def wrapped(engine, original=original, name=name):
+            order.append(name)
+            return await original(engine)
+
+        monkeypatch.setattr(life_env_module, name, wrapped)
+
+
+def _late_environment(tmp_path: Path) -> Path:
+    """样例环境的副本：2026-01-05 23:00 开始，01-08 08:00 截止。"""
+    import shutil
+    import tomlkit
+
+    root = tmp_path / "late-environment"
+    shutil.copytree(_SCENARIO, root)
+    config = tomlkit.parse((root / "config.toml").read_text(encoding="utf-8"))
+    config["start_time"] = datetime.fromisoformat("2026-01-05T23:00:00+08:00")
+    config["stop_time"] = datetime.fromisoformat("2026-01-08T08:00:00+08:00")
+    (root / "config.toml").write_text(tomlkit.dumps(config), encoding="utf-8", newline="\n")
+    return root
+
+
+async def _late_env(tmp_path: Path, tag: str) -> LifeEnv:
+    """在 _late_environment 上新建并初始化一个运行，人物 23:00 开始睡 480 分钟。"""
+    from tests.life.conftest import sleep, stage_day_plan
+    from tests.life.environment_runtime import act
+    from worldmock.configuration.inputs.environment import load_environment
+
+    root = _late_environment(tmp_path)
+    frozen = load_environment(root)
+    env = LifeEnv(environment_root=str(root), run_dir=str(tmp_path / f"run-{tag}"),
+                  run_identity=_identity(frozen, tag).model_dump(mode="json"))
+    await env.init(frozen.config.start_time)
+    stage_day_plan(env.engine, submitted=True)
+    act(env.engine, "night", sleep(480))
+    return env
+
+
+async def _step_to_midnight(env: LifeEnv) -> None:
+    """经 LifeEnv.step 逐边界推进，直到时钟到达下一个本地零点。"""
+    engine = env.engine
+    while datetime.fromtimestamp(engine.context.state.current_time,
+                                 ZoneInfo(engine.context.config.timezone)).hour != 0:
+        state = await env.scheduling_state()
+        assert not state.ready_agent_ids
+        await env.step(int(state.next_event_at.timestamp()) - engine.context.state.current_time, state.next_event_at)
 
 
 # ---------------------------------------------------------------------------
@@ -141,8 +217,8 @@ async def test_open_existing_restores_prior_run(tmp_path) -> None:
 
 
 async def test_registered_tool_surface_fails_closed(tmp_path, monkeypatch) -> None:
-    """两侧工具面恰为七个请求工具；环境一侧多出一个名字、人物一侧多出已删除的 query_world，都在 init 时失败，
-    不留给运行中 KeyError。"""
+    """两侧工具面恰为七个请求工具，只读查询恰为回看任务与检索记忆；环境一侧多出一个名字、人物一侧多出已删除的
+    query_world、人物一侧的只读查询多出一个名字，都在 init 时失败，不留给运行中 KeyError。"""
     surface = life_env_module._STABLE_TOOL_SURFACE
     assert surface == frozenset(REQUEST_MODELS) == life_agent_module.life_action_tool_names()
     assert len(surface) == 7
@@ -169,6 +245,20 @@ async def test_registered_tool_surface_fails_closed(tmp_path, monkeypatch) -> No
         await mismatch.init(_start(scenario))
     if mismatch.engine is not None:
         mismatch.engine.close()
+
+    monkeypatch.undo()
+    metadata_service(monkeypatch)
+    assert life_agent_module.life_query_tool_names() == frozenset(life_env_module._READ_QUERY_MODELS) == {
+        "recall_task_summary", "search_memory"}
+    monkeypatch.setattr(life_env_module, "life_query_tool_names",
+                        lambda: frozenset(life_env_module._READ_QUERY_MODELS) | {"memory_recent"})
+    queries = LifeEnv(environment_root=str(_SCENARIO),
+                      run_dir=str(tmp_path / "query-env"),
+                      run_identity=_identity(scenario, "query").model_dump(mode="json"))
+    with pytest.raises(ProtocolError, match="^LifeEnv read query surface disagrees with the LifeAgent query tool set$"):
+        await queries.init(_start(scenario))
+    if queries.engine is not None:
+        queries.engine.close()
 
 
 async def test_life_interfaces_require_initialized_engine() -> None:
@@ -219,7 +309,7 @@ async def test_full_round_drives_engine_interfaces(tmp_path, monkeypatch) -> Non
         files = {"memory_before_sha256": "a" * 64, "memory_sha256": "b" * 64, "episodes_sha256": "c" * 64,
                  "state_sha256": "d" * 64, "consolidated": False,
                  "observation_event_id": data["observation_event_id"], "verified_event_ids": ()}
-        # 开始在家休息不是记忆写入点（时间与能量规格第七章：只在结束活动与就寝反思时写记忆）：写入条目按协议违约拒绝，
+        # 开始在家休息不是记忆写入点（只在结束活动时写记忆）：写入条目按协议违约拒绝，
         # 只刷新摘要照常留证，写入点列表为空。
         with pytest.raises(ProtocolError, match="Memory update evidence is invalid"):
             await env.record_memory_update(MemoryUpdateEvidence(
@@ -433,3 +523,95 @@ async def test_close_failure_records_run_failure_or_raises_group(tmp_path,
     with pytest.raises(ExceptionGroup, match="close and failure recording both failed"):
         await env.close()
     engine.context.store.close()
+
+
+
+async def test_midnight_step_runs_digests_then_plans_then_rhythm(tmp_path, monkeypatch) -> None:
+    """经 LifeEnv.step 过零点：回顾桩的调用早于计划桩；事件序号上回顾登记早于计划登记，计划登记早于零点节律那次提交。"""
+    order: list[str] = []
+    _inject_memory_digest_client(monkeypatch, order)
+    _inject_plan_day_client(monkeypatch, order)
+    env = await _late_env(tmp_path, "midnight")
+    engine = env.engine
+    original = engine.decide_midnight_rhythm
+    rhythm: list[int] = []
+
+    def decided():
+        order.append("rhythm")
+        rhythm.append(engine.context.store.last_event_seq)
+        original()
+
+    monkeypatch.setattr(engine, "decide_midnight_rhythm", decided)
+    try:
+        await _step_to_midnight(env)
+        assert order == ["memory_digest", "plan_day", "rhythm"]
+        rows = list(engine.context.store.iter_events(engine.context.store.last_event_seq))
+        kinds = {row.data.get("kind"): row.event_seq for row in rows if row.event_type == "environment_event"}
+        assert kinds["memory_digest_generated"] < kinds["day_plan_generated"] <= rhythm[0]
+        assert engine.context.store.last_event_seq > rhythm[0] and not engine.midnight_rhythm_pending
+    finally:
+        await env.close()
+
+
+async def test_checkpoint_runs_digests_before_day_plans(tmp_path, monkeypatch) -> None:
+    """LifeEnv.checkpoint 在共同检查点之后先调回顾任务、再调零点计划任务，各一次。"""
+    order: list[str] = []
+    _inject_plan_day_client(monkeypatch)
+    _wrap_midnight_tasks(monkeypatch, order)
+    env = await _new_env(tmp_path, "checkpoint-order")
+    engine = env.engine
+    try:
+        workspace = tmp_path / "order-ws"
+        workspace.mkdir()
+        (workspace / "MEMORY.md").write_text("# memory\n", encoding="utf-8")
+        now = datetime.fromtimestamp(engine.context.state.current_time, ZoneInfo(engine.context.config.timezone))
+        await env.checkpoint(SocietyCheckpointRequest(run_id=engine.context.state.run_id, round_id="order",
+                                                      current_time=now, agent_workspaces=((1, str(workspace)),)))
+        assert order == ["settle_pending_memory_digests", "settle_pending_day_plans"]
+    finally:
+        await env.close()
+
+
+@pytest.mark.parametrize("fails", [False, True])
+async def test_resume_init_runs_digests_before_day_plans_and_records_failures(tmp_path, monkeypatch, fails) -> None:
+    """父运行推进过零点、只跑零点计划与节律、不跑回顾，再取检查点；从它普通恢复时 init 先调回顾、后调计划；回顾桩抛出时
+    库里有 run_failed，异常原样抛出。"""
+    from tests.integration.runtime_fixtures import write_agent_workspace
+    from tests.life.conftest import drive
+    from worldmock.runtime.lifecycle.runner import settle_pending_day_plans
+
+    parent = await _late_env(tmp_path, "parent")
+    engine = parent.engine
+    while not engine.midnight_rhythm_pending:
+        state = engine.scheduling_state()
+        engine.advance(int(state.next_event_at.timestamp()) - engine.context.state.current_time, state.next_event_at)
+    drive(settle_pending_day_plans(engine, StubPlanDayClient({"requested_model": "test-model"})))
+    engine.decide_midnight_rhythm()
+    from worldmock.recording_engine.storage.checkpoint import snapshot_directory
+
+    workspace = write_agent_workspace(tmp_path / "resume-ws")
+    point = engine.checkpoint({"agent:1": snapshot_directory(workspace, engine.context.store.assets)})
+    restore_branch(engine.context.store, point.checkpoint_id, tmp_path / "resumed").close()
+    moment = datetime.fromtimestamp(engine.context.state.current_time, ZoneInfo(engine.context.config.timezone))
+    root = engine.context.inputs.root
+    await parent.close()
+    order: list[str] = []
+    failure = ConnectionError("network is down")
+    _inject_memory_digest_client(monkeypatch, [], raises=failure if fails else None)
+    _inject_plan_day_client(monkeypatch)
+    _wrap_midnight_tasks(monkeypatch, order)
+    resumed = LifeEnv(environment_root=str(root), run_dir=str(tmp_path / "resumed"), open_existing=True)
+    try:
+        if fails:
+            with pytest.raises(ConnectionError) as raised:
+                await resumed.init(moment)
+            assert raised.value is failure and order == ["settle_pending_memory_digests"]
+            assert resumed.engine.context.store.has_event("run_failed")
+        else:
+            await resumed.init(moment)
+            assert order == ["settle_pending_memory_digests", "settle_pending_day_plans"]
+            rows = list(resumed.engine.context.store.iter_events(resumed.engine.context.store.last_event_seq))
+            assert [row.data["period"] for row in rows if row.data.get("kind") == "memory_digest_generated"] == [
+                "2026-01-05"]
+    finally:
+        await resumed.close()

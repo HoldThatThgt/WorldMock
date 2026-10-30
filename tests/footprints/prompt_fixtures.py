@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-LAYER_NAMES = ('工具层', '人设层', '记忆层', '待办层', '环境层', '进度层')
+LAYER_NAMES = ('人设层', '记忆层', '待办层', '工具层', '环境层', '进度层')
 
 
 def six_layers(progress_events=()):

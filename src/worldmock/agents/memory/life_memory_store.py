@@ -95,20 +95,6 @@ class WorldMockMemoryStore(AgentMemoryStore):
         """@brief 已存全部条目的身份集合：直接读已载入的条目缓存，不复制条目。"""
         return {str(item["id"]) for item in self._load_episodes_cache()}
 
-    def unconsolidated_view(self) -> list[dict[str, Any]]:
-        """@brief 巩固游标之后的条目（游标取 state.json 的 last_consolidated_episode_id：没有游标是全部，找到游标是它之后
-        的条目），返回缓存里的原对象而不是深拷贝：只读，调用方不得修改，也不得在下一次写入之后继续持有。
-        游标指向不存在的条目是损坏的工作区，记错误日志并失败，与恢复时 validate_existing 的核验同一说法。"""
-        last_id = self.read_state().get("last_consolidated_episode_id")
-        records = self._load_episodes_cache()
-        if not last_id:
-            return list(records)
-        for index, item in enumerate(records):
-            if item.get("id") == last_id:
-                return records[index + 1:]
-        logging.error("Last consolidated memory episode does not exist")
-        raise ValueError("Last consolidated memory episode does not exist")
-
     def _persist_episode_records(
         self, records: list[dict[str, Any]], written: list[dict[str, Any]], merged: list[dict[str, Any]],
     ) -> None:

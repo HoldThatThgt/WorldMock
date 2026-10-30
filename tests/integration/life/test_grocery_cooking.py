@@ -8,8 +8,10 @@ consume_on_start，起因是这次开始调用的受理结果；做完时照完�
 
 from __future__ import annotations
 
+import itertools
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -21,6 +23,7 @@ from tests.life.conftest import (
     context,
     do_at,
     pause_request,
+    progress_calls,
     purchase,
     report_request,
     travel,
@@ -45,8 +48,10 @@ from tests.life.environment_runtime import (
     until_ended,
 )
 from tests.integration.runtime_fixtures import write_agent_workspace
+from worldmock.foundation.serialization import canonical_json
 from worldmock.recording_engine.storage.checkpoint import restore_branch, snapshot_directory
 from worldmock.simulation_engine.engine import LifeEngine
+from worldmock.simulation_engine.scheduling.plans.day_plan_inputs import plan_inputs
 
 #: 「测试休息」在副本里的时长：足够等到外卖送到。
 LONG_REST = 3 * 3600
@@ -467,9 +472,10 @@ def _plain_cook(root):
     write_catalog_rows(root, "content-catalog.jsonl", rows)
 
 
-def test_an_open_consumed_state_and_relief_members_change_no_prompt_layer(engine_factory, tmp_path):
+def test_an_open_consumed_state_adds_only_the_kit_sentence_to_the_prompt_layers(engine_factory, tmp_path):
     """同一环境的两份副本只差「做饭」的 consumes_state（状态 2、上限 2，开始之后仍开放）与完成效果的两项缓解成员：
-    开始时与做到一半时，人物读到的各层逐字节相同。"""
+    开始之前人物读到的各层逐字节相同；做到一半时，凭状态的副本进度层里开始结果的摘要多了一句「用的是家里原有的食材。」，
+    去掉这一句之后各层逐字节相同。"""
     relieved = lambda root: set_content(root, "cook", completion_effects={
         "food": "meal", "relaxation_relief": "high", "social_relief": "low"})
     consuming = grocery_engine(engine_factory, tmp_path / "consuming", change=relieved, initial=2, cap=2)
@@ -479,6 +485,121 @@ def test_an_open_consumed_state_and_relief_members_change_no_prompt_layer(engine
         observed, _ = act(engine, "cook", do_at("家", "做饭"))
         assert advance_until_ready(engine)
         midway = engine.observe(context(engine, "midway"))
-        seen.append([{key: layer[key] for key in PROMPT_LAYERS} for layer in (observed, midway)])
+        seen.append([{key: canonical_json(layer[key]).decode() for key in PROMPT_LAYERS}
+                     for layer in (observed, midway)])
     assert (groceries(consuming), groceries(plain)) == (1, 2)
-    assert seen[0] == seen[1]
+    assert seen[0][0] == seen[1][0]
+    progress = seen[0][1]["progress_layer"]
+    assert progress.count(f"{_COOK_SUMMARY}用的是家里原有的食材。") == 1
+    stripped = {**seen[0][1], "progress_layer": progress.replace(f"{_COOK_SUMMARY}用的是家里原有的食材。",
+                                                                 _COOK_SUMMARY)}
+    assert stripped == seen[1][1]
+
+
+#: 样例环境副本里「做饭」的目录摘要。
+_COOK_SUMMARY = "用买来的食材做一顿饭，吃完收拾。"
+
+
+def _cook_details(engine, label: str) -> dict:
+    """此刻一次观察里「做饭」那条带入记录的结果明细：做饭进行中时是开始结果，做完待收尾时是终结结果。"""
+    observed = engine.observe(context(engine, f"{label}-{engine.context.state.current_time}"))
+    (record,) = [row for row in progress_calls(observed, "start_main_activity") if row["arguments"]["detail"] == "做饭"]
+    return record["result"]["details"]
+
+
+def _cooked(engine, label: str = "cook") -> tuple[str, str]:
+    """开始「做饭」并做完：返回开始结果的摘要与终结结果里唯一一行的摘要（都从进度层的带入记录读）。"""
+    started = cook(engine, label)
+    start = _cook_details(engine, f"{label}-started")["content"]["summary"]
+    until_ended(engine, started.activity_id)
+    (row,) = _cook_details(engine, f"{label}-done")["contents"]
+    return start, row["summary"]
+
+
+def _cooking_sentence(engine) -> str:
+    """推进到 1 月 6 日零点、零点计划生成之前（样例环境的运行窗口到 1 月 6 日 08:00），返回那次零点计划输入的「动作
+    结果」里做饭的结束句；其间的决策机会照 settle_decision 处理。"""
+    midnight = int(datetime(2026, 1, 6, tzinfo=ZoneInfo(engine.context.config.timezone)).timestamp())
+    for counter in itertools.count():
+        if engine.context.state.current_time >= midnight:
+            break
+        if engine.scheduling_state().ready_agent_ids:
+            settle_decision(engine, f"night-{counter}")
+            continue
+        boundary = engine.scheduling_state().next_event_at
+        assert int(boundary.timestamp()) <= midnight
+        engine.advance(int(boundary.timestamp()) - engine.context.state.current_time, boundary)
+    assert engine.midnight_rhythm_pending
+    results = plan_inputs(engine.context, engine.observations, engine.midnight_rhythm_pending, 1).payload["动作结果"]
+    (sentence,) = [line for line in results if line.startswith("进行做饭")]
+    return sentence
+
+
+def test_cooking_with_the_food_at_home_names_it_in_results_and_the_day_plan(engine_factory, tmp_path):
+    """状态初值 1、从没收到过食材包：开始结果的摘要后接「用的是家里原有的食材。」，终结结果里那一行同样；零点计划的
+    结束句以「，用的是家里原有的食材」结尾。"""
+    engine = grocery_engine(engine_factory, tmp_path, initial=1)
+    start, done = _cooked(engine)
+    assert start == f"{_COOK_SUMMARY}用的是家里原有的食材。"
+    assert done.endswith("用的是家里原有的食材。")
+    assert _cooking_sentence(engine).endswith("，用的是家里原有的食材")
+
+
+def test_cooking_after_a_kit_arrives_names_the_kit_and_the_day_it_arrived(engine_factory, tmp_path):
+    """状态初值 0，周一外卖送来扑克牌后做饭：开始结果的摘要以「用的是1月5日收到的扑克牌。」结尾，零点计划的结束句以
+    「，用的是1月5日收到的扑克牌」结尾。"""
+    engine = grocery_engine(engine_factory, tmp_path)
+    receive(engine, "扑克牌")
+    start, done = _cooked(engine)
+    assert start.endswith("用的是1月5日收到的扑克牌。") and done.endswith("用的是1月5日收到的扑克牌。")
+    assert _cooking_sentence(engine).endswith("，用的是1月5日收到的扑克牌")
+
+
+def _tissue_by_takeaway(root):
+    """副本里纸巾也在三杯咖啡卖（样例环境的便利店没有 app，纸巾原本送不到家）。"""
+    rows = catalog_rows(root, "merchant-catalog.jsonl")
+    for row in rows:
+        if row["goods_id"] == "tissue":
+            row["store_kinds"] = ["cafe", "convenience_store"]
+    write_catalog_rows(root, "merchant-catalog.jsonl", rows)
+
+
+def test_the_second_of_two_kits_received_before_cooking_is_the_one_used(engine_factory, tmp_path):
+    """纸巾与扑克牌都能重置状态：先收到纸巾、再收到扑克牌，然后做饭；开始结果、终结结果与零点计划都写扑克牌，不写
+    纸巾。"""
+    engine = grocery_engine(engine_factory, tmp_path, change=_tissue_by_takeaway, goods=("playing-cards", "tissue"))
+    receive(engine, "纸巾")
+    receive(engine, "扑克牌")
+    sentences = [*_cooked(engine), _cooking_sentence(engine)]
+    assert all("收到的扑克牌" in text and "纸巾" not in text for text in sentences), sentences
+
+
+def test_a_state_without_reset_goods_adds_no_kit_sentence(engine_factory, tmp_path):
+    """状态没有登记重置商品（不是食材包状态）：开始结果、终结结果和零点计划里都没有「用的是」。"""
+    engine = grocery_engine(engine_factory, tmp_path, initial=1, goods=())
+    start, done = _cooked(engine)
+    assert start == _COOK_SUMMARY and "用的是" not in done
+    assert "用的是" not in _cooking_sentence(engine)
+
+
+def test_the_kit_sentence_is_the_same_after_reopening_the_store(engine_factory, tmp_path):
+    """同一脚本跑两份：收到扑克牌并开始做饭后，一份写检查点、关闭并重新打开存储（重开的存储对象缓存为空，从事件重算），
+    另一份不重开；两份进度层里开始结果的摘要逐字节相同，做完后零点计划的结束句也逐字节相同。"""
+    first, kept = (grocery_engine(engine_factory, tmp_path / name) for name in ("reopened", "kept"))
+    started = {}
+    for engine in (first, kept):
+        receive(engine, "扑克牌")
+        started[engine] = cook(engine)
+    workspace = write_agent_workspace(tmp_path / "agent")
+    first.checkpoint({"agent:1": snapshot_directory(workspace, first.context.store.assets)})
+    inputs, run_dir, activity_id = first.context.inputs, first.context.store.run_dir, started[first].activity_id
+    first.close()
+    reopened = LifeEngine.open(inputs, run_dir)
+    try:
+        summaries = [_cook_details(engine, "after-reopen")["content"]["summary"] for engine in (reopened, kept)]
+        assert summaries[0] == summaries[1] and summaries[0].endswith("用的是1月5日收到的扑克牌。")
+        until_ended(reopened, activity_id)
+        until_ended(kept, started[kept].activity_id)
+        assert _cooking_sentence(reopened) == _cooking_sentence(kept)
+    finally:
+        reopened.close()

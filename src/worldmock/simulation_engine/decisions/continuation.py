@@ -6,8 +6,10 @@
 
 链对象在观察事件提交之后挂到观察返回体的私有键 continuation 上交给宿主：不另存、不导出，并列入禁止渲染的键表。
 messages 是上一决策末次行动请求的全部消息（原样取自 model_request），assistant 是它的最终 assistant 消息，tool_results
-按调用次序给出每个世界请求的调用身份与公开结果（一条或两条，与进度层 tool_call.result 同一投影），events 是上一决策
-观察之后同秒发生、且不是这些结果的进度层事件（其记忆查询已作为原生回合留在 messages 中，不再列出）。
+按调用次序给出每个世界请求的调用身份与公开结果：直接按上一决策登记的请求和它最新的一条结果投影（与进度层 tool_call.result
+同一投影，不经进度层），某条请求没有结果即断链。events 是序号大于上一次观察的非记忆世界记录（推送、回调提醒、余额减少、
+事务提醒），形状与进度层同类记录相同。上一决策的事实（结束、付款、送达、办成）与它的自述都在它的今天条目里，宿主经
+changes.memory.added 交给模型。
 """
 
 from __future__ import annotations
@@ -23,7 +25,9 @@ from worldmock.state.interaction.actions import START_TOOLS
 from worldmock.state.model.exchange import is_action_request
 from worldmock.state.interaction.requests import REQUEST_MODELS
 from worldmock.state.world.world import WorldState
-from worldmock.simulation_engine.observation.layers.progress_layer import records_after, session_bound
+from worldmock.simulation_engine.observation.layers.progress_layer import (
+    notice_records, session_bound, tool_call_record)
+from worldmock.simulation_engine.observation.memory.entries import activity_facts, agent_events
 
 #: 观察返回体上的续接私有键。
 CONTINUATION_KEY = "continuation"
@@ -44,7 +48,7 @@ def continuation_enabled(manifest: Mapping[str, Any]) -> bool:
 def same_second_chain(store: FootprintStore, state: WorldState, observations: Any,
                       agent_id: int, observation_event_id: str) -> dict | None:
     """@brief 本次观察对应决策的续接链：上一决策的末次行动请求、最终 assistant、各世界请求的调用身份与公开结果、
-    同秒新事件。
+    同秒非记忆世界记录。
 
     读取唯一世界状态和观察构造职责的层上下文；任一断链条件成立时返回 None。
     """
@@ -60,15 +64,23 @@ def same_second_chain(store: FootprintStore, state: WorldState, observations: An
         return None
     messages, assistant, registered = evidence
     context = observations._layer_context(state.agents[agent_id], [])
-    records = records_after(context, store, previous.event_seq)
+    kits = activity_facts(agent_events(store, agent_id, context.catalog.kit_states())).kits
     results = []
     for call, requested in zip(assistant["tool_calls"], registered, strict=True):
-        own = [record for record, sources in records if requested.event_id in sources]
-        if len(own) != 1:
+        latest = _latest_result(store, agent_id, requested)
+        if latest is None:
             return None
-        results.append({"tool_call_id": call["id"], "result": own[0]["result"]})
+        record = tool_call_record(context, requested, latest, kits)
+        results.append({"tool_call_id": call["id"], "result": record["result"]})
     return {"messages": messages, "assistant": assistant, "tool_results": results,
-            "events": [record for record, _ in records if record["type"] != "tool_call"]}
+            "events": notice_records(context, store, previous.event_seq)}
+
+
+def _latest_result(store: FootprintStore, agent_id: int, request: Event) -> Event | None:
+    """@brief 一条已登记请求最新的结果：本人在它之后的 action_result 中动作身份相同的最后一条；没有时为 None（证据缺失）。"""
+    own = [event for event in store.read_agent_events("action_result", agent_id, request.event_seq)
+           if event.action_id == request.action_id]
+    return own[-1] if own else None
 
 
 def _previous_observation(store: FootprintStore, state: WorldState, agent_id: int,

@@ -26,6 +26,7 @@ from tests.life.environment_runtime import (
     finish_activity,
     reach,
     settle_decision,
+    until_ended,
 )
 
 _ZONE = ZoneInfo("Asia/Shanghai")
@@ -63,7 +64,7 @@ def test_same_name_twice_buys_two_portions_in_one_delivery_group(engine_factory)
     assert activity.activity_id == f"activity-{action_identity('basket')}-purchase"
     assert [order["order_id"] for order in result.data["orders"]] == [order.order_id for order in orders]
     assert engine.context.state.accounts["agent:1"] == 200000
-    finish_activity(engine, result, "basket")
+    until_ended(engine, result.activity_id)
     assert engine.context.state.accounts["agent:1"] == 200000 - 5700
     record = progress_calls(engine.observe(context(engine, "after")), "start_side_activity")[0]
     assert record["arguments"] == {"action": "purchase", "target": ["牛肉面", "柠檬茶", "柠檬茶"], "prefer": None}

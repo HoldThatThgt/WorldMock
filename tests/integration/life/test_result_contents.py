@@ -38,11 +38,9 @@ def _row(title: str, duration: str, finished: bool) -> dict:
     return {"title": title, "summary": f"{title}的测试用合成摘要。", "duration": duration, "finished": finished}
 
 
-def _dinner_record(observed: dict) -> dict:
-    """进度层里点名「工作日晚饭」的那条 start_main_activity 记录。"""
-    (record,) = [row for row in progress_calls(observed, "start_main_activity")
-                 if row["arguments"]["detail"] == "工作日晚饭"]
-    return record
+def _named_records(observed: dict, detail: str) -> list[dict]:
+    """进度层里点名 detail 这件事的 start_main_activity 记录（收尾之后没有）。"""
+    return [row for row in progress_calls(observed, "start_main_activity") if row["arguments"]["detail"] == detail]
 
 
 def test_purchase_record_shows_the_latest_result(engine_factory):
@@ -64,7 +62,7 @@ def test_purchase_record_shows_the_latest_result(engine_factory):
 
 def test_finished_app_use_lists_what_was_watched(engine_factory):
     """打开 Keep（样例环境里它只登记了《测试慢跑》）：做完后这条记录的 details 恰为一行 contents，四个键与目录一致、
-    finished 为真；收尾之后这条记录仍在。"""
+    finished 为真；收尾之后这条记录离开进度层。"""
     engine = engine_factory()
     _, used = act(engine, "keep", use_app("Keep"))
     assert used.status == "in_progress", used.error_code
@@ -78,8 +76,7 @@ def test_finished_app_use_lists_what_was_watched(engine_factory):
     name = engine.context.state.activities[used.activity_id].name
     _, concluded = act(engine, "conclude", conclude_request(name), "conclude_activity")
     assert concluded.status == "completed", concluded.error_code
-    (kept,) = progress_calls(observe_only(engine, "concluded"), SIDE_TOOL)
-    assert kept == record
+    assert progress_calls(observe_only(engine, "concluded"), SIDE_TOOL) == []
 
 
 @pytest.fixture
@@ -118,9 +115,11 @@ def test_ended_activity_lists_finished_items_then_the_unfinished_one(engine_fact
     name = engine.context.state.activities[dinner.activity_id].name
     _, ended = act(engine, "stop", conclude_request(name), "conclude_activity")
     assert ended.status == "completed", ended.error_code
-    result = _dinner_record(observe_only(engine, "ended"))["result"]
+    (terminal,) = _second_results(engine, dinner.action_id)
+    result = public_result(terminal.data, engine.context.inputs, {})
     assert (result["status"], result["message"]) == ("cancelled", "Activity cancelled")
     assert result["details"] == {"contents": [_row("备菜", "约 20 分钟", True), _row("吃饭", "约 25 分钟", False)]}
+    assert not _named_records(observe_only(engine, "ended"), "工作日晚饭")
 
 
 def _first_episode_long(persona, config):
@@ -139,8 +138,10 @@ def test_series_ended_at_an_episode_boundary_lists_only_finished_episodes(engine
     assert activity.data["content_id"] == "d-2-eat" and activity.media_position_seconds == 0
     _, ended = act(engine, "stop", conclude_request(activity.name), "conclude_activity")
     assert ended.status == "completed", ended.error_code
-    assert _dinner_record(observe_only(engine, "ended"))["result"]["details"] == {
+    (terminal,) = _second_results(engine, dinner.action_id)
+    assert public_result(terminal.data, engine.context.inputs, {})["details"] == {
         "contents": [_row("备菜", "约 20 分钟", True)]}
+    assert not _named_records(observe_only(engine, "ended"), "工作日晚饭")
     progress = engine.context.state.agents[1].content_progress
     assert {key: (row.position_seconds, row.completed_rounds) for key, row in progress.items()} == {
         key: (0.0, 1) for key in ("d-1-prep", "d-2-eat", "d-3-wash")}
@@ -158,10 +159,11 @@ def test_paused_then_ended_activity_lists_what_was_done_before_the_pause(engine_
     finish_activity(engine, chat, "chat")
     _, ended = act(engine, "stop", conclude_request(name), "conclude_activity")
     assert ended.status == "completed", ended.error_code
-    (record,) = [row for row in progress_calls(observe_only(engine, "ended"), "start_main_activity")
-                 if row["arguments"]["detail"] == "测试休息"]
-    assert record["result"]["status"] == "cancelled"
-    assert record["result"]["details"] == {"contents": [_row("测试休息", "约 15 分钟", False)]}
+    (terminal,) = _second_results(engine, rest.action_id)
+    result = public_result(terminal.data, engine.context.inputs, {})
+    assert result["status"] == "cancelled"
+    assert result["details"] == {"contents": [_row("测试休息", "约 15 分钟", False)]}
+    assert not _named_records(observe_only(engine, "ended"), "测试休息")
 
 
 def _second_results(engine, action_id: str) -> list:
@@ -180,7 +182,7 @@ def test_activity_cut_off_at_run_end_lists_what_was_done(engine_factory):
     assert work.status == "in_progress", work.error_code
     run_to_end(engine)
     (terminal,) = _second_results(engine, work.action_id)
-    result = public_result(terminal.data, engine.context.inputs)
+    result = public_result(terminal.data, engine.context.inputs, {})
     assert (result["status"], result["message"]) == ("cancelled", "Activity truncated at experiment end")
     assert result["details"] == {"contents": [_row("季度销售数据整理", "约 9 小时", False)]}
 
@@ -193,5 +195,5 @@ def test_terminal_result_event_carries_no_contents_of_its_own(engine_factory):
     until_ended(engine, used.activity_id)
     (terminal,) = _second_results(engine, used.action_id)
     assert set(terminal.data["data"]) == {"activity", "orders"} and "contents" not in terminal.data
-    details = public_result(terminal.data, engine.context.inputs)["details"]
+    details = public_result(terminal.data, engine.context.inputs, {})["details"]
     assert details == {"contents": [_row("测试慢跑", "约 20 分钟", True)]}

@@ -11,11 +11,13 @@ from worldmock.simulation_engine.world.world_updates import _body_settlement_dat
 from worldmock.simulation_engine.world.world_updates import _put_agent
 from worldmock.simulation_engine.world.world_updates import _resource_flows_data
 
+import logging
 from datetime import datetime
 from worldmock.foundation.errors import ProtocolError
 from worldmock.recording_engine.events.models import RESOURCE_FLOWS_FIELD, EventDraft
 from worldmock.simulation_engine.activities.lifecycle import activity_control, sessions
 from worldmock.simulation_engine.scheduling.plans import day_planning, errands, reminders
+from worldmock.simulation_engine.evidence import memory_digest
 from worldmock.simulation_engine.observation.layers import projection
 from worldmock.simulation_engine.decisions import same_moment
 from worldmock.simulation_engine.evidence.actions import (
@@ -223,6 +225,21 @@ class TimeAdvanceCoordinator:
         staged.version = self.context.state.version + 1
         self.context.commit_step(staged, [*evidence, draft])
         return plan
+
+    def register_memory_digest(self, agent_id: int, outcome: memory_digest.DigestOutcome,
+                               evidence: list[EventDraft]) -> None:
+        """@brief 回顾的系统登记入口：不进人物工具面，不写 action_requested，不改任何状态。
+
+        证据为空时写错误日志并抛协议错误；否则起因是最后一次响应，由 memory_digest.registration_draft 给出登记事件（「已登记」
+        只在那里检查），与本期的模型证据在版本加一的同一次提交里写入；候选世界除版本外与当前世界相同。
+        """
+        if not evidence:
+            logging.error("Memory digest registration requires model evidence")
+            raise ProtocolError("Memory digest registration requires model evidence")
+        draft = memory_digest.registration_draft(self.context, agent_id, outcome, [evidence[-1].event_id])
+        staged = self.context.state.model_copy(deep=True)
+        staged.version = self.context.state.version + 1
+        self.context.commit_step(staged, [*evidence, draft])
 
     def _require_midnight_decided(self) -> None:
         """@brief 零点判定段未执行时拒绝调度、推进与检查点（半结算的边界不能提供决策或封存）。"""

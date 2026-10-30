@@ -1,12 +1,11 @@
-"""多日运行里的睡眠与每日反思：睡过头的结果随检查点恢复、重跑可复现；含午睡的运行导出后没有记忆来源问题，
-评估报告把就寝与小睡分开；从睡醒那一秒的检查点恢复，反思在恢复后的运行里只做一次。"""
+"""多日运行里的睡眠：睡过头的结果随检查点恢复、重跑可复现；含午睡的运行导出后没有记忆来源问题，评估报告把就寝与
+小睡分开；人物一侧不做记忆巩固与就寝反思，原运行与从睡醒那一秒的检查点恢复的分支都只发行动请求。"""
 
 from __future__ import annotations
 
 import json
 import os
 from datetime import datetime
-from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -15,7 +14,7 @@ os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/bet
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from tests.footprints.recording import artifact_rows
-from tests.integration.reflection_fixtures import host_run, memory
+from tests.integration.host_run_fixtures import host_run, memory
 from tests.integration.runtime_fixtures import write_agent_workspace
 from tests.life.conftest import advance_next, oversleep_identity, sleep, stage_day_plan, travel
 from tests.life.environment_runtime import act, finish_activity, run_to_end
@@ -25,7 +24,6 @@ from worldmock.recording_engine.export.export import export_run
 from worldmock.recording_engine.validation.validation import validate_export
 from worldmock.simulation_engine.engine import LifeEngine
 
-_ZONE = ZoneInfo("Asia/Shanghai")
 
 
 @pytest.fixture(autouse=True)
@@ -133,10 +131,10 @@ def test_oversleep_survives_a_mid_sleep_checkpoint_and_a_rerun_draws_the_same_ex
 
 
 @pytest.mark.asyncio
-async def test_run_with_naps_exports_clean_memory_sources_and_a_resume_at_wake_up_reflects_once(engine_factory,
-                                                                                                tmp_path):
-    """多日运行含午睡，人物每一步都走真实的 LifeAgent：从睡醒那一秒、第一次决策之前的检查点恢复，反思在恢复后的运行里
-    只做一次，归属日期与原运行相同；原运行每个本地日至多一条反思登记，运行到截止后导出的质量报告没有记忆来源问题。"""
+async def test_run_with_naps_exports_clean_memory_sources_and_makes_no_memory_model_call(engine_factory, tmp_path):
+    """多日运行含午睡，人物每一步都走真实的 LifeAgent：原运行与从睡醒那一秒、第一次决策之前的检查点恢复的分支，脚本
+    模型都只收到行动请求；运行到截止后导出的质量报告里 consolidation、reflection 两类调用都是 0，每条 memory_updated
+    都是步尾登记（reflection 为 null、consolidated 为 false），记忆来源没有问题，核对的写入点恰为三次带记忆的收尾。"""
     engine = engine_factory(mutate=_evening)
     stage_day_plan(engine, submitted=True)
     workspace = tmp_path / "people" / "agent_0001"
@@ -154,10 +152,7 @@ async def test_run_with_naps_exports_clean_memory_sources_and_a_resume_at_wake_u
     await run.conclude()
     await run.sleep(600)
     await run.conclude()
-    filed = [event.data["reflection"]["date"] for event in run.reflections()]
-    assert filed == ["2026-01-05", "2026-01-06"]
-    days = [datetime.fromtimestamp(event.occurred_at, _ZONE).date() for event in run.reflections()]
-    assert len(set(days)) == 2 and run.reflections()[0].occurred_at == woke
+    assert {kind for kind, _ in run.model.requests} == {"action"}
 
     restore_branch(engine.context.store, saved.checkpoint_id, tmp_path / "branch").close()
     resumed = LifeEngine.open(engine.context.inputs, tmp_path / "branch")
@@ -166,13 +161,10 @@ async def test_run_with_naps_exports_clean_memory_sources_and_a_resume_at_wake_u
         restored = tmp_path / "restored" / "agent_0001"
         restore_directory(saved.snapshots["agent:1"], resumed.context.store.assets, restored)
         branch = await host_run(resumed, restored, label="resumed", create=False)
-        assert branch.reflections() == []
         await branch.conclude()
         await branch.start("interact", "家", "测试休息")
         await branch.conclude()
-        (once,) = branch.reflections()
-        assert once.occurred_at == woke and once.data["reflection"]["date"] == "2026-01-05"
-        assert [kind for kind, _ in branch.model.requests].count("reflection") == 1
+        assert [kind for kind, _ in branch.model.requests] == ["action"] * 3
     finally:
         resumed.close()
 
@@ -186,15 +178,16 @@ async def test_run_with_naps_exports_clean_memory_sources_and_a_resume_at_wake_u
     quality = json.loads((tmp_path / "export" / "quality.json").read_text(encoding="utf-8"))
     rows = {row["call_class"]: row for row in quality["model_usage"]["by_call_class"]}
     assert "unrecognized" not in rows
-    assert rows["reflection"]["request_events"] == len(run.model.of("reflection"))
-    assert rows["consolidation"]["request_events"] == len(run.model.of("consolidation"))
+    for retired in ("consolidation", "reflection"):
+        assert (rows[retired]["request_events"], rows[retired]["provider_responses"]) == (0, 0)
     assert sum(rows[name]["request_events"] for name in (
         "fresh_decision_turn", "turn_with_history", "truncation_retry")) == len(run.model.of("action"))
     plans = sum(row["event_type"] == "model_request" and row["data"].get("purpose") == "plan_day" for row in events)
     assert rows["plan_day"]["request_events"] == plans and plans > 0
+    updates = [row for row in events if row["event_type"] == "memory_updated"]
+    assert updates and all(row["data"]["reflection"] is None and row["data"]["consolidated"] is False
+                           for row in updates)
     memory_references = quality["memory_references"]
     assert memory_references["problems"] == [] and memory_references["problem_count"] == 0
-    assert memory_references["write_points_checked"] >= 4
-    exported = [row for row in events if row["event_type"] == "memory_updated" and row["data"]["reflection"]]
-    assert [row["data"]["reflection"]["date"] for row in exported] == filed
+    assert memory_references["write_points_checked"] == 3
     assert quality["decision_rhythm"]["wake_reason_counts"]["session_open"] >= 4

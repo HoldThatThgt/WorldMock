@@ -1,7 +1,7 @@
 """@brief AgentSociety2 原生 LifeAgent，使用闭集生活工具直接调用 LifeEnv。
 
 一次决策只有一个行动阶段（docs/design/06-agent.md「宿主模型协议」）：请求由原生 tools、系统层
-system 与六层 user 组成；可以先做记忆查询，世界请求（一个控制请求，或同一次回复里两个开始工具各至多一次的开始组）
+system 与六层 user 组成；可以先做只读查询（回看任务与检索记忆），世界请求（一个控制请求，或同一次回复里两个开始工具各至多一次的开始组）
 登记即结束本次决策，登记后不追加任何 tool 消息。原生工具
 整次运行不变，不按轮绑定名称枚举；名称只按观察私有绑定做本地校验，可用性由环境受理判定。同一秒的后续决策
 在准备阶段之后注入环境交来的续接链（第二章「同秒续接」，src/worldmock/agents/protocol/life_continuation.py）。本地校验失败写成
@@ -10,8 +10,7 @@ src/worldmock/agents/protocol/life_feedback.py）；三个控制工具请求级�
 （worldmock.life.errands.change_issues）、读同一份冻结观察的两类私有事务绑定，问题并入同一次纠错
 （docs/design/04-simulation-engine.md）。宿主不写入事务，事务变更也不是记忆写入点。思考用尽输出上限的截断回合丢弃并
 纠错，随后以关闭思考、强制工具调用的请求重试一次（7.2，src/worldmock/agents/protocol/life_truncation.py）。
-每个本地日第一次睡醒的那一步，在取观察之前先做记忆巩固与就寝反思并登记，再做当天的第一次决策
-（docs/design/06-agent.md「宿主模型协议」）；一次决策恰有一份观察。
+一次决策恰有一份观察，取观察之前不做任何模型调用（docs/design/06-agent.md「宿主模型协议」）。
 """
 
 from __future__ import annotations
@@ -25,12 +24,11 @@ from dataclasses import replace
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from agentsociety2.agent import PersonAgent
 from agentsociety2.agent.base import ModelCallEvidence, ReactDecision, ReactLoopRequest, ReactToolResult
 from agentsociety2.agent.memory_runtime import MemoryStepOutcome
-from agentsociety2.config.llm_dispatcher import collect_transport_attempts
 from agentsociety2.society import DirectToolCall
 from worldmock.agents.prompt.life_context import persona_card_text
 from worldmock.agents.protocol.life_continuation import continuation_messages, end_continuation, send_check
@@ -47,9 +45,11 @@ from worldmock.agents.memory.life_memory import memory_update_evidence
 from worldmock.agents.prompt.life_persona import known_persons, persona_layer, readonly_layers, write_prompt_snapshot
 from worldmock.agents.prompt.life_prompt import (
     TOOL_DESCRIPTIONS,
+    last_progress_layer,
     life_user_layers,
     readonly_messages,
     system_message,
+    user_layer,
     user_message,
 )
 from worldmock.state.model.truncation import RETRY_THINKING
@@ -67,8 +67,9 @@ from worldmock.simulation_engine.decisions.continuation import CONTINUATION_KEY
 from worldmock.state.interaction.control_items import CONTROL_TOOLS, ControlItem, control_errands, control_items
 from worldmock.exchange_engine.conditions.rejection_codes import HOST_NAME_CODES
 from worldmock.state.interaction.errors import Candidate, ErrorItem, ErrorReport, bind_report, host_report
+from worldmock.simulation_engine.observation.wording.guidance import query_rejection, refusal_for_code
 from worldmock.state.decisions.results import ActionReceipt
-from worldmock.state.interaction.requests import ConcludeActivityRequest, REQUEST_MODELS
+from worldmock.state.interaction.requests import ConcludeActivityRequest, QUERY_MODELS, REQUEST_MODELS
 from worldmock.state.interaction.schema import deepseek_strict_schema, purpose_only_schema
 from worldmock.simulation_engine.actions.name_resolution import name_book, near_names, resolve_start
 from worldmock.simulation_engine.observation.targets.object_labels import resolve_name
@@ -78,7 +79,7 @@ from worldmock.agents.prompt.prompt_capacity import FittedRequest, ProgressBudge
 #: 行动阶段思考开关与工具选择（思考模式拒收 required，真实探针见规格）。
 ACTION_THINKING = {"thinking": {"type": "enabled"}}
 ACTION_TOOL_CHOICE = "auto"
-#: 每次决策的输出上限，思考与回答共用；实际发出的是它与服务输出上限中较小的一个，只读问答、截断后的重试与记忆调用
+#: 每次决策的输出上限，思考与回答共用；实际发出的是它与服务输出上限中较小的一个，只读问答与截断后的重试
 #: 用同一个数，也是发送前完整上下文计数预留的输出（docs/design/06-agent.md「宿主模型协议」）。
 ACTION_MAX_TOKENS = 16000
 
@@ -90,54 +91,6 @@ class _ToolRequest(BaseModel):
     """@brief 所有 LifeAgent 专用工具请求都拒绝未知字段；参数 Schema 不带开发说明，用途只在工具 description。"""
 
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True, json_schema_extra=purpose_only_schema())
-
-
-class MemoryRecentRequest(_ToolRequest):
-    """@brief 读取最近人物记忆。"""
-
-    limit: int = Field(ge=1, le=50)
-
-
-class MemorySearchRequest(_ToolRequest):
-    """@brief 按关键词检索人物记忆。"""
-
-    query: str = Field(pattern=r"\S")
-    limit: int = Field(ge=1, le=50)
-
-    @field_validator("query")
-    @classmethod
-    def validate_query_length(cls, query: str) -> str:
-        """@brief 查询长度错误精确指向查询字段。"""
-        if len(query) > 200:
-            logging.error("Memory search query exceeds its character limit")
-            raise ValueError("memory search query exceeds 200 characters")
-        return query
-
-
-class MemoryTimeRangeRequest(_ToolRequest):
-    """@brief 按 ISO 时间闭区间读取记忆。"""
-
-    start_time: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}")
-    end_time: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}")
-    limit: int = Field(ge=1, le=100)
-
-    @field_validator("start_time", "end_time")
-    @classmethod
-    def validate_time(cls, value: str) -> str:
-        """@brief 时区与 ISO 格式错误定位具体时间边界。"""
-        _parse_memory_time(value)
-        return value
-
-    @model_validator(mode="after")
-    def validate_interval(self) -> "MemoryTimeRangeRequest":
-        """@brief 要求时区明确且时间闭区间顺序有效。"""
-        if _parse_memory_time(self.start_time) > _parse_memory_time(self.end_time):
-            logging.error("Memory time range is reversed")
-            errors = [{"type": "value_error", "loc": (field,), "input": getattr(self, field),
-                       "ctx": {"error": ValueError("memory time range is reversed")}}
-                      for field in ("start_time", "end_time")]
-            raise ValidationError.from_exception_data(type(self).__name__, errors)
-        return self
 
 
 class ReadonlyFinishRequest(_ToolRequest):
@@ -155,48 +108,25 @@ class ReadonlyFinishRequest(_ToolRequest):
         return answer
 
 
-def _parse_memory_time(value: str) -> datetime:
-    """@brief 解析带时区的 ISO 记忆边界时刻。"""
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError as error:
-        raise ValueError("memory time range requires ISO datetimes") from error
-    if parsed.utcoffset() is None:
-        raise ValueError("memory time range requires timezone-aware datetimes")
-    return parsed
-
-
-_MEMORY_TOOL_MODELS: dict[str, type[BaseModel]] = {
-    "memory_recent": MemoryRecentRequest,
-    "memory_search": MemorySearchRequest,
-    "memory_time_range": MemoryTimeRangeRequest,
-}
-
-#: 生活决策的工具面：七个请求工具（REQUEST_MODELS 顺序，两个开始工具在前）与三个记忆查询，共十个；
+#: 生活决策的工具面：七个请求工具（REQUEST_MODELS 顺序，两个开始工具在前）与检索记忆，共八个；
 #: 没有 finish。当日计划由零点后台任务生成，不是人物工具（docs/design/04-simulation-engine.md）。
-_TOOL_MODELS: dict[str, type[BaseModel]] = {
-    **REQUEST_MODELS,
-    **_MEMORY_TOOL_MODELS,
-}
+_TOOL_MODELS: dict[str, type[BaseModel]] = {**REQUEST_MODELS, **QUERY_MODELS}
 
-_QUERY_TOOL_MODELS = {"recall_task_summary": REQUEST_MODELS["recall_task_summary"], **_MEMORY_TOOL_MODELS}
+_QUERY_TOOL_MODELS = {"recall_task_summary": REQUEST_MODELS["recall_task_summary"], **QUERY_MODELS}
 _WORLD_TOOL_MODELS = {name: model for name, model in REQUEST_MODELS.items() if name != "recall_task_summary"}
 
-_MEMORY_RUNTIME_ACTIONS = {
-    "memory_recent": "memory_recent",
-    "memory_search": "memory_search",
-    "memory_time_range": "memory_range",
-}
-
-#: 记忆查询返回给模型的字段（不含条目身份，docs/design/06-agent.md「提示与工具」）。
-_MEMORY_RESULT_FIELDS = ("type", "text", "time", "epistemic_status")
-
-#: 以活动名为参数的控制工具。
+#: 每次决策至多派发的检索次数；第 4 次起以 MEMORY_SEARCH_LIMIT 回答、不送环境（协议护栏，不是回合上界）。
+MEMORY_SEARCHES_PER_DECISION = 3
 
 
 def life_action_tool_names() -> frozenset[str]:
     """@brief 返回 LifeAgent 实际开放的全部生活动作工具名（env 侧核对用）。"""
-    return frozenset(_TOOL_MODELS) - frozenset(_MEMORY_TOOL_MODELS)
+    return frozenset(_TOOL_MODELS) - frozenset(QUERY_MODELS)
+
+
+def life_query_tool_names() -> frozenset[str]:
+    """@brief 返回 LifeAgent 开放的全部只读查询工具名（env 侧与 read_query 白名单核对用）。"""
+    return frozenset(_QUERY_TOOL_MODELS)
 
 
 class LifeAgent(PersonAgent):
@@ -228,7 +158,7 @@ class LifeAgent(PersonAgent):
 
     def _usage_estimate(self, request: dict[str, Any]) -> int:
         """@brief 这条响应所配请求在发送前的输入 token 计量：取本人物最近一次容量预检的结果 _life_fitted
-        （_model_request 与 _dispatch_memory_llm 写入），它必须是为同一个请求对象算的；对不上是宿主编排错误，记错误日志
+        （_model_request 写入），它必须是为同一个请求对象算的；对不上是宿主编排错误，记错误日志
         并失败，不重数，也不记别的请求的数。"""
         fitted = self._life_fitted
         if fitted is None or fitted.request is not request:
@@ -300,8 +230,7 @@ class LifeAgent(PersonAgent):
         return "A typed life simulation whose visible facts arrive through LifeEnv.observe."
 
     async def step(self, tick: int, t: datetime) -> str:
-        """@brief 记下本步的决策跨度供反思阶段写记忆，并保留人物决策失败的完整异常链，便于定位真实服务故障。"""
-        self._life_tick = tick
+        """@brief 保留人物决策失败的完整异常链，便于定位真实服务故障。"""
         try:
             return await super().step(tick, t)
         except Exception:
@@ -309,46 +238,16 @@ class LifeAgent(PersonAgent):
             raise
 
     async def _observe_environment(self) -> dict[str, Any]:
-        """@brief 使用 runner 绑定上下文直接读取 LifeEnv：当天第一次睡醒时先做就寝反思并登记，再取本次决策唯一的一份观察。
-
-        AS2 的人物步骤先跑决策循环、后做记忆收尾；「先反思、再做当天第一次决策」由这里实现
-        （docs/design/06-agent.md「宿主模型协议」）：环境只读方法 due_reflection 返回日期时进入反思阶段，反思阶段不取观察。
-        """
+        """@brief 使用 runner 绑定上下文直接读取 LifeEnv，取本次决策唯一的一份观察。"""
         if self._env is None:
             raise RuntimeError("Environment is not initialized")
         context = self.require_decision_context()
-        if await self._env.due_reflection(context) is not None:
-            await self._wake_reflection(context)
         return await self._env.observe(context)
 
-    async def _wake_reflection(self, context: Any) -> None:
-        """@brief 反思阶段：记忆巩固与就寝反思用独立的调用序号，写出了感想就以空的来源观察登记记忆更新。"""
-        store = self._memory_runtime.store
-        if store is None:
-            return
-        self._life_reflection_calls = 0
-        try:
-            outcome = await self._memory_runtime.wake_reflection(
-                tick=self._life_tick, t=self._current_time, step_count=self._step_count)
-        finally:
-            self._life_reflection_calls = None
-        evidence = memory_update_evidence(context, store, outcome)
-        if evidence is not None:
-            await self._env.record_memory_update(evidence)
-
-    def _memory_call_id(self) -> str:
-        """@brief 记忆调用的身份：反思阶段为 {decision_id}:reflection:{序号四位}:attempt:1，序号从 0001 起，
-        不占用也不重置决策的模型回合计数；步尾的记忆调用沿用决策的模型调用序号。"""
-        calls = getattr(self, "_life_reflection_calls", None)
-        if calls is None:
-            return self._next_model_call_id(1)
-        self._life_reflection_calls = calls + 1
-        return f"{self.require_decision_context().decision_id}:reflection:{calls + 1:04d}:attempt:1"
-
     def build_react_tool_schemas(self, *, readonly: bool) -> list[dict[str, Any]]:
-        """@brief 整次运行不变的原生工具；只有本次决策只剩最后一个回合或截断重试时去掉记忆查询工具。
+        """@brief 整次运行不变的原生工具；只有本次决策只剩最后一个回合或截断重试时去掉只读查询工具。
 
-        生活决策为七个请求工具与三个记忆查询，共十个（没有 finish），只读问答为记忆查询与 finish；参数不带逐轮名称枚举。
+        生活决策为七个请求工具与 search_memory，共八个（没有 finish），只读问答只有 finish；参数不带逐轮名称枚举。
         """
         models = self._request_tool_models(readonly)
         self._life_request_models = models
@@ -395,43 +294,18 @@ class LifeAgent(PersonAgent):
         return remaining
 
     def _request_tool_models(self, readonly: bool) -> dict[str, type[BaseModel]]:
-        """@brief 最终模型回合和截断重试只允许世界请求；只读问答只允许 finish。"""
-        retry = retry_due(self._react_messages, self._last_model_request)
-        queries = _QUERY_TOOL_MODELS if self._remaining_turns() > 1 and not retry else {}
+        """@brief 只读问答只开放 finish；生活决策的最终模型回合和截断重试只开放世界请求，其余回合另开放回看任务与检索记忆。"""
+        remaining = self._remaining_turns()
         if readonly:
-            memory = {name: model for name, model in queries.items() if name in _MEMORY_TOOL_MODELS}
-            return {**memory, "finish": ReadonlyFinishRequest}
+            return {"finish": ReadonlyFinishRequest}
+        retry = retry_due(self._react_messages, self._last_model_request)
+        queries = _QUERY_TOOL_MODELS if remaining > 1 and not retry else {}
         return {**_WORLD_TOOL_MODELS, **queries}
 
 
     def _persona_card_text(self) -> str:
-        """@brief 从公开人物档案字段确定性渲染人物卡片文本（记忆巩固与反思使用）。"""
+        """@brief 从公开人物档案字段确定性渲染人物卡片文本（工作区 MEMORY.md 的身份段使用）。"""
         return persona_card_text(self.get_profile(), self.name)
-
-    async def _dispatch_memory_llm(self, **request: Any) -> Any:
-        """@brief 记忆调用使用同一冻结服务能力和独立重试预算，完整保留模型证据；失败发送随证据登记。"""
-        identity = self.get_profile()["model_identity"]
-        request = {**request, "max_retries": identity["max_retries"],
-                   "transport_max_retries": identity["transport_max_retries"],
-                   "max_tokens": min(ACTION_MAX_TOKENS, identity["model_metadata"]["max_output_tokens"]),
-                   "extra_body": {"thinking": {"type": "disabled"}}}
-        self._life_fitted = fit_request(request, identity["model_metadata"])
-        request = self._life_fitted.request
-        context = getattr(self, "_decision_context", None)
-        call_id = self._memory_call_id()
-        await self._record_model_evidence(ModelCallEvidence(context, call_id, "request", 1, request))
-        with collect_transport_attempts() as attempts:
-            try:
-                response = await self._dispatcher.call(**request)
-            except Exception as error:
-                logging.exception("LifeAgent memory model dispatch failed")
-                await self._record_model_evidence(ModelCallEvidence(
-                    context, call_id, "failure", 1, request, error=repr(error), transport_attempts=tuple(attempts)))
-                raise
-        await self._record_model_evidence(ModelCallEvidence(
-            context, call_id, "response", 1, request, response=self._serialize_model_response(response),
-            transport_attempts=tuple(attempts)))
-        return response
 
     @staticmethod
     def _observation_record(observation: Any) -> dict[str, Any]:
@@ -461,6 +335,7 @@ class LifeAgent(PersonAgent):
         """@brief 重置当前决策动作计数，并冻结本轮观察给出的层、私有绑定与工具面。"""
         super().prepare_react_loop(request)
         self._life_action_count = 0
+        self._life_memory_searches = 0
         self._life_world_calls = 0
         self._life_readonly = request.readonly
         if request.readonly:
@@ -473,18 +348,21 @@ class LifeAgent(PersonAgent):
         self._life_request_models = self._request_tool_models(request.readonly)
 
     def _prepare_life_action_state(self, data: dict[str, Any]) -> None:
-        """@brief 从冻结观察组装六层和本地校验所用的私有绑定名称；有续接链时注入本次决策的起始消息。"""
+        """@brief 从冻结观察组装六层和本地校验所用的私有绑定名称；有续接链时注入本次决策的起始消息。
+
+        人设层只由人物卡片构建；relationship 看法可写的对象另取观察私有证据 persona_views 的关系人物。
+        只读问答快照里的记忆层按层名取。
+        """
         self._prepare_verified_experiences(data)
         self._life_wake_reasons = frozenset(_visible_wake_reasons(data))
-        views = _persona_views(data)
-        persona = persona_layer(self.get_profile(), self.name, views)
+        persona = persona_layer(self.get_profile(), self.name)
         layers = life_user_layers(data, persona)
-        self._life_budget = ProgressBudget(tuple(layers), tuple(_progress_meta(data, layers[-1])))
-        names = _visible_names(data, layers[3])
-        known = known_persons(self.get_profile(), [item["person"] for item in views["relationships"]])
+        self._life_budget = ProgressBudget(tuple(layers), tuple(_progress_meta(data, last_progress_layer(layers))))
+        names = _visible_names(data)
+        known = known_persons(self.get_profile(), _relationship_persons(data))
         self._life_names = {**names, "known_persons": known}
         if self._workspace_root is not None:
-            write_prompt_snapshot(self._workspace_root, persona, layers[2])
+            write_prompt_snapshot(self._workspace_root, persona, user_layer(layers, "记忆层"))
         continued = continuation_messages(data.get(CONTINUATION_KEY), layers)
         if continued is not None:
             self._react_messages = continued
@@ -507,8 +385,8 @@ class LifeAgent(PersonAgent):
         self._life_observation_event_id = observation_event_id
 
     async def _record_memory_update(self, outcome: MemoryStepOutcome) -> None:
-        """@brief 登记步尾已落盘的记忆（覆写 AS2 同名方法，锁定提交不改）：证据绑定本次决策的冻结观察；
-        就寝反思在取观察之前另行登记（docs/design/05-recording-engine.md「事件与来源」）。"""
+        """@brief 登记步尾已落盘的记忆（覆写 AS2 同名方法，锁定提交不改）：证据绑定本次决策的冻结观察
+        （docs/design/05-recording-engine.md「事件与来源」）。"""
         context = getattr(self, "_decision_context", None)
         store = self._memory_runtime.store
         if context is None or store is None:
@@ -554,7 +432,7 @@ class LifeAgent(PersonAgent):
 
 
     def _prepared_action_error(self, action: str, request: BaseModel) -> str:
-        """@brief 用同一冻结观察核对名称；非生活动作（记忆查询、finish）不核对名称，两个开始工具的对象名与 detail
+        """@brief 用同一冻结观察核对名称；非生活动作（检索记忆、finish）不核对名称，两个开始工具的对象名与 detail
         经统一名称解析（未列出的指名购买交给环境在全量商品里解析）。"""
         if action not in REQUEST_MODELS:
             return ""
@@ -563,7 +441,7 @@ class LifeAgent(PersonAgent):
     async def _run_react_turn(self, request: ReactLoopRequest, turn: int) -> str | None:
         """@brief 生活决策的一个模型回合：本回复的世界请求全部登记后结束本轮（取消 finish，AS2 锁定提交不改）。
 
-        记忆查询是观察，不结束本轮；世界请求按回复中的先后依次登记（开始组两条），登记后 conclude_activity 逐项的记忆与
+        回看任务与检索记忆是只读查询，不结束本轮；世界请求按回复中的先后依次登记（开始组两条），登记后 conclude_activity 逐项的记忆与
         看法展平交给本步 after_step 写入（其余请求写入空列表）。只读问答沿用 AS2 的 finish 回合。
         """
         if request.readonly:
@@ -599,7 +477,7 @@ class LifeAgent(PersonAgent):
         *,
         readonly: bool = False,
     ) -> ReactToolResult:
-        """@brief 直接执行生活动作或严格只读记忆工具。"""
+        """@brief 执行生活动作；回看任务与检索记忆送 LifeEnv.read_query 当场回答。"""
         self._require_open_decision()
         if action in _WORLD_TOOL_MODELS:
             if readonly:
@@ -611,9 +489,23 @@ class LifeAgent(PersonAgent):
             data = await self._env.read_query(self.require_decision_context(), action,
                                               _validate_request(REQUEST_MODELS[action], args))
             return ReactToolResult(True, json.dumps(data, ensure_ascii=False), data)
-        if action in _MEMORY_TOOL_MODELS:
-            return self._dispatch_strict_memory(action, args)
+        if action == "search_memory":
+            return await self._search_memory(args)
         raise RuntimeError(f"Unsupported LifeAgent tool dispatch: {action}")
+
+    async def _search_memory(self, args: dict[str, Any]) -> ReactToolResult:
+        """@brief 检索记忆：本次决策前三次送 LifeEnv.read_query，第四次起当场以 MEMORY_SEARCH_LIMIT 回答、不送环境；
+        回答带 error_code 时 ok 为假，宿主据此把明细路径改写到实际调用位置。"""
+        if self._life_memory_searches >= MEMORY_SEARCHES_PER_DECISION:
+            logging.error("Memory search limit reached for this decision")
+            data = query_rejection(refusal_for_code("MEMORY_SEARCH_LIMIT").error())
+            return ReactToolResult(False, json.dumps(data, ensure_ascii=False), data)
+        if self._env is None:
+            raise RuntimeError("Environment is not initialized")
+        self._life_memory_searches += 1
+        request = _validate_request(QUERY_MODELS["search_memory"], args)
+        data = await self._env.read_query(self.require_decision_context(), "search_memory", request)
+        return ReactToolResult("error_code" not in data, json.dumps(data, ensure_ascii=False), data)
 
     async def _submit_life_action(
         self,
@@ -645,7 +537,7 @@ class LifeAgent(PersonAgent):
             raise RuntimeError("Life action was already submitted")
 
     def _append_react_tool_result(self, decision: ReactDecision, result: ReactToolResult) -> None:
-        """@brief 世界请求登记后不追加任何 tool 消息；记忆查询的结果只序列化一次写进 tool 消息。
+        """@brief 世界请求登记后不追加任何 tool 消息；只读查询的结果只序列化一次写进 tool 消息。
 
         宿主完整保留回执；查询失败保留五字段结构和实际调用位置。
         """
@@ -661,26 +553,6 @@ class LifeAgent(PersonAgent):
                                            for item in payload["items"]]}
         self._react_messages.append({"role": "tool", "tool_call_id": decision.tool_call_id,
                                      "content": json.dumps(payload, ensure_ascii=False, separators=(",", ":"))})
-
-    def _dispatch_strict_memory(
-        self,
-        action: str,
-        args: dict[str, Any],
-    ) -> ReactToolResult:
-        """@brief 验证记忆查询并把结果投影为 {type, text, time, epistemic_status}，不含条目身份。"""
-        model = _TOOL_MODELS[action]
-        request = _validate_request(model, args)
-        payload = request.model_dump(mode="json", exclude_none=True)
-        runtime_action = _MEMORY_RUNTIME_ACTIONS[action]
-        ok, observation, data = self._memory_runtime.dispatch_tool(runtime_action, payload)
-        # 工具失败必须以 ReactToolResult(False) 反馈给模型重试；raise 会穿透无 try/except 的
-        # dispatch_react_tool 覆写杀 run。
-        if not ok:
-            feedback = _stage_feedback("MEMORY_QUERY_FAILED", ("tool_calls", 0), observation)
-            return ReactToolResult(False, str(feedback), feedback.report.payload())
-        episodes = [{key: item.get(key) for key in _MEMORY_RESULT_FIELDS} for item in data.get("episodes", [])]
-        projected = {"epistemic_status": "subjective", "episodes": episodes}
-        return ReactToolResult(True, json.dumps(projected, ensure_ascii=False), projected)
 
 
 def _stage_feedback(code: str, path: tuple, detail: str | None = None) -> HostFeedback:
@@ -725,14 +597,15 @@ def _visible_wake_reasons(data: dict[str, Any]) -> tuple[str, ...]:
     return tuple(reasons)
 
 
-def _persona_views(data: dict[str, Any]) -> dict[str, Any]:
-    """@brief 读取环境下发的看法与偏好（观察私有证据 persona_views）。"""
+def _relationship_persons(data: dict[str, Any]) -> list[str]:
+    """@brief 观察私有证据 persona_views 里已有关系看法的人物（只用于已知人物，不进任何提示层）。"""
     views = data.get("persona_views")
-    if (not isinstance(views, dict) or not isinstance(views.get("relationships"), list)
-            or not isinstance(views.get("preferences"), list)):
+    rows = views.get("relationships") if isinstance(views, dict) else None
+    if not isinstance(rows, list) or any(
+            not isinstance(row, dict) or not isinstance(row.get("person"), str) for row in rows):
         logging.error("LifeAgent persona views are invalid")
         raise RuntimeError("LifeAgent persona views are invalid")
-    return views
+    return [row["person"] for row in rows]
 
 
 def _progress_meta(data: dict[str, Any], progress: dict[str, Any]) -> list[dict[str, Any]]:
@@ -762,12 +635,12 @@ def _conclusion_memories(action: str, args: dict[str, Any]) -> list[dict[str, An
             for item in control_items(action, request) for memory in item.memories]
 
 
-def _visible_names(data: dict[str, Any], todo: dict[str, Any]) -> dict[str, Any]:
+def _visible_names(data: dict[str, Any]) -> dict[str, Any]:
     """@brief 冻结本轮本地校验所用的具体动作、对象、活动、回看与个人事务名称。
 
     两个开始工具的对象全集由 name_book 从本轮私有绑定与冻结地点表构建，环境受理使用同一观察。
     缺失或形状不符的绑定是损坏的宿主观察。回看名称是待办层写出的目标文字、活动名与
-    记忆层 self_notes 所写的活动名（活动绑定的 note_labels）；事务名不进回看名称。个人事务变更的本地校验读两类私有事务
+    记忆层「今天」自述前缀所写的活动标注（活动绑定的 note_labels）；事务名不进回看名称。个人事务变更的本地校验读两类私有事务
     绑定原样的行：errand_bindings（本人未完成事务的名称、事务身份、结果种类与商品身份）与 errand_item_bindings（全部
     商品名到商品身份），与环境复核读同一份冻结观察（docs/design/04-simulation-engine.md）。
     """
@@ -825,7 +698,7 @@ def _binding_rows(data: dict[str, Any], key: str, fields: tuple[str, ...]) -> tu
 
 
 def _note_labels(rows: list[dict[str, Any]]) -> tuple[str, ...]:
-    """@brief 活动绑定的 note_labels：记忆层 self_notes 中去掉开始时刻后缀的活动名（只作回看名称）。"""
+    """@brief 活动绑定的 note_labels：记忆层「今天」里「标注：」「进展·标注：」前缀所写的活动标注（只作回看名称）。"""
     if any(not isinstance(row.get("note_labels"), list)
            or any(not isinstance(label, str) for label in row["note_labels"]) for row in rows):
         raise RuntimeError("LifeAgent activity_bindings are invalid")

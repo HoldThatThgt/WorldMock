@@ -38,8 +38,6 @@ _HOST_DEFAULTS = {
         'Restore the model service before retrying this decision.'),
     'EVIDENCE_WRITE_FAILED': ('Model evidence could not be persisted.',
         'Restore evidence persistence before retrying this decision.'),
-    'MEMORY_QUERY_FAILED': ('The memory query failed during retrieval.',
-        'Retry the read query after memory retrieval is available.'),
     'TOOL_SERVICE_FAILED': ('The tool service failed before a result was available.',
         'Restore the tool service before retrying this decision.'),
 }

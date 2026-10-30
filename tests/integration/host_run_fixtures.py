@@ -1,49 +1,31 @@
-"""@brief 每日反思测试共用的真实宿主运行：真实引擎、SQLite、LifeEnv 与直接导入的 LifeAgent，只替换远程模型传输。
+"""@brief 真实宿主运行：真实引擎、SQLite、LifeEnv 与直接导入的 LifeAgent，只替换远程模型传输。
 
-人物的每一步都走生产的 LifeAgent.step：取观察之前询问环境该不该先做就寝反思，随后是决策循环与步尾的记忆收尾。
-脚本模型按请求实际开放的工具分流：只带 submit_reflection 的是就寝反思，不带工具的是记忆巩固，其余是行动请求。
+人物的每一步都走生产的 LifeAgent.step：取本次决策唯一的一份观察，随后是决策循环与步尾的记忆收尾；人物一侧不调用别的模型。
+脚本模型只答行动请求（工具含 start_main_activity）；收到别的请求就是宿主发出了不该发的模型调用，当场失败。
 """
 
 from __future__ import annotations
 
 import copy
 import json
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
 from custom.agents.life_agent import LifeAgent
 from custom.envs.life_env import LifeEnv
 from tests.integration.runtime.current_contract_fixtures import profile as current_profile
-from tests.integration.runtime.test_life_agent_protocol import _ModelResponse, _TextResponse
-from tests.life.conftest import MAIN_TOOL, advance_next, context, main_arguments
+from tests.integration.runtime.test_life_agent_protocol import _ModelResponse
+from tests.life.conftest import MAIN_TOOL, advance_next, context, main_arguments, stage_day_plan
 from worldmock.simulation_engine.activities.lifecycle.activity_control import is_pending_conclusion
 
-REFLECTION_TOOL = "submit_reflection"
-#: 记忆巩固的脚本回答。
-CONSOLIDATED = "我想把日子过得规律一些。"
-#: 就寝反思缺省写下的感想，按第几次反思依次取用；互不相似，存储不会把它们合并成一条。
-INSIGHTS = ("想把日子过得踏实一些。", "和家里人多说几句话才安心。", "手头的活儿要早点动手做完。",
-            "周末出门走走能换个心情。", "花钱之前先想清楚要不要。")
-#: 行动回复的正文（登记成世界请求的自述）与思考；就寝反思回复的正文不该被读成自述。
-ACTION_NOTE, ACTION_THINKING, REFLECTION_NOTE = "照眼下的情况来。", "先把眼下的事做完。", "这段正文属于反思。"
+#: 行动回复的正文（登记成世界请求的自述）与思考。
+ACTION_NOTE, ACTION_THINKING = "照眼下的情况来。", "先把眼下的事做完。"
 
 
 def tool_names(request: dict) -> list[str]:
     """一次模型请求实际开放的工具名。"""
     return [item["function"]["name"] for item in request.get("tools") or []]
-
-
-def reflection_input(request: dict) -> list[dict]:
-    """一次就寝反思请求交给模型的记忆条目（取自原始 user 消息）。"""
-    user = request["messages"][1]["content"]
-    body = user.split("<memory_reflection_input>", 1)[1].split("</memory_reflection_input>", 1)[0]
-    return json.loads(body)["episodes"]
-
-
-def submit_reflection(insights: list[dict]) -> _ModelResponse:
-    """只含一次 submit_reflection 调用的原生响应，另带一段不该被读取的正文。"""
-    return _ModelResponse("call-reflection", REFLECTION_TOOL, json.dumps({"insights": insights}, ensure_ascii=False),
-                          content=REFLECTION_NOTE)
 
 
 def memory(text: str, importance: float = 0.3) -> dict:
@@ -52,36 +34,22 @@ def memory(text: str, importance: float = 0.3) -> dict:
 
 
 class DayModel:
-    """脚本模型：行动请求按排好的世界请求作答；记忆巩固答一句话；就寝反思缺省写一条感想、引用输入里的第一条记忆，
-    排了回答（由输入记忆构造响应的函数，或要抛出的异常）时照排好的来。全部请求按种类原样留存。"""
+    """脚本模型：行动请求按排好的世界请求作答，全部请求原样留存；请求的工具不含 start_main_activity 时当场失败。"""
 
     model_name = "test-model"
 
     def __init__(self) -> None:
         self.actions: list[tuple[str, dict]] = []
-        self.reflection_replies: list = []
         self.requests: list[tuple[str, dict]] = []
 
     def of(self, kind: str) -> list[dict]:
-        """某一种请求（action、reflection、consolidation）按先后的原样内容。"""
+        """某一种请求（只有 action）按先后的原样内容。"""
         return [request for name, request in self.requests if name == kind]
 
     async def call(self, **request):
-        """按请求开放的工具分流并返回脚本响应。"""
-        names = tool_names(request)
-        if names == [REFLECTION_TOOL]:
-            self.requests.append(("reflection", copy.deepcopy(request)))
-            episodes = reflection_input(request)
-            if self.reflection_replies:
-                reply = self.reflection_replies.pop(0)
-                if isinstance(reply, BaseException):
-                    raise reply
-                return reply(episodes)
-            text = INSIGHTS[len(self.of("reflection")) - 1]
-            return submit_reflection([{"insight": text, "refs": [episodes[0]["id"]]}])
-        if not names:
-            self.requests.append(("consolidation", copy.deepcopy(request)))
-            return _TextResponse(CONSOLIDATED)
+        """只答行动请求并返回脚本响应。"""
+        if MAIN_TOOL not in tool_names(request):
+            raise AssertionError("LifeAgent sent a non-action model request")
         self.requests.append(("action", copy.deepcopy(request)))
         tool, arguments = self.actions.pop(0)
         return _ModelResponse(f"call-{len(self.requests)}", tool, json.dumps(arguments, ensure_ascii=False),
@@ -102,10 +70,6 @@ class HostRun:
         return [event for event in list(store.iter_events(store.last_event_seq))
                 if (event_type is None or event.event_type == event_type)
                 and (decision is None or event.decision_id == decision.decision_id)]
-
-    def reflections(self) -> list:
-        """库里登记了归属日期的记忆更新（就寝反思登记）。"""
-        return [event for event in self.events("memory_updated") if event.data["reflection"] is not None]
 
     async def open(self):
         """在当前时刻开一轮并把决策上下文绑到人物上。"""
@@ -172,6 +136,24 @@ async def host_run(engine, workspace: Path, label: str = "host", create: bool = 
     return HostRun(engine, agent, model, label)
 
 
-def memory_layer_of(request: dict) -> dict:
-    """行动请求的 user 消息里的记忆层（六层数组的第三层）。"""
-    return json.loads(request["messages"][1]["content"])[2]
+def _evening(persona, config) -> None:
+    """运行从周一 20:00 开始：写下一条记忆后睡一夜，在周二凌晨醒来。"""
+    config["start_time"] = datetime.fromisoformat("2026-01-05T20:00:00+08:00")
+    config["stop_time"] = datetime.fromisoformat("2026-01-08T20:00:00+08:00")
+
+
+async def waking_decision(engine_factory, tmp_path, note: str | None = "这一晚歇得很踏实。") -> SimpleNamespace:
+    """真实引擎上先写下一条记忆、再睡完一夜，开出当天第一次睡醒的那一轮决策，并备好真实 LifeEnv 与直接导入的
+    LifeAgent；脚本模型排好给刚醒的这段睡眠收尾。note 为 None 时人物睡前什么都没写下。"""
+    engine = engine_factory(mutate=_evening)
+    stage_day_plan(engine, submitted=True)
+    run = await host_run(engine, tmp_path / "people" / "agent_0001")
+    if note is not None:
+        await run.rest_and_note(note)
+    slept = await run.sleep(480)
+    decision = await run.open()
+    name = engine.context.state.activities[slept].name
+    run.model.actions.append(("conclude_activity", {"items": [
+        {"activity_name": name, "summary": "睡醒了。", "memories": [], "views": []}], "errands": []}))
+    return SimpleNamespace(engine=engine, environment=run.environment, agent=run.agent, decision=decision,
+                           model=run.model, slept=slept)

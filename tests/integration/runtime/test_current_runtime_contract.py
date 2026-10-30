@@ -80,14 +80,14 @@ async def test_same_second_continuation_preserves_previous_model_wire(engine_fac
 
 @pytest.mark.asyncio
 async def test_deleted_start_activity_reply_is_refused_as_a_tool_that_is_not_offered(engine_factory):
-    """模型回复里调用已删除的 start_activity：宿主按本回合未提供的工具纠错，明细逐字，允许值是开放的十个工具。"""
+    """模型回复里调用已删除的 start_activity：宿主按本回合未提供的工具纠错，明细逐字，允许值是开放的八个工具。"""
     engine = engine_factory()
     stage_day_plan(engine, submitted=True)
     _, requests, _, results = await decide(engine, "retired", [
         ToolResponse("start_activity", {"items": [{"action": "interact", "target": "家"}]}),
         ToolResponse(MAIN_TOOL, _REST, "call-valid")])
     offered = [tool["function"]["name"] for tool in requests[0]["tools"]]
-    assert len(offered) == 10 and offered[:2] == [MAIN_TOOL, SIDE_TOOL] and "start_activity" not in offered
+    assert len(offered) == 8 and offered[:2] == [MAIN_TOOL, SIDE_TOOL] and "start_activity" not in offered
     feedback = json.loads(requests[1]["messages"][-1]["content"])
     assert feedback["error_code"] == "TOOL_CALL_REQUIRED"
     assert feedback["items"] == [{
@@ -109,8 +109,7 @@ async def test_removed_query_world_reply_is_refused_as_a_tool_that_is_not_offere
         ToolResponse(MAIN_TOOL, _REST, "call-valid")])
     offered = [tool["function"]["name"] for tool in requests[0]["tools"]]
     assert offered == ["start_main_activity", "start_side_activity", "report_status", "pause_activity",
-                       "conclude_activity", "revise_day_plan", "recall_task_summary", "memory_recent",
-                       "memory_search", "memory_time_range"]
+                       "conclude_activity", "revise_day_plan", "recall_task_summary", "search_memory"]
     assert json.loads(requests[1]["messages"][-1]["content"]) == {
         "error_code": "TOOL_CALL_REQUIRED", "reason": "The tool call batch is invalid.",
         "fix": "Submit one world request, the two start tools together, or only read queries.",
@@ -144,6 +143,7 @@ async def test_dataset_travel_method_name_is_the_one_wording_from_the_prompt_to_
     from worldmock.recording_engine.projections.activities.experiences import recent_verified_experiences
     from worldmock.agents.prompt.prompt_schemas import validate_layer
     from worldmock.simulation_engine.observation.wording.settled_text import experience_sentence
+    from worldmock.agents.prompt.life_prompt import user_layer
     from worldmock.agents.prompt.tool_groups import expand_tool_layer
     from worldmock.simulation_engine.observation.targets.tool_layer import LayerContext
 
@@ -152,7 +152,7 @@ async def test_dataset_travel_method_name_is_the_one_wording_from_the_prompt_to_
     observed, requests, answer, results = await decide(engine, "ride", [
         ToolResponse(MAIN_TOOL, main_arguments("travel", "公司", "电动车"))])
     assert answer == "start_main_activity registered" and results[0].status == "in_progress"
-    prompt = json.loads(requests[0]["messages"][1]["content"])[0]
+    prompt = user_layer(json.loads(requests[0]["messages"][1]["content"]), "工具层")
     assert expand_tool_layer(prompt) == observed["tool_layer"]
     [group] = [row for row in prompt["groups"] if row["action"] == "travel"]
     assert group["kind"] == "location" and len(group["targets"]) == 7 * 3

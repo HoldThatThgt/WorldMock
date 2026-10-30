@@ -12,7 +12,7 @@ import json
 
 import pytest
 
-from tests.life.conftest import StubPlanDayClient, conclude_request, do_at, errand_add, settle_day_plans
+from tests.life.conftest import StubPlanDayClient, conclude_request, do_at, errand_add, settle_midnight_tasks
 from tests.life.environment_runtime import act, observe_only, until_ended
 from tests.life.work_arrangement_inputs import (
     holiday_monday,
@@ -35,7 +35,7 @@ def _planned_and_observed(engine):
     """运行开始那一刻：零点计划经生产入口执行一次（桩记下请求），再观察一次。返回（零点计划请求，用户消息的输入，
     观察，落库的这次观察的环境层）。"""
     client = StubPlanDayClient({"requested_model": engine.context.config.model.requested_model})
-    settle_day_plans(engine, client)
+    settle_midnight_tasks(engine, client)
     [request] = client.calls
     observed = observe_only(engine, "arrangement")
     stored = engine.context.store.read_agent_events("observation", 1)[-1].data["environment_layer"]

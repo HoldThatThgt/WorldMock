@@ -26,6 +26,7 @@ from tests.unit.life.test_planning_and_errand_boundaries import note
 from worldmock.foundation.errors import ProtocolError
 from worldmock.state.planning.schedule import PlanGoal
 from worldmock.simulation_engine.body.sleep_plan import oversleep_seconds
+from worldmock.foundation.time.readable import entry_clock, local_date
 
 #: 睡过头用例取的多睡时长：各用例按自己的决策标签找一条恰好抽中这么久的动作身份。
 _LATE_SECONDS = 27 * 60
@@ -120,15 +121,15 @@ def _activity_row(observed: dict, name: str) -> dict:
     return next(row for row in observed["tool_layer"]["targets"] if row["kind"] == "activity" and row["name"] == name)
 
 
-def _settled_lines(observed: dict) -> list[str]:
-    """观察的进度层各条记录对应的已结算文字。"""
-    return [line for row in observed["progress_meta"] for line in row["lines"]]
+def _verified_lines(observed: dict) -> list[str]:
+    """观察的记忆层「今天」各条的核验行：收尾之后这项活动离开进度层，结束行在收尾那次决策的今天条目里。"""
+    return [line for item in observed["memory_layer"]["今天"] for line in item.get("核验", ())]
 
 
 def test_short_sleep_after_a_long_day_oversleeps_once_and_recovers_by_the_time_actually_slept(engine_factory):
     """开始睡之前的 24 小时合计不足 4 小时的一觉：受理时就定下唯一的计划结束（写的时长加多睡的时长），写的时长到点的
     那一刻没有事件也没有决策，计划结束时才醒；欠的觉按实际睡的全长补回；醒来后看到「比打算的多睡了 27 分钟」，收尾后的
-    已结算文字同样。这段多睡过的睡眠按实际长度计入下一觉的 24 小时合计：写的 220 分钟不足 4 小时，加上多睡的 27 分钟
+    之后今天条目的结束行写「多睡27分钟」。这段多睡过的睡眠按实际长度计入下一觉的 24 小时合计：写的 220 分钟不足 4 小时，加上多睡的 27 分钟
     才满，所以下一觉换哪条动作身份都按时醒，说法仍是「按计划结束」。"""
     engine = engine_factory(mutate=_after_a_long_day)
     start = engine.context.state.current_time
@@ -158,7 +159,7 @@ def test_short_sleep_after_a_long_day_oversleeps_once_and_recovers_by_the_time_a
     observed = _observe_and_conclude(engine, "woke", result.activity_id)
     assert _activity_row(observed, woke.name)["state"] == "已做约 4 小时，比打算的多睡了 27 分钟"
     after, again = act(engine, "again", sleep(60), action_id=oversleep_identity(engine, "again"))
-    assert "睡觉（1月5日 07:00 起）：07:00–11:07，比打算的多睡了 27 分钟" in _settled_lines(after)
+    assert "睡觉 07:00–11:07，多睡27分钟" in _verified_lines(after)
     assert again.status == "in_progress", again.error_code
     second = engine.context.state.activities[again.activity_id]
     assert second.data["oversleep_seconds"] == 0 and second.planned_duration_seconds == 3600
@@ -166,7 +167,7 @@ def test_short_sleep_after_a_long_day_oversleeps_once_and_recovers_by_the_time_a
     observed = _observe_and_conclude(engine, "woke-again", again.activity_id)
     assert _activity_row(observed, second.name)["state"] == "已做约 1 小时"
     final = engine.observe(context(engine, "final"))
-    assert "睡觉（1月5日 11:07 起）：11:07–12:07，按计划结束" in _settled_lines(final)
+    assert "睡觉 11:07–12:07" in _verified_lines(final)
 
 
 def test_the_same_short_sleep_wakes_on_time_when_the_draw_misses(engine_factory):
@@ -228,8 +229,8 @@ def test_a_normal_night_is_judged_from_the_moment_it_starts_and_wakes_on_time(en
 def test_a_short_night_wakes_on_time_and_the_full_night_after_it_oversleeps(engine_factory):
     """照常睡过一夜后熬到 01:00 只睡 180 分钟：往回 24 小时里还有前一晚落在窗口内的 6 小时 45 分，04:00 按时醒，用一条
     会抽中多睡的动作身份也一样。醒着过完白天，当晚写满 470 分钟：这时往回 24 小时里只有那 3 小时，抽中就多睡。
-    计划结束是开始时刻加写的时长再加多睡的 40 分钟，到那一刻才醒；欠的觉按实际睡的全长补回；醒来后工具层和收尾后的
-    已结算文字都写「比打算的多睡了 40 分钟」。"""
+    计划结束是开始时刻加写的时长再加多睡的 40 分钟，到那一刻才醒；欠的觉按实际睡的全长补回；醒来后工具层写「比打算的
+    多睡了 40 分钟」，收尾之后今天条目的结束行写「多睡40分钟」。"""
     engine = engine_factory(mutate=_one_in_the_morning)
     start = engine.context.state.current_time
     _, short = act(engine, "short-night", sleep(180), action_id=oversleep_identity(engine, "short-night"))
@@ -267,8 +268,10 @@ def test_a_short_night_wakes_on_time_and_the_full_night_after_it_oversleeps(engi
     observed = _observe_and_conclude(engine, "woke-late", late.activity_id)
     assert _activity_row(observed, woke.name)["state"] == "已做约 8.5 小时，比打算的多睡了 40 分钟"
     final = engine.observe(context(engine, "final"))
-    span = f"1月5日 {_clock(engine, night)}–{_clock(engine, night + 30600)}"
-    assert f"{woke.name}：{span}，比打算的多睡了 40 分钟" in _settled_lines(final)
+    zone = engine.context.config.timezone
+    today = local_date(engine.context.state.current_time, zone)
+    span = f"{entry_clock(night, today, zone)}–{entry_clock(night + 30600, today, zone)}"
+    assert f"睡觉 {span}，多睡40分钟" in _verified_lines(final)
 
 
 def test_nothing_but_its_own_planned_end_wakes_a_sleeper_and_reminders_are_delivered_after_waking(engine_factory):
@@ -381,7 +384,7 @@ def test_office_nap_resets_the_discomfort_timer_freezes_both_needs_and_must_be_c
 
 def test_sleep_ending_exactly_at_local_midnight_wakes_with_session_open_after_the_day_plan(engine_factory):
     """恰在本地零点结束的睡眠：零点边界先生成当日计划、再判定唤醒，睡醒的原因里照样有 planned_end 与 session_open；
-    这一刻属于新的一天，就寝反思的归属日期是刚过去的那一天。"""
+    这一刻属于新的一天。"""
     def evening(persona, config):
         config["start_time"] = datetime.fromisoformat("2026-01-05T20:00:00+08:00")
         config["stop_time"] = datetime.fromisoformat("2026-01-07T20:00:00+08:00")
@@ -397,6 +400,3 @@ def test_sleep_ending_exactly_at_local_midnight_wakes_with_session_open_after_th
     assert [name for name in person.pending_wake_reasons if name != "felt_band_change"] == [
         "planned_end", "reconsideration_interval", "session_open", "no_active_activity"]
     assert person.day_plan is not None and person.day_plan.day_end == midnight + 86400
-    woke = context(engine, "midnight")
-    engine.begin_decision_round([woke])
-    assert engine.due_reflection(woke) == {"date": "2026-01-05", "sleep_activity_id": result.activity_id}

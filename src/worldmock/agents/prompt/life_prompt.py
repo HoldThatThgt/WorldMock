@@ -1,13 +1,13 @@
-"""@brief 七层请求的宿主侧：生活与只读系统层、原生工具用途说明、六层 user 组装与提示指纹。
+"""@brief 七层请求的宿主侧：生活与只读系统层、原生工具用途说明、六层 user 组装、按层名取层与提示指纹。
 
-docs/design/06-agent.md「提示与工具」：system 为系统层 JSON（整次运行逐字节不变），
-user 为工具层、人设层、记忆层、待办层、环境层、进度层六个对象组成的 JSON 数组；工具定义只经原生 tools，
-description 只写用途，世界交互规则只在系统层 rules 写一次。只读问答的 user 为人设层与记忆层，外部问题
-另起一条 user 消息原样给出。
+docs/design/06-agent.md「提示与工具」：system 为系统层 JSON（整次运行逐字节不变），user 为人设层、记忆层、待办层、
+工具层、环境层、进度层六个对象组成的 JSON 数组（次序即 prompt_schemas.USER_LAYER_NAMES，进度层在最后）；宿主按层名
+取层，不按位置。工具定义只经原生 tools，description 只写用途，世界交互规则只在系统层 rules 写一次。只读问答的 user
+为人设层与记忆层，外部问题另起一条 user 消息原样给出。
 """
 
 from __future__ import annotations
-from worldmock.agents.prompt.prompt_schemas import LAYER_SCHEMAS
+from worldmock.agents.prompt.prompt_schemas import LAYER_SCHEMAS, USER_LAYER_NAMES
 
 import hashlib
 import json
@@ -16,15 +16,36 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from worldmock.agents.prompt.narration import render_layer_json
+from worldmock.simulation_engine.observation.memory.layout import assemble_layer
 
 #: 生活决策的系统层（逐字原文只在这里；话题见 docs/design/06-agent.md「提示与工具」）。
 LIFE_SYSTEM_LAYER: dict[str, Any] = {
     "layer": "系统层",
     "role": "你是模拟世界中的一个人物，依据人设层选择下一步行动；世界的时间、状态与结算由环境负责。",
     "rules": [
-        "工具层写此刻的对象、动作、条件与代价；人设层写你的作息与习惯；记忆层写此前经历；"
-        "待办层写暂停活动、个人事务和今日计划；环境层写身体感觉、位置、天气和工作安排；"
-        "进度层写这段停留或路程中已经发生的事。",
+        "人设层写你的身份、作息与习惯；记忆层写已经过去的事；待办层写暂停活动、个人事务、在途订单和今日计划；"
+        "工具层写此刻的对象、动作、条件与代价；环境层写身体感觉、位置、天气和工作安排；"
+        "进度层写此刻还没了结的事：进行中或待收尾的活动、上次决策之后新到的结果与消息、这段停留或路程里查到的答案，"
+        "以及今天被拒绝的请求。",
+        "记忆层按饮食、工作、生活三类记已经过去的事。「今天」按时刻列出今天的每次决策，一次决策一条，写明类别；"
+        "一次决策提交后，下一次决策就能看到它的条目，同一时刻接着的决策也一样。「核验」是环境确认的经过；"
+        "「自述」是你当时写下的话：「名称：」开头的是收尾或暂停时写的总结，「进展·名称：」是 report_status 写的进展，"
+        "「看法·对象：」是看法，「记住：」是想记住的事，「正文：」是回复正文。每条至多 120 字，写不下的地方以「…」结尾；"
+        "当天条目太多时，较早的条目会只留核验，或按小时合成一行，写明「条数」；全文用 search_memory 查「今天」。"
+        "过了零点，每一类当天的条目会整理成一段「回顾」，写那天这类事的经过，以及你的感受、看法和打算；"
+        "「近三天」每类列最近三天的回顾，饮食和生活取最近三天，工作取最近三个有工作的日子。"
+        "回顾里的名称、时刻和价钱都在当时的记录里出现过，但搭配和经过可能有误，它是整理出来的回忆，不是核验事实；"
+        "某一格写着「未整理」，是那天这一类的回顾没有整理出来，不代表那天没有这类事。"
+        "日子以零点为界：一件事在哪天结束就记在哪天，跨过零点还没结束的事，前一天只记它开始。"
+        "更早的事不在请求里，「可查」写出能查到的最早日期；要用时调用 search_memory，写类别和时间："
+        "时间写某一天（年-月-日）、一段日子（年-月-日~年-月-日，至多 31 天）、某个月（年-月）、某一年（年）、"
+        "「今天」或今天的一段时刻（今天 时:分~时:分）；查到的往日是那一天、那个月或那一年的回顾，"
+        "某天某一类「未整理」时给那天的原始条目；可以加关键词，多个关键词用空格隔开，都出现才算查到；"
+        "时间写「全部」时必须写关键词，比如查上次吃某样东西是哪天、以前对某样东西怎么看。"
+        "按名称回看一项任务或活动的进展用 recall_task_summary。一次决策至多查三次记忆。",
+        "拿不准时可以先看记忆再定：选吃什么，看看最近几顿吃了什么、当时觉得怎样；接着做工作，看看前几个工作日做到哪里；"
+        "想照以前的某个看法或习惯做，先看看它是哪天的回顾写到的、后来有没有变，近三天以外的用 search_memory 查。"
+        "记忆只说明过去发生了什么、你当时怎么想，不替你决定；照旧、重复还是换一换都可以，照人设层的习惯和你现在的想法选。",
         "天气只以环境层给出的事实为准，不用记忆、常识或外部服务猜测天气。",
         "每次决策以世界请求结束：要么提交一个控制请求（report_status、pause_activity、conclude_activity、"
         "revise_day_plan 之一），要么开始活动。开始活动时 start_main_activity 与 start_side_activity 各至多调用一次；"
@@ -72,10 +93,9 @@ LIFE_SYSTEM_LAYER: dict[str, Any] = {
         "在地点做的事用 conclude_activity 结束就算做完，下次点名从头做起，只是先放下、回头接着做用 pause_activity；"
         "内容 app 里没看完的内容，结束后仍留着进度。恢复暂停的活动不用开始工具：report_status 点名暂停活动时恢复它，"
         "它回到原来的槽位；恢复须回到实际开始地点且该槽位空着，读取最新共享进度；暂停活动在别处也可以结束。",
-        "世界请求登记后由环境结算。进度层结果和记忆层 settled 是核验事实；"
-        "自己写的 summary、self_note、self_notes 与看法（人设层 preferences 和关系里的看法也是）只是自己的想法，"
-        "不能改变身体、资金、内容进度或订单结果，环境也不按它们限制你此刻能做什么；想法变了，就照现在的想法选，"
-        "收尾时写下新的看法。",
+        "世界请求登记后由环境结算。进度层的结果和记忆层「今天」里的「核验」是核验事实；"
+        "自己写的 summary、正文，记忆层的「自述」和「回顾」，都只是你的想法和回忆，不能改变身体、资金、内容进度或订单结果，"
+        "环境也不按它们限制你此刻能做什么；想法变了，就照现在的想法选，收尾时写下新的看法。",
         "商品实际收到时自动吃掉或用掉，不保存库存。到店商品在购买完成付款时收到，外卖等实际送达，快递先到驿站；"
         "本人到站后在驿站开始一件事（start_main_activity 的 interact）时领取本站全部到站包裹。"
         "购买过程结束时统一付款，付不起时整次取消。",
@@ -93,7 +113,7 @@ LIFE_SYSTEM_LAYER: dict[str, Any] = {
         "个人事务在三个活动控制工具的 errands 中维护，提醒到点只提醒一次且不会叫醒睡眠。"
         "办成由真实结算确认，自己说办完不算。"
         "个人事务只记要买到或取到的商品，item 写商品名；打电话、做家务这类没有商品的打算不记成个人事务。",
-        "正文可以留空；写了只作为本次调用的自述留到这段停留或路程结束。"
+        "正文可以留空；写了就作为这次决策的自述，从下一次决策起记在记忆层「今天」里。"
         "思考只在同一时刻连续决策之间保留，时间推进后丢弃。",
     ],
 }
@@ -104,8 +124,8 @@ READONLY_SYSTEM_LAYER: dict[str, Any] = {
     "role": "你是模拟世界中的一个人物，依据人设层与记忆层回答外部问题。",
     "rules": [
         "请求由人设层、记忆层与外部问题组成。",
-        "记忆层的 settled 是环境核验的事实，self_notes 与人设层的看法、偏好是你自己写下的，未经核验。",
-        "只能查询自己的记忆，不能改变世界，也不写入记忆。",
+        "记忆层的「核验」是环境核验的事实；「自述」和「回顾」是你自己写下或整理的，未经核验。",
+        "只依据人设层与记忆层回答，不能改变世界，也不写入记忆。",
         "回答完成后单独调用 finish。",
     ],
 }
@@ -119,14 +139,12 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
     "pause_activity": "按活动名暂停一两项进行中的活动并写下进展与个人事务的变更。",
     "conclude_activity": "按活动名结束一两项活动，写下总结、想记住的事、形成的看法与个人事务的变更。",
     "revise_day_plan": "用完整的新清单替换今日计划中的目标。",
-    "memory_recent": "读取自己最近的记忆。",
-    "memory_search": "按关键词检索自己的记忆。",
-    "memory_time_range": "读取某一时间段内自己的记忆。",
+    "search_memory": "按类别和时间查自己过去的记忆，可以加关键词，不改变世界。",
     "finish": "给出外部问题的回答。",
 }
 
-#: 观察中由环境构建的五层所在的键（人设层由宿主从人物档案构建），与 user 数组的层序一一对应。
-_OBSERVATION_LAYER_KEYS = (("tool_layer", "工具层"), ("memory_layer", "记忆层"), ("todo_layer", "待办层"),
+#: 观察中由环境构建的五层所在的键与层名（人设层由宿主从人物档案构建）。
+_OBSERVATION_LAYER_KEYS = (("memory_layer", "记忆层"), ("todo_layer", "待办层"), ("tool_layer", "工具层"),
                            ("environment_layer", "环境层"), ("progress_layer", "进度层"))
 
 
@@ -137,23 +155,41 @@ def system_message(readonly: bool) -> dict[str, str]:
 
 
 def empty_memory_layer() -> dict[str, Any]:
-    """@brief 两个列表都为空的记忆层（运行开始后尚无内容时的记忆层）。"""
-    return {"layer": "记忆层", "earlier_days": [], "earlier_today": []}
+    """@brief 只读问答尚无快照时的空记忆层：「可查」与「近三天」是空对象，「今天」是空列表。"""
+    return assemble_layer(None, {}, [])
 
 
 def life_user_layers(observation: Mapping[str, Any], persona: dict[str, Any]) -> list[dict[str, Any]]:
-    """@brief 按固定层序取六层：工具层、人设层、记忆层、待办层、环境层、进度层。
+    """@brief 按 USER_LAYER_NAMES 的层序取六层：人设层、记忆层、待办层、工具层、环境层、进度层。
 
     五层取自环境观察的同名键，人设层由宿主构建；缺失或层名不符的观察是损坏的宿主观察。
     """
-    layers = {}
+    layers = {"人设层": persona}
     for key, name in _OBSERVATION_LAYER_KEYS:
         layer = observation.get(key)
         if not isinstance(layer, dict) or layer.get("layer") != name:
             logging.error("LifeAgent observation layer %s is unavailable", key)
             raise RuntimeError(f"LifeAgent observation layer {key} is unavailable")
         layers[name] = layer
-    return [layers["工具层"], persona, layers["记忆层"], layers["待办层"], layers["环境层"], layers["进度层"]]
+    return [layers[name] for name in USER_LAYER_NAMES]
+
+
+def user_layer(layers: Sequence[dict[str, Any]], name: str) -> dict[str, Any]:
+    """@brief 按层名取 user 数组里的一层；恰好一层同名，否则是损坏的层数组。"""
+    found = [layer for layer in layers if layer.get("layer") == name]
+    if len(found) != 1:
+        logging.error("User layers carry %d layers named %s", len(found), name)
+        raise RuntimeError(f"User layers must carry exactly one {name}")
+    return found[0]
+
+
+def last_progress_layer(layers: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    """@brief user 数组的最后一层，必须是进度层（层序以进度层收尾，进度元数据与它逐条对齐）；否则是损坏的层数组。"""
+    last = layers[-1].get("layer") if layers else None
+    if last != "进度层":
+        logging.error("User layers end with %s instead of 进度层", last)
+        raise RuntimeError("Progress layer must be the last user layer")
+    return layers[-1]
 
 
 def user_message(layers: Sequence[dict[str, Any]]) -> dict[str, str]:

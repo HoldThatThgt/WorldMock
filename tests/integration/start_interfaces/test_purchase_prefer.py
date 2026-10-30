@@ -31,10 +31,11 @@ from tests.life.conftest import (
 )
 from tests.life.current_world import stage_moment
 from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
-from tests.life.environment_runtime import act, act_group, events, finish_activity, reach
+from tests.life.environment_runtime import act, act_group, events, finish_activity, reach, until_ended
 from tests.life.phone_records import foreground, notices, phone_events
 from worldmock.recording_engine.storage.checkpoint import restore_branch, snapshot_directory
 from worldmock.simulation_engine.engine import LifeEngine
+from worldmock.simulation_engine.observation.layers.result_projection import public_result
 from worldmock.state.interaction.requests import StartSideActivityRequest
 from worldmock.agents.prompt.prompt_schemas import validate_layer
 from worldmock.foundation.randomness import random_stream
@@ -274,7 +275,7 @@ def test_buyer_standing_in_a_selling_store_buys_there_whatever_prefer(engine_fac
     (order,) = _orders(engine, result)
     assert (order.fulfillment, order.app_id, order.store_id, order.delivery_fee_fen) == ("pickup", None, "store", 0)
     assert [row["channel"] for row in _side_record(engine, "during")["result"]["details"]["purchases"]] == ["到店"]
-    finish_activity(engine, result, "local")
+    until_ended(engine, result.activity_id)
     assert [row for row in foreground(engine, result.activity_id) if row[1] == "ordering"] == []
     assert [row for row in notices(engine) if row[1] == "订单已下单"] == []
     assert engine.context.state.deliveries[order.order_id].status == "delivered"
@@ -319,7 +320,7 @@ def test_courier_goods_use_the_preferred_app_when_registered_on_them(engine_fact
         (order,) = _orders(engine, result)
         assert (order.app_id, order.fulfillment, order.expected_at, order.delivery_fee_fen) == route
         assert _channels(engine, "during") == [("平台笔记本", APP_NAMES[expected], False)]
-        finish_activity(engine, result, "book")
+        until_ended(engine, result.activity_id)
         assert _channels(engine, "after") == [("平台笔记本", APP_NAMES[expected], True)]
         road = engine_factory(root, mutate=_attentive)
         departure = _on_the_road(road)
@@ -420,17 +421,17 @@ def _channels(engine, label) -> list[tuple]:
 
 
 def test_purchase_result_names_the_actual_channel_in_both_results(engine_factory):
-    """购买进行中和做完后各观察一次：每行都带 channel，是记录上下单 app 的完整名称或「到店」；分成两张订单时各行
-    各写各的；提前结束的购买 channel 仍在、配的是 price；每次的进度层都通过层校验。"""
+    """购买进行中和做完、待收尾时各观察一次：每行都带 channel，是记录上下单 app 的完整名称或「到店」；分成两张订单时各行
+    各写各的；每次的进度层都通过层校验。提前结束的购买收尾之后离开进度层，它的终态结果里 channel 仍在、配的是 price。"""
     engine = engine_factory()
     result = _bought(engine, "split", "牛肉面", "柠檬茶", prefer="饿了么")
     assert _channels(engine, "during") == [("柠檬茶", "饿了么", False), ("牛肉面", "美团", False)]
-    finish_activity(engine, result, "split")
+    until_ended(engine, result.activity_id)
     assert _channels(engine, "after") == [("柠檬茶", "饿了么", True), ("牛肉面", "美团", True)]
     local = engine_factory(mutate=_at_store)
     result = _bought(local, "local", "纸巾", prefer="美团")
     assert _channels(local, "during") == [("纸巾", "到店", False)]
-    finish_activity(local, result, "local")
+    until_ended(local, result.activity_id)
     assert _channels(local, "after") == [("纸巾", "到店", True)]
     stopped = engine_factory(mutate=_attentive)
     result = _bought(stopped, "stopped", "柠檬茶", prefer="饿了么")
@@ -439,7 +440,9 @@ def test_purchase_result_names_the_actual_channel_in_both_results(engine_factory
     _, ended = act(stopped, "stop", conclude_request(name), "conclude_activity")
     assert ended.status == "completed", ended.error_code
     assert stopped.context.state.activities[result.activity_id].status == "cancelled"
-    assert _channels(stopped, "after") == [("柠檬茶", "饿了么", False)]
+    terminal = [row for row in events(stopped, "action_result") if row.action_id == result.action_id][-1]
+    rows = public_result(terminal.data, stopped.context.inputs, {})["details"]["purchases"]
+    assert [(row["product"], row["channel"], "paid" in row) for row in rows] == [("柠檬茶", "饿了么", False)]
 
 
 def test_tool_layer_lists_every_order_app_whatever_the_moment_or_place(engine_factory, tmp_path):
@@ -534,7 +537,8 @@ def test_accepted_route_is_frozen_through_a_checkpoint_and_reopened_run(engine_f
 
 
 def test_settled_purchase_sentence_keeps_its_wording_without_the_channel(engine_factory):
-    """经饿了么买完并离开这段停留后，记忆层里那一句仍是今天的写法，不带下单 app。"""
+    """经饿了么买完并离开这段停留后，记忆层「今天」里收尾那次决策的条目（时刻即付款那一分钟）带这一行购买行，
+    不带下单 app。"""
     engine = engine_factory()
     result = _bought(engine, "tea", "柠檬茶", prefer="饿了么")
     finish_activity(engine, result, "tea")
@@ -542,7 +546,10 @@ def test_settled_purchase_sentence_keeps_its_wording_without_the_channel(engine_
     _, trip = act(engine, "away", travel("公司"))
     assert trip.status == "in_progress", trip.error_code
     _next_decision(engine)
-    memory = json.dumps(engine.observe(context(engine, "road"))["memory_layer"], ensure_ascii=False)
+    layer = engine.observe(context(engine, "road"))["memory_layer"]
+    memory = json.dumps(layer, ensure_ascii=False)
     paid = datetime.fromtimestamp(order.paid_at, ZONE)
-    assert f"{paid:%H:%M} 买了柠檬茶 1 份，付 17 元，预计 08:25 送到家" in memory
+    (entry,) = [item for item in layer["今天"] if any("买柠檬茶1份" in line for line in item.get("核验", ()))]
+    assert entry["时刻"] == f"{paid:%H:%M}"
+    assert entry["核验"].count("买柠檬茶1份，17元，预计08:25送到家") == 1
     assert "饿了么" not in memory and "eleme" not in memory

@@ -17,10 +17,8 @@ from worldmock.foundation.errors import IntegrityError
 
 #: 以活动名为参数的三个控制工具。
 CONTROL_TOOLS = ("report_status", "pause_activity", "conclude_activity")
-#: 看法与偏好两类记忆：请求里写在 views，存储为带 subject 的记忆，只在人设层出现（不进记忆层与进度层参数）。
+#: 看法与偏好两类记忆：请求里写在 views，存储为带 subject 的记忆；不进人设层，也不进进度层。
 VIEW_MEMORY_TYPES = frozenset({"relationship", "preference"})
-#: 请求形状的记忆字段（不带对象）；存储形状在其后加 subject。
-_MEMORY_KEYS = ("type", "text", "importance", "keywords")
 #: 一条个人事务变更的八个键（docs/design/04-simulation-engine.md「唤醒、日计划与个人事务」），全部必填，按这个顺序读出。
 _ERRAND_KEYS = ("change", "name", "item", "quantity", "memo", "remind_time", "reason")
 
@@ -47,8 +45,8 @@ class ControlItem:
 def control_items(tool: str, request: Mapping[str, Any] | BaseModel) -> tuple[ControlItem, ...]:
     """@brief 读出控制工具请求的逐项内容，只接受现行形状：items 与请求级 errands（列表，可为空）都在。
 
-    缺 errands 的请求是旧形状记录，经本入口读取的每个读取方（环境处理器、同刻请求分类、宿主校验、进度层、记忆层、记忆
-    证据、零点计划输入、质量报告与交付窗口）都随之以完整性故障拒绝，不留读取分支（docs/design/04-simulation-engine.md）。
+    缺 errands 的请求是旧形状记录，经本入口读取的每个读取方（环境处理器、同刻请求分类、宿主校验、记忆层、记忆证据、
+    零点计划输入、质量报告与交付窗口）都随之以完整性故障拒绝，不留读取分支（docs/design/04-simulation-engine.md）。
 
     :param tool: report_status、pause_activity 或 conclude_activity。
     :param request: 已校验的请求模型，或事件与导出里记录的请求参数（JSON 形状）。
@@ -79,20 +77,6 @@ def control_errands(tool: str, request: Mapping[str, Any] | BaseModel) -> tuple[
         logging.error("Invalid errand change fields in %s request", tool)
         raise IntegrityError(f"{tool} errand change contains unknown fields")
     return tuple({key: _field(entry, key, tool) for key in _ERRAND_KEYS} for entry in entries)
-
-
-def control_request(tool: str, request: Mapping[str, Any] | BaseModel) -> dict[str, Any]:
-    """@brief 生成进度层的现行请求参数：活动名、自述和收尾的普通记忆。
-
-    看法与偏好仅在人设层呈现；个人事务只通过回执 details.errands 呈现。输入必须是现行逐项请求。
-    """
-    rows = []
-    for item in control_items(tool, request):
-        row: dict[str, Any] = {"activity_name": item.activity_name, "summary": item.summary}
-        if tool == "conclude_activity":
-            row["memories"] = [{key: memory[key] for key in _MEMORY_KEYS} for memory in item.plain_memories]
-        rows.append(row)
-    return {"items": rows}
 
 
 def _body(tool: str, request: Mapping[str, Any] | BaseModel) -> Mapping[str, Any]:

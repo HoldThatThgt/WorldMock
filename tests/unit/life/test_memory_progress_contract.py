@@ -10,17 +10,16 @@ from pydantic import ValidationError
 
 from tests.unit.test_environment_engine_admission import running, world
 from worldmock.configuration.inputs.environment import load_environment
-from worldmock.foundation.errors import IntegrityError, ProtocolError
+from worldmock.foundation.errors import ProtocolError
 from worldmock.recording_engine.events.models import EventDraft
 from worldmock.recording_engine.storage.store import FootprintStore
 from worldmock.configuration.inputs.models import ModelMetadata
 from worldmock.state.planning.errands import ErrandState
 from worldmock.simulation_engine.scheduling.plans import errands
-from worldmock.simulation_engine.observation.layers import memory_layer, progress_layer
+from worldmock.simulation_engine.observation.layers import progress_layer
 from worldmock.recording_engine.events.memory_evidence import memory_write_points
 from worldmock.state.world.kinds import ActivityKind, ActivityStatus
 from worldmock.agents.prompt.prompt_schemas import validate_layer
-from worldmock.foundation.time.readable import local_day_start
 from worldmock.simulation_engine.observation.layers.result_projection import public_result
 from worldmock.state.planning.schedule import DayPlan, PlanGoal, revise_day_plan
 from worldmock.simulation_engine.observation.wording.settled_text import (
@@ -29,6 +28,11 @@ from worldmock.simulation_engine.observation.wording.settled_text import (
     purchase_sentence,
     record_lines,
 )
+from worldmock.agents.prompt import prompt_capacity
+from worldmock.foundation.errors import IntegrityError
+from worldmock.simulation_engine.observation.layers.progress_layer import progress_view, tool_call_record
+from worldmock.simulation_engine.observation.memory.entries import AgentEvents, Decision
+from worldmock.state.interaction import control_items
 
 
 @pytest.fixture
@@ -95,17 +99,16 @@ def test_sleep_keeps_overdue_errand_pending_until_real_awake_boundary():
                                   "message_arrival", "mail_arrival", "work_content_completed"])
 def test_progress_excludes_system_and_retired_facts(inputs, kind):
     ctx = layer_context(inputs)
-    assert progress_layer._world_records(ctx, VisibleStore([event(kind, visible="system")]), 0) == []
-    assert progress_layer._world_records(ctx, VisibleStore([event(kind)]), 0) == []
+    assert progress_layer._world_records(ctx, VisibleStore([event(kind, visible="system")]), (0, 0)) == []
+    assert progress_layer._world_records(ctx, VisibleStore([event(kind)]), (0, 0)) == []
 
 
 def test_balance_decrease_displays_only_declared_loss_and_never_enters_memory(inputs):
     ctx = layer_context(inputs)
     fact = event("balance_decreased", amount_fen=1234)
-    records = progress_layer._world_records(ctx, VisibleStore([fact]), 0)
+    records = progress_layer._world_records(ctx, VisibleStore([fact]), (0, 0))
     assert records[0].record == {"occurred_at": "1970-01-01T08:01:40+08:00",
                                  "type": "balance_decreased", "message": "余额减少了 12.34 元"}
-    assert memory_layer._world_lines(SimpleNamespace(context=ctx), fact) == []
     validate_layer({"layer": "进度层", "session_started_at": records[0].record["occurred_at"],
                     "events": [records[0].record], "rejected_today": []})
 
@@ -125,8 +128,7 @@ def test_real_receipt_completes_errand_without_order_or_self_report_credit():
 
 
 def test_step_tail_write_points_are_only_registered_conclusions():
-    """步尾登记的写入点只可能是 activity_conclusion：写了条目而没有带记忆的收尾请求就是没有来源；
-    就寝反思不在这里推导。"""
+    """步尾登记的写入点只可能是 activity_conclusion：写了条目而没有带记忆的收尾请求就是没有来源。"""
     with pytest.raises(ProtocolError, match="no registered write point"):
         memory_write_points([], "decision", True)
     assert memory_write_points([], "decision", False) == []
@@ -137,25 +139,6 @@ def test_step_tail_write_points_are_only_registered_conclusions():
     assert memory_write_points([concluded], "decision", True) == ["activity_conclusion"]
     with pytest.raises(ProtocolError, match="no registered write point"):
         memory_write_points([concluded], "another-decision", True)
-
-
-def test_saved_reflection_is_filed_by_its_recorded_date_and_needs_one(inputs):
-    """记忆层只读反思登记自带的归属日期；写入点含 reflection 而没有日期的登记被拒绝。"""
-    ctx = layer_context(inputs)
-    episodes = [{"source": "reflection", "text": "今天的观察"}]
-    dated = SimpleNamespace(occurred_at=100, data={"trigger": ["reflection"], "episodes": episodes,
-                                                   "reflection": {"date": "2026-01-04", "sleep_activity_id": "s"}})
-    build = SimpleNamespace(context=ctx, cached=SimpleNamespace(events={"memory_updated": [dated]}))
-    assert memory_layer._reflections(build) == [("2026-01-04", "今天的观察")]
-    for filed in (None, {}, {"sleep_activity_id": "s"}, "2026-01-04"):
-        undated = SimpleNamespace(occurred_at=100, data={"trigger": ["reflection"], "episodes": episodes,
-                                                         "reflection": filed})
-        build = SimpleNamespace(context=ctx, cached=SimpleNamespace(events={"memory_updated": [undated]}))
-        with pytest.raises(IntegrityError, match="Bedtime reflection has no filing date"):
-            memory_layer._reflections(build)
-    tail = SimpleNamespace(occurred_at=100, data={"trigger": [], "episodes": [], "reflection": None})
-    build = SimpleNamespace(context=ctx, cached=SimpleNamespace(events={"memory_updated": [tail]}))
-    assert memory_layer._reflections(build) == []
 
 
 def test_partial_content_requires_real_positive_progress():
@@ -182,7 +165,7 @@ def test_purchase_fact_names_the_ordering_app_but_not_the_payment_app_or_account
     assert "买了" in sentence and "12.34 元" in sentence
     assert "饿了么" not in sentence and "eleme" not in sentence and "支付宝" not in sentence
     result = public_result({"occurred_at": 150, "status": "completed", "message": "Purchased",
-        "data": {"orders": [order], "resource_changes": {"account:agent:1": -1234}}}, inputs)
+        "data": {"orders": [order], "resource_changes": {"account:agent:1": -1234}}}, inputs, {})
     (row,) = result["details"]["purchases"]
     assert list(row) == ["product", "quantity", "channel", "destination", "expected_at", "paid"]
     assert row["channel"] == "饿了么"
@@ -190,7 +173,7 @@ def test_purchase_fact_names_the_ordering_app_but_not_the_payment_app_or_account
         assert hidden not in str(result), hidden
     local = {**order, "app_id": None, "fulfillment": "pickup", "destination_id": "store"}
     assert public_result({"occurred_at": 150, "status": "completed", "message": "Purchased",
-        "data": {"orders": [local]}}, inputs)["details"]["purchases"][0]["channel"] == "到店"
+        "data": {"orders": [local]}}, inputs, {})["details"]["purchases"][0]["channel"] == "到店"
     assert "到店" not in purchase_sentence(ctx, local)
 
 
@@ -198,7 +181,7 @@ def test_unpaid_order_is_a_quote_without_a_payment_claim(inputs):
     goods_id = next(iter(inputs.catalog.goods))
     result = public_result({"occurred_at": 100, "status": "in_progress", "message": "Accepted", "data": {
         "orders": [{"goods_id": goods_id, "quantity": 1, "paid_at": None, "total_price_fen": 100,
-                    "destination_id": "home", "expected_at": 200, "app_id": "meituan"}]}}, inputs)
+                    "destination_id": "home", "expected_at": 200, "app_id": "meituan"}]}}, inputs, {})
     assert "price" in result["details"]["purchases"][0]
     assert "paid" not in result["details"]["purchases"][0]
     assert result["details"]["purchases"][0]["channel"] == "美团"
@@ -219,12 +202,13 @@ def test_parcel_collected_at_the_station_is_carried_as_evidence_but_not_reported
         record = {"occurred_at": "1970-01-01T08:01:40+08:00", "type": "tool_call", "tool": "start_side_activity"}
         return record_lines(layer_context(inputs), record, [SimpleNamespace(event_type="action_result", data=result)])
 
-    assert "purchases" not in public_result(started(collected), inputs)["details"]
+    assert "purchases" not in public_result(started(collected), inputs, {})["details"]
     assert lines(started(collected)) == []
-    mixed = public_result(started(bought, collected), inputs)["details"]["purchases"]
+    mixed = public_result(started(bought, collected), inputs, {})["details"]["purchases"]
     assert [row["product"] for row in mixed] == ["纸巾"]
     in_transit = {**collected, "status": "pending"}
-    assert [row["product"] for row in public_result(started(in_transit), inputs)["details"]["purchases"]] == ["平台笔记本"]
+    transit = public_result(started(in_transit), inputs, {})["details"]["purchases"]
+    assert [row["product"] for row in transit] == ["平台笔记本"]
     (sentence,) = lines(started(in_transit))
     assert "买了平台笔记本" in sentence and "快递驿站" in sentence
     local = {**bought, "paid_at": 100, "status": "delivered"}
@@ -257,14 +241,6 @@ def test_unchanged_goal_reminder_is_not_delivered_twice_and_changed_reminder_is_
     assert changed.registered_at == 100 and changed.remind_at == 400 and changed.reminded_at is None
 
 
-@pytest.mark.parametrize("zone", ["Asia/Shanghai", "America/New_York", "UTC"])
-def test_local_day_start_is_the_scenario_local_midnight(zone):
-    """本地零点按场景时区计算：同一本地日期从零点到最后一秒都回到当天零点，前一秒回到前一天零点。"""
-    midnight = int(datetime(2026, 10, 10, tzinfo=ZoneInfo(zone)).timestamp())
-    assert {local_day_start(midnight + offset, zone) for offset in (0, 1, 8 * 3600, 86399)} == {midnight}
-    assert local_day_start(midnight - 1, zone) == midnight - 86400
-
-
 def test_rejected_today_counts_only_evidence_from_local_midnight_to_now(tmp_path):
     """当日拒绝只取场景本地零点到此刻的持久证据：前一日最后一秒的拒绝不计，零点那一秒、清早与此刻那一秒的计入，晚于此刻的
     不计。此刻取本地 13:00：按 UTC（本地 08:00）或美东（本地 12:00）算出的零点会漏掉清早的拒绝。"""
@@ -288,3 +264,103 @@ def test_rejected_today_counts_only_evidence_from_local_midnight_to_now(tmp_path
     rows = progress_layer.rejected_today(context, store)
     store.close()
     assert sorted((row["why"], row["times"]) for row in rows) == [("MIDNIGHT", 1), ("MORNING", 1), ("NOW", 1)]
+
+
+def test_world_records_take_facts_after_the_published_bound_and_notices_after_the_notice_bound(inputs):
+    """记忆事实（办成）只取序号大于已发布界的，非记忆提示（事务提醒、余额减少）只取序号大于提示界的。"""
+    ctx = layer_context(inputs)
+    store = VisibleStore([event("errand_reminded", seq=4, errand={"name": "备好饮料"}),
+                          event("errand_completed", seq=6, errand={"name": "备好饮料"}),
+                          event("balance_decreased", seq=7, amount_fen=100)])
+
+    def kinds(bounds):
+        return [item.record["type"] for item in progress_layer._world_records(ctx, store, bounds)]
+
+    assert kinds((5, 3)) == ["errand_reminder", "errand_completed", "balance_decreased"]
+    assert kinds((6, 4)) == ["balance_decreased"]
+    assert kinds((0, 7)) == ["errand_completed"]
+
+
+class _DecisionStore:
+    """上一次决策的假存储：最后一个事件序号与这次决策读到的观察。"""
+
+    last_event_seq = 9
+
+    def __init__(self, observations):
+        self.observations = observations
+
+    def read_decision_observations(self, agent_id, decision_id, observed_at):
+        assert (agent_id, decision_id, observed_at) == (1, "decision-x", 100)
+        return self.observations
+
+
+def test_a_previous_decision_without_its_observation_is_an_integrity_fault(monkeypatch, caplog):
+    """有上一次决策而读不到它的观察是完整性故障；没有决策时为 None；有两条观察时取序号大的一条与决策时刻。"""
+    decisions = [(Decision("decision-x", 100, 7),)]
+    monkeypatch.setattr(progress_layer, "decision_commits", lambda store, cached, cutoff: decisions[0])
+    with pytest.raises(IntegrityError, match="^Previous decision has no observation$"):
+        progress_layer._previous_decision(_DecisionStore([]), AgentEvents(), 1)
+    assert "Previous decision decision-x has no observation" in caplog.text
+    decisions[0] = ()
+    assert progress_layer._previous_decision(_DecisionStore([]), AgentEvents(), 1) is None
+    decisions[0] = (Decision("decision-x", 100, 7),)
+    observed = [SimpleNamespace(event_seq=3), SimpleNamespace(event_seq=5)]
+    assert progress_layer._previous_decision(_DecisionStore(observed), AgentEvents(), 1) == \
+        progress_layer._PreviousDecision(5, 100)
+
+
+class _EndedStore:
+    """结束那一秒之后只有别的动作结果的假存储。"""
+
+    def last_event_seq_before(self, occurred_at):
+        assert occurred_at == 500
+        return 10
+
+    def read_agent_events(self, event_type, agent_id, after=0):
+        assert (event_type, agent_id, after) == ("action_result", 1, 10)
+        return [SimpleNamespace(event_seq=11, action_id="another-action")]
+
+
+def test_an_ended_activity_without_its_terminal_result_is_an_integrity_fault(caplog):
+    """已结束的活动在结束那一秒之后读不到开始动作的结果：完整性故障，错误日志点名活动。"""
+    activity = SimpleNamespace(activity_id="activity-ended", agent_id=1, ended_at=500, origin_action_id="start")
+    with pytest.raises(IntegrityError, match="^Ended activity has no terminal result$"):
+        progress_layer._terminal_result(_EndedStore(), activity, SimpleNamespace(event_seq=3))
+    assert "Ended activity activity-ended has no terminal result" in caplog.text
+
+
+def test_the_session_record_path_is_deleted():
+    """按段取记录的旧路径与控制请求参数投影已删除；进度层的入口只收已发布界与食材包，浓缩只剩折叠。"""
+    import inspect
+
+    for name in ("records_after", "_session_records", "_tool_records", "_session_calls", "_carried_calls",
+                 "_arguments", "_derived_records"):
+        assert not hasattr(progress_layer, name), name
+    assert not hasattr(control_items, "control_request") and not hasattr(control_items, "_MEMORY_KEYS")
+    assert list(inspect.signature(record_lines).parameters) == ["context", "record", "sources"]
+    assert list(inspect.signature(progress_view).parameters) == ["context", "store", "published", "kits"]
+    assert list(inspect.signature(tool_call_record).parameters) == ["context", "request", "result", "kits"]
+    assert "self_note" not in inspect.getsource(prompt_capacity._condensation_steps)
+    record = {"occurred_at": "2026-01-05T08:00:00+08:00", "type": "tool_call", "tool": "start_main_activity",
+              "arguments": {}, "result": {}, "self_note": "写下的进展。"}
+    records, _ = next(prompt_capacity._condensation_steps([record], [{"protected": False, "lines": ["…"]}]))
+    assert records == [{"occurred_at": record["occurred_at"], "type": "condensed",
+                        "until_at": record["occurred_at"], "lines": ["…"]}]
+
+
+def test_progress_tool_call_schema_takes_only_start_requests_without_self_note():
+    """进度层的 tool_call 记录只有两个开始工具、没有 self_note。"""
+    result = {"occurred_at": "2026-01-05T08:00:00+08:00", "status": "in_progress", "error_code": None,
+              "message": "Activity started", "details": {"planned": [{"name": "测试休息", "duration": "约 15 分钟"}]}}
+    record = {"occurred_at": "2026-01-05T08:00:00+08:00", "type": "tool_call", "tool": "start_main_activity",
+              "arguments": {"action": "interact", "target": "家", "detail": "测试休息"}, "result": result}
+
+    def layer(item):
+        return {"layer": "进度层", "session_started_at": "2026-01-05T08:00:00+08:00", "events": [item],
+                "rejected_today": []}
+
+    validate_layer(layer(record))
+    for broken in ({**record, "self_note": "写下的进展。"}, {**record, "tool": "conclude_activity"}):
+        with pytest.raises(ValueError):
+            validate_layer(layer(broken))
+

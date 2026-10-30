@@ -185,15 +185,6 @@ MUTATIONS = (
         "session_open=False, progress_report_due=_progress_report_due(",
         ("tests/integration/life/test_sleep_runtime.py"
          "::test_wake_up_records_session_open_and_runs_a_category_callback_once",)),
-    SourceMutation("reflection_on_every_wake", 'worldmock.simulation_engine.evidence.memory::due_reflection',
-        "if any(item is not woke and datetime.fromtimestamp(item.ended_at, zone).date() == today for item in sleeps):",
-        "if False:",
-        ("tests/integration/runtime/test_daily_reflection.py"
-         "::test_environment_refuses_a_reflection_after_the_observation_and_on_a_later_wake_up",)),
-    SourceMutation("reflection_ignores_last_decision", 'worldmock.simulation_engine.evidence.memory::due_reflection',
-        "if state.agents[agent_id].last_decision_time == now:", "if False:",
-        ("tests/unit/life/test_daily_reflection_trigger.py"
-         "::test_second_decision_in_the_wake_up_second_does_not_trigger",)),
     SourceMutation("bedtime_threshold_removed", 'tools.analysis.behavior.metrics::_sleep_category',
         'return "bedtime" if record["end"] - record["start"] >= BEDTIME_MIN_SECONDS else "nap"', 'return "bedtime"',
         ("tests/unit/evaluation/test_behavior_metrics.py"
@@ -206,21 +197,6 @@ MUTATIONS = (
         'ActivityStartParams("sleep", declared + extra, data=data)', 'ActivityStartParams("sleep", declared, data=data)',
         ("tests/integration/life/test_sleep_runtime.py"
          "::test_short_sleep_after_a_long_day_oversleeps_once_and_recovers_by_the_time_actually_slept",)),
-    SourceMutation("reflection_after_observation", 'custom.agents.life_agent::LifeAgent._observe_environment',
-        "if await self._env.due_reflection(context) is not None:\n"
-        "            await self._wake_reflection(context)\n"
-        "        return await self._env.observe(context)",
-        "observed = await self._env.observe(context)\n"
-        "        if await self._env.due_reflection(context) is not None:\n"
-        "            await self._wake_reflection(context)\n"
-        "        return observed",
-        ("tests/integration/runtime/test_daily_reflection.py"
-         "::test_exhausted_reflection_retries_fault_the_step_before_any_observation",)),
-    SourceMutation("reflection_filed_by_sleep_start", 'worldmock.simulation_engine.evidence.memory::due_reflection',
-        '"date": (today - timedelta(days=1)).isoformat()',
-        '"date": datetime.fromtimestamp(woke.started_at - 21600, zone).date().isoformat()',
-        ("tests/unit/life/test_daily_reflection_trigger.py"
-         "::test_nap_after_an_all_nighter_is_the_first_wake_up_of_its_day",)),
     SourceMutation("location_unit_name_ignored", 'worldmock.simulation_engine.activities.content.interact::InteractivityRuntime._unit_plan',
         'for key in action["content_ids"]]', "for key in sorted(self.context.catalog.contents)]",
         ("tests/integration/start_interfaces/test_location_activities.py::test_naming_a_unit_starts_exactly_that_content",)),
@@ -288,8 +264,8 @@ MUTATIONS = (
     SourceMutation("rules_version_still_five", 'worldmock.exchange_engine.definitions.constants::RULES_VERSION',
         "RULES_VERSION = 6", "RULES_VERSION = 5",
         ("tests/unit/exchange/test_constants.py::test_fixed_travel_delivery_map_and_push_constants",)),
-    SourceMutation("catalog_format_version_still_four", 'worldmock.resource_engine.catalog.models::CatalogManifest',
-        "format_version: Literal[5]", "format_version: Literal[4]",
+    SourceMutation("catalog_format_version_still_five", 'worldmock.resource_engine.catalog.models::CatalogManifest',
+        "format_version: Literal[6]", "format_version: Literal[5]",
         ("tests/unit/catalog/test_manifest_version.py"
          "::test_otherwise_complete_package_with_an_old_version_number_is_refused",)),
     SourceMutation("world_schema_version_still_fourteen", 'worldmock.state.world.world::WORLD_SCHEMA_VERSION',
@@ -304,9 +280,7 @@ MUTATIONS = (
         '"query": _QUERY,', "",
         ("tests/unit/life/test_result_contents.py::test_result_details_schema_accepts_every_listed_key",
          "tests/integration/life/test_progress_layer_schema.py"
-         "::test_real_progress_layer_passes_layer_validation[answered-query]",
-         "tests/integration/life/test_progress_layer_schema.py"
-         "::test_real_progress_layer_passes_layer_validation[unfinished-query]")),
+         "::test_real_progress_layer_passes_layer_validation[answered-query]")),
     SourceMutation("app_row_accepts_browse_duration", 'worldmock.resource_engine.catalog.models::App',
         "travel_method_ids: tuple[NonEmptyString, ...] = ()",
         "travel_method_ids: tuple[NonEmptyString, ...] = ()\n    browse_duration_seconds: StrictInt | None = None",
@@ -386,16 +360,93 @@ MUTATIONS = (
          "tests/unit/start_interfaces/test_location_units.py"
          "::test_unit_done_raises_every_content_behind_to_the_next_round")),
     SourceMutation("terminal_result_lists_no_contents", 'worldmock.simulation_engine.observation.layers.result_projection::_details',
-        "details.update(_done_contents(_activity_rows(payload), inputs))", "pass",
+        "details.update(_done_contents(_activity_rows(payload), inputs, kits))", "pass",
         ("tests/integration/life/test_result_contents.py::test_finished_app_use_lists_what_was_watched",)),
+    SourceMutation("kit_sentence_left_out",
+        'worldmock.simulation_engine.observation.wording.settled_text::activity_sentence',
+        'sentence += "，" + kit_phrase(kits[activity.activity_id], context.catalog, zone, False)', "pass",
+        ("tests/integration/life/test_grocery_cooking.py"
+         "::test_cooking_after_a_kit_arrives_names_the_kit_and_the_day_it_arrived",)),
+    SourceMutation("kit_from_the_earliest_reset", 'worldmock.simulation_engine.observation.wording.settled_text::track_kits',
+        'latest[data["state"]] = KitUse(data["state"], data["goods_id"], event.occurred_at)',
+        'latest.setdefault(data["state"], KitUse(data["state"], data["goods_id"], event.occurred_at))',
+        ("tests/unit/life/test_kit_sentence.py::test_the_latest_reset_before_the_start_names_the_kit",)),
+    SourceMutation("memory_backstop_triggers_at_the_budget", 'worldmock.simulation_engine.observation.memory.layout::fold_entry',
+        "if before > MEMORY_LAYER_CHARS:", "if before >= MEMORY_LAYER_CHARS:",
+        ("tests/unit/life/test_memory_layout.py::test_a_layer_of_exactly_14000_characters_is_not_backstopped",)),
+    SourceMutation("memory_backstop_overshoots_its_target", 'worldmock.simulation_engine.observation.memory.layout::fold_entry',
+        "<= MEMORY_BACKSTOP_CHARS)", "< MEMORY_BACKSTOP_CHARS)",
+        ("tests/unit/life/test_memory_layout.py::test_the_backstop_stops_at_exactly_12000_characters",)),
+    SourceMutation("memory_backstop_ignores_conclusions", 'worldmock.simulation_engine.observation.memory.layout::_backstop',
+        " and slot.reported <= fold.concluded", "",
+        ("tests/unit/life/test_memory_layout.py::test_the_backstop_first_blanks_report_notes_whose_activities_were_concluded",)),
+    SourceMutation("memory_backstop_adds_notes", 'worldmock.simulation_engine.observation.memory.layout::_blank',
+        'if slot.item.get("自述", ["…"]) == ["…"]:', 'if slot.item.get("自述") == ["…"]:',
+        ("tests/unit/life/test_memory_layout.py::test_the_backstop_never_adds_notes_and_never_drops_verified_lines",)),
+    SourceMutation("memory_single_entries_left_unmerged", 'worldmock.simulation_engine.observation.memory.layout::_merge_hours',
+        "if len(members) == 1 and members[0].line:", "if len(members) == 1:",
+        ("tests/unit/life/test_memory_layout.py::test_the_backstop_merges_same_hour_same_category_items_into_count_lines_last",)),
+    SourceMutation("memory_layer_budget_unchecked", 'worldmock.simulation_engine.observation.memory.layout::require_budget',
+        "if chars > MEMORY_LAYER_CHARS:", "if False:",
+        ("tests/unit/life/test_memory_layout.py::test_a_memory_layer_above_14000_characters_is_refused",)),
+    SourceMutation("memory_budget_counts_today_only", 'worldmock.simulation_engine.observation.memory.layout::layer_chars',
+        "return len(render_layer_json(layer))", 'return len(render_layer_json(layer["今天"]))',
+        ("tests/unit/life/test_memory_layout.py::test_layer_chars_is_the_length_of_the_rendered_layer_with_its_keys",)),
+    SourceMutation("user_layers_in_the_old_order", 'worldmock.agents.prompt.life_prompt::life_user_layers',
+        "return [layers[name] for name in USER_LAYER_NAMES]",
+        'return [layers[name] for name in ("工具层", "人设层", "记忆层", "待办层", "环境层", "进度层")]',
+        ("tests/unit/agent_protocol/test_user_layer_order.py::test_life_user_layers_follow_user_layer_names",)),
+    SourceMutation("progress_layer_position_unchecked", 'worldmock.agents.prompt.life_prompt::last_progress_layer',
+        'if last != "进度层":', "if False:",
+        ("tests/unit/agent_protocol/test_user_layer_order.py::test_the_progress_layer_must_be_the_last_user_layer",)),
+    SourceMutation("prompt_snapshot_takes_a_position", 'custom.agents.life_agent::LifeAgent._prepare_life_action_state',
+        'user_layer(layers, "记忆层")', "layers[2]",
+        ("tests/integration/runtime/test_life_agent_protocol.py"
+         "::test_prompt_snapshot_stores_the_memory_layer_taken_by_name",)),
     SourceMutation("contents_list_only_the_current_content", 'worldmock.simulation_engine.observation.layers.result_projection::_done_contents',
         'for item in data["played"]]', 'for item in data["played"][-1:]]',
         ("tests/integration/life/test_result_contents.py::test_finished_app_series_lists_every_episode_in_order",)),
-    SourceMutation("no_record_carried_into_a_later_segment", 'worldmock.simulation_engine.observation.layers.progress_layer::_tool_records',
-        "return _session_calls(context, requests, results) + _carried_calls(context, store, requests, results)",
-        "return _session_calls(context, requests, results)",
-        ("tests/integration/life/test_carried_records.py"
-         "::test_app_use_started_with_departure_is_recorded_on_the_road",)),
+    SourceMutation("carried_records_only_interact",
+        'worldmock.simulation_engine.observation.layers.progress_layer::_carried_activities',
+        "carried = {activity.activity_id: activity for activity in slot_activities(context.open_activities)}",
+        "carried = {activity.activity_id: activity for activity in slot_activities(context.open_activities)"
+        " if activity.kind == ActivityKind.INTERACT}",
+        ("tests/integration/life/test_progress_bounds.py"
+         "::test_every_slot_activity_is_carried_whatever_its_kind[sleep]",
+         "tests/integration/life/test_progress_bounds.py"
+         "::test_every_slot_activity_is_carried_whatever_its_kind[travel]")),
+    SourceMutation("finished_queries_not_carried",
+        'worldmock.simulation_engine.observation.layers.progress_layer::_carried_activities',
+        "carried.update((activity.activity_id, activity) for activity in _finished_queries(context, store, stay))",
+        "carried.update(())",
+        ("tests/integration/life/test_progress_bounds.py"
+         "::test_a_query_is_carried_while_running_and_its_answer_until_departure",
+         "tests/integration/life/test_query_answer.py"
+         "::test_answer_stays_for_the_stay_and_leaves_a_settled_line_after_departure")),
+    SourceMutation("notices_bounded_by_the_published_bound",
+        'worldmock.simulation_engine.observation.layers.progress_layer::progress_view',
+        "notice_after = max(0 if previous is None else previous.observation_seq, day)",
+        "notice_after = max(published, day)",
+        ("tests/integration/life/test_progress_bounds.py"
+         "::test_a_balance_notice_from_a_decision_commit_reaches_the_next_decision_only",)),
+    SourceMutation("observation_passes_no_published_bound",
+        'worldmock.simulation_engine.observation.layers.observe::ObservationBuilder._observation_data',
+        "view = progress_layer.progress_view(layer, self.context.store, memory.published, memory.facts.kits)",
+        "view = progress_layer.progress_view(layer, self.context.store, 0, memory.facts.kits)",
+        ("tests/integration/life/test_progress_bounds.py"
+         "::test_a_delivery_is_in_the_progress_layer_until_the_next_decision_publishes_it",)),
+    SourceMutation("unpaid_quotes_listed_as_orders",
+        'worldmock.simulation_engine.observation.layers.todo_layer::open_orders',
+        "if order.agent_id == agent_id and order.paid_at is not None", "if order.agent_id == agent_id",
+        ("tests/integration/life/test_todo_orders.py::test_a_paid_delivery_is_an_order_in_transit_until_it_arrives",)),
+    SourceMutation("chain_memory_prefix_unchecked", 'worldmock.agents.protocol.life_continuation::layer_changes',
+        'if seen["memory"] != now["memory"][:len(seen["memory"])]:', "if False:",
+        ("tests/integration/runtime/test_same_second_continuation.py"
+         "::test_a_rewritten_today_list_ends_the_continuation",)),
+    SourceMutation("chain_events_dropped", 'worldmock.simulation_engine.decisions.continuation::same_second_chain',
+        '"events": notice_records(context, store, previous.event_seq)}', '"events": []}',
+        ("tests/integration/runtime/test_same_second_continuation.py"
+         "::test_chain_events_are_the_notices_after_the_previous_observation",)),
     SourceMutation("process_configured_after_the_model_identity", 'worldmock.runtime.lifecycle.runner::_prepare_new_run',
         "run_setup._configure_process(request.project_root, inputs.config.model)\n"
         "    identity = _run_identity(request, inputs)",
@@ -552,9 +603,10 @@ MUTATIONS = (
         ("tests/integration/footprints/test_inspect_current_activity.py"
          "::test_inspector_accepted_and_rejected_lines_read_the_current_fields",)),
     SourceMutation("read_query_channel_ignores_the_tool_name", 'custom.envs.life_env::LifeEnv.read_query',
-        'if tool != "recall_task_summary" or type(request) is not REQUEST_MODELS["recall_task_summary"]:',
-        'if type(request) is not REQUEST_MODELS["recall_task_summary"]:',
-        ("tests/integration/runtime/test_read_query_runtime.py::test_read_query_answers_only_task_recall",)),
+        'if type(request) is not _READ_QUERY_MODELS.get(tool):',
+        'if type(request) not in _READ_QUERY_MODELS.values():',
+        ("tests/integration/runtime/test_read_query_runtime.py"
+         "::test_read_query_answers_task_recall_and_memory_search_only",)),
     SourceMutation("query_takes_the_first_slot", 'worldmock.exchange_engine.conditions.activity_rules::activity_slot',
         'main = action in ("travel", "sleep")', 'main = action in ("travel", "sleep", "query")',
         ("tests/unit/agent_protocol/test_start_request_models.py"
@@ -672,7 +724,7 @@ MUTATIONS = (
         "return (False and activity.kind == ActivityKind.INTERACT",
         ("tests/integration/life/test_autoplay.py::test_a_concluded_app_use_reads_end_of_use",
          "tests/integration/start_interfaces/test_location_activities.py"
-         "::test_memory_sentence_keeps_the_unfinished_half_only_for_app_content",
+         "::test_unfinished_half_is_only_in_the_full_line_of_app_content",
          "tests/unit/life/test_autoplay_order.py::test_one_predicate_words_the_ending_and_the_outcome")),
     SourceMutation("progress_snapshot_keeps_the_played_list", 'worldmock.simulation_engine.observation.wording.activity_titles::progress_snapshot',
         'data = {key: value for key, value in payload["data"].items() if key != "played"}',
@@ -788,7 +840,8 @@ MUTATIONS = (
         ("tests/unit/engineering/test_recorded_response_run.py::test_one_shot_uuid_returns_the_run_id_once",)),
     SourceMutation("wall_clock_masked_by_key_name", 'scripts.compare_runs::mask_paths',
         "if path in paths:", 'if path.rsplit(".", 1)[-1] in {item.rsplit(".", 1)[-1] for item in paths}:',
-        ("tests/unit/engineering/test_compare_runs.py::test_nested_recorded_at_is_compared",)),
+        ("tests/unit/engineering/test_compare_runs.py"
+         "::test_a_nested_key_named_like_a_wall_clock_mask_is_compared",)),
     SourceMutation("event_wall_clock_not_masked", 'scripts.compare_runs::normalize_event',
         "event = mask_paths(event, EVENT_MASKS)", "event = dict(event)",
         ("tests/unit/engineering/test_compare_runs.py"
@@ -1222,6 +1275,12 @@ MUTATIONS = (
         "evidence.append(day_planning.response_draft(now, agent_id, (*link, ()), raw, None))",
         ("tests/integration/runtime/test_model_exchange_attempts.py"
          "::test_plan_day_evidence_carries_attempts[response]",)),
+    SourceMutation("memory_digest_response_attempts_dropped",
+        'worldmock.runtime.lifecycle.runner::_generate_memory_digest',
+        "evidence.append(memory_digest.response_draft(now, agent_id, (*link, attempts), raw, error))",
+        "evidence.append(memory_digest.response_draft(now, agent_id, (*link, ()), raw, error))",
+        ("tests/integration/runtime/test_model_exchange_attempts.py"
+         "::test_memory_digest_evidence_carries_attempts[response]",)),
     SourceMutation("env_close_leaves_cached_clients", 'custom.envs.life_env::LifeEnv.close',
         "await close_cached_async_clients()", "pass",
         ("tests/integration/runtime/test_llm_client_close.py"
@@ -1247,16 +1306,11 @@ MUTATIONS = (
          "::test_real_full_slots_and_pending_conclusion_use_the_same_tool_refusal",
          "tests/unit/life/test_shared_observation_contract.py"
          "::test_tool_layer_rows_take_availability_from_the_private_binding_note")),
-    SourceMutation("unconsolidated_view_keeps_the_cursor_episode",
-        'worldmock.agents.memory.life_memory_store::WorldMockMemoryStore.unconsolidated_view',
-        "return records[index + 1:]", "return records[index:]",
-        ("tests/integration/as2/test_worldmock_memory_boundaries.py"
-         "::test_cache_reads_equal_the_copying_reads_at_every_cursor",)),
     SourceMutation("step_end_copies_every_memory_again",
         'worldmock.agents.memory.life_memory::WorldMockMemoryRuntime.after_step',
         "known = store.episode_ids()", 'known = {str(item["id"]) for item in store.iter_episodes()}',
         ("tests/integration/as2/test_worldmock_life_hooks.py"
-         "::test_step_end_below_the_threshold_reads_memory_without_copying_it",)),
+         "::test_step_end_reads_memory_without_copying_it",)),
     SourceMutation("fitted_count_includes_the_output_reserve", 'worldmock.agents.prompt.prompt_capacity::fit_request',
         "return FittedRequest(request, measured - reserve)\n    if budget",
         "return FittedRequest(request, measured)\n    if budget",

@@ -37,7 +37,6 @@ from worldmock.recording_engine.projections.presentation.timeline_labels import 
     window_days,
 )
 from worldmock.simulation_engine.scheduling.plans import day_planning
-from worldmock.simulation_engine.evidence import memory as memory_evidence
 from worldmock.foundation.model_feedback import schema_error_details
 
 

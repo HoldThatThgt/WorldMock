@@ -153,8 +153,7 @@ def test_card_text_and_persona_layer_write_the_same_window_text():
         leave_work=make_window(18.0, 18.5), arrive_home=make_window(18.25, 18.75)))
 
     text = render_card(card)
-    rhythm = persona_layer({"persona_card_struct": persona_card_struct(card)}, "林舟",
-                           {"relationships": [], "preferences": []})["rhythm"]
+    rhythm = persona_layer({"persona_card_struct": persona_card_struct(card)}, "林舟")["rhythm"]
 
     assert rhythm == {
         "wake": "7点到7点半", "leave_home": "8点到8点半", "lunch": "12点6分到12点12分",

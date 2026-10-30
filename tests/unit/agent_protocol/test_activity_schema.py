@@ -17,7 +17,7 @@ from agentsociety2.agent.base import ReactDecision, ReactLoopRequest
 from jsonschema import Draft202012Validator
 from pydantic import ValidationError
 
-from custom.agents.life_agent import LifeAgent, MemorySearchRequest
+from custom.agents.life_agent import LifeAgent
 from worldmock.agents.prompt.life_prompt import TOOL_DESCRIPTIONS
 from tests.integration.runtime.test_life_agent_protocol import (
     _OBSERVED_AT,
@@ -35,7 +35,7 @@ from tests.integration.runtime.test_life_agent_protocol import (
 )
 from tests.integration.runtime.current_contract_fixtures import profile
 from worldmock.simulation_engine.activities.lifecycle.activity_control import PHASE_ACTIVE
-from worldmock.state.interaction.requests import REQUEST_MODELS
+from worldmock.state.interaction.requests import QUERY_MODELS, REQUEST_MODELS
 from worldmock.state.interaction.schema import deepseek_strict_schema
 from tests.life.conftest import MAIN_TOOL, SIDE_TOOL, main_arguments, side_arguments
 
@@ -257,7 +257,7 @@ def test_recall_uses_readable_activity_name_and_retired_world_tools_are_absent()
     """回看绑定真实活动名称，旧消息、工作提交与闹钟工具不再提供。"""
     names = {entry["function"]["name"] for entry in _prepared_agent().build_react_tool_schemas(readonly=False)}
     assert {"start_activity", "submit_work", "send_message", "set_alarm", "finish"}.isdisjoint(names)
-    assert len(names) == 10 and {MAIN_TOOL, SIDE_TOOL} <= names
+    assert len(names) == 8 and {MAIN_TOOL, SIDE_TOOL} <= names
     recall = _function("recall_task_summary")["parameters"]
     assert set(recall["properties"]) == {"task_name"}
     for name in (_WAIT,):
@@ -310,10 +310,10 @@ def test_provider_array_cardinality_gap_is_locally_rejected() -> None:
         assert list(Draft202012Validator(conclude).iter_errors(payload)) == []
         with pytest.raises(ValidationError):
             REQUEST_MODELS["conclude_activity"].model_validate(payload)
-    search = {"query": "q" * 201, "limit": 1}
-    assert list(Draft202012Validator(_function("memory_search")["parameters"]).iter_errors(search)) == []
+    search = {"category": "饮食", "time": "今天", "keyword": "早饭 午饭 晚饭 夜宵 零食"}
+    assert list(Draft202012Validator(_function("search_memory")["parameters"]).iter_errors(search)) == []
     with pytest.raises(ValidationError):
-        MemorySearchRequest.model_validate(search)
+        QUERY_MODELS["search_memory"].model_validate(search)
 
 
 def test_conclusion_memory_and_view_nested_schemas_remain_strict() -> None:

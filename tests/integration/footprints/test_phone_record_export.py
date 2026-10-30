@@ -172,7 +172,7 @@ def test_exported_stays_match_the_stay_sessions_of_the_final_checkpoint(phone_ex
 
 def test_quality_report_gains_nothing_from_the_phone_records(phone_export):
     quality = json.loads((phone_export["directory"] / "quality.json").read_bytes())
-    assert quality["schema_version"] == 9
+    assert quality["schema_version"] == 10
     assert not [key for key in quality if any(word in key for word in ("stay", "navigation", "notification"))]
 
 

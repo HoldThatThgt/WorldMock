@@ -14,7 +14,7 @@ from worldmock.recording_engine.storage.store import FootprintStore
 from worldmock.simulation_engine.world.counterfactual import CounterfactualRuntime
 from worldmock.simulation_engine.decisions.decision_coordinator import DecisionCoordinator
 from worldmock.simulation_engine.world.context import EngineContext
-from worldmock.simulation_engine.evidence.memory import due_reflection
+from worldmock.simulation_engine.evidence.memory_digest import DigestOutcome
 from worldmock.simulation_engine.evidence.model import ModelEvidenceRecorder
 from worldmock.state.decisions.results import (
     ActionReceipt,
@@ -22,9 +22,10 @@ from worldmock.state.decisions.results import (
     CounterfactualIntervention,
     CounterfactualReceipt,
 )
-from worldmock.state.interaction.requests import PlanDayRequest, RecallTaskSummaryRequest
+from worldmock.state.interaction.requests import PlanDayRequest, RecallTaskSummaryRequest, SearchMemoryRequest
 from worldmock.state.identity import RunIdentity
 from worldmock.simulation_engine.observation.layers.observe import ObservationBuilder
+from worldmock.simulation_engine.observation.memory import search
 from worldmock.state.planning.schedule import DayPlan
 from worldmock.configuration.inputs.environment import EnvironmentInputs
 from worldmock.simulation_engine.actions.dispatcher import ActionHandlers
@@ -36,7 +37,7 @@ from worldmock.simulation_engine.decisions.continuation import CONTINUATION_KEY,
 
 if TYPE_CHECKING:
     from agentsociety2.society import DecisionContext, DirectToolCall, SchedulingState
-    from worldmock.recording_engine.events.models import Checkpoint
+    from worldmock.recording_engine.events.models import Checkpoint, Event
     from worldmock.simulation_engine.body import felt
 
 
@@ -90,12 +91,6 @@ class LifeEngine:
         )
         return data
 
-    def due_reflection(self, context: "DecisionContext") -> dict[str, str] | None:
-        """@brief 只读：本次决策取观察之前该不该先做就寝反思；不写事件，不改世界。"""
-        self.decisions.validate_context(context)
-        self.decisions.require_round(context.round_id)
-        return due_reflection(self.context.state, context.agent_id)
-
     def begin_decision_round(self, contexts: list["DecisionContext"]) -> None:
         """@brief 按当前可恢复顺序开始决策轮。"""
         self.decisions.begin_decision_round(contexts, self.clock._ready_agent_ids())
@@ -144,9 +139,17 @@ class LifeEngine:
         """@brief 系统登记今日计划并同事务保存其模型证据。"""
         return self.clock.register_day_plan(agent_id, request, sources, evidence)
 
+    def register_memory_digest(self, agent_id: int, outcome: DigestOutcome, evidence: list[EventDraft]) -> None:
+        """@brief 系统登记一期回顾并同事务保存其模型证据。"""
+        self.clock.register_memory_digest(agent_id, outcome, evidence)
+
     def read_task_summary(self, agent_id: int, request: RecallTaskSummaryRequest, observed: dict) -> dict:
         """@brief 从真实已提交观察回看任务，读取不改变世界。"""
         return self.actions.read_task_summary(agent_id, request, observed)
+
+    def search_memory(self, agent_id: int, request: SearchMemoryRequest, observation: "Event") -> dict:
+        """@brief 只读检索本人记忆：只读冻结观察所在事件序号及以前的事件与冻结输入，不写事件、不改世界。"""
+        return search.search_memory(self.context, agent_id, request, observation)
 
     def apply_counterfactual(self, intervention: CounterfactualIntervention) -> CounterfactualReceipt:
         """@brief 在首轮之前对真实反事实分支提交严格干预。"""

@@ -2,12 +2,11 @@ from tests.integration.runtime.current_contract_fixtures import profile as curre
 """@brief 只读查询转发的四类证据（docs/design/10-runtime.md 「证据分工」）。
 
 1. 真实 Ray：驱动侧与 worker 侧各经代理调用一次，回看任务返回结果字典而非对象引用，世界状态逐字节不变、不追加事件；
-2. 主进程内直接构造未经 ray.remote 包装的 LifeEnvActor 并调用 read_query，等于环境直调（守住函数体与私有成员依赖）；
+2. 主进程内直接构造未经 ray.remote 包装的 LifeEnvActor 并调用 read_query（回看任务与检索记忆），等于环境直调
+   （守住函数体与私有成员依赖）；
 3. 不启动 Ray 的并发度断言：actor 类固定 max_concurrency=1，不提供参数；
 4. 运行装配（worldmock.runtime.lifecycle.runner._build_society）建立的是 LifeEnvActor 与带 read_query 的 LifeEnvProxy。
 覆盖率门禁只计主进程执行的行，变异执行器也只对主进程生效，所以四类缺一不可。
-同一条 Life 扩展通道上的另一个只读方法 due_reflection（取观察之前该不该先做就寝反思）用同样的分工：未包装的 actor
-等于环境直调，运行装配出的代理把调用送到 actor 句柄并返回等待后的结果。
 """
 
 from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT, ENVIRONMENT_ROOT
@@ -29,10 +28,9 @@ from agentsociety2.env.direct_env_actor import DirectEnvActorSpec
 from custom.envs.life_env import LifeEnv
 from tests.engine_fixture import engine_factory  # noqa: F401
 from tests.life.conftest import advance_next, context, sleep, stage_day_plan  # noqa: F401
-from tests.life.environment_runtime import act
 from worldmock.foundation.errors import ProtocolError
 from worldmock.simulation_engine.engine import LifeEngine
-from worldmock.state.interaction.requests import RecallTaskSummaryRequest, ReviseDayPlanRequest
+from worldmock.state.interaction.requests import RecallTaskSummaryRequest, ReviseDayPlanRequest, SearchMemoryRequest
 from worldmock.runtime.framework.read_query import LifeEnvActor, LifeEnvProxy, life_env_actor_class
 from worldmock.state.planning.schedule import PlanGoal
 
@@ -118,8 +116,6 @@ async def test_task_recall_crosses_real_ray_without_world_mutation(engine_factor
         assert driver == staged.expected
         worker = await worker_side.remote(proxy, staged.frozen, staged.request)
         assert type(worker) is dict and worker == staged.expected
-        # 同一条通道上的另一个只读方法：没有睡醒的这一刻，跨进程的判定结果是空，不写事件。
-        assert await proxy.due_reflection(staged.frozen) is None
         await proxy.close()
     finally:
         if actor is not None:
@@ -131,9 +127,9 @@ async def test_task_recall_crosses_real_ray_without_world_mutation(engine_factor
 @pytest.mark.asyncio
 async def test_unwrapped_actor_read_query_equals_direct_environment_call(
         engine_factory, monkeypatch, published_environment, caplog):
-    """主进程内直接构造 LifeEnvActor（不经 ray.remote）：read_query 把回看任务交给它持有的唯一生活环境，结果等于
-    环境直调；回看被业务拒绝时返回错误结构而不抛出；工具与请求类型不符、找不到唯一观察是协议违约，抛出前先写英文错误日志；
-    回看不写事件、不改世界状态。"""
+    """主进程内直接构造 LifeEnvActor（不经 ray.remote）：read_query 把回看任务与检索记忆交给它持有的唯一生活环境，
+    结果等于环境直调；回看被业务拒绝时返回错误结构而不抛出；工具与请求类型不符（含白名单外的 memory_recent）、找不到
+    唯一观察是协议违约，抛出前先写英文错误日志；只读查询不写事件、不改世界状态。"""
     monkeypatch.setenv('WORKSPACE_PATH', str(ROOT))
     monkeypatch.setenv("WORLDMOCK_TEST_API_KEY", "test-only-key")
     staged = await _staged_recall(engine_factory, published_environment)
@@ -160,6 +156,11 @@ async def test_unwrapped_actor_read_query_equals_direct_environment_call(
         assert refused['items'][0]['written'] == '并不存在的任务' and refused['unmet'] == []
         assert refused == await environment.read_query(staged.frozen, 'recall_task_summary', unknown)
 
+        search = SearchMemoryRequest(category='全部', time='今天', keyword=None)
+        searched = await actor.read_query(staged.frozen, 'search_memory', search)
+        assert type(searched) is dict and list(searched) == ['类别', '时间', '关键词', '结果', '未列出']
+        assert searched == await environment.read_query(staged.frozen, 'search_memory', search)
+
         for tool, request in (('query_world', staged.request), ('memory_recent', staged.request),
                               ('recall_task_summary', ReviseDayPlanRequest(goals=[]))):
             with pytest.raises(ProtocolError, match='Read query tool and request type do not match'):
@@ -173,9 +174,10 @@ async def test_unwrapped_actor_read_query_equals_direct_environment_call(
 
 
 @pytest.mark.asyncio
-async def test_read_query_answers_only_task_recall(engine_factory):
-    """直接导入并构造 LifeEnv：只读通道只回答回看任务。工具名写已删除的 query_world 或记忆查询、或工具名对而请求类型
-    不对，都是协议违约，原文相同；回看任务照常返回。全程不写事件、不改世界状态。"""
+async def test_read_query_answers_task_recall_and_memory_search_only(engine_factory):
+    """直接导入并构造 LifeEnv：只读通道只回答回看任务与检索记忆。工具名写已删除的 query_world 或 memory_recent、
+    或工具名对而请求类型不对（search_memory 配回看请求、recall_task_summary 配检索请求或计划修订），都是协议违约，
+    原文相同；两种合法查询照常回答。全程不写事件、不改世界状态。"""
     engine = engine_factory()
     stage_day_plan(engine, goals=(PlanGoal(intent_kind='休息', goal='歇一歇',
                                          registered_at=engine.context.state.current_time),))
@@ -186,12 +188,17 @@ async def test_read_query_answers_only_task_recall(engine_factory):
     environment = LifeEnv()
     environment.engine = engine
     before, sequence = engine.context.state.model_dump_json(), engine.context.store.last_event_seq
-    for tool, request in (('query_world', recall), ('memory_recent', recall),
-                          ('recall_task_summary', ReviseDayPlanRequest(goals=[]))):
-        with pytest.raises(ProtocolError, match='^Read query tool and request type do not match$'):
+    search = SearchMemoryRequest(category='饮食', time='今天', keyword=None)
+    for tool, request in (('query_world', recall), ('memory_recent', recall), ('search_memory', recall),
+                          ('recall_task_summary', search), ('recall_task_summary', ReviseDayPlanRequest(goals=[]))):
+        with pytest.raises(Exception) as caught:
             await environment.read_query(frozen, tool, request)
+        assert caught.type is ProtocolError, (tool, caught.value)
+        assert str(caught.value) == 'Read query tool and request type do not match', tool
     recalled = await environment.read_query(frozen, 'recall_task_summary', recall)
     assert recalled['recall']['kind'] == 'goal'
+    searched = await environment.read_query(frozen, 'search_memory', search)
+    assert searched == {'类别': '饮食', '时间': '今天', '关键词': None, '结果': [], '未列出': []}
     assert engine.context.state.model_dump_json() == before
     assert engine.context.store.last_event_seq == sequence
 
@@ -232,12 +239,7 @@ async def test_runtime_assembly_builds_life_actor_and_a_proxy_with_read_query(mo
         received.append(arguments)
         return answer
 
-    async def due(*arguments):
-        """就寝反思判定的远端替身：记录参数，等待后给出归属日期。"""
-        received.append(arguments)
-        return {'date': '2026-01-04', 'sleep_activity_id': 'activity-nap'}
-
-    handle = SimpleNamespace(read_query=SimpleNamespace(remote=resolved), due_reflection=SimpleNamespace(remote=due))
+    handle = SimpleNamespace(read_query=SimpleNamespace(remote=resolved))
 
     def remote(**options):
         """记录 ray.remote 的参数与被包装的类，返回只产出替身句柄的 actor 类。"""
@@ -270,50 +272,7 @@ async def test_runtime_assembly_builds_life_actor_and_a_proxy_with_read_query(mo
     result = await agent_side.read_query('context', 'recall_task_summary', 'request')
     assert result is answer
     assert received == [('context', 'recall_task_summary', 'request')]
-    assert callable(getattr(agent_side, 'due_reflection', None))
-    assert await agent_side.due_reflection('waking-context') == {
-        'date': '2026-01-04', 'sleep_activity_id': 'activity-nap'}
-    assert received[-1] == ('waking-context',)
-
-
-@pytest.mark.asyncio
-async def test_unwrapped_actor_due_reflection_equals_direct_environment_call(engine_factory, monkeypatch,
-                                                                             published_environment):
-    """主进程内直接构造 LifeEnvActor（不经 ray.remote）：due_reflection 把判定交给它持有的唯一生活环境，结果等于环境
-    直调与生活引擎的同名只读方法——当天第一次睡醒时给出归属日期与所属睡眠；先做上下文校验并要求决策轮已开启；
-    不写事件、不改世界状态。"""
-    monkeypatch.setenv('WORKSPACE_PATH', str(ROOT))
-    monkeypatch.setenv("WORLDMOCK_TEST_API_KEY", "test-only-key")
-    engine = engine_factory(environment_root=published_environment)
-    stage_day_plan(engine, submitted=True)
-    _, nap = act(engine, 'nap', sleep(60))
-    while engine.context.state.activities[nap.activity_id].status == 'active':
-        advance_next(engine)
-    frozen, run_dir = context(engine, 'woke'), engine.context.store.run_dir
-    engine.close()
-    actor = LifeEnvActor(_actor_spec(run_dir, published_environment))
-    try:
-        await actor.init(frozen.observed_at)
-        (environment,) = actor._router.env_modules
-        with pytest.raises(ProtocolError, match='Decision round is not open'):
-            await actor.due_reflection(frozen)
-        await actor.begin_decision_round((frozen,))
-        engine = environment.engine
-        before, sequence = engine.context.state.model_dump_json(), engine.context.store.last_event_seq
-        due = await actor.due_reflection(frozen)
-        assert due == {'date': '2026-01-04', 'sleep_activity_id': nap.activity_id}
-        assert due == await environment.due_reflection(frozen) == engine.due_reflection(frozen)
-        stale = context(engine, 'woke')
-        stale = type(stale)(stale.run_id, stale.round_id, stale.decision_id, stale.agent_id, stale.observed_at,
-                            stale.world_state_version + 1)
-        with pytest.raises(ProtocolError, match='Decision context world version is stale'):
-            await actor.due_reflection(stale)
-        assert engine.context.state.model_dump_json() == before
-        assert engine.context.store.last_event_seq == sequence
-        await actor.observe(frozen)
-        assert await actor.due_reflection(frozen) == due
-    finally:
-        await actor.close()
+    assert not hasattr(agent_side, 'due_reflection')
 
 
 @pytest.mark.asyncio

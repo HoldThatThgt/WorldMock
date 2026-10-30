@@ -8,6 +8,7 @@ public_reason 上，下一步、改法与逐项明细写进 suggested；其余�
 请求模型的校验转储）。源码中会抛出的每个业务拒绝码都有具体的默认原因，行为由跨模块错误合同测试验证。
 结果 message 就是 reason；这些键经公开结果投影进入进度层 tool_call.result.details（docs/design/06-agent.md
 「进度、待办与记忆」）。工具层的可用性说明取同一原因：只有错误码的拒绝经 refusal_for_code 取得与拒绝一字不差的 Refusal。
+只读查询的拒绝不进进度层，经 query_rejection 写成五字段形状直接作为 tool 结果。
 """
 
 from __future__ import annotations
@@ -65,6 +66,9 @@ _DEFAULT_REASONS = {
     'OBSERVATION_NOT_FOUND': 'The decision has no unique frozen observation.',
     'CONTENT_PREREQUISITE_UNMET': 'No content of this app can start at the current place and time.',
     'PARCEL_NOT_READY': 'No parcels are ready for you at this station.',
+    'MEMORY_TIME_INVALID': 'The memory search time is not a valid period up to now.',
+    'MEMORY_KEYWORD_REQUIRED': 'Searching time 全部 requires a keyword.',
+    'MEMORY_SEARCH_LIMIT': 'This decision has already searched memory three times.',
 }
 
 #: 按错误码给的改法：怎样改这次请求（世界条件造成的拒绝没有改法，只看下一步）。
@@ -82,6 +86,10 @@ _DEFAULT_FIXES = {
     'TASK_NOT_FOUND': 'Use an exact known task, goal or activity name.',
     'PLAN_REMIND_TIME_INVALID': 'Use a local HH:MM after now and before midnight, or null.',
     'PLAN_GOALS_INVALID': 'Use unique intents and at most eight goals including preserved goals.',
+    'MEMORY_TIME_INVALID': ('Use a real date, month or year that does not start after today, '
+                            'a range of at most 31 days, or a clock time of today that does not start after now.'),
+    'MEMORY_KEYWORD_REQUIRED': 'Write a keyword, or replace 全部 with a date, range, month or year.',
+    'MEMORY_SEARCH_LIMIT': '本次决策已查过三次记忆，请依据现有信息决定',
 }
 
 #: 抛出处没有写下一步时按错误码给的做法。
@@ -193,3 +201,11 @@ def rejection_guidance(error: BusinessRuleError) -> dict:
                 "fix": suggested.get("fix") or _DEFAULT_FIXES.get(code) or None}
     guidance.update({key: list(suggested[key]) for key in _PUBLIC_SUGGESTIONS if suggested.get(key)})
     return guidance
+
+
+def query_rejection(error: BusinessRuleError) -> dict:
+    """@brief 只读查询（回看任务与检索记忆）的业务拒绝写成五字段形状 {error_code, reason, fix, items, unmet}，
+    直接作为 tool 结果；原因、改法与明细取 rejection_guidance 的同一说法。"""
+    guidance = rejection_guidance(error)
+    return {"error_code": str(error), "reason": guidance["reason"], "fix": guidance["fix"],
+            "items": guidance.get("items", []), "unmet": list(getattr(error, "unmet", []) or [])}

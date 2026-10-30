@@ -1,6 +1,7 @@
 """@brief 当前环境事实的严格正文与可见性验证。"""
 
 import logging
+import re
 from datetime import date
 
 from worldmock.exchange_engine.definitions.constants import WEATHER_FACTORS
@@ -10,6 +11,12 @@ from worldmock.recording_engine.events.callback_contract import (
     StateResetResult,
     TransferResult,
 )
+from worldmock.state.model.memory import (
+    MEMORY_DIGEST_KEYS,
+    MEMORY_DIGEST_KIND,
+    MEMORY_DIGEST_TEXT_LIMITS,
+    MEMORY_DIGEST_TIERS,
+)
 
 RETIRED_KINDS = {
     "alarm_ring", "message_arrival", "mail_arrival", "model_npc_reply_pending", "model_npc_reply",
@@ -18,6 +25,11 @@ RETIRED_KINDS = {
 TIME_KEYS = {"run_start", "run_stop", "hourly", "daily", "monthly"}
 #: 一段停留怎样开始，以及各自要求的起因个数：运行开始时已在这里的那一段没有起因。
 ENTRY_KIND_CAUSES = {"run_start": 0, "arrival": 1, "travel_ended_early": 1}
+#: 回顾登记事件 data 的键集与每类项的键集。
+_DIGEST_FIELDS = frozenset({"kind", "tier", "period", "digests", "fallback"})
+_DIGEST_ITEM_FIELDS = frozenset({"text", "source_event_ids", "cited_event_ids"})
+#: 月回顾与年回顾的期写法（ASCII 数字，fullmatch 不接受末尾换行）。
+_PERIOD_PATTERNS = {"month": re.compile(r"[0-9]{4}-(0[1-9]|1[0-2])"), "year": re.compile(r"[0-9]{4}")}
 
 
 def validate_environment_event(event) -> None:
@@ -42,6 +54,62 @@ def validate_environment_event(event) -> None:
             _invalid("Callback reminder fields or source are invalid")
     elif kind in {"location_entered", "location_left"}:
         _location_stay(event)
+    elif kind == MEMORY_DIGEST_KIND:
+        _memory_digest_generated(event)
+
+
+def _memory_digest_generated(event) -> None:
+    """@brief 回顾登记事件只核对形状：回顾正文是模型写的主观回忆，不是核验事实；生成时的守卫依赖目录与输入，这里不重跑。
+
+    信封是来源 model、可见性 system、无资金变化、属于一个人物、起因恰一项；级与期对应；三类各为 null 或带正文与两种身份
+    列表的对象，至少一类非 null 或 fallback 非空；fallback 里的类按 food、work、life 的相对次序、不重复且都为 null。
+    """
+    data = event.data
+    if (set(data) != _DIGEST_FIELDS or event.source_kind != "model" or event.visibility != "system"
+            or event.resource_changes or event.agent_id is None or len(event.caused_by) != 1):
+        _invalid("Memory digest event fields or source are invalid")
+    tier, period = data["tier"], data["period"]
+    if tier not in MEMORY_DIGEST_TIERS or not isinstance(period, str) or not _period_matches(tier, period):
+        _invalid("Memory digest event tier or period is invalid")
+    if not _digests_valid(data["digests"], MEMORY_DIGEST_TEXT_LIMITS[tier], data["fallback"]):
+        _invalid("Memory digest event digests are invalid")
+    fallback = data["fallback"]
+    if (not isinstance(fallback, list) or fallback != [key for key in MEMORY_DIGEST_KEYS if key in fallback]
+            or any(data["digests"][key] is not None for key in fallback)):
+        _invalid("Memory digest event fallback is invalid")
+
+
+def _period_matches(tier: str, period: str) -> bool:
+    """@brief 期与级对应：日是往返相等的 ISO 日期，月是 YYYY-MM（01–12），年是四位 ASCII 数字。"""
+    if tier != "day":
+        return _PERIOD_PATTERNS[tier].fullmatch(period) is not None
+    try:
+        return date.fromisoformat(period).isoformat() == period
+    except ValueError:
+        return False
+
+
+def _digests_valid(digests, limit: int, fallback) -> bool:
+    """@brief 三类恰为 food、work、life；每类为 null 或正文非空白且不超过该级上限、两种身份列表非空且不重复、依据是
+    来源的子集；至少一类非 null 或 fallback 非空。"""
+    if not isinstance(digests, dict) or set(digests) != set(MEMORY_DIGEST_KEYS):
+        return False
+    for item in digests.values():
+        if item is None:
+            continue
+        if not isinstance(item, dict) or set(item) != _DIGEST_ITEM_FIELDS or not _text(item["text"]):
+            return False
+        sources, cited = item["source_event_ids"], item["cited_event_ids"]
+        if (len(item["text"]) > limit or not _identities(sources) or not _identities(cited)
+                or not set(cited) <= set(sources)):
+            return False
+    return any(item is not None for item in digests.values()) or (isinstance(fallback, list) and bool(fallback))
+
+
+def _identities(value) -> bool:
+    """@brief 身份列表：非空、元素都是非空白字符串且不重复。"""
+    return (isinstance(value, list) and bool(value) and all(_text(item) for item in value)
+            and len(set(value)) == len(value))
 
 
 def _location_stay(event) -> None:

@@ -11,6 +11,8 @@ from tools.analysis.behavior.metrics import (
     BEDTIME_MIN_SECONDS,
     UNREPORTED_CODE_KEY,
     behavior_metrics_report,
+    digest_identity_residue,
+    digest_repetition,
 )
 from worldmock.foundation.serialization import canonical_json
 from tools.analysis.errors import EvaluationError
@@ -676,6 +678,8 @@ def test_missing_metric_evidence_is_reported_unknown_and_gates_fail_closed() -> 
     ]
     report = _report(events)
     assert report["schema_version"] == "behavior-metrics-4"
+    own = [key for key in report["reports"] if key != "external_constraints"]
+    assert own[-2:] == ["memory_digest_repetition", "memory_digest_identity_residue"]
     assert report["gates"]["observation_repetition"]["pass"] is True
     for key in ("silent_boundary_ratio", "memory_repetition_ratio", "memory_md_identity_residue"):
         assert report["gates"][key]["value"] is None
@@ -766,3 +770,48 @@ def test_behavior_metrics_reject_retired_activity_before_reporting():
     event = _event("activity_progress", _clock(0, 8), data={"activity": {"kind": "work"}})
     with pytest.raises(EvaluationError, match="retired activity"):
         behavior_metrics_report([event])
+
+
+def _digest(event_seq: int, tier: str, period: str, texts: dict[str, str], agent_id: int = 1) -> dict[str, Any]:
+    """@brief 构造一条回顾登记事件：texts 是类别键 → 正文，未给的类为 null。"""
+    digests = {key: ({"text": texts[key], "source_event_ids": ["e1"], "cited_event_ids": ["e1"]}
+                     if key in texts else None) for key in ("food", "work", "life")}
+    return _event("environment_event", _clock(0, 0) + event_seq, agent_id=agent_id, event_seq=event_seq,
+                  data={"kind": "memory_digest_generated", "tier": tier, "period": period, "digests": digests,
+                        "fallback": []})
+
+
+def test_digest_repetition_pairs_adjacent_days_of_one_category():
+    """@brief 同一人物同一类别相邻两个日历日的非空日回顾成一对，bigram Jaccard ≥ 0.6 为相似（恰为 0.6 也算）；
+    月回顾与隔天不成对；ratio 保留六位小数。"""
+    same = "中午在公司楼下吃了番茄牛肉刀削面，下午喝了美式咖啡"
+    report = "上午写周报，下午开会讨论排期"
+    events = [
+        _digest(1, "day", "2026-10-08", {"food": same, "work": report}),
+        _digest(2, "day", "2026-10-09", {"food": same, "work": report, "life": "晚上去公园散步"}),
+        _digest(3, "day", "2026-10-10", {"food": "晚上在家做了可乐鸡翅配清炒菌菇", "life": "在家看了一部电影"}),
+        _digest(4, "day", "2026-10-12", {"food": same}),
+        _digest(5, "month", "2026-10", {"food": same}),
+        # 「去公园散步」与「去公园散心」共有 3 个 bigram、合起来 5 个，Jaccard 恰为 0.6。
+        _digest(6, "day", "2026-10-09", {"food": same, "life": "去公园散步"}, agent_id=2),
+        _digest(7, "day", "2026-10-10", {"food": same + "。", "life": "去公园散心"}, agent_id=2),
+    ]
+    assert digest_repetition(events) == {"pairs": 6, "similar_pairs": 4, "ratio": 0.666667}
+    assert digest_repetition([]) == {"pairs": 0, "similar_pairs": 0, "ratio": None}
+    reports = behavior_metrics_report(events)[CODE_A]["reports"]
+    assert reports["memory_digest_repetition"] == {"pairs": 6, "similar_pairs": 4, "ratio": 0.666667}
+
+
+def test_digest_identity_residue_counts_example_markers():
+    """@brief 各级回顾每类正文小写后命中示例身份标记的「类·期」逐个列出，标记按字典序；干净的正文不列。"""
+    events = [
+        _digest(1, "day", "2026-10-08", {"food": "中午吃面", "life": "Marketing Analyst at AOI 500038964 的样子"}),
+        _digest(2, "month", "2026-10", {"work": "一位 28-year-old female 同事"}),
+        _digest(3, "year", "2026", {"food": "全年常吃面"}),
+    ]
+    expected = {"hits": 2, "matches": [
+        {"agent_id": 1, "tier": "day", "period": "2026-10-08", "category": "life",
+         "markers": ["aoi 500038964", "marketing analyst"]},
+        {"agent_id": 1, "tier": "month", "period": "2026-10", "category": "work", "markers": ["28-year-old female"]}]}
+    assert digest_identity_residue(events) == expected
+    assert behavior_metrics_report(events)[CODE_A]["reports"]["memory_digest_identity_residue"] == expected

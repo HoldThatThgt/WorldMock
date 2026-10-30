@@ -1,4 +1,4 @@
-"""@brief 人物卡片的纯文本组装（记忆巩固与反思的人物段）。"""
+"""@brief 人物卡片的纯文本组装（工作区 MEMORY.md 的身份段）。"""
 
 from __future__ import annotations
 
