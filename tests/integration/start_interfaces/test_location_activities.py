@@ -36,10 +36,13 @@ from tests.life.environment_runtime import (
     one_hour_every_five_minutes,
     reach,
     run_to_end,
+    until_ended,
 )
 from worldmock.state.interaction.requests import StartMainActivityRequest
 from worldmock.agents.prompt.prompt_schemas import validate_layer
 from worldmock.foundation.randomness import random_stream
+from worldmock.simulation_engine.observation.memory.days import published_today
+from worldmock.simulation_engine.observation.memory.entries import short_name
 from worldmock.agents.prompt.tool_groups import compact_tool_layer, expand_tool_layer
 
 _ROW_KEYS = ["action", "detail", "available", "reason", "price", "duration", "quantity", "note"]
@@ -189,7 +192,7 @@ def test_naming_a_unit_starts_exactly_that_content(engine_factory, unit, content
     assert activity.data["draw_index"] == 0 and activity.data["pinned_by_push_id"] is None
     assert activity.data["start_position_seconds"] == 0.0 and activity.planned_duration_seconds == seconds
     assert result.data["activities"][0]["content_title"] == unit
-    finish_activity(engine, result, "named")
+    until_ended(engine, result.activity_id)
     record = progress_calls(engine.observe(context(engine, "after")), "start_main_activity")[0]
     assert record["arguments"] == {"action": "interact", "target": "家", "detail": unit}
 
@@ -526,9 +529,9 @@ def test_concluded_location_activity_stays_cancelled_and_writes_no_extra_event(e
 
 @pytest.mark.parametrize("request_builder,unfinished", [
     (lambda: do_at("家", "测试休息"), False), (lambda: use_app("Keep"), True)], ids=["location", "app"])
-def test_memory_sentence_keeps_the_unfinished_half_only_for_app_content(engine_factory, request_builder, unfinished):
-    """做 5 分钟后结束、离开这一段：记忆层里在地点做的事的结束句以「提前结束」收尾，用内容 app 的结束句以「结束使用」
-    收尾并带「（《测试慢跑》未完）」。"""
+def test_unfinished_half_is_only_in_the_full_line_of_app_content(engine_factory, request_builder, unfinished):
+    """做 5 分钟后结束、离开这一段：记忆层「今天」里在地点做的事的结束行以「，提前结束」收尾；用内容 app 的结束行不写
+    「结束使用」「提前结束」也没有「未完」，条目全文的完整行以「（《测试慢跑》未完）」收尾。"""
     engine = engine_factory(mutate=_attentive)
     _, started = act(engine, "started", request_builder())
     assert started.status == "in_progress", started.error_code
@@ -539,11 +542,17 @@ def test_memory_sentence_keeps_the_unfinished_half_only_for_app_content(engine_f
     _, trip = act(engine, "leave", travel("五里公园", "驾车"))
     assert trip.status == "in_progress", trip.error_code
     memory = engine.observe(context(engine, "road"))["memory_layer"]
-    (sentence,) = [line for entry in memory["earlier_today"] for line in entry["settled"] if line.startswith(name)]
+    label = short_name(name)
+    (sentence,) = [line for item in memory["今天"] for line in item.get("核验", ()) if line.startswith(f"{label} ")]
+    today = published_today(engine.context.inputs, engine.context.store, 1, engine.context.state.current_time,
+                            engine.context.store.last_event_seq)
+    (full,) = [line.full for entry in today.entries for line in entry.lines
+               if line.kind == "ending" and line.text == sentence]
     if unfinished:
-        assert sentence.endswith("，结束使用，（《测试慢跑》未完）")
+        assert not any(word in sentence for word in ("结束使用", "提前结束", "未完"))
+        assert full.endswith("（《测试慢跑》未完）")
     else:
-        assert sentence.endswith("，提前结束") and "未完" not in sentence
+        assert sentence.endswith("，提前结束") and "未完" not in full
 
 
 def test_long_office_content_concluded_midway_starts_again_at_full_length(engine_factory):

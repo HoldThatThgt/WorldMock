@@ -14,12 +14,13 @@ from __future__ import annotations
 from tests.integration.runtime.current_contract_fixtures import inputs as current_inputs, profile as current_profile
 
 from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT, ENVIRONMENT_ROOT
-from worldmock.simulation_engine.activities.lifecycle.activity_control import open_activities
 from worldmock.recording_engine.storage.checkpoint import restore_branch
 
 import copy
 import json
+import logging
 import os
+import re
 from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
@@ -38,20 +39,14 @@ from worldmock.agents.protocol.life_continuation import _overlay, _view as _seen
 from custom.envs.life_env import LifeEnv  # noqa: E402
 from scripts import inspect_run  # noqa: E402
 from tests.integration.runtime_fixtures import current_run_identity, write_agent_workspace  # noqa: E402
-from tests.integration.runtime.test_life_agent_protocol import (
-    _OBSERVED_AT,
-    _ModelResponse,
-    _conclude_args,
-    _memory,
-    _stored_memories,
-    _view,
-)
+from tests.integration.runtime.test_life_agent_protocol import _ModelResponse
 from tests.engine_fixture import engine_factory as _engine_factory  # noqa: F401
 from tests.life.conftest import (
     MAIN_TOOL,
     SIDE_TOOL,
     advance_next,
     advance_until_ready,
+    conclude_request,
     context,
     do_at,
     errand_add,
@@ -61,13 +56,19 @@ from tests.life.conftest import (
     main_arguments,
     pending_names,
     progress_calls,
+    purchase,
     side_arguments,
     stage_day_plan,
     tool_of,
     travel,
     use_app,
 )
-from tests.life.environment_runtime import act_group, events, every_five_minutes  # noqa: E402
+from tests.life.environment_runtime import (  # noqa: E402
+    act, act_group, events, every_five_minutes, finish_activity, reach, until_ended)
+from tests.integration.life.test_callback_runtime import callback_environment, rule  # noqa: E402
+from tests.integration.life.test_grocery_cooking import _six_days, _until_free, cook, grocery_engine  # noqa: E402
+from worldmock.agents.prompt.narration import render_layer_json  # noqa: E402
+from worldmock.agents.protocol.life_continuation import continuation_messages  # noqa: E402
 from tests.life.work_schedule_fixtures import declare  # noqa: E402
 from worldmock.foundation.time.readable import iso_time  # noqa: E402
 from worldmock.foundation.errors import IntegrityError  # noqa: E402
@@ -77,8 +78,12 @@ from worldmock.simulation_engine.engine import LifeEngine  # noqa: E402
 from worldmock.state.decisions.results import CounterfactualIntervention
 from worldmock.state.identity import ModelIdentity, RunIdentity  # noqa: E402
 from worldmock.agents.prompt.prompt_capacity import ProgressBudget, fit_request  # noqa: E402
-from worldmock.simulation_engine.observation.layers.progress_layer import records_after  # noqa: E402
-from worldmock.simulation_engine.observation.targets.tool_layer import LayerContext  # noqa: E402
+from worldmock.simulation_engine.observation.layers.result_projection import public_result  # noqa: E402
+from worldmock.simulation_engine.observation.memory.days import published_today  # noqa: E402
+from worldmock.simulation_engine.observation.memory.entries import activity_facts, agent_events  # noqa: E402
+from worldmock.simulation_engine.observation.memory import layout  # noqa: E402
+from worldmock.simulation_engine.observation.memory.layout import layer_chars  # noqa: E402
+from worldmock.agents.prompt.life_prompt import user_layer  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[3]
 SCENARIO = ENVIRONMENT_ROOT
@@ -222,7 +227,8 @@ async def _plan_then_wait(engine: LifeEngine) -> dict:
 @pytest.mark.asyncio
 async def test_the_continued_request_starts_with_the_previous_request_byte_for_byte(_engine_factory) -> None:
     """第二次决策的前缀等于上一决策末次请求的全部消息（逐字节）；assistant 原样带思考与回复正文；tool 消息含 result
-    与 changes，不含登记确认与内部身份；链首 user 与原生工具字节不变；续接链不存进观察事件。"""
+    与 changes（上一决策的条目与今日计划），不含登记确认与内部身份；链首 user 与原生工具字节不变；进度层没有修订计划的
+    记录；续接链不存进观察事件。"""
     engine = _engine_factory()
     run = await _plan_then_wait(engine)
     [previous], [request] = run["first"], run["second"]
@@ -237,14 +243,16 @@ async def test_the_continued_request_starts_with_the_previous_request_byte_for_b
     payload = json.loads(tool["content"])
     assert list(payload) == ["result", "changes"]
     observation = run["observation"]
-    [record] = [row for row in observation["progress_layer"]["events"] if row.get("tool") == "revise_day_plan"]
-    assert payload["result"] == record["result"] and payload["result"]["status"] == "completed"
-    assert payload["changes"] == {"day_plan": observation["todo_layer"]["day_plan"]}
+    assert payload["result"] == observation["continuation"]["tool_results"][0]["result"]
+    assert payload["result"]["status"] == "completed"
+    assert payload["changes"] == {"memory": {"added": [observation["memory_layer"]["今天"][-1]]},
+                                  "day_plan": observation["todo_layer"]["day_plan"]}
+    assert not progress_calls(observation, "revise_day_plan")
     receipt_fields = ("action_id", "decision_id", "round_id", "request_sha256", "registered", "plan:")
     assert not any(field in tool["content"] for field in receipt_fields)
     assert request["messages"][1] == previous["messages"][1]
     assert request["tools"] == previous["tools"]
-    assert observation["continuation"]["tool_results"] == [{"tool_call_id": "call-plan", "result": record["result"]}]
+    assert observation["continuation"]["tool_results"] == [{"tool_call_id": "call-plan", "result": payload["result"]}]
     assert not {"tool_call_id", "result"} & set(observation["continuation"])
     assert "continuation" not in _stored_observation(engine, observation).data
     planned = engine.context.store.read_agent_events("observation", 1)[-2]
@@ -254,7 +262,7 @@ async def test_the_continued_request_starts_with_the_previous_request_byte_for_b
 @pytest.mark.asyncio
 async def test_a_three_decision_chain_keeps_every_prefix_and_reports_each_change_once(_engine_factory) -> None:
     """同一秒三次决策：第三次的前缀逐字节等于第二次的请求（其中含第一次的 assistant 与 tool 消息）；第一次改动的今日
-    计划已由第一条 tool 消息交还，第二条 tool 消息没有新改动时省略 changes。"""
+    计划已由第一条 tool 消息交还，第二条 tool 消息只交还第二次决策的条目。"""
     engine = _engine_factory()
     stage_day_plan(engine)
     environment = _environment(engine)
@@ -271,8 +279,9 @@ async def test_a_three_decision_chain_keeps_every_prefix_and_reports_each_change
     size = len(second["messages"])
     assert json.dumps(third["messages"][:size], ensure_ascii=False) == json.dumps(second["messages"], ensure_ascii=False)
     first_tool, last_tool = second["messages"][3], third["messages"][-1]
-    assert list(json.loads(first_tool["content"])) == ["result", "changes"]
-    assert list(json.loads(last_tool["content"])) == ["result"]
+    assert list(json.loads(first_tool["content"])["changes"]) == ["memory", "day_plan"]
+    assert list(json.loads(last_tool["content"])) == ["result", "changes"]
+    assert json.loads(last_tool["content"])["changes"] == {"memory": {"added": [observation["memory_layer"]["今天"][-1]]}}
     assert (third["messages"][size]["reasoning_content"], last_tool["tool_call_id"]) == ("回看后保持计划不变。",
                                                                                           "call-revision")
     assert observation["continuation"]["messages"][1] == third["messages"][1]
@@ -282,7 +291,7 @@ async def test_a_three_decision_chain_keeps_every_prefix_and_reports_each_change
 async def test_duty_is_constant_within_a_same_second_chain_and_never_enters_changes(_engine_factory) -> None:
     """同秒续接内时钟不动，环境层 duty 与所在地点一样在链内不变、不进 changes（docs/design/06-agent.md#agent-环境层-duty ）：
     有工作安排的人物在周一零点先修订今日计划、同一秒再开始等待；链首 user 消息的环境层带非空 duty（未到上班时间），两次
-    观察的 duty 逐值相同，续接的 tool 消息只交还 changes 里的今日计划，不带 duty，也不重述班次。明天也一样：链首环境层的
+    观察的 duty 逐值相同，续接的 tool 消息只交还 changes 里上一决策的条目与今日计划，不带 duty，也不重述班次。明天也一样：链首环境层的
     tomorrow 是下一个本地日的日期、星期与上不上班，两次观察逐值相同，续接的 tool 消息不带 tomorrow。"""
     engine = _engine_factory()
     run = await _plan_then_wait(engine)
@@ -298,7 +307,7 @@ async def test_duty_is_constant_within_a_same_second_chain_and_never_enters_chan
     assert run["observation"]["environment_layer"]["duty"] == head["duty"]
     assert request["messages"][1] == previous["messages"][1]
     tool = request["messages"][-1]
-    assert tool["role"] == "tool" and list(json.loads(tool["content"])["changes"]) == ["day_plan"]
+    assert tool["role"] == "tool" and list(json.loads(tool["content"])["changes"]) == ["memory", "day_plan"]
     assert "duty" not in tool["content"] and "09:00–18:00" not in tool["content"]
     assert "tomorrow" not in tool["content"]
 
@@ -321,8 +330,8 @@ async def _round(environment: LifeEnv, round_id: str, scripts: dict) -> dict[int
 
 @pytest.mark.asyncio
 async def test_after_time_advances_the_request_has_no_native_turns_or_earlier_thinking(_engine_factory) -> None:
-    """时间推进后：请求只有 system 与 user，没有原生 assistant/tool 回合，上一秒的思考原文不出现；进度层带上一秒的调用
-    与 self_note。"""
+    """时间推进后：请求只有 system 与 user，没有原生 assistant/tool 回合，上一秒的思考原文不出现；进度层的 tool_call
+    只剩等待那项活动的带入记录，没有修订计划的记录，全层不含 self_note。"""
     engine = _engine_factory()
     run = await _plan_then_wait(engine)
     started_at = engine.context.state.current_time
@@ -339,8 +348,8 @@ async def test_after_time_advances_the_request_has_no_native_turns_or_earlier_th
     assert _THINK_PLAN not in text and _THINK_WAIT not in text
     progress = json.loads(request["messages"][1]["content"])[5]
     assert progress == observation["progress_layer"]
-    calls = {row["tool"]: row for row in progress["events"] if row["type"] == "tool_call"}
-    assert calls["revise_day_plan"]["self_note"] == _NOTE and MAIN_TOOL in calls
+    assert [row["tool"] for row in progress["events"] if row["type"] == "tool_call"] == [MAIN_TOOL]
+    assert "self_note" not in json.dumps(progress, ensure_ascii=False)
 
 
 
@@ -465,7 +474,8 @@ def _next_chain(engine: LifeEngine) -> dict | None:
 
 _BASE = [{"role": "system", "content": "系统层"}, {"role": "user", "content": "六层"}]
 _EARLIER = [{"role": "assistant", "content": None, "tool_calls": [{**_CALL, "id": "call-memory"}]},
-            {"role": "tool", "tool_call_id": "call-memory", "content": "{\"episodes\":[]}"}]
+            {"role": "tool", "tool_call_id": "call-memory",
+             "content": '{"类别":"全部","时间":"今天","关键词":null,"结果":[],"未列出":[]}'}]
 
 
 @pytest.mark.parametrize(("messages", "response", "registered", "continued"), [
@@ -473,7 +483,7 @@ _EARLIER = [{"role": "assistant", "content": None, "tool_calls": [{**_CALL, "id"
     ([*_BASE, {**_EARLIER[0], "reasoning_content": "先查记忆。"}, _EARLIER[1]], _answer([_CALL]), _ONE, True),
     ([*_BASE, *_EARLIER], _answer([_CALL]), _ONE, False),
     (_BASE, _answer([_CALL, {**_CALL, "id": "call-second"}]), _ONE, False),
-    (_BASE, _answer([{**_CALL, "function": {"name": "memory_recent", "arguments": "{}"}}]), _ONE, False),
+    (_BASE, _answer([{**_CALL, "function": {"name": "search_memory", "arguments": "{}"}}]), _ONE, False),
     (_BASE, _answer([{**_CALL, "function": {"name": "send_message", "arguments": "{}"}}]), _ONE, False),
     (_BASE, _answer([_CALL], reasoning=""), _ONE, False),
     (_BASE, _answer([_CALL, _SIDE_CALL]), _GROUP, True),
@@ -488,7 +498,7 @@ def test_recorded_evidence_decides_whether_the_chain_holds(_engine_factory, mess
                                                            continued) -> None:
     """链由模型证据判定：末次请求中此前的 assistant 缺思考、最终响应不是一个世界请求或一个开始组（同一个开始工具两次、
     只读查询）、调用的工具与登记的 action_requested 不按次序同名（先后颠倒、回复两条只登记一条、回复一条登记两条、工具
-    不同）或思考为空都断链；证据齐全（含带思考的记忆查询回合、两个开始工具各一个的开始组）时续接，消息按发送键序重建，
+    不同）或思考为空都断链；证据齐全（含带思考的检索记忆回合、两个开始工具各一个的开始组）时续接，消息按发送键序重建，
     tool_results 按调用次序每个世界请求一条，各带自己的 tool_call_id 与公开结果。"""
     engine = _engine_factory()
     stage_day_plan(engine)
@@ -554,19 +564,20 @@ def test_a_repeated_observation_of_the_same_decision_does_not_continue(_engine_f
 
 
 def test_a_missing_result_of_the_previous_request_breaks_the_chain(_engine_factory, monkeypatch) -> None:
-    """上一世界请求的结果不在本 session 的进度记录中（证据缺失）时断链。"""
+    """上一世界请求读不到结果（证据缺失）时断链。"""
     from worldmock.simulation_engine.decisions import continuation
 
     engine = _engine_factory()
     stage_day_plan(engine)
     _recorded_decision(engine, _BASE, _answer([_CALL]))
-    monkeypatch.setattr(continuation, "records_after", lambda context, store, after_seq: [])
+    monkeypatch.setattr(continuation, "_latest_result", lambda store, agent_id, request: None)
     assert _next_chain(engine) is None
 
 
 @pytest.mark.asyncio
 async def test_a_rejected_request_continues_with_the_rejection_reason(_engine_factory) -> None:
-    """上一决策的世界请求被业务拒绝时同样续接：tool 消息的 result 带错误码与原因（与进度层同一投影）。"""
+    """上一决策的世界请求被业务拒绝时同样续接：tool 消息的 result 带错误码与原因，是那条 action_result 的公开投影；
+    进度层没有 tool_call，rejected_today 有这次拒绝。"""
     engine = _engine_factory()
     stage_day_plan(engine)
     environment = _environment(engine)
@@ -574,8 +585,10 @@ async def test_a_rejected_request_continues_with_the_rejection_reason(_engine_fa
     observation, [request], _ = await _single(environment, "wait", _wait_reply())
     result = json.loads(request["messages"][-1]["content"])["result"]
     assert result["status"] == "rejected" and result["error_code"] and result["details"]["reason"]
-    [record] = [row for row in observation["progress_layer"]["events"] if row["type"] == "tool_call"]
-    assert result == record["result"]
+    (refused,) = [row for row in events(engine, "action_result") if row.decision_id == "decision-refused-1"]
+    assert result == public_result(refused.data, engine.context.inputs, {})
+    assert not progress_calls(observation)
+    assert [row["times"] for row in observation["progress_layer"]["rejected_today"]] == [1]
 
 
 def _unavailable(observation: dict) -> list:
@@ -590,8 +603,7 @@ def _unavailable(observation: dict) -> list:
 @pytest.mark.asyncio
 async def test_a_carried_record_is_not_repeated_in_the_continuation(_engine_factory) -> None:
     """出发并打开 Keep，路上的一次决策被业务拒绝后同一秒再决策：续接链成立，tool_results 只有被拒的那一条；带入的
-    Keep 记录在本段进度层里，但续接链取材的记录（来源全部晚于上一次观察）里只有被拒的那条请求、没有它，续接链的
-    events 里也没有它。"""
+    Keep 记录在本段进度层里恰一条，续接链的 events 为空。"""
     engine = _engine_factory(mutate=every_five_minutes)
     stage_day_plan(engine)
     _, (trip, keep) = act_group(engine, "depart", travel("公司", "步行"), use_app("Keep"))
@@ -608,15 +620,7 @@ async def test_a_carried_record_is_not_repeated_in_the_continuation(_engine_fact
     [result] = chain["tool_results"]
     assert result["tool_call_id"] == "call-refused" and result["result"]["status"] == "rejected"
     assert [row["arguments"]["target"] for row in progress_calls(observation, SIDE_TOOL)] == [["Keep"]]
-    assert not any(row.get("tool") == SIDE_TOOL or row["type"] == "tool_call" for row in chain["events"])
-    (request,) = [event for event in events(engine, "action_requested") if event.decision_id == "decision-refused-1"]
-    (previous,) = [event for event in events(engine, "observation") if event.decision_id == "decision-refused-1"]
-    names = {"activities": {key: row.name for key, row in engine.context.state.activities.items()}, "sessions": {}}
-    after = records_after(LayerContext(engine.context, 1, names, [], open_activities(engine.context.state, 1)), engine.context.store, previous.event_seq)
-    calls = [sources for record, sources in after if record["type"] == "tool_call"]
-    assert len(calls) == 1 and calls[0][0] == request.event_id
-    carried = engine.context.state.activities[keep.activity_id].origin_request_event_id
-    assert not [sources for _, sources in after if carried in sources]
+    assert chain["events"] == []
 
 
 #: 贴着「有点想放松」档界（0.3）的起始放松需要：一次服务拒绝的情绪代价（+0.05）就让放松分级从「不闷」变一档。
@@ -628,8 +632,9 @@ _NEAR_RELAXATION_BAND = 0.28
 async def test_a_start_group_is_continued_with_one_tool_message_per_call(_engine_factory, order) -> None:
     """同一次回复里两个开始工具各调用一次：宿主放行这一批，按回复里的先后登记两条动作（:0001、:0002，self_note 只记在
     第一条上）。环境整组拒绝（在家歇一会儿成立，纸巾要到店才能买，两项都不开始），人物同一秒再决策。下一次请求在上一请求
-    的全部消息之后是带两个 tool_calls 的 assistant 与两条 tool 消息：按调用次序各对应一个 tool_call_id，result 是各自动作的
-    公开结果（与进度层该动作的记录同一投影），changes 只写在最后一条上（拒绝的情绪代价让放松分级变了一档）。对照组：整组
+    的全部消息之后是带两个 tool_calls 的 assistant 与两条 tool 消息：按调用次序各对应一个 tool_call_id，result 是续接链里
+    各自动作的公开结果（进度层没有被拒的记录），changes 只写在最后一条上（上一决策的条目，拒绝的情绪代价让放松分级变了
+    一档）。对照组：整组
     受理时两条动作各开始一项活动，人物有进行中活动、同一秒不再决策，所以同一秒的续接只出现在整组被拒之后。"""
     engine = _engine_factory(mutate=lambda persona, config: persona.update(
         initial_relaxation_need=_NEAR_RELAXATION_BAND))
@@ -653,18 +658,19 @@ async def test_a_start_group_is_continued_with_one_tool_message_per_call(_engine
     assert [(call["id"], call["function"]["name"]) for call in assistant["tool_calls"]] == [
         (call_id, tool) for call_id, tool, _ in calls]
     assert [(item["role"], item["tool_call_id"]) for item in tools] == [("tool", call_id) for call_id, _, _ in calls]
-    records = progress_calls(observation)
-    assert [(row["tool"], row["arguments"]) for row in records] == [(tool, arguments[tool]) for tool in order]
+    assert progress_calls(observation) == []
     payloads = [json.loads(item["content"]) for item in tools]
-    assert [payload["result"] for payload in payloads] == [row["result"] for row in records]
+    assert [payload["result"] for payload in payloads] == [
+        item["result"] for item in observation["continuation"]["tool_results"]]
     assert all(payload["result"]["status"] == "rejected"
                and payload["result"]["message"].endswith(" Neither start request was started.") for payload in payloads)
     assert [list(payload) for payload in payloads] == [["result"], ["result", "changes"]]
     assert head["environment_layer"]["body"]["relaxation"] == "不闷"
     assert observation["environment_layer"]["body"]["relaxation"] == "有点想放松"
-    assert payloads[1]["changes"] == {"body": observation["environment_layer"]["body"]}
-    assert observation["continuation"]["tool_results"] == [
-        {"tool_call_id": call_id, "result": row["result"]} for (call_id, _, _), row in zip(calls, records, strict=True)]
+    assert payloads[1]["changes"] == {"memory": {"added": [observation["memory_layer"]["今天"][-1]]},
+                                      "body": observation["environment_layer"]["body"]}
+    assert [item["tool_call_id"] for item in observation["continuation"]["tool_results"]] == [
+        call_id for call_id, _, _ in calls]
     control = _engine_factory()
     stage_day_plan(control)
     accepted = {MAIN_TOOL: _WAIT, SIDE_TOOL: side_arguments("interact", "哔哩哔哩")}
@@ -734,7 +740,7 @@ async def _workspace_person(environment: LifeEnv, workspace: Path, responses: li
 
 
 async def _step(environment: LifeEnv, person: LifeAgent, round_id: str) -> str:
-    """真实人物步骤：开轮、观察、决策（含记忆查询与协议纠错回合）并登记唯一世界请求，然后结算。"""
+    """真实人物步骤：开轮、观察、决策（含检索记忆与协议纠错回合）并登记唯一世界请求，然后结算。"""
     ctx = context(environment.engine, round_id)
     await environment.begin_decision_round((ctx,))
     person.bind_decision_context(ctx)
@@ -746,25 +752,24 @@ async def _step(environment: LifeEnv, person: LifeAgent, round_id: str) -> str:
 @pytest.mark.asyncio
 async def test_a_decision_with_memory_and_correction_turns_is_continued_byte_for_byte(_engine_factory,
                                                                                     tmp_path) -> None:
-    """真实决策 k 先做一次记忆查询、再有一次协议纠错回合，最后修订今日计划；同一秒决策 k+1 的前缀逐字节等于 k 的末次
-    请求（system、链首 user、记忆查询与纠错的原生回合，原样带各自的思考），其后是 k 的最终 assistant 与一条只写改动的
-    tool 消息；记忆条目只在那条原生 tool 消息里出现一次，不进任何一层（第二章「消息布局」、第一章「唯一出现原则」）。"""
+    """真实决策 k 先检索一次记忆、再有一次协议纠错回合，最后修订今日计划；同一秒决策 k+1 的前缀逐字节等于 k 的末次
+    请求（system、链首 user、检索与纠错的原生回合，原样带各自的思考），其后是 k 的最终 assistant 与一条只写改动的
+    tool 消息；检索的 tool 消息没有 result 键，在下一次请求里恰好出现一次，不进任何一层（第二章「消息布局」、
+    第一章「唯一出现原则」）。"""
     engine = _engine_factory()
     stage_day_plan(engine)
     environment = _environment(engine)
     workspace = tmp_path / "agent_0001"
     person, first = await _workspace_person(environment, workspace, [
-        _reply("call-memory", "memory_recent", {"limit": 5}, "先翻翻记忆。"),
+        _reply("call-memory", "search_memory", {"category": "全部", "time": "今天", "keyword": None}, "先翻翻记忆。"),
         _reply("call-bad", MAIN_TOOL, _UNKNOWN, "那就先等一会儿。"), *_plan_reply()])
-    person._memory_runtime.store.append_episodes(
-        _stored_memories(_conclude_args("散步（1月4日 19:00 起）", memories=[[_memory("散步时想好了喝咖啡。")]])),
-        tick=0, t=_OBSERVED_AT, step_count=1)
     assert await _step(environment, person, "plan") == "revise_day_plan registered"
     last = first.requests[-1]
     assert len(first.requests) == 3
     assert [item["role"] for item in last["messages"]] == ["system", "user", "assistant", "tool", "assistant", "tool"]
     assert [item.get("reasoning_content") for item in last["messages"][2::2]] == ["先翻翻记忆。", "那就先等一会儿。"]
-    assert "散步时想好了喝咖啡。" in last["messages"][3]["content"]
+    searched = last["messages"][3]
+    assert searched["tool_call_id"] == "call-memory" and "result" not in json.loads(searched["content"])
     assert json.loads(last["messages"][5]["content"])["error_code"] == "NAME_NOT_FOUND"
 
     person, second = await _workspace_person(environment, workspace, _wait_reply())
@@ -776,8 +781,9 @@ async def test_a_decision_with_memory_and_correction_turns_is_continued_byte_for
     assistant, tool = request["messages"][size:]
     assert (assistant["reasoning_content"], assistant["tool_calls"][0]["id"]) == (_THINK_PLAN, "call-plan")
     assert tool["tool_call_id"] == "call-plan" and list(json.loads(tool["content"])) == ["result", "changes"]
+    assert "memory" in json.loads(tool["content"])["changes"]
     assert request["tools"] == last["tools"]
-    assert json.dumps(request, ensure_ascii=False).count("散步时想好了喝咖啡。") == 1
+    assert request["messages"].count(searched) == 1
 
 
 def _ended(names: list[str], summary: str) -> dict:
@@ -786,17 +792,25 @@ def _ended(names: list[str], summary: str) -> dict:
             "errands": []}
 
 
-def _views() -> list[dict]:
-    """一次收尾写下的看法与偏好（写在 views，about 写对象，只在人设层出现）。"""
-    return [_view("老周", "老周一向靠谱。"), _view("咖啡", "下午想喝拿铁。", kind="preference")]
+@pytest.mark.asyncio
+async def test_a_chain_delivers_the_previous_decisions_entry_as_memory_added(_engine_factory) -> None:
+    """同一秒先修订计划、再开始等待：续接 tool 消息的 changes 键恰为 memory 与 day_plan；memory.added 恰是修订计划那次
+    决策的条目，与本次观察记忆层「今天」最后一项的渲染逐字节相同；链首 user 消息逐字节不变。"""
+    engine = _engine_factory()
+    run = await _plan_then_wait(engine)
+    [previous], [request] = run["first"], run["second"]
+    changes = _tool_payload(request)["changes"]
+    assert list(changes) == ["memory", "day_plan"]
+    [entry] = changes["memory"]["added"]
+    assert changes["memory"] == {"added": [entry]}
+    assert render_layer_json(entry) == render_layer_json(run["observation"]["memory_layer"]["今天"][-1])
+    assert request["messages"][1] == previous["messages"][1]
 
 
 @pytest.mark.asyncio
-async def test_changes_overlay_relationships_and_preferences_so_later_tool_messages_do_not_repeat_them(
-        _engine_factory) -> None:
-    """同一秒三次决策：先给刚结束的等待收尾并写下对老周的看法与对咖啡的偏好，第二次决策的 tool 消息以 changes 交还人设层
-    关系项的更新（完整条目）与新偏好；第三次决策的 tool 消息相对「链首快照叠加此前 changes」计算，看法与偏好已经交还过，
-    不再重复，只写今日计划的改动（第二章 tool 消息 changes「以最新为准」）。"""
+async def test_changes_add_each_published_entry_once_across_a_three_decision_chain(_engine_factory) -> None:
+    """同一秒三次决策（收尾、改计划、开始）：第二次的 tool 消息 memory.added 恰是第一次决策的条目；第三次的恰是第二次
+    决策的条目，第一次的不再出现；第三次请求的前缀逐字节等于第二次请求。"""
     engine = _engine_factory()
     stage_day_plan(engine)
     environment = _environment(engine)
@@ -804,28 +818,244 @@ async def test_changes_overlay_relationships_and_preferences_so_later_tool_messa
     assert advance_until_ready(engine)
 
     def conclude(observation: dict) -> list:
-        [name] = pending_names(observation)
-        arguments = {"items": [{"activity_name": name, "summary": "等完了。", "memories": [], "views": _views()}],
-                     "errands": []}
-        return [_reply("call-end", "conclude_activity", arguments, "等完了，记下看法。")]
+        return [_reply("call-end", "conclude_activity", _ended(pending_names(observation), "等完了。"), "等完了，收尾。")]
 
-    head, _, _ = await _single(environment, "end", conclude)
-    _, [second], _ = await _single(environment, "plan", _plan_reply())
+    await _single(environment, "end", conclude)
+    planned, [second], _ = await _single(environment, "plan", _plan_reply())
     observation, [third], _ = await _single(environment, "again", _wait_reply("call-wait-again"))
-    persona = json.loads(second["messages"][1]["content"])[1]
-    [friend] = [item for item in persona["relationships"] if item["person"] == "老周"]
-    assert friend["view"] is None and persona["preferences"] == []
-    changes = _tool_payload(second)["changes"]
-    assert changes["relationships"] == [{**friend, "view": "老周一向靠谱。"}]
-    assert changes["preferences"] == [{"subject": "咖啡", "preference": "下午想喝拿铁。",
-                                       "noted_on": observation["environment_layer"]["observed_at"][:10]}]
-    assert pending_names(head)[0] in changes["targets"]["removed"]
-    assert _tool_payload(third)["changes"] == {"day_plan": observation["todo_layer"]["day_plan"]}
-    assert third["messages"][:len(second["messages"])] == second["messages"]
+    ended_entry, planned_entry = planned["memory_layer"]["今天"][-1], observation["memory_layer"]["今天"][-1]
+    assert observation["memory_layer"]["今天"][-2] == ended_entry
+    assert _tool_payload(second)["changes"]["memory"] == {"added": [ended_entry]}
+    assert _tool_payload(third)["changes"]["memory"] == {"added": [planned_entry]}
+    assert json.dumps(third["messages"][:len(second["messages"])], ensure_ascii=False) == json.dumps(
+        second["messages"], ensure_ascii=False)
 
 
+def _today_item(clock: str, line: str) -> dict:
+    """一条今天条目（只有核验）。"""
+    return {"时刻": clock, "类别": "生活", "核验": [line]}
 
 
+def _order(label: str, status: str = "pending") -> dict:
+    """待办层一行在途订单。"""
+    return {"order": label, "status": status, "destination": "家", "expected_at": "2026-01-05T09:00:00+08:00"}
+
+
+def _six_layers(**parts) -> list[dict]:
+    """续接比较用的六层夹具：parts 给出工具层目标、「今天」、暂停活动、个人事务、在途订单、今日计划与身体感受。"""
+    return [{"layer": "工具层", "targets": [{**row, "kind": "location", "actions": [], "tools": []}
+                                            for row in parts.get("targets", [])], "callable_index": {}},
+            {"layer": "人设层"},
+            {**_MEMORY_LAYER, "今天": parts.get("today", [])},
+            {"layer": "待办层", "paused_activities": parts.get("paused", []), "errands": parts.get("errands", []),
+             "orders": parts.get("orders", []), "day_plan": parts.get("plan")},
+            {"layer": "环境层", "body": parts.get("body", {"appetite": "不饿"})}, {"layer": "进度层"}]
+
+
+def test_layer_changes_add_memory_after_the_seen_prefix_and_keep_the_key_order() -> None:
+    """链首「今天」两条、此前 changes 送达第三条、此刻四条：memory.added 恰为第四条；七个键都有改动时键依次为 targets、
+    memory、paused_activities、errands、orders、day_plan、body；此刻与所见相同时没有改动。"""
+    items = [_today_item(f"08:0{index}", f"第{index}条") for index in range(4)]
+    head = _six_layers(today=items[:2])
+    applied = [{"memory": {"added": [items[2]]}}]
+    assert layer_changes(head, applied, _six_layers(today=items)) == {"memory": {"added": [items[3]]}}
+    errand = {"name": "备好饮料", "done_when": "取得饮料 1 份", "progress": "已取得 0 份", "memo": None,
+              "remind_time": None, "noted_on": "2026-01-05"}
+    current = _six_layers(targets=[{"name": "店", "state": "营业"}], today=items,
+                          paused=[{"name": "读书（1月5日 08:00 起）", "place": "家"}], errands=[errand],
+                          orders=[_order("扑克牌 1 份（08:00 购买）")], plan={"date": "2026-01-05", "goals": []},
+                          body={"appetite": "有点饿"})
+    changes = layer_changes(head, applied, current)
+    assert list(changes) == ["targets", "memory", "paused_activities", "errands", "orders", "day_plan", "body"]
+    assert layer_changes(head, applied, _six_layers(today=items[:3])) == {}
+
+
+def test_a_rewritten_today_list_ends_the_continuation(caplog) -> None:
+    """兜底把此刻「今天」的第一项改成「自述: ["…"]」：所见的「今天」不再是此刻的前缀，layer_changes 返回 None 并写英文
+    警告，continuation_messages 随之返回 None（从新快照构造）。"""
+    items = [{**_today_item("08:00", "开始测试休息"), "自述": ["先歇一会儿。"]}, _today_item("08:15", "测试休息结束")]
+    head = _six_layers(today=items[:1])
+    current = _six_layers(today=[{**items[0], "自述": ["…"]}, items[1]])
+    assert layer_changes(head, [], current) is None
+    assert ("Memory layer today list is not an extension of the list the model has seen; using a fresh snapshot"
+            in caplog.text)
+    call = {"id": "call-last", "type": "function", "function": {"name": "report_status", "arguments": "{}"}}
+    chain = {"messages": [{"role": "system", "content": "系统层"},
+                          {"role": "user", "content": json.dumps(head, ensure_ascii=False)}],
+             "assistant": {"role": "assistant", "content": "", "tool_calls": [call], "reasoning_content": "想想"},
+             "tool_results": [{"tool_call_id": "call-last", "result": {"status": "completed"}}], "events": []}
+    assert continuation_messages(chain, current) is None
+    assert continuation_messages(chain, _six_layers(today=items)) is not None
+
+
+@pytest.mark.asyncio
+async def test_a_backstop_inside_a_same_second_chain_starts_the_decision_from_a_fresh_snapshot(
+        _engine_factory, monkeypatch, caplog) -> None:
+    """同一秒三次决策：修订计划（带回复正文）、再修订一次（续接）；把记忆层上限压到第二次决策所见的字数后，第三次观察接上
+    第二条条目必然触发兜底、改写第二次决策已看到的第一条条目：环境照旧交来续接链，宿主断链并写英文警告，第三次决策的首个
+    请求恰为 system 与 user 两条消息，按层名取到的记忆层「今天」就是此刻的「今天」。"""
+    engine = _engine_factory()
+    stage_day_plan(engine)
+    environment = _environment(engine)
+    await _single(environment, "plan", _plan_reply())
+    revised, _, _ = await _single(environment, "revise", [_reply("call-revision", "revise_day_plan", _PLAN,
+                                                                 "再看一遍计划。")])
+    assert revised["continuation"] is not None and len(revised["memory_layer"]["今天"]) == 1
+    budget = layer_chars(revised["memory_layer"])
+    monkeypatch.setattr(layout, "MEMORY_LAYER_CHARS", budget)
+    monkeypatch.setattr(layout, "MEMORY_BACKSTOP_CHARS", budget)
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        observation, requests, _ = await _single(environment, "wait", _wait_reply())
+    assert observation["memory_layer"]["今天"][0] != revised["memory_layer"]["今天"][0]
+    assert observation["continuation"] is not None
+    pattern = rf"^Memory layer backstop rewrote today from (\d+) to (\d+) characters \(target {budget}\)$"
+    [rewrite] = [match for match in (re.match(pattern, message) for message in caplog.messages) if match]
+    assert int(rewrite.group(1)) > budget and int(rewrite.group(2)) == layer_chars(observation["memory_layer"])
+    assert caplog.messages.count("Memory layer today list is not an extension of the list the model has seen; "
+                                 "using a fresh snapshot") == 1
+    assert [message["role"] for message in requests[0]["messages"]] == ["system", "user"]
+    sent = user_layer(json.loads(requests[0]["messages"][1]["content"]), "记忆层")
+    assert sent["今天"] == observation["memory_layer"]["今天"]
+
+
+def test_order_rows_enter_changes_by_label_and_a_repeated_label_ends_the_continuation(caplog) -> None:
+    """在途订单按订单标签进 changes：状态变了的行与新行写进 added，消失的标签写进 removed；合成行按它的文字比较；
+    链首或此刻有两行标签相同时不能续接；此前 changes 已叠加过的行不再报出。"""
+    noodle, cards, tissue = "牛肉面 1 份（08:00 购买）", "扑克牌 1 份（08:00 购买）", "纸巾 1 份（08:05 购买）"
+    head = _six_layers(orders=[_order(noodle), _order(cards)])
+    current = _six_layers(orders=[_order(cards, "ready_for_pickup"), _order(tissue)])
+    assert layer_changes(head, [], current) == {"orders": {
+        "added": [_order(cards, "ready_for_pickup"), _order(tissue)], "removed": [noodle]}}
+    more = [_order(f"商品{index} 1 份（08:00 购买）") for index in range(6)]
+    one, two = {"order": "另有 1 笔在途"}, {"order": "另有 2 笔在途"}
+    assert layer_changes(_six_layers(orders=[*more, one]), [], _six_layers(orders=[*more, two])) == {
+        "orders": {"added": [two], "removed": ["另有 1 笔在途"]}}
+    repeated = _six_layers(orders=[_order(cards), _order(cards, "ready_for_pickup")])
+    assert layer_changes(head, [], repeated) is None
+    assert "To-do layer orders repeat a label; using a fresh snapshot" in caplog.text
+    applied = [{"orders": {"added": [_order(tissue)], "removed": [noodle]}}]
+    assert "orders" not in layer_changes(head, applied, _six_layers(orders=[_order(cards), _order(tissue)]))
+
+
+def visible_fee_rules(trigger: dict) -> list[dict]:
+    """同一触发上的 1 元支出与一条带可见提示的足迹链：可见提示只能配足迹链（admission._check_notify），同一触发的净
+    资金减少由此写成一条人物可见的 balance_decreased。"""
+    return [rule("fee", trigger, {"type": "transfer", "direction": "expense", "amount_fen": 100}),
+            rule("fee-hint", trigger, {"type": "footprint_chain", "steps": [
+                {"kind": "payment", "app_pool": ["alipay"], "pick": "random"}]}, notify={"visible": True})]
+
+
+def _fee_engine(_engine_factory, tmp_path, with_rule: bool) -> LifeEngine:
+    """样例环境副本：with_rule 时登记拒绝反馈触发、可见的 1 元支出回调；返回预置了今日计划的引擎。"""
+    rules = visible_fee_rules({"class": "event", "key": "outcome_feedback"})
+    engine = _engine_factory(callback_environment(tmp_path, rules if with_rule else []))
+    stage_day_plan(engine)
+    return engine
+
+
+def test_chain_events_are_the_notices_after_the_previous_observation(_engine_factory, tmp_path) -> None:
+    """被拒的决策提交里有一条可见的余额减少：同一秒下一次决策的续接链 events 恰是这一条，形状与进度层同类记录相同；
+    同一次观察的进度层恰是这一条（被拒的请求不进进度层）；没有这条回调规则时 events 为空。"""
+    engine = _fee_engine(_engine_factory, tmp_path / "fee", True)
+    _recorded_decision(engine, _BASE, _answer([_CALL]))
+    ctx = context(engine, "next")
+    engine.begin_decision_round([ctx])
+    observation = engine.observe(ctx)
+    notice = {"occurred_at": iso_time(engine.context.state.current_time, engine.context.config.timezone),
+              "type": "balance_decreased", "message": "余额减少了 1 元"}
+    assert observation["continuation"]["events"] == [notice]
+    assert observation["progress_layer"]["events"] == [notice]
+    plain = _fee_engine(_engine_factory, tmp_path / "plain", False)
+    _recorded_decision(plain, _BASE, _answer([_CALL]))
+    assert _next_chain(plain)["events"] == []
+
+
+def test_chain_results_project_the_previous_requests_without_the_progress_layer(_engine_factory) -> None:
+    """被拒决策之后的续接链：tool_results 的 result 是那条 action_result 以同一次观察的食材包投影的公开结果；同一次
+    观察的进度层没有任何 tool_call。"""
+    engine = _engine_factory()
+    stage_day_plan(engine)
+    _recorded_decision(engine, _BASE, _answer([_CALL]))
+    ctx = context(engine, "next")
+    engine.begin_decision_round([ctx])
+    observation = engine.observe(ctx)
+    store = engine.context.store
+    (refused,) = [row for row in events(engine, "action_result") if row.decision_id == "decision-recorded-1"]
+    kits = activity_facts(agent_events(store, 1, engine.context.catalog.kit_states())).kits
+    assert observation["continuation"]["tool_results"][0]["result"] == public_result(
+        refused.data, engine.context.inputs, kits)
+    assert progress_calls(observation) == []
+
+
+def test_chain_results_are_projected_with_the_grocery_kits_of_the_observation(_engine_factory, tmp_path,
+                                                                             monkeypatch) -> None:
+    """家里有食材时开始做饭、做完待收尾，再有一次被拒的决策：同一秒下一次决策的续接链按同一次观察的食材包投影上一决策
+    的结果，交给 tool_call_record 的食材包等于由缓存构造的 ActivityFacts.kits，含做饭那项活动。"""
+    from worldmock.simulation_engine.decisions import continuation
+
+    engine = grocery_engine(_engine_factory, tmp_path, initial=1)
+    stage_day_plan(engine)
+    started = cook(engine)
+    until_ended(engine, started.activity_id)
+    assert engine.scheduling_state().ready_agent_ids == (1,)
+    _recorded_decision(engine, _BASE, _answer([_CALL]))
+    passed = []
+    original = continuation.tool_call_record
+
+    def recording(context, request, result, kits):
+        """记下交给结果投影的食材包。"""
+        passed.append(kits)
+        return original(context, request, result, kits)
+
+    monkeypatch.setattr(continuation, "tool_call_record", recording)
+    assert _next_chain(engine) is not None
+    kits = activity_facts(agent_events(engine.context.store, 1, engine.context.catalog.kit_states())).kits
+    assert passed == [kits] and started.activity_id in kits
+
+
+@pytest.mark.asyncio
+async def test_chain_events_leave_out_memory_facts_from_the_previous_commit(_engine_factory, monkeypatch) -> None:
+    """在快递驿站点名取件，同一次提交里收货并办成「取笔记本」，人物同一秒再决策：续接链成立，它的 events 里没有办成与
+    送达，同一次观察的进度层也没有办成；办成作为上一决策条目里的核验行经 memory.added 送达。
+
+    取件受理后人物手上有进行中的取件，引擎按节律安排下一次决策；有待收尾的活动时取件又会以 ACTIVITY_CONCLUSION_REQUIRED
+    被拒。续接只看两次决策是否相邻，不看为什么相邻，所以这一轮用 monkeypatch 让同刻阶梯把下一次决策安排在同一秒。"""
+    from worldmock.simulation_engine.decisions import same_moment
+
+    engine = _engine_factory(mutate=_six_days)
+    stage_day_plan(engine)
+    _, bought = act(engine, "notebook", purchase("平台笔记本"))
+    assert bought.status == "in_progress", bought.error_code
+    finish_activity(engine, bought, "notebook")
+    [order] = engine.context.state.deliveries.values()
+    reach(engine, order.expected_at)
+    _until_free(engine)
+    assert engine.context.state.deliveries[order.order_id].status == "ready_for_pickup"
+    _, trip = act(engine, "to-station", travel("快递驿站", "驾车"))
+    until_ended(engine, trip.activity_id)
+    name = engine.context.state.activities[trip.activity_id].name
+    _, arrived = act(engine, "arrived", conclude_request(name, errands=[errand_add("取笔记本", "平台笔记本", 1)]),
+                     "conclude_activity")
+    assert arrived.status == "completed", arrived.error_code
+    environment = _environment(engine)
+    scheduled = same_moment.schedule_after_round
+    monkeypatch.setattr(same_moment, "schedule_after_round", lambda outcome, rhythm: (
+        outcome.now, same_moment.round_wake_reasons(outcome.active, outcome.rejected), same_moment.next_stage(outcome)))
+    await _single(environment, "collect", [_reply("call-collect", MAIN_TOOL, main_arguments(
+        "interact", "快递驿站", "驿站取件"), "去取快递。")])
+    monkeypatch.setattr(same_moment, "schedule_after_round", scheduled)
+    now = engine.context.state.current_time
+    collected = [row for row in events(engine, "environment_event") if row.occurred_at == now]
+    assert {"goods_received", "errand_completed"} <= {row.data.get("kind") for row in collected}
+    assert engine.scheduling_state().ready_agent_ids == (1,)
+    observation, [request], _ = await _single(environment, "next", _plan_reply())
+    chain = observation["continuation"]
+    assert chain is not None
+    assert not [row for row in chain["events"] if row["type"] in {"errand_completed", "delivery"}]
+    assert not [row for row in observation["progress_layer"]["events"] if row["type"] == "errand_completed"]
+    [entry] = _tool_payload(request)["changes"]["memory"]["added"]
+    assert "办成「取笔记本」" in entry["核验"]
 
 
 #: 同一秒续接链里新增的两条个人事务（正式目录里的真实商品）：一条带备注与提醒钟点，一条要取得三份。
@@ -857,7 +1087,8 @@ async def test_errand_changes_reach_the_next_tool_message_as_added_and_removed(_
     assert earlier["result"]["details"]["errands"] == [
         {"errand": "周末补薯片", "change": "新增"}, {"errand": "囤三杯柠檬茶", "change": "新增"}]
     current, [third], _ = await _single(environment, "again", _wait_reply("call-again"))
-    assert _tool_payload(third)["changes"] == {"day_plan": current["todo_layer"]["day_plan"]}
+    assert _tool_payload(third)["changes"] == {"memory": {"added": [current["memory_layer"]["今天"][-1]]},
+                                               "day_plan": current["todo_layer"]["day_plan"]}
     assert third["messages"][:len(second["messages"])] == second["messages"]
 
 
@@ -893,9 +1124,9 @@ def test_the_pre_send_check_breaks_a_chain_whose_assistant_lacks_thinking() -> N
 
 
 def _chained_request(reasoning: str) -> tuple[dict, ProgressBudget]:
-    """一个续接请求（链中 assistant 带长思考）与带新快照的预算；进度层有一条未受保护、带 self_note 的记录。"""
-    record = {"occurred_at": "2026-01-05T08:00:00+08:00", "type": "tool_call", "tool": "report_status",
-              "arguments": {}, "result": {}, "self_note": "写下的进展。"}
+    """一个续接请求（链中 assistant 带长思考）与带新快照的预算；进度层有一条未受保护、参数带一段长文字的记录。"""
+    record = {"occurred_at": "2026-01-05T08:00:00+08:00", "type": "tool_call", "tool": "start_main_activity",
+              "arguments": {"action": "interact", "target": "家", "detail": "很长的一段说明" * 20}, "result": {}}
     layers = ({"layer": "进度层", "session_started_at": "2026-01-05T08:00:00+08:00", "events": [record]},)
     system = {"role": "system", "content": "system"}
     fresh = {"role": "user", "content": json.dumps(list(layers), ensure_ascii=False, separators=(",", ":"))}
@@ -914,30 +1145,29 @@ def _window_above(tokens: int) -> int:
 
 
 def test_budget_step_zero_ends_the_continuation_before_any_condensation(monkeypatch) -> None:
-    """达到阈值时先结束本秒续接（新快照、思考不再出现），低于阈值即停，self_note 不动；新快照仍超限才浓缩进度层。"""
+    """达到阈值时先结束本秒续接（新快照、思考不再出现），低于阈值即停，进度层不动；新快照仍超限才浓缩进度层，浓缩后
+    进度层是一条 condensed 记录。"""
     request, budget = _chained_request("长长的思考" * 50)
     fresh = {**request, "messages": list(budget.fresh_messages)}
-    layer = json.loads(budget.fresh_messages[1]["content"])
-    del layer[0]["events"][0]["self_note"]
-    noteless = {**request, "messages": [budget.fresh_messages[0], {"role": "user", "content": json.dumps(
-        layer, ensure_ascii=False, separators=(",", ":"))}]}
-    fresh_size, noteless_size = (prompt_capacity.request_token_count(item) for item in (fresh, noteless))
-    assert noteless_size + 3 < fresh_size < prompt_capacity.request_token_count(request)
+    fresh_size = prompt_capacity.request_token_count(fresh)
+    assert fresh_size < prompt_capacity.request_token_count(request)
     monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model, metadata: _window_above(fresh_size))
     fitted = fit_request(request, current_inputs().model_metadata, budget)
     assert fitted.request["messages"] == list(budget.fresh_messages)
     assert len(request["messages"]) == 4
-    monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model, metadata: _window_above(noteless_size))
     assert fitted.prompt_tokens == prompt_capacity.prompt_token_count(fitted.request)
+    monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model, metadata: _window_above(fresh_size - 3))
     condensed = fit_request(request, current_inputs().model_metadata, budget)
     assert condensed.prompt_tokens == prompt_capacity.prompt_token_count(condensed.request)
-    assert condensed.request["messages"] == noteless["messages"]
+    [layer] = json.loads(condensed.request["messages"][1]["content"])
+    assert [record["type"] for record in layer["events"]] == ["condensed"]
 
 
 @pytest.mark.asyncio
 async def test_budget_step_zero_starts_the_decision_from_a_fresh_snapshot_for_every_turn(
         _engine_factory, monkeypatch) -> None:
-    """真实决策：带链的首个请求超过阈值时第 0 步改用新快照；本决策后续回合（协议纠错之后）也从新快照续写。"""
+    """真实决策：带链的首个请求超过阈值时第 0 步改用新快照；本决策后续回合（协议纠错之后）也从新快照续写；两次请求的
+    记忆层「今天」都等于观察里的「今天」，最后一项是修订计划那次决策的条目。"""
     engine = _engine_factory()
     stage_day_plan(engine)
     environment = _environment(engine)
@@ -956,9 +1186,14 @@ async def test_budget_step_zero_starts_the_decision_from_a_fresh_snapshot_for_ev
     bad = _reply("call-bad", MAIN_TOOL, _UNKNOWN, "先试一个。")
     observation, requests, _ = await _single(environment, "wait", [bad, *_wait_reply()])
     assert observation["continuation"] is not None and len(requests) == 2
+    today = observation["memory_layer"]["今天"]
+    entries = published_today(engine.context.inputs, engine.context.store, 1, engine.context.state.current_time,
+                              _stored_observation(engine, observation).event_seq).entries
+    assert entries[-1].decision_id == "decision-plan-1" and entries[-1].shown == today[-1]
     for request in requests:
         assert _THINK_PLAN not in json.dumps(request, ensure_ascii=False)
         assert json.loads(request["messages"][1]["content"])[5] == observation["progress_layer"]
+        assert user_layer(json.loads(request["messages"][1]["content"]), "记忆层")["今天"] == today
     assert [item["role"] for item in requests[1]["messages"]] == ["system", "user", "assistant", "tool"]
 
 
@@ -986,8 +1221,12 @@ async def test_switch_off_every_decisions_first_request_has_exactly_two_messages
         engine.close()
 
 
+#: 单元夹具里的空记忆层（「今天」为空列表）。
+_MEMORY_LAYER = {"layer": "记忆层", "可查": {}, "近三天": {}, "今天": []}
+
+
 def test_continuation_messages_read_earlier_changes_and_skip_memory_and_feedback_tool_messages() -> None:
-    """宿主组装：链中此前的续接 tool 消息的 changes 叠加到链首快照上，记忆查询与协议纠错的 tool 消息不算改动；
+    """宿主组装：链中此前的续接 tool 消息的 changes 叠加到链首快照上，检索记忆与协议纠错的 tool 消息不算改动；
     新 tool 消息只写相对叠加结果的改动。tool_results 有两条（开始组）时每个 tool_call_id 各一条 tool 消息、按调用次序，
     changes 与 events 只写在最后一条上，前一条只有 result。"""
     from worldmock.agents.protocol.life_continuation import continuation_messages
@@ -995,8 +1234,8 @@ def test_continuation_messages_read_earlier_changes_and_skip_memory_and_feedback
     def layers(state: str, body: str) -> list[dict]:
         return [{"layer": "工具层", "targets": [{"name": "店", "kind": "location", "state": state,
                                                    "actions": [], "tools": []}], "callable_index": {}},
-                {"layer": "人设层", "relationships": [], "preferences": []}, {"layer": "记忆层"},
-                {"layer": "待办层", "paused_activities": [], "errands": [], "day_plan": None},
+                {"layer": "人设层"}, _MEMORY_LAYER,
+                {"layer": "待办层", "paused_activities": [], "errands": [], "orders": [], "day_plan": None},
                 {"layer": "环境层", "body": {"appetite": body}}, {"layer": "进度层"}]
 
     call = {"id": "call-earlier", "type": "function", "function": {"name": "report_status", "arguments": "{}"}}
@@ -1037,34 +1276,33 @@ def test_continuation_messages_read_earlier_changes_and_skip_memory_and_feedback
 
 def test_layer_changes_overlay_earlier_changes_and_keep_the_latest() -> None:
     """changes 相对于模型所见：链首快照依次叠加此前各 changes，以最新为准；没有改动的键不写。"""
-    def layers(targets, paused, plan, body, views):
+    def layers(targets, paused, plan, body):
         return [{"layer": "工具层", "targets": [{**row, "kind": "location", "actions": [], "tools": []}
-                                                   for row in targets], "callable_index": {}}, {"layer": "人设层", "relationships": views, "preferences": []},
-                {"layer": "记忆层"}, {"layer": "待办层", "paused_activities": paused, "errands": [], "day_plan": plan},
+                                                   for row in targets], "callable_index": {}},
+                {"layer": "人设层"}, _MEMORY_LAYER,
+                {"layer": "待办层", "paused_activities": paused, "errands": [], "orders": [], "day_plan": plan},
                 {"layer": "环境层", "body": body}, {"layer": "进度层"}]
 
     shop, desk = {"name": "店", "state": "营业"}, {"name": "工位", "state": None}
     paused = {"name": "读书（9月28日 09:00 起）", "place": "家"}
-    head = layers([shop, desk], [paused], None, {"appetite": "不饿"}, [{"person": "王磊", "view": None}])
+    head = layers([shop, desk], [paused], None, {"appetite": "不饿"})
     earlier = {"targets": {"removed": ["工位"]}, "body": {"appetite": "有点饿"}}
-    current = layers([{**shop, "state": "打烊"}], [], None, {"appetite": "有点饿"},
-                     [{"person": "王磊", "view": "靠谱"}])
+    current = layers([{**shop, "state": "打烊"}], [], None, {"appetite": "有点饿"})
     assert layer_changes(head, [earlier], current) == {
         "targets": {"updated": [{"name": "店", "state": "打烊", "kind": "location", "actions": [],
                                                                                    "tools": [], "phase": None}]},
-        "paused_activities": {"removed": ["读书（9月28日 09:00 起）"]},
-        "relationships": [{"person": "王磊", "view": "靠谱"}]}
+        "paused_activities": {"removed": ["读书（9月28日 09:00 起）"]}}
     assert layer_changes(head, [], head) == {}
 
 
 def test_layer_changes_report_errand_rows_added_changed_and_removed() -> None:
-    """待办层个人事务按名称进 changes（docs/design/04-simulation-engine.md 「同秒续接」）：added 是此刻新增或内容有变的
+    """待办层个人事务按名称进 changes（docs/design/06-agent.md「提示与工具」）：added 是此刻新增或内容有变的
     完整行（此刻顺序），removed 是已不在待办层的名称（办成或取消）；相对模型所见，此前 changes 已移除或已写入的不再重报；
     errands 写在 paused_activities 之后、day_plan 之前；没有改动不写。"""
     def layers(paused, errands, plan):
         return [{"layer": "工具层", "targets": [], "callable_index": {}},
-                {"layer": "人设层", "relationships": [], "preferences": []}, {"layer": "记忆层"},
-                {"layer": "待办层", "paused_activities": paused, "errands": errands, "day_plan": plan},
+                {"layer": "人设层"}, _MEMORY_LAYER,
+                {"layer": "待办层", "paused_activities": paused, "errands": errands, "orders": [], "day_plan": plan},
                 {"layer": "环境层", "body": {"appetite": "不饿"}}, {"layer": "进度层"}]
 
     def row(name: str, progress: str = "已取得 0 份", memo: str | None = None) -> dict:

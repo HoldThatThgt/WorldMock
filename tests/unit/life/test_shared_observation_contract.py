@@ -1,5 +1,6 @@
 """当前观察的结构、冻结身份、查询纠错和已核验经历投影。"""
 
+import logging
 from copy import deepcopy
 
 import pytest
@@ -28,6 +29,7 @@ from worldmock.state.model.exchange import is_action_request
 from worldmock.state.interaction.errors import ErrorItem, ErrorReport, bind_report, host_defaults
 from worldmock.simulation_engine.actions.name_resolution import lookup, name_book, resolution_data
 from worldmock.simulation_engine.observation.layers.progress_layer import order_label, session_bound
+from worldmock.agents.prompt.narration import render_layer_json
 from worldmock.agents.prompt.prompt_capacity import prompt_token_count, request_token_count
 from worldmock.agents.prompt.prompt_schemas import validate_layer
 from worldmock.foundation.time.readable import clock_phrase
@@ -211,6 +213,18 @@ def test_content_sentence_requires_authenticated_progress_and_stage_feedback_use
         assert refusal.code == "SAME_MOMENT_ACTION_RESTRICTED"
 
 
+def test_interact_sentence_requires_grocery_kit_evidence(engine_factory, caplog):
+    """interact 活动的句子给了内容进度证据（app_progress={}）却没有食材包证据（kits=None）：先记同文字的错误日志，再以
+    IntegrityError 失败，不静默省略食材包句。"""
+    engine = engine_factory()
+    _, started = act(engine, "content", do_at("家", "测试休息"))
+    activity = engine.context.state.activities[started.activity_id]
+    with caplog.at_level(logging.ERROR), pytest.raises(IntegrityError) as raised:
+        activity_sentence(_context(engine), activity, (), {}, None)
+    assert str(raised.value) == "Action activity sentence has no grocery kit evidence"
+    assert "Action activity sentence has no grocery kit evidence" in caplog.messages
+
+
 def test_compact_groups_reject_conflicting_metadata_for_the_same_full_name(engine_factory):
     engine = engine_factory()
     observed = engine.observe(context(engine, "compact"))
@@ -222,7 +236,8 @@ def test_compact_groups_reject_conflicting_metadata_for_the_same_full_name(engin
         expand_tool_layer(compact)
 
 
-def test_actual_conclusion_views_update_persona_without_duplicate_memory_prose(engine_factory):
+def test_actual_conclusion_views_stay_private_evidence_and_reach_today_entries(engine_factory):
+    """收尾写下的看法与偏好照旧只作私有证据 persona_views；当天经收尾那次决策的今天条目以「看法·」自述进记忆层，各一次。"""
     engine = engine_factory()
     _, started = act(engine, "view-content", do_at("家", "测试休息"))
     assert advance_until_ready(engine)
@@ -236,7 +251,8 @@ def test_actual_conclusion_views_update_persona_without_duplicate_memory_prose(e
     observed = engine.observe(context(engine, "after-views"))
     assert observed["persona_views"]["relationships"] == [{"person": "林舟", "view": "提醒自己做事认真。"}]
     assert observed["persona_views"]["preferences"][0]["preference"] == "喜欢柔软的纸巾。"
-    assert "喜欢柔软的纸巾。" not in str(observed["memory_layer"])
+    today = render_layer_json(observed["memory_layer"]["今天"])
+    assert today.count("看法·纸巾：喜欢柔软的纸巾。") == 1 and today.count("看法·林舟：提醒自己做事认真。") == 1
 
 
 

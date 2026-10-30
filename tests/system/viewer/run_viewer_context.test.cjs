@@ -11,8 +11,8 @@ const root = path.join(__dirname, '../../..');
 const read = relative => readFileSync(path.join(root, relative), 'utf8').replace(/\r\n/g, '\n');
 const source = read('tools/run-viewer-context.js');
 const fixture = JSON.parse(read('tests/fixtures/viewer-context.json'));
-const LAYER_KEYS = ['tool', 'persona', 'memory', 'todo', 'environment', 'progress'];
-const LAYER_NAMES = ['工具层', '人设层', '记忆层', '待办层', '环境层', '进度层'];
+const LAYER_KEYS = ['persona', 'memory', 'todo', 'tool', 'environment', 'progress'];
+const LAYER_NAMES = ['人设层', '记忆层', '待办层', '工具层', '环境层', '进度层'];
 
 /** @brief 在独立上下文执行真实解析模块，同时收集解析失败日志。 */
 function parser() {
@@ -63,19 +63,19 @@ function layers(kind = 'action') {
   return JSON.parse(fixture[kind].messages[1].content);
 }
 
-test('genuine current requests have seven layers and ten offered tools', () => {
+test('genuine current requests have seven layers and eight offered tools', () => {
   const {api, errors} = parser();
   const parsed = api.parseRequest(event());
   assert.equal(parsed.stage, 'action');
   assert.deepEqual(plain(messageBlocks(parsed).map(block => block.key)), LAYER_KEYS);
   assert.equal(messageBlocks(parsed).map(block => block.text).join(''), request().messages[1].content);
   assert.deepEqual(layers().map(layer => layer.layer), LAYER_NAMES);
-  // 现行工具面按请求次序：六个世界请求（两个开始工具在前）、回看任务与三个记忆查询，没有已删除的 start_activity 与
-  // query_world。
+  // 现行工具面按请求次序：六个世界请求（两个开始工具在前）、回看任务与唯一的记忆检索工具 search_memory，没有已删除的
+  // start_activity、query_world 与三个 memory_* 工具。
   assert.deepEqual(fixture.action.tools.map(tool => tool.function.name), [
     'start_main_activity', 'start_side_activity', 'report_status', 'pause_activity', 'conclude_activity',
-    'revise_day_plan', 'recall_task_summary', 'memory_recent', 'memory_search', 'memory_time_range']);
-  assert.equal(fixture.action.tools.length, 10);
+    'revise_day_plan', 'recall_task_summary', 'search_memory']);
+  assert.equal(fixture.action.tools.length, 8);
   assert.deepEqual(fixture.continuation.tools, fixture.action.tools);
   assert.deepEqual(fixture.continuation.messages.slice(0, 2), fixture.action.messages);
   assert.equal(parsed.warnings.length, 0);
@@ -135,9 +135,10 @@ const START_TOOL_LAYER = {layer: '工具层', groups: [
     {name: '哔哩哔哩', duration: '每条约 5 分钟–约 40 分钟'}]},
 ], callable_index: {}};
 
-/** @brief 不读录制夹具，按七层合同内联构造一个现行行动请求：系统层、六个用户层与含两个开始工具的工具数组。 */
+/** @brief 不读录制夹具，按七层合同内联构造一个现行行动请求：系统层、按最终层序的六个用户层（工具层在第 4 位）与含两个
+ * 开始工具的工具数组。 */
 function inlineRequest(toolLayer) {
-  const userLayers = [toolLayer, ...LAYER_NAMES.slice(1).map(layer => ({layer}))];
+  const userLayers = LAYER_NAMES.map(layer => (layer === toolLayer.layer ? toolLayer : {layer}));
   return {model: 'test-model', messages: [
     {role: 'system', content: JSON.stringify({layer: '系统层', role: LIFE_ROLE, rules: []})},
     {role: 'user', content: JSON.stringify(userLayers)}],
@@ -192,21 +193,24 @@ test('tool layer drill-down writes action names in Chinese and keeps categories 
   assert.equal(errors.length, 0);
 });
 
-test('current progress records keep source facts and mark self notes unverified', () => {
+test('current progress records keep source facts', () => {
   const {api} = parser();
   const values = layers();
   values[5].events = [
-    {occurred_at:'2026-01-05T08:00:00+08:00', type:'tool_call', tool:'revise_day_plan', self_note:'先列计划。'},
+    {occurred_at:'2026-01-05T08:00:00+08:00', type:'tool_call', tool:'start_side_activity',
+      request:{action:'interact', target:['哔哩哔哩'], prefer:null}, result:{status:'in_progress'}},
     {occurred_at:'2026-01-05T08:05:00+08:00', type:'app_push', app:'抖音', title:'测试实况', summary:'测试摘要。'},
     {occurred_at:'2026-01-05T08:10:00+08:00', type:'errand_completed', errand:'买牛奶'},
   ];
   const block = api.parseRequest(event(withLayers(values))).blocks.find(row => row.key === 'progress');
   const items = plain(api.drillItems(block));
-  assert.equal(items.length, 3);
-  assert.match(items[0].label, /self_note（未经核验）/);
-  assert.ok(items[0].text.endsWith(JSON.stringify(values[5].events[0], null, 2)));
-  assert.deepEqual(JSON.parse(items[1].text), values[5].events[1]);
-  assert.match(items[2].label, /买牛奶/);
+  // 每条记录一项：标签是「时刻 · 类型 · 主体」，正文是这条记录的原始 JSON；记录不带 self_note，标签与正文都不另加说明。
+  assert.deepEqual(items.map(item => item.label), [
+    '2026-01-05T08:00:00+08:00 · tool_call · start_side_activity',
+    '2026-01-05T08:05:00+08:00 · app_push · 抖音',
+    '2026-01-05T08:10:00+08:00 · errand_completed · 买牛奶']);
+  assert.deepEqual(items.map(item => item.text), values[5].events.map(record => JSON.stringify(record, null, 2)));
+  for (const item of items) assert.doesNotMatch(item.label + item.text, /self_note|未经核验/);
 });
 
 test('other requests retain every complete message', () => {
@@ -221,7 +225,7 @@ test('other requests retain every complete message', () => {
 test('nested brackets and escaped quotes never change lossless layer boundaries', () => {
   const {api} = parser();
   const values = layers();
-  values[2].earlier_today = [{settled:'名字 [a,b] 与 \"引号\"', nested:{value:['[', ']']}}];
+  values[1].今天 = [{时刻:'08:00', 类别:'生活', 核验:['名字 [a,b] 与 \"引号\"'], 自述:['…']}];
   const original = withLayers(values);
   const parsed = api.parseRequest(event(original));
   assert.deepEqual(plain(messageBlocks(parsed).map(block => block.key)), LAYER_KEYS);
@@ -285,6 +289,26 @@ test('Unicode character accounting includes each whole message and the tools onc
     (sum,block) => sum + Array.from(block.text).length, 0);
   assert.equal(parsed.messageChars, counted);
   assert.equal(parsed.toolChars, Array.from(JSON.stringify(original.tools)).length);
+});
+
+test('the fixture continuation appends the previous decision entry in changes.memory.added', () => {
+  // 录制流程是修订计划，再同秒续接打开哔哩哔哩：续接最后一条 tool 消息的 changes.memory.added 恰是修订计划那次决策的条目。
+  const tools = fixture.continuation.messages.filter(message => message.role === 'tool');
+  const added = JSON.parse(tools.at(-1).content).changes.memory.added;
+  assert.equal(added.length, 1);
+  assert.equal(added[0].类别, '生活');
+  assert.deepEqual(added[0].核验, ['改了今日计划']);
+});
+
+test('rule texts describe the layered memory, digests and eight tools', () => {
+  const {api} = parser();
+  const {rules} = api;
+  assert.ok(rules.memory.fill.includes('14,000 字'), rules.memory.fill);
+  assert.ok(Object.hasOwn(rules, 'digest'));
+  assert.equal(Object.hasOwn(rules, 'reflection'), false);
+  assert.ok(rules.tools.fill.includes('共八个'), rules.tools.fill);
+  assert.ok(!rules.persona.steps.some(step => step.join('').includes('看法偏好')));
+  assert.ok(!rules.progress.steps.some(step => step.join('').includes('self_note')));
 });
 
 test('comparison finds equal length edits, additions and removed blocks', () => {

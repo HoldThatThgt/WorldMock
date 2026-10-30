@@ -12,10 +12,9 @@ import pytest
 
 from tests.integration.runtime.test_life_agent_protocol import (
     _Environment,
-    _MEMORY_TOOL_NAMES,
     _ModelResponse,
-    _PRIOR_EPISODE,
-    _PRIOR_PROJECTION,
+    _SEARCH,
+    _SEARCH_ANSWER,
     _WAIT_CHOICE,
     _context,
     _observations,
@@ -105,11 +104,11 @@ def _request(*, readonly: bool = False) -> ReactLoopRequest:
 
 @pytest.mark.asyncio
 async def test_followup_requests_hide_receipts_and_keep_memory_pairing_and_initial_user() -> None:
-    """@brief 记忆查询结果即时可用且原生配对、思考字段保持；登记后不追加 tool 消息，回执与条目身份都不进入发给模型的内容。"""
+    """@brief 检索结果即时可用且原生配对、思考字段保持；登记后不追加 tool 消息，回执与内部身份都不进入发给模型的内容。"""
     agent, environment, dispatcher = _configured([
-        _ModelResponse("memory-first", "memory_recent", '{"limit":1}',
+        _ModelResponse("memory-first", "search_memory", _SEARCH,
                        reasoning_content="I should recall what I did yesterday."),
-        _ModelResponse("memory-second", "memory_recent", '{"limit":1}'),
+        _ModelResponse("memory-second", "search_memory", _SEARCH),
         _action_response(),
     ], 5)
     context = _context()
@@ -135,7 +134,6 @@ async def test_followup_requests_hide_receipts_and_keep_memory_pairing_and_initi
     for forbidden in (
         "request_sha256", "run_id", "round_id", "decision_id", "agent_id", "action_id", "submitted",
         "private-run-identity", "private-round-identity", "private-decision-identity", "a" * 64,
-        _PRIOR_EPISODE["id"],
     ):
         assert re.search(rf"(?<!\w){re.escape(forbidden)}(?!\w)", sent) is None
     followup = dispatcher.requests[-1]["messages"]
@@ -143,9 +141,8 @@ async def test_followup_requests_hide_receipts_and_keep_memory_pairing_and_initi
     assert assistant["reasoning_content"] == "I should recall what I did yesterday."
     assert assistant["tool_calls"][0]["id"] == "memory-first"
     memory_tools = [item for item in followup if item.get("tool_call_id", "").startswith("memory-")]
-    assert len(memory_tools) == len(agent._memory_runtime.calls) == 2
-    assert all(json.loads(item["content"]) == {"epistemic_status": "subjective", "episodes": [_PRIOR_PROJECTION]}
-               for item in memory_tools)
+    assert len(memory_tools) == len(environment.queries) == 2
+    assert all(json.loads(item["content"]) == _SEARCH_ANSWER for item in memory_tools)
     users = [item["messages"][1]["content"].encode() for item in dispatcher.requests]
     systems = [item["messages"][0]["content"].encode() for item in dispatcher.requests]
     assert all(user == users[0] for user in users) and all(system == systems[0] for system in systems)
@@ -186,27 +183,25 @@ async def test_action_transport_and_evidence_failures_are_logged_without_retry(
 
 @pytest.mark.asyncio
 async def test_readonly_loop_uses_only_persona_memory_and_question() -> None:
-    """@brief 只读请求跳过观察：只读系统层、人设层与记忆层组成的 user、原样的外部问题；查询结果不带条目身份，不写世界或记忆。"""
+    """@brief 只读请求跳过观察：只读系统层、人设层与记忆层组成的 user、原样的外部问题；每个回合只开放 finish，
+    写了检索的回复按未开放的工具纠错、不送环境，不写世界或记忆。"""
     agent, environment, dispatcher = _configured([
-        _ModelResponse("readonly-memory", "memory_recent", '{"limit":1}'),
+        _ModelResponse("readonly-memory", "search_memory", _SEARCH),
         _finish_response()], 2)
     agent._profile["persona_card"] = "我是一个爱散步的人。"
     result = await agent.run_react_loop(_request(readonly=True))
     assert result == "I remember waiting."
     assert len(dispatcher.requests) == 2
-    persona = persona_layer(agent._profile, "Alice", {"relationships": [], "preferences": []})
-    memory = {"layer": "记忆层", "earlier_days": [], "earlier_today": []}
+    persona = persona_layer(agent._profile, "Alice")
+    memory = life_prompt.empty_memory_layer()
     assert dispatcher.requests[0]["messages"] == [
         {"role": "system", "content": render_layer_json(life_prompt.READONLY_SYSTEM_LAYER)},
         {"role": "user", "content": render_layer_json([persona, memory])},
         {"role": "user", "content": "What happened?"}]
     assert "爱散步" not in json.dumps(dispatcher.requests[0], ensure_ascii=False)
-    assert {tool["function"]["name"] for tool in dispatcher.requests[0]["tools"]} == (
-        _MEMORY_TOOL_NAMES | {"finish"})
-    assert {tool["function"]["name"] for tool in dispatcher.requests[1]["tools"]} == {"finish"}
-    assert "I waited yesterday." in dispatcher.requests[1]["messages"][-1]["content"]
-    assert _PRIOR_EPISODE["id"] not in dispatcher.requests[1]["messages"][-1]["content"]
-    assert environment.calls == environment.memory_updates == []
+    assert [{tool["function"]["name"] for tool in item["tools"]} for item in dispatcher.requests] == [{"finish"}] * 2
+    assert "TOOL_CALL_REQUIRED" in dispatcher.requests[1]["messages"][-1]["content"]
+    assert environment.calls == environment.memory_updates == environment.queries == []
     assert agent._last_finish_memories is None
 
 
@@ -256,7 +251,8 @@ async def test_start_tool_descriptions_say_purpose_only_and_conditions_stay_in_t
     assert [rule for rule in rules if "reason" in rule] == [
         "工具层 available 为 false 的动作仍可提交，会按 reason 拒绝；先照原因处理。查询记忆和回看任务当场完成，不推进时间。"
         "available 为 true 的动作单独提交都会受理；同一件事做几次、先做哪件，环境都不另作处理。"]
-    task = next(target for target in expand_tool_layer(json.loads(request["messages"][1]["content"])[0])["targets"]
+    tools = expand_tool_layer(life_prompt.user_layer(json.loads(request["messages"][1]["content"]), "工具层"))
+    task = next(target for target in tools["targets"]
                 if target["name"] == "整理会议纪要")
     [work] = task["actions"]
     assert (work["available"], work["reason"]) == (False, "整理会议纪要需要在办公室")

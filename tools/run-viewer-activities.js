@@ -3,12 +3,20 @@
 /** @brief 按当地日期查看真实执行区间，按实际重叠复用行，原文按需读取。 */
 const ActivityCalendar = {};
 {
-  const state = {day:'', agent:null, rows:[], selected:null, span:0, offset:0, focus:null, query:'',
+  const state = {day:'', first:0, last:0, agent:null, rows:[], selected:null, span:0, offset:0, focus:null, query:'',
     sequences:new Set(), ticket:0};
+  const formats = new Map();
+
+  /** @brief 运行时区里同一写法的 Intl.DateTimeFormat 只构造一次（二分、刻度与选择器会反复调用）。 */
+  function format(locale, options){
+    const key = `${S.tz}|${locale}|${JSON.stringify(options)}`;
+    if (!formats.has(key)) formats.set(key, new Intl.DateTimeFormat(locale, {timeZone:S.tz, ...options}));
+    return formats.get(key);
+  }
 
   /** @brief 取得运行时区中的日期。 */
   function dateKey(seconds){
-    const parts = new Intl.DateTimeFormat('en-CA', {timeZone:S.tz, year:'numeric', month:'2-digit', day:'2-digit'})
+    const parts = format('en-CA', {year:'numeric', month:'2-digit', day:'2-digit'})
       .formatToParts(new Date(seconds*1000)).reduce((result, part)=>(result[part.type]=part.value,result),{});
     return `${parts.year}-${parts.month}-${parts.day}`;
   }
@@ -37,7 +45,7 @@ const ActivityCalendar = {};
 
   /** @brief 显示当地时分秒；可见时段增加偏移以区分夏令时重复小时。 */
   function clock(seconds, secondsShown=false, offset=false){
-    return new Intl.DateTimeFormat('zh-CN', {timeZone:S.tz, hourCycle:'h23', hour:'2-digit', minute:'2-digit',
+    return format('zh-CN', {hourCycle:'h23', hour:'2-digit', minute:'2-digit',
       ...(secondsShown ? {second:'2-digit'} : {}), ...(offset ? {timeZoneName:'shortOffset'} : {})})
       .format(new Date(seconds*1000));
   }
@@ -88,10 +96,9 @@ const ActivityCalendar = {};
     return rows.sort((left,right)=>left.first-right.first || left.agent-right.agent);
   }
 
-  /** @brief 可视时段限定在当天，以实际秒数处理 23 小时与 25 小时自然日。 */
+  /** @brief 可视时段限定在当天（render 算好的当天首尾），以实际秒数处理 23 小时与 25 小时自然日。 */
   function bounds(){
-    const first = midnight(state.day), last = midnight(shiftDate(state.day,1));
-    const span = state.span || last-first;
+    const {first,last} = state, span = state.span || last-first;
     state.offset = Math.max(0,Math.min(state.offset,last-first-span));
     return {first,last,start:first+state.offset,end:Math.min(last,first+state.offset+span)};
   }
@@ -201,8 +208,9 @@ const ActivityCalendar = {};
       state.day = activities.length ? dateKey(Math.min(...activities.map(activity=>activity.start))) : first;
       clearSelection();
     }
-    const start = midnight(state.day), end = midnight(shiftDate(state.day,1));
-    state.rows = dayRows(activities,start,end);
+    state.first = midnight(state.day);
+    state.last = midnight(shiftDate(state.day,1));
+    state.rows = dayRows(activities,state.first,state.last);
     return toolbar(first,last) + '<div class="hint">同一时间轴上的条块表示实际执行区间；空白表示尚无结算记录。' +
       '首尾相接的同一 app 使用合成条块；先后执行的区间复用显示行，只有实际重叠时分行。' +
       '点击条块或搜索选择活动查看详情。</div>' + (state.rows.length ? chart()+picker() :
@@ -226,7 +234,7 @@ const ActivityCalendar = {};
       button.setAttribute('aria-pressed',String(Number(button.dataset.calendarRow)===index)));
     $('#calendar-activity').value = String(index);
     const sources = [...state.sequences].map(sequence=>{
-      const event = S.events.find(event=>event.seq===sequence);
+      const event = S.bySeq.get(sequence);
       return `<button data-calendar-event="${sequence}">${event.type==='action_accepted'?'受理':'进度'} ` +
         `#${sequence} · ${esc(fmtT(event.t))}</button>`;
     }).join('');
@@ -274,7 +282,7 @@ const ActivityCalendar = {};
   function choose(index){
     select(index);
     if (state.span){
-      state.offset = state.focus-midnight(state.day)-state.span/2;
+      state.offset = state.focus-state.first-state.span/2;
       renderActivities();
     }
     $('#activity-detail').scrollIntoView({block:'nearest'});

@@ -10,14 +10,13 @@ from types import SimpleNamespace
 import pytest
 from pydantic import ValidationError
 
-from worldmock.agents.memory import life_reflection
 from worldmock.foundation.errors import ProtocolError
 from worldmock.simulation_engine.scheduling.plans import day_planning
 from worldmock.state.interaction.requests import PlanDayRequest
 from worldmock.foundation.model_feedback import schema_error_details
-from worldmock.runtime.lifecycle.runner import PlanDayClient
+from worldmock.runtime.lifecycle.runner import MemoryDigestClient, PlanDayClient
 
-CLIENTS = ((PlanDayClient, 'Plan day'),)
+CLIENTS = ((PlanDayClient, 'Plan day'), (MemoryDigestClient, 'Memory digest'))
 IDENTITY = {'requested_model': 'mock-model', 'base_url': 'https://example.test', 'max_retries': 0,
             'transport_max_retries': 3, 'model_metadata': {'requested_model': 'mock-model',
              'metadata_url': 'https://example.test/models', 'context_window': 262144, 'max_output_tokens': 32000}}
@@ -78,7 +77,7 @@ def test_original_clients_reject_unserializable_responses(monkeypatch, cls, purp
         _call(client, {'messages': [], 'max_retries': 0})
 
 
-def test_plan_and_reflection_corrections_keep_tools_budgets_and_channel_echo():
+def test_plan_corrections_keep_tools_budgets_and_channel_echo():
     raw = {'choices': [{'message': {'tool_calls': [{'id': 'id', 'type': 'function',
              'function': {'name': 'wrong', 'arguments': '{}'}}], 'content': 'free text'}}]}
     request = {'messages': [{'role': 'user', 'content': 'original'}], 'tools': [{'name': 'original tool'}],
@@ -86,10 +85,6 @@ def test_plan_and_reflection_corrections_keep_tools_budgets_and_channel_echo():
     original = copy.deepcopy(request)
     error = day_planning.PlanDayOutputError('bad plan')
     plan = day_planning.prepare_plan_day_correction(request, raw, error)
-    response = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='free text',
-        tool_calls=[SimpleNamespace(function=SimpleNamespace(name='wrong', arguments='{}'))]))])
-    reflection = life_reflection.reflection_correction(request['messages'], response,
-                                                       life_reflection.ReflectionOutputError('bad reflection'))
     assert request == original
     for changed in (plan,):
         assert {key: changed[key] for key in request if key != 'messages'} == {
@@ -100,28 +95,15 @@ def test_plan_and_reflection_corrections_keep_tools_budgets_and_channel_echo():
         assert feedback['INSTRUCTION'].endswith('using the unchanged schema.')
         assert changed['messages'][-1]['content'] == json.dumps(feedback, ensure_ascii=False,
                                                                 sort_keys=True, separators=(',', ':'))
-    echo = json.loads(reflection[-1]['content'])['PREVIOUS_INVALID_RESPONSE']
-    assert echo == [{'name': 'wrong', 'arguments': '{}'}]
-    assert 'free text' not in reflection[-1]['content']
 
 
 @pytest.mark.parametrize('calls', [[], [{}, {}], [{'function': {'name': 'wrong', 'arguments': '{}'}}],
                                   [{'function': {'name': 'submit_day_plan', 'arguments': {}}}]])
 def test_original_tool_argument_consumers_reject_wrong_count_name_and_json_text(calls, caplog):
-    for module, tool, error in ((day_planning, 'submit_day_plan', day_planning.PlanDayOutputError),
-                                (life_reflection, 'submit_reflection', life_reflection.ReflectionOutputError)):
-        actual = copy.deepcopy(calls)
-        if actual and len(actual) == 1 and actual[0].get('function', {}).get('name') == 'submit_day_plan':
-            actual[0]['function']['name'] = tool
-        if module is life_reflection:
-            actual = [SimpleNamespace(function=SimpleNamespace(**item.get('function', {}))) for item in actual]
-            response = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(tool_calls=actual))])
-        else:
-            response = {'choices': [{'message': {'tool_calls': actual}}]}
-        caplog.clear()
-        with pytest.raises(error):
-            module._tool_arguments(response)
-        assert len(caplog.records) == 1
+    response = {'choices': [{'message': {'tool_calls': copy.deepcopy(calls)}}]}
+    with pytest.raises(day_planning.PlanDayOutputError):
+        day_planning._tool_arguments(response)
+    assert len(caplog.records) == 1
 
 
 def test_original_schema_feedback_uses_shared_sanitized_error_details():
@@ -130,5 +112,4 @@ def test_original_schema_feedback_uses_shared_sanitized_error_details():
     error = captured.value
     details = schema_error_details(error)
     assert details and all(set(item) == {'field', 'type', 'message'} for item in details)
-    assert day_planning._schema_feedback(error) == life_reflection._schema_feedback(error)
     assert 'goals.0.intent_kind' in day_planning._schema_feedback(error)

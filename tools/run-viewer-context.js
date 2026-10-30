@@ -4,7 +4,7 @@
 const ViewerContext = {};
 {
   const LIFE_ROLE = '你是模拟世界中的一个人物，依据人设层选择下一步行动；世界的时间、状态与结算由环境负责。';
-  const USER_LAYERS = [['tool', '工具层'], ['persona', '人设层'], ['memory', '记忆层'], ['todo', '待办层'],
+  const USER_LAYERS = [['persona', '人设层'], ['memory', '记忆层'], ['todo', '待办层'], ['tool', '工具层'],
     ['environment', '环境层'], ['progress', '进度层']];
   const LABELS = {system: '系统层', tools: '工具定义', message: '完整消息', ...Object.fromEntries(USER_LAYERS)};
   const UNVERIFIED = '未经核验';
@@ -29,30 +29,38 @@ const ViewerContext = {};
     },
     persona: {
       label: '人设层', source: 'src/worldmock/agents/life_persona.py · persona_layer',
-      fill: '宿主从人物卡片的结构化字段、姓名与观察中的看法偏好构建身份、作息、习惯、口味、关系与偏好。',
+      fill: '宿主从人物卡片的结构化字段与姓名构建身份、作息、习惯、口味与关系，整次运行逐字节相同。',
       steps: [
         ['卡片来源', '新建运行时保存卡片的结构化字段，不含当下处境；没有卡片的人物只有姓名，其余为 null 或空列表。'],
         ['关系合并', '卡片关系按名称登记；关系内容保留人物卡片原文。'],
-        ['看法偏好', '取自结束活动时写下的关系与偏好记忆，同一对象以最后一条为准，未经核验。'],
+        ['不含看法', '收尾时写下的看法不进人设层：当天在记忆层「今天」以「看法·对象：」出现，过了零点只在回顾和 search_memory 里。'],
       ],
     },
     memory: {
-      label: '记忆层', source: 'src/worldmock/life/memory_layer.py · memory_view',
-      fill: '环境从已提交事件派生：今天结束的各段停留与路程各一条，更早日期只留仍未了结的事项与就寝反思。',
+      label: '记忆层',
+      source: 'src/worldmock/simulation_engine/observation/layers/memory_layer.py · memory_view；'
+        + 'src/worldmock/simulation_engine/observation/memory/',
+      fill: '环境从已提交事件与回顾事件派生「可查」「近三天」「今天」三部分，整层合计不超过 14,000 字。',
       steps: [
-        ['段落迁入', '一段停留或路程结束后，它的结果与世界事件写成 settled 句，写下的总结与记忆进入 self_notes。'],
-        ['零点与窗口', '按场景本地日期分区；超过 8000 字符时先删最旧日期的反思，再缩减最旧的今日条目。'],
-        ['核验区分', 'settled 是环境核验的事实，self_notes 是人物自己写下的内容。'],
+        ['今天', '今天的每次决策一条，提交后从下一次决策起可见，同一时刻接着的决策经 changes.memory.added 收到；'
+          + '每条「核验」与「自述」合计至多 120 字，全文用 search_memory 查「今天」。'],
+        ['近三天', '过了零点，模型把前一天每类的条目整理成一段回顾；饮食和生活取最近三天，工作取最近三个有工作的日子；'
+          + '整理不出时这一格写「未整理」，那天没有这类事时这一格省略。'],
+        ['可查', '写出 search_memory 能查到的最早日期；更早的日回顾、月回顾和年回顾都要检索。'],
+        ['兜底', '追加一条后超过 14,000 字时一次回落到 12,000 字以内：先把只交了播报的条目的自述换成「…」，'
+          + '再让其余条目只留核验，最后按小时合成计数行。'],
+        ['核验区分', '「核验」是环境核验的事实；「自述」和「回顾」是人物自己写下或整理的，未经核验。'],
       ],
     },
     todo: {
       label: '待办层', source: 'src/worldmock/life/todo_layer.py · todo_layer',
       fill: '暂停的活动按暂停时刻排列并带恢复与收尾工具；还没办完的个人事务按记下的时刻排列，写明要办成什么、已办到哪、'
-        + '备注与尚未提醒的钟点；今日计划列出目标、是否推进与提醒时刻。',
+        + '备注与尚未提醒的钟点；在途订单（orders）列出下单后还没送达或取走的订单；今日计划列出目标、是否推进与提醒时刻。',
       steps: [
         ['暂停项', '恢复只能回到原地点，在别处恢复标为不可用并写明地点。'],
         ['个人事务', '未完成的个人事务取自人物状态，跨零点保留；人物在播报、暂停或收尾时记下，办没办成由环境按实际结算确认，'
           + '办成或取消即移出，提醒到点后钟点为 null。'],
+        ['在途订单', '至多六行，多出的合成一行「另有 N 笔在途」。'],
         ['今日计划', '零点计划之前或当日结束之后为 null。'],
         ['目标上限', '最多八项目标，按计划顺序排列。'],
       ],
@@ -71,32 +79,33 @@ const ViewerContext = {};
       ],
     },
     progress: {
-      label: '进度层', source: 'src/worldmock/life/progress_layer.py · progress_view',
-      fill: '本段停留或路程中的调用与结果、配送、app 推送与状态提醒，以及事务提醒与办成两种只写事务名称的记录，'
-        + '按发生时刻排列。',
+      label: '进度层', source: 'src/worldmock/simulation_engine/observation/layers/progress_layer.py · progress_view',
+      fill: '此刻还没了结的事：进行中或待收尾的本人活动带开始记录和最新结果，上次决策之后新到的结果、配送、app 推送与提醒，'
+        + '这段停留或路程里已经做完的查询及其答案，以及今天被拒绝的请求，按发生时刻排列。',
       steps: [
-        ['段落边界', '运行开始、出发与到达时重新开始，结果保留到本段结束。'],
+        ['已发布界', '下界是上一次决策的提交，且不早于本地零点；在它之前已经了结的事在记忆层「今天」里。'],
+        ['带入记录', '进行中或待收尾的本人活动和这段停留里做完的查询照样带入；出发后查询答案离开进度层，进条目全文的「当时查到」。'],
         ['事务记录', '事务提醒到点（errand_reminder）与环境确认办成（errand_completed）两种记录只写事务名称，'
-          + '由人物可见的事务事件派生；二者不迁入记忆层。'],
-        ['self_note', '提交世界请求那次回复的非空正文作为 self_note 附在调用上，未经核验。'],
-        ['容量折叠', '超过容量时先去掉未受保护记录的 self_note，再折叠为 condensed；受保护记录不变。'],
+          + '由人物可见的事务事件派生；办成同时在记忆层「今天」的核验里写成「办成「事务名」」。'],
+        ['容量折叠', '超过容量时把连续的未受保护记录折叠为 condensed；受保护记录不变。'],
       ],
     },
     tools: {
       label: '工具定义', source: 'custom/agents/life_agent.py · 原生工具；src/worldmock/agents/life_prompt.py · TOOL_DESCRIPTIONS',
       fill: '六个世界请求工具（两个开始工具、三个活动控制工具与计划修订）、一个回看工具（recall_task_summary）'
-        + '与三个记忆查询工具，共十个，严格参数结构，整次运行字节相同。',
+        + '与一个记忆检索工具（search_memory），共八个，严格参数结构，整次运行字节相同。',
       steps: [
         ['稳定工具面', '不再按观察绑定枚举，名称在宿主本地按私有绑定校验。'],
-        ['最后回合', '只剩最后一个回合时与输出截断后的那次重试时去掉全部只读工具（回看任务与记忆查询），只留世界请求工具。'],
+        ['最后回合', '只剩最后一个回合时与输出截断后的那次重试时去掉全部只读工具（回看任务与 search_memory），只留世界请求工具。'],
+        ['检索上限', '一次决策至多查三次记忆，第四次返回 MEMORY_SEARCH_LIMIT。'],
         ['计量口径', '未提供 tools 与显式 tools: [] 分别保留；工具参数和描述均可查看。'],
       ],
     },
     message: {
       label: '本轮追加消息', source: 'agentsociety2/agent/person.py；custom/agents/life_agent.py · _run_react_turn',
-      fill: '同一决策内的 assistant 调用、记忆查询结果与协议纠错消息按实际发送顺序保留。',
+      fill: '同一决策内的 assistant 调用、search_memory 与回看任务的结果和协议纠错消息按实际发送顺序保留。',
       steps: [
-        ['记忆查询', '查询结果作为一条紧凑 JSON 工具消息追加。'],
+        ['查询结果', '查询结果作为一条紧凑 JSON 工具消息追加；search_memory 查到的往日是回顾段落，「当时查到」的价格和库存以当时为准。'],
         ['世界请求', '登记世界请求即结束本次决策，不再追加工具消息。'],
         ['多出消息', '首个请求多于两条消息时，多出的消息按完整消息显示。'],
         ['未知格式', '不符合七层合同的消息不做分段，完整正文仍可查看。'],
@@ -104,43 +113,49 @@ const ViewerContext = {};
     },
     continuation: {
       label: '同秒续接',
-      source: 'src/worldmock/life/continuation.py · same_second_chain；src/worldmock/agents/life_continuation.py · continuation_messages',
+      source: 'src/worldmock/simulation_engine/decisions/continuation.py · same_second_chain；'
+        + 'src/worldmock/agents/protocol/life_continuation.py · continuation_messages',
       fill: '同一秒的后续决策原样续接上一决策末次请求的全部消息，再追加上一决策的 assistant，并为它的每个世界请求各追加一条 tool 消息'
-        + ' {result, changes, events}：一个世界请求一条，开始组两条，changes 与 events 只写在最后一条上。',
+        + ' {result, changes, events}：一个世界请求一条，开始组两条，changes 与 events 只写在最后一条上；'
+        + 'changes.memory.added 是上一决策的今天条目。',
       steps: [
         ['识别', '一次决策的首个请求多于两条消息即判为续接。'],
         ['来源决策', '前序 assistant 按 tool_call 身份匹配到产生它的决策。'],
         ['回传思考', '前序 assistant 的 reasoning_content 单列显示；时间推进后请求不再带它。'],
+        ['记忆追加', '链里记忆层只在「今天」末尾追加；兜底改写了早先的条目时这一次改用新快照。'],
       ],
     },
-    reflection: {
-      label: '睡醒反思',
-      source: 'src/worldmock/agents/life_memory.py · wake_reflection；src/worldmock/agents/life_reflection.py；custom/agents/life_agent.py · _observe_environment',
-      fill: '每个本地日第一次睡醒、取观察之前触发，输入当前时刻与最近三十条记忆，不含人物卡片。',
+    digest: {
+      label: '日、月、年回顾',
+      source: 'src/worldmock/simulation_engine/evidence/memory_digest.py；'
+        + 'src/worldmock/runtime/lifecycle/runner.py · settle_pending_memory_digests',
+      fill: '零点由模型把前一天每类的今天条目整理成日回顾，每类至多 200 字；每月第一个零点把上个月的日回顾整理成月回顾，'
+        + '每类至多 800 字；每年第一个零点把上一年的月回顾整理成年回顾，每类至多 2000 字。',
       steps: [
-        ['当天第一次睡醒', '有未归纳的记录时先做一次主观归纳，再进行反思；没有已有记忆时不调用反思模型。'],
-        ['新增条目', '经唯一严格工具 submit_reflection 提交一至五条带原记忆引用的主观反思，重要度为 0.8，进入持久记忆。'],
-        ['校验重试', '输出不合合同时附回英文校验错误重新请求，首次之外至多三次；仍不合合同即运行故障，不写入任何反思。'],
-        ['后续归纳', '反思不计入归纳触发阈值，但属于后续归纳可读取的未归纳内容。'],
+        ['顺序', '零点推进之后依次生成日回顾、月回顾、年回顾，然后才做零点计划；运行到终点时不生成。'],
+        ['调用', '每一级每次一个调用，关闭思考，只给严格工具 submit_memory_digest，三类分开写，refs 写所依据的编号。'],
+        ['校验重试', '输出被截断、参数不合格式，或正文、依据、名称、饮食核验名称、饮食覆盖、做饭那一句、数字与次数照抄各守卫不通过时'
+          + '附英文错误重试，至多 reflection_validation_max_retries 次；用尽时没通过的类记为 null 并写进 fallback，运行不失败。'],
+        ['记录', '回顾记成 memory_digest_generated 世界事件；它是整理出来的回忆，环境从不据此结算。'],
       ],
     },
     memory_view: {
       label: '工作区记忆视图', source: 'src/worldmock/agents/life_memory.py · render_memory_view、build_context',
       fill: '工作区 MEMORY.md 由身份、五条已核验经历和主观归纳组合，最多四千字符。',
       steps: [
-        ['每步重写', '根据当前身份、事实窗口和最新主观归纳重新生成视图。'],
+        ['每步重写', '根据当前身份与事实窗口重新生成视图；主观归纳不再更新。'],
         ['提示分开取值', '生活请求不读取这个文件；七层由环境与宿主分别构建。'],
         ['范围区别', '文件四千字符预算和主观归纳四千字符限制都不是整个请求的容量。'],
       ],
     },
     capacity: {
-      label: '请求容量', source: 'src/worldmock/life/prompt_capacity.py · fit_request',
+      label: '请求容量', source: 'src/worldmock/agents/prompt/prompt_capacity.py · fit_request',
       fill: '计量系统层、工具、各用户层、续接消息（含回传思考）与最大输出预留；展示的字符数量不是 token 数。',
       steps: [
         ['整体计量', '达到模型上下文容量的 85% 时开始处理，每步之后重新计量。'],
         ['先结束续接', '第 0 步先提前结束本秒续接：请求改从新快照构造，前序消息与回传思考不再出现。'],
-        ['再浓缩进度层', '从旧到新去掉未受保护记录的 self_note，再把连续的未受保护记录折叠为 condensed。'],
-        ['保留当前', '受保护记录，以及工具层、人设层、待办层、环境层都不被压缩。'],
+        ['再浓缩进度层', '把最旧一段连续的未受保护记录折叠为 condensed，重复到阈值以下。'],
+        ['保留当前', '受保护记录，以及人设层、记忆层、待办层、工具层与环境层都不被压缩。'],
         ['明确失败', '仍超限则按层记录 token 数并报错，不静默截掉请求。'],
       ],
     },
@@ -370,16 +385,14 @@ const ViewerContext = {};
     return items;
   }
 
-  /** @brief 进度层下钻：每条记录一项，标签写时刻、类型与记录的主体（工具、发件人、订单、app、主题、目标或事务名称）；
-   * 带 self_note 的记录在标签与正文中标明未经核验。 */
+  /** @brief 进度层下钻：每条记录一项，标签写时刻、类型与记录的主体（工具、发件人、订单、app、主题、目标或事务名称），
+   * 正文是这条记录的原始 JSON。 */
   function progressItems(layer) {
     return (Array.isArray(layer?.events) ? layer.events : []).map(record => {
       const subject = record.tool ?? record.sender ?? record.subject ?? record.order ?? record.app ??
         record.topic ?? record.goal ?? record.errand ?? '';
-      const hasNote = typeof record.self_note === 'string';
-      const note = hasNote ? `self_note（${UNVERIFIED}）：${record.self_note}\n\n` : '';
-      return {label: `${record.occurred_at} · ${record.type}${subject ? ' · ' + subject : ''}` +
-        (hasNote ? ` · self_note（${UNVERIFIED}）` : ''), text: note + JSON.stringify(record, null, 2)};
+      return {label: `${record.occurred_at} · ${record.type}${subject ? ' · ' + subject : ''}`,
+        text: JSON.stringify(record, null, 2)};
     });
   }
 

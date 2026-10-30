@@ -10,6 +10,8 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[3]
 OWNERS = {
+    'src/worldmock/agents/prompt/life_prompt.py': ('empty_memory_layer', 'life_user_layers', 'user_layer', 'last_progress_layer'),
+    'src/worldmock/agents/prompt/prompt_schemas.py': ('USER_LAYER_NAMES',),
     'src/worldmock/configuration/inputs/models.py': ('LEGACY_TEMPLATE_FIELDS', 'HourWindow', 'NonBlankText', 'Identity', 'Situation', 'Relationship', 'HabitDeclaration', 'Tastes'),
     'src/worldmock/configuration/inputs/warnings.py': ('INPUT_WARNING_CODES', 'InputWarning', 'frozen_input_warnings'),
     'src/worldmock/configuration/model/model_metadata.py': ('IndependentModelClient',),
@@ -55,6 +57,7 @@ OWNERS = {
     'src/worldmock/simulation_engine/commerce/purchase/order_apps.py': ('order_app_ids', 'preferred_app_id', 'selling_app_ids'),
     'src/worldmock/simulation_engine/evidence/activity.py': ('app_use_ended', 'OUTCOME_APP_USE_ENDED'),
     'src/worldmock/simulation_engine/evidence/stays.py': ('stay_events', 'run_start_event'),
+    'src/worldmock/simulation_engine/observation/memory/layout.py': ('MEMORY_LAYER_CHARS', 'MEMORY_BACKSTOP_CHARS', 'PublishedEntry', 'TodayFold', 'earliest_date', 'assemble_layer', 'layer_chars', 'require_budget', 'fold_entry', 'fold_items'),
     'src/worldmock/simulation_engine/observation/wording/activity_titles.py': ('progress_snapshot',),
     'src/worldmock/simulation_engine/observation/wording/content_prerequisite.py': ('prerequisite_unmet', 'app_prerequisite_refusal', 'time_phrase', 'app_time_state'),
     'src/worldmock/state/identity.py': ('RUN_MANIFEST_SCHEMA_VERSION',),

@@ -1,0 +1,351 @@
+{
+ "facts": {
+  "verdict": "The new compaction design's code seams mostly check out against f67c25e5. These are correct: the LifeEnv.step midnight order (life_env.py:235-243, guarded by `midnight_rhythm_pending`); the PlanDayClient and `_call_plan_day` precedent (runner.py:611-616, 663-665, 675-692); the end-of-run check (day_planning.py:72-78); register_day_plan (time_advance.py:211-225); `validate_environment_event` at :23-44 (day_plan_generated has no branch today); the purpose-keyed `_call_class` (quality.py:801-802); `_reflection_sourced` (:478-490); the retry field (models.py:224, 08-configuration.md:135); and the V cost of retiring consolidation and reflection (≈$0.0048/day). The gaps are in 第三章's change lists for P1. Several tests and one current doc break when reflection and consolidation are retired and the quality version moves to 10, and the tables do not list them. The 05-recording-engine deletion range would also remove contracts that stay live. A few rationale and wording slips remain. None of these contradicts the two 2026-10-29 rulings.",
+  "issues": [
+   {
+    "severity": "major",
+    "quote": "删除「反思登记」（:84-96）并改写调用类表（:642-643）",
+    "problem": "The range 05-recording-engine.md:84-96 covers more than the reflection registration. It also holds the live step-tail registration row (:87), the shared rejection rule (:89), and the quality report's reflection-sourcing paragraph (:92-96). The proposal itself keeps that last check in code to recertify historical runs (第三章 quality.py row: 「`_reflection_sourced`（:478-490）只用于认证历史运行」; also 第二章 line 238). Deleting the whole range leaves the retained `_tail_registration` and `_reflection_sourced` without a contract in their owning module, which goes against INDEX.md:17.",
+    "evidence": "docs/design/05-recording-engine.md:86 is the 反思登记 row, :87 the 步尾登记 row, :89 「任一条不满足…ProtocolError(\"Memory update evidence is invalid\")」, :92-95 the quality report's four reflection checks, :96 「`reflection` 为空的更新照旧核对观察与事实窗口」. src/worldmock/simulation_engine/evidence/model.py:186-206 `_tail_registration` stays in P1 (the code table removes only the reflection side). docs/INDEX.md:17 「每个接口、字段、规则和约束只在所属模块定义」.",
+    "fix": "改为：「删除「反思登记」一行（:86）和「睡醒那一步最多有两个 memory_updated」一句（:90），步尾登记（:87）和拒绝规则（:89）保留；:92-95 的质量报告反思来源核对保留，注明只用于重新认证 P1 之前的历史运行；改写调用类表（:642-643）」。"
+   },
+   {
+    "severity": "major",
+    "quote": "删除阈值巩固、睡醒巩固和睡醒反思；life_reflection.py 删除",
+    "problem": "Deleting life_reflection.py in P1 breaks a current-design link. The documentation gate checks current design docs, but 第三章's docs table does not list docs/design/01-architecture.md. The 06-agent.md row only cites :46-57 and :216-306, yet the reflection phase, the four-stage step flow and the reflection call-id rule are at 06-agent.md:307-347 (also :35 and :311). Other current docs still describe consolidation and bedtime reflection as live: 00-overview.md:138, 01-architecture.md:63,73, 07-evaluation.md:71 and manual/personas.md:105.",
+    "evidence": "docs/design/01-architecture.md:172 「[就寝反思工具](../../src/worldmock/agents/memory/life_reflection.py)」. tests/unit/engineering/test_documentation_gate.py:51-52 `test_real_repository_current_links_resolve` asserts `find_problems(ROOT) == []`, and :19-24 shows docs/design/* is scanned. docs/design/06-agent.md:322-347 (反思阶段 flowchart with `due_reflection`, `{decision_id}:reflection:{序号四位}:attempt:1`, 「反思输出在校验重试耗尽后仍不合合同是运行故障」).",
+    "fix": "在「设计文档」表加一行：「docs/design/01-architecture.md | 第 172 行职责表去掉「就寝反思工具」链接（改链到日回顾所在模块），第 63、73 行改说日回顾（P1）」；06-agent.md 一行改为「…「进度、待办与记忆」重写（:216-306）；「宿主模型协议」里的反思阶段、四段步骤图和反思调用身份（:307-347）以及 :35、:311 的巩固与反思说法同期改写（P1）」；另列 00-overview.md:138、07-evaluation.md:71、manual/personas.md:105 随 P1 改写。"
+   },
+   {
+    "severity": "major",
+    "quote": "睡醒反思的源码变异：tests/dataset_acceptance.py:188-210 的 `due_reflection` 变异",
+    "problem": "The P1 test list leaves out tests that fail once wake reflection, `due_reflection`, the consolidation methods and `unconsolidated_view` are deleted. The cited mutation range also stops short of all the reflection and consolidation mutations.",
+    "evidence": "tests/integration/as2/test_worldmock_life_hooks.py:501,529,556,560,576 call `runtime._consolidation_due()` and `runtime.wake_reflection(...)`. tests/integration/as2/test_worldmock_memory_boundaries.py:180-208 call `store.unconsolidated_view()`. tests/integration/life/test_committed_world_guard.py:118-122 expects `\"due_reflection\"` among `public_methods(LifeEngine)`. tests/integration/runtime/test_persona_profile.py:317 calls `runtime._consolidate_subjective`. tests/unit/engineering/test_shared_model_clients.py:13 `from worldmock.agents.memory import life_reflection` (fails at import). tests/integration/reflection_fixtures.py routes `submit_reflection` and consolidation calls, and is used by tests/integration/footprints/test_inspect_current_activity.py:17. tests/dataset_acceptance.py:219-223 has a fourth `due_reflection` mutation (`reflection_filed_by_sleep_start`) and :1250-1254 mutates `WorldMockMemoryStore.unconsolidated_view`.",
+    "fix": "把这一条改为「睡醒反思和巩固的源码变异：tests/dataset_acceptance.py:188-223（四个 `due_reflection`／`_observe_environment` 变异）和 :1250-1254（`unconsolidated_view` 变异）（P1）」，并在 P1 钉住测试里补上：tests/integration/as2/test_worldmock_life_hooks.py、tests/integration/as2/test_worldmock_memory_boundaries.py、tests/integration/life/test_committed_world_guard.py:118-122（去掉 due_reflection，加 register_memory_digest）、tests/integration/runtime/test_persona_profile.py:317、tests/unit/engineering/test_shared_model_clients.py、tests/integration/reflection_fixtures.py 及使用它的 tests/integration/footprints/test_inspect_current_activity.py。"
+   },
+   {
+    "severity": "major",
+    "quote": "`CALL_CLASSES` 末尾加 `memory_digest`，按 purpose 判定（:801-802 旁），质量版本 9→10",
+    "problem": "P1's version bump and new call class break pinned tests that 第三章 does not list. The plan_day-style midnight client also touches fixtures and the import gate that the tables leave out. Six tests assert quality `schema_version == 9`, and the doc lists only test_output_truncation.py, and only for P3. test_quality.py enumerates CALL_CLASSES and builds a request shape per class. Every shared fixture that crosses midnight stubs only PlanDayClient, so a real digest client would be built. test_import_graph registers each function-scope import in both directions, including the plan_day ones in runner.py that the doc says to copy.",
+    "evidence": "tests/unit/footprints/test_quality.py:601,632 (`schema_version == 9`), :1054-1071 (per-class request builder and `[*CALL_CLASSES, \"unrecognized\"]`). tests/integration/footprints/test_export.py:47, test_acs_export.py:118, test_query_export.py:191, test_phone_record_export.py:175, tests/integration/runtime/test_output_truncation.py:388 (`== 9`). Stubs: tests/life/conftest.py:169 `StubPlanDayClient`, tests/integration/runtime/native_runtime_fixtures.py:130, test_env_lifecycle_coverage.py:80-92, test_public_runtime_boundaries.py:204 (only `PlanDayClient` patched). tests/unit/engineering/test_import_graph.py:71-77,105 register runner.py's plan_day local imports (runner.py:627,642-643,679-680), and :434-438 fail on both unregistered and stale entries.",
+    "fix": "在「需要改的钉住测试」加一条（P1）：「质量版本 10 与 `memory_digest` 调用类：tests/unit/footprints/test_quality.py:601,632,1054-1071；tests/integration/footprints/test_export.py:47、test_acs_export.py:118、test_query_export.py:191、test_phone_record_export.py:175；tests/integration/runtime/test_output_truncation.py:388」；再加一条：「零点回顾的测试替身：tests/life/conftest.py 新增 StubMemoryDigestClient，native_runtime_fixtures.py、test_env_lifecycle_coverage.py、test_public_runtime_boundaries.py 同时替换 MemoryDigestClient；tests/unit/engineering/test_import_graph.py 的 DELAYED_IMPORTS 登记回顾任务在 runner.py 里的函数内导入」。"
+   },
+   {
+    "severity": "minor",
+    "quote": "启动检查点（:205-215）和普通恢复（:106-116）也按同样顺序调用",
+    "problem": "LifeEnv.checkpoint (:205-215) runs at every common checkpoint, not only at startup. So the digest settle placed there runs about 200 times a simulated day. For plan_day the pending check is a cheap AgentState set lookup. The doc instead keys digest idempotency on whether a memory_digest_generated event exists, so each checkpoint needs an event read. When yesterday has no digest, as on the first run day, it also re-derives yesterday's entries. The doc does not say this or describe the cache that keeps it cheap.",
+    "evidence": "custom/envs/life_env.py:233 is the only caller of `engine.checkpoint` (grep over src/custom), and store.py:560 is the only writer of checkpoint_created. V run/footprints.sqlite has 1,037 checkpoint_created events: 223/199/205/188/221 on 10-08…10-12. day_planning.py:72-78 `agents_missing_plan` only reads `plan_submitted_dates`.",
+    "fix": "改为：「每个共同检查点（LifeEnv.checkpoint，:205-215；V 五天 1,037 次，约每模拟日 200 次，包括启动和干预检查点）和普通恢复（:106-116）也按同样顺序调用；为此「是否已有回顾」按 (store, agent, tier, period) 缓存已登记的期次，昨天没有任何条目时也记一次「无需回顾」，不在每个检查点重算当天条目」。"
+   },
+   {
+    "severity": "minor",
+    "quote": "`day_plan_validation_max_retries` 用尽即失败，语义不同，不共用",
+    "problem": "This reason does not separate the two fields. `reflection_validation_max_retries` is also fail-on-exhaustion today, since reflection raises a run fault when retries run out. Reusing it for the digest changes its exhaustion semantics from run fault to null plus fallback, just as reusing the day-plan field would. The 08-configuration.md:135 rewrite has to say so; it is not a straight change of owner.",
+    "evidence": "src/worldmock/agents/memory/life_memory.py:175-198 (「首次之外至多三次，耗尽即运行故障」; raises ProtocolError). docs/design/06-agent.md:347 「反思输出在校验重试耗尽后仍不合合同是运行故障」. docs/design/08-configuration.md:135 「反思输出校验重试」.",
+    "fix": "改为：「回顾取代反思，沿用 `reflection_validation_max_retries`（models.py:224），ModelConfig 键集不变，运行清单保持 7；但用尽时的语义从「运行故障」改为「该类记 null 并写入 fallback」，08-configuration.md:135 照此改写；不用 `day_plan_validation_max_retries`，是因为零点计划仍是用尽即失败，两个字段不能一处失败一处降级」。"
+   },
+   {
+    "severity": "minor",
+    "quote": "新增 `MEMORY_CATEGORIES`；快照校验不改",
+    "problem": "The code table never says where the new purpose constant lives. quality.py has to recognise `memory_digest` by purpose, and recording_engine may not import simulation_engine. So, like PLAN_DAY_PURPOSE, the constant must sit in worldmock.state, yet state/model/exchange.py is not in the table.",
+    "evidence": "src/worldmock/state/model/exchange.py:11-12 `PLAN_DAY_PURPOSE = \"plan_day\"`, imported by recording_engine/reports/quality.py:8 and scheduling/plans/day_planning.py:24. tests/unit/engineering/test_import_graph.py:393 `\"worldmock.recording_engine\": (\"worldmock.simulation_engine\", ...)` is a forbidden direction.",
+    "fix": "代码表加一行：「src/worldmock/state/model/exchange.py | 新增 `MEMORY_DIGEST_PURPOSE = \"memory_digest\"`，供 evidence/memory_digest.py 的请求证据和 quality.py 的调用类判定共用；`is_action_request` 的说明加上回顾 | P1」。"
+   },
+   {
+    "severity": "minor",
+    "quote": "P1 删除 `due_reflection` 调用",
+    "problem": "P1's LifeAgent and memory-store removals are listed incompletely. Deleting only the `due_reflection` call leaves the reflection phase and its call-id branch in LifeAgent. `_dispatch_memory_llm` loses its only production callers: AS2 calls dispatch_llm only from its own consolidation, which WorldMock overrides. `life_memory_store.unconsolidated_view` is retired in 第二章's 退役 table but missing from the code table.",
+    "evidence": "custom/agents/life_agent.py:303-304 (`_life_tick` kept「供反思阶段写记忆」), :324-337 `_wake_reflection`, :339-346 the `_memory_call_id` reflection branch, :411-421 `_dispatch_memory_llm` (callers: life_memory.py:190,253 only). vendor/.../agentsociety2/agent/memory_runtime.py:409 is the base `_consolidate_memory_md`, the only AS2 use. src/worldmock/agents/memory/life_memory_store.py:98-110 `unconsolidated_view`. Proposal line 296 retires it, but the 第三章 table has no life_memory_store.py row.",
+    "fix": "life_agent.py 一行的 P1 部分改为：「P1 删除 `due_reflection` 调用、`_wake_reflection`、`_memory_call_id` 的反思分支和 `_life_tick`；巩固与反思都退役后 `_dispatch_memory_llm` 没有生产调用方，同期删除或注明保留理由」；代码表加一行「agents/memory/life_memory_store.py | 删除 `unconsolidated_view`（:98-110） | P1」。"
+   }
+  ]
+ },
+ "consistency": {
+  "verdict": "The doc mostly reflects both rulings. The names memory_digest, memory_digest_generated, submit_memory_digest, MemoryDigestClient and settle_pending_memory_digests are used consistently, and day_digest, 零点回顾, 核验摘要 and 格子 no longer appear. The 10→8 tool count with recall_task_summary kept holds against life_agent.py:169-199 and life_env.py:27-39. The rule renumbering (old 13→15, 19→21) matches life_prompt.py. Budget sums hold (100+3,000+2,400+6,000=11,500; 800+700+1,000+500=3,000), as do the example sizes (6,388 total, longest digest 144 chars) and the pilot total of about $18.\n\nThe remaining problems:\n- One pre-ruling leftover contradicts ruling (1): the F14 row says months and years use deterministic statistics.\n- The rule-text phase table never moves rules[0] or rules[2] to the final text. P2 would ship a rules[2] that points at 人设层 noted_on after P2 has removed preferences from 人设层.\n- Several P1 and P2 features depend on search_memory, which ships only in P3: folding and its retrieval line, overflow of 长期, and days 4+.\n- The read-only rules are defined only from P3, so in P1 and P2 they describe settled/self_notes keys that no longer exist.\n- 第五章 calls items 8 and 9 settled but each still has an open sub-question. Item 23 still offers an option that ruling (1) rules out.\n- Absolute statements contradict the doc's own fallbacks: past days appear only as paragraphs (but missing digests fall back to raw entries), and the month digest never reads events (but it gets event-derived counts).\n- The 12-item search cap contradicts the claim that a range query returns about 16 or 5 days.\n- The example digests use Chinese numerals, which the doc's own prompt forbids.\n- The 05-recording-engine.md section is deleted while the code keeps reflection checks for historical runs.\n- Several minor number, citation and naming slips.",
+  "issues": [
+   {
+    "severity": "blocker",
+    "quote": "月和年用确定性统计；工作类取最近有工作的日子",
+    "problem": "The key-numbers table in 第一章 still says months and years use deterministic statistics. This contradicts the owner's ruling (1) that compaction is done by the LLM at the day, month and year tiers, and it contradicts the doc's own design.",
+    "evidence": "Doc line 89 (F14 row). Line 102 (原则 4): 「日回顾过了月界压成月回顾，月回顾过了年界压成年回顾」. Line 123: 「模型写的月回顾、年回顾，与检索同在 P3 上线」. Lines 273-276 (月回顾、年回顾 are model calls).",
+    "fix": "| F14 日历 | 30 天里月级只触发一次、年级不触发；10-08 往前三天全是假期 | 月和年由模型写成月回顾、年回顾（P3），在现有日历里靠单元测试和跨月短试点验证；工作类取最近有工作的日子 |"
+   },
+   {
+    "severity": "major",
+    "quote": "「今天」和 rules[21] 改为终稿，自述开始列「看法」；加入「长期」句",
+    "problem": "The P1 row gives special P1 versions of rules[0] and rules[2]. The P2 row never moves either rule to its final text. The P3 row adds only the search sentences yet calls the result 「即为终稿」, so by the table rules[0] and rules[2] never reach the final text. In P2 the P1 text of rules[2] (「照人设层某条偏好做之前，看看它的 noted_on」) points at preferences that P2 has removed from 人设层. The P1 text of rules[0] (「这段停留或路程中今天已经发生的事」) also no longer fits the P2 progress layer, which keeps only unsettled items.",
+    "evidence": "Line 412 (P1: rules[0] and rules[2] variants). Line 413 (P2 row has no rules[0] or rules[2]). Line 414 (「加入「可查」、检索和次数上限的句子，即为终稿」). Line 420 (P2: 「偏好和关系里的 `view` 移出人设层」). Line 660 (P2 progress layer 「只留未了结的事」). prompt_schemas.py:148 (noted_on lives on the 人设层 preference schema).",
+    "fix": "P2 行改为：「rules[0] 改为终稿（进度层写此刻还没了结的事……）；rules[2] 改为终稿（「照某条看法做之前，看看它是哪天记的、后来有没有变」）；「今天」和 rules[21] 改为终稿，自述开始列「看法」；加入「长期」句；rules[15] 去掉人设层 preferences，换成「长期」；仍然没有检索句」"
+   },
+   {
+    "severity": "major",
+    "quote": "太早的条目会收起自述，用 search_memory 查「今天」能看到全文",
+    "problem": "Folding ships in P1, but search_memory, the only way back to folded text, ships in P3. During P1 and P2 the folded 自述 cannot be seen or retrieved. The fallback count line of step 4 (「用 search_memory 查今天」) would put a tool that has not shipped into memory-layer data, which breaks 「终稿之前的版本…不教尚未上线的工具」. The phase table never says how the fold sentence reads in P1 and P2. For the same reason, from P1 on, days 4 and older drop out of 近三天 with no way to search them. Today, earlier_days lists every date. 裁决 19 describes the cost only as if search existed.",
+    "evidence": "Line 533 (`entries.py`（窗口、合并、发布、折叠） ships in P1; only search.py is P3). Line 651 (P1 acceptance 「各级都不超预算」). Line 167 (fold count line text). Line 408 (phase rule). Line 543 and lines 676-679 (search_memory in P3). Line 254 (day 4+ 「靠按日期或区间检索日回顾来补」). Line 55 (current earlier_days 「每个日期一条…没有三天上限」). Line 625 (「每一期都可以单独上线」).",
+    "fix": "在阶段表 P1、P2 两行写明：「rules[1] 的收起句只写「太早的条目会收起自述」，不提 search_memory；第 4 步的计数行在 P3 之前写成「07:00–08:00 生活 4 项」」。并在裁决 19 和第四章 P1 加一句：「P1、P2 期间，收起的自述和第 4 天以前的回顾在提示里看不到，也查不到，要到 P3 才能检索」。"
+   },
+   {
+    "severity": "major",
+    "quote": "「长期」每类按排序装填，装不下的看法只能检索到。",
+    "problem": "长期 ships in P2, but search ships in P3. In P2, views that do not fit the budget are neither in the prompt nor searchable, so the claim that they 「只能检索到」 is false for a whole phase. The doc's own V figure shows 5 生活 views dropped at 10-12. At HEAD every preference is in 人设层 with no cap. 裁决 17 and line 128 present the move as losing nothing.",
+    "evidence": "Line 164. Line 425 (「装不下的看法只能经检索找到」). Line 426 (「生活类有 5 条装不下」). Line 662 (P2 moves views into 长期). Line 543 and line 676 (search in P3). Line 774 (裁决 17 A: 「装不下的经检索找到」). Line 65 (current 40 preferences, all shown).",
+    "fix": "「长期」每类按排序装填；装不下的看法 P3 起只能经检索找到，P2 期间既不在提示里也查不到（V 在 10-12 零点时生活类有 5 条）。裁决 17 同步注明这一点。"
+   },
+   {
+    "severity": "major",
+    "quote": "`READONLY_SYSTEM_LAYER.rules`（P3 起）：",
+    "problem": "Read-only rules are given only for P3, and the phase table covers only the life rules. P1 rebuilds the memory layer (no more earlier_today, earlier_days, settled or self_notes keys), and P2 removes the views from 人设层. In P1 and P2 the read-only system layer would still say that 记忆层的 settled is a verified fact and that self_notes and 人设层的看法、偏好 are unverified. That describes keys that no longer exist, and from P2 views that are no longer there.",
+    "evidence": "src/worldmock/agents/prompt/life_prompt.py:107 「记忆层的 settled 是环境核验的事实，self_notes 与人设层的看法、偏好是你自己写下的，未经核验。」. prompt_schemas.py:157-160 (earlier_days/earlier_today with settled/self_notes). Doc line 534 (memory_layer.py rebuilt in P1). Line 579 (old-shape readers changed in P1). Line 420 (P2 moves views out). Line 619 (prompt fingerprint changes in P1, which covers both system layers).",
+    "fix": "在阶段表里加只读规则：P1 的第 2 条写「记忆层的「核验」是环境核验的事实；「自述」「回顾」与人设层的看法、偏好是你自己写下的，未经核验。」；P2 起写「…「自述」「回顾」和「长期」里的看法未经核验。」；P3 再换成只留 finish 的终稿。"
+   },
+   {
+    "severity": "major",
+    "quote": "下面第 8、9、13 条因此已定，留在这里记录取舍；其余各条仍待你拍板。",
+    "problem": "The intro says items 8 and 9 are settled and kept only as a record. Each item still asks the owner to decide a sub-question: how numbers are written (8) and how month and year are validated (9). The owner could skip these decisions because of the intro.",
+    "evidence": "Line 753 (裁决 8: 「还要定的是数字的写法。选项 A…选项 B…」). Line 756 (裁决 9: 「还要定的是验证方式」).",
+    "fix": "下面第 13 条因此已定；第 8、9 条的主问题已定，但各自还剩一个子问题（第 8 条是数字的写法，第 9 条是验证方式）要你拍板；其余各条仍待你拍板。"
+   },
+   {
+    "severity": "major",
+    "quote": "选项 B：按日期查某一天时，回顾之外再附那天的全部原始条目。",
+    "problem": "Ruling (1) says that, once compacted, memory is a descriptive paragraph and not a concatenation of event-log rows. Option B returns a past day's raw rows next to its digest, which the ruling rules out. The doc itself says 「B 会把拼接的事件行带回提示」, and line 124 calls A 「你的模型」. Yet 23 is not listed among the settled items and still sits under 「仍待你拍板」.",
+    "evidence": "Lines 794-797 (裁决 23). Line 729 (only 8, 9 and 13 are marked settled). Line 102 (原则 4: 「往日不再以拼接的事件行出现」).",
+    "fix": "23. **往日的检索只给回顾，还是也给原始条目。**（已裁定：往日只以回顾段落出现。）还要定的是缺回顾时的退路：选项 A（本文）退回那天这一类的原始条目；选项 B 返回空并注明「那天这一类没有回顾」。同时把第五章开头改为「第 8、9、13、23 条…」。"
+   },
+   {
+    "severity": "major",
+    "quote": "往日在提示和检索里都只以回顾段落出现，不再把事件行拼起来。",
+    "problem": "This absolute statement, together with 原则 4 and the final rules[1] (「查到的往日是那一天、那个月或那一年的回顾」), contradicts the doc's fallback. When a category-day has no digest, search returns that day's raw entries for that category, which are 核验 event rows.",
+    "evidence": "Line 251. Line 102. Line 386 (rules[1]). Line 287 (「按日期检索时退回那天这一类的原始条目」). Line 350 (search table row 年-月-日). Line 356 (「缺回顾的那一格除外」). Line 795 (裁决 23 A).",
+    "fix": "往日在提示里只以回顾段落出现；检索也只给回顾，唯一的例外是某一类某一天的回顾缺失（校验失败）时，退回那天这一类的原始条目。rules[1] 相应改为「查到的往日是那一天、那个月或那一年的回顾；某天某类缺回顾时给那天的原始记录」。"
+   },
+   {
+    "severity": "major",
+    "quote": "每一级只压缩下一级：月回顾读那个月的日回顾，年回顾读那一年的月回顾，都不回头读事件。",
+    "problem": "The month digest input also carries per-category counts that code computes from committed events (for example 「番茄牛肉刀削面 3 次」). So the month tier does read events, and the name guard lets names from those counts into the month digest even when no day digest mentions them. Line 115 makes the same 「只读」 claim.",
+    "evidence": "Line 275 (「另附代码算出的每类次数统计作背景」). Line 319 (「月回顾输入里的次数统计…都是已提交事件加冻结目录的纯函数」). Line 283 (name guard: names must appear in this category's input). Line 115.",
+    "fix": "每一级只压缩下一级：月回顾读那个月的日回顾，另附代码从事件算出的每类次数统计；年回顾读那一年的月回顾。除了这份统计，都不回头读事件。"
+   },
+   {
+    "severity": "major",
+    "quote": "单一类别约 16 天，三类约 5 天",
+    "problem": "Search results are capped at 12 items, and one digest counts as one item. A range query therefore returns at most 12 digests: 12 days for one category and 4 days for three (5 days × 3 = 15 items). The figures 16 and 5 apply only the 4,000-char cap. An earlier round flagged the 12-item cap on range queries, and the doc still gets it wrong.",
+    "evidence": "Line 254. Line 358 (「结果最多 12 项、4,000 字（一项是一条今天条目或一段回顾）」).",
+    "fix": "所以区间查询按新的在前返回，最多 12 段、4,000 字（单一类别至多 12 天，三类至多 4 天），其余计入 `未列出`，并提示缩短区间或指定类别。"
+   },
+   {
+    "severity": "major",
+    "quote": "和母亲通了两次电话",
+    "problem": "The example 近三天 digests are described as hand-written to the digest prompt's requirements. They break the prompt's rule that times, prices and quantities appear only if present in the input and always in Arabic numerals: they contain 「两次」, 「九个小时」, 「三个多小时」, 「半小时」 and 「一小时」. These are exactly the Chinese-numeral cases that line 285 says the guard cannot check, and some are computed durations. The owner's main illustration therefore shows output the design says it forbids.",
+    "evidence": "Lines 503-505 (生活 digests: 「刷了三个多小时视频」, 「睡了九个小时」, 「通了两次电话」). Lines 494 and 498 (「一小时」). Line 269 (prompt: 「一律用阿拉伯数字」). Line 285 (「汉字写的数（如「两次」）查不了」). Line 447 (「照日回顾的提示要求…手写的示意」).",
+    "fix": "把示例回顾里的汉字数量改成输入里出现过的阿拉伯数字，或者删掉，例如「和母亲通了电话，她惦记我换季穿衣吃饭」、「22:58 睡下，07:58 醒来」、「晚上回家后刷了很久的哔哩哔哩」。"
+   },
+   {
+    "severity": "major",
+    "quote": "删除「反思登记」（:84-96）并改写调用类表（:642-643），都在 P1",
+    "problem": "The doc keeps the reflection-registration check and the quality recompute so that historical runs can be re-certified. Yet the design-doc table deletes the 05-recording-engine.md section that specifies exactly those rules. That leaves retained code behaviour with no owning spec, while 05 is the owner of recording-engine behaviour.",
+    "evidence": "Line 238 (「quality.py:478-490；05-recording-engine.md:86,94…只用于重新认证历史运行」). Line 549 (「`MEMORY_WRITE_POINTS` 仍接受 `reflection`…`_reflection_sourced`（:478-490）只用于认证历史运行」). Line 612 (「校验器继续接受历史运行里的这两种取值」). docs/design/05-recording-engine.md:84-96 (the 反思登记 row and the four-point quality recompute).",
+    "fix": "改写「反思登记」（:84-96）：注明 P1 起新运行不再产生反思登记，表格和质量报告的四项重算保留，只用于重新认证历史运行；改写调用类表（:642-643），新增 memory_digest，consolidation 和 reflection 两行保留为零计数的类。都在 P1。"
+   },
+   {
+    "severity": "minor",
+    "quote": "$0.33–0.35。近三天放在工具层之后、不进缓存，约 +$0.01–0.02",
+    "problem": "The doc's own P1 cost components do not add up to the stated range. $0.337 + $0.01–0.02 + $0.002 − $0.02 − $0.005 gives $0.324–0.334, not $0.33–0.35.",
+    "evidence": "Line 655. Line 90 (baseline $0.337 per simulated day).",
+    "fix": "**预计每模拟日成本**：$0.32–0.33（$0.337 +$0.01–0.02 +$0.002 −$0.02 −$0.005）。"
+   },
+   {
+    "severity": "minor",
+    "quote": "近三天饮食回顾非空的比例",
+    "problem": "M3 requires that 100% of observations after day 1 have a non-empty 近三天 food digest. P1 acceptance allows up to 10% of category-days to fall back to null and counts null cells separately. A food fallback on day 1 makes M3 fail on day 2, even though P1 acceptance passes.",
+    "evidence": "Line 705 (M3 「要求 100%」). Line 645 (「落到 fallback 的「类·日」不超过 10%」). Line 644 (「校验失败写 null 的格另行计数」). Line 287 (a fallback writes null into the cell).",
+    "fix": "| M3 往日可见 | 第一天以后的观察里，近三天饮食回顾非空或已记 fallback 的比例 | … | 要求 100%；fallback 的格另行计数，不超过 10% |"
+   },
+   {
+    "severity": "minor",
+    "quote": "只用来定进度层的下界；记忆不再按 session 归档",
+    "problem": "「段」 is also the P1 publication bound for today entries (they are taken in when the segment ends), not only the lower bound of the progress layer.",
+    "evidence": "Line 36. Line 193 (「P1 的已发布界是当前这一段的下界，也就是等这一段结束才收进来」). Lines 119, 246 and 637.",
+    "fix": "本文新增「段」，指一个 session 被本地零点切开后的部分，用来定进度层的下界，以及 P1 期间今天条目的收进时机；记忆不再按 session 归档。"
+   },
+   {
+    "severity": "minor",
+    "quote": "P1 删除巩固和就寝反思、新增日回顾",
+    "problem": "The doc calls the retired mechanism 睡醒反思 everywhere else (lines 65, 67, 238, 297, 638). Only this row uses 就寝反思, the code and 06-agent.md term, and the doc never says the two names mean the same thing.",
+    "evidence": "Line 558. Lines 67 and 297. docs/design/06-agent.md:285 and custom/envs/life_env.py:151 use 「就寝反思」.",
+    "fix": "P1 删除巩固和睡醒反思（06-agent.md 称就寝反思）、新增日回顾，P3 新增月、年回顾"
+   },
+   {
+    "severity": "minor",
+    "quote": "`_run_react_turn` 照 recall 的写法（:608-614）加一个 `search_memory` 分支",
+    "problem": "The recall branch at :608-614 is in `dispatch_react_tool` (def at :595), not in `_run_react_turn` (def at :563).",
+    "evidence": "custom/agents/life_agent.py:563 `async def _run_react_turn`. :595 `async def dispatch_react_tool`. :608 `if action == \"recall_task_summary\":`.",
+    "fix": "`dispatch_react_tool` 照 recall 的写法（:608-614）加一个 `search_memory` 分支，转给 `read_query`。"
+   },
+   {
+    "severity": "minor",
+    "quote": "在途订单共用辅助函数；回顾窗口改用共享的归日函数",
+    "problem": "回顾 now names the LLM digest. Here and on lines 66 and 239 the same word names plan_day's deterministic review of yesterday. In the 第三章 code table this sits right next to rows where 回顾 means the digest.",
+    "evidence": "Line 537. Line 66 (「零点计划已经是一份确定性的昨日回顾」). Line 239 (「零点计划的回顾窗口」). Line 545 (「回顾的输入、提示、工具…」).",
+    "fix": "在途订单共用辅助函数；零点计划的昨日窗口改用共享的归日函数（第 66、239 行同样把「回顾」改成「昨日经历」或「昨日窗口」）。"
+   },
+   {
+    "severity": "minor",
+    "quote": "首期的核心是往日饮食事实和晚饭命名",
+    "problem": "After ruling (1), past days reach the model only as 回顾 paragraphs, which the doc says are not verified facts. 核验 facts appear only in today's entries. Calling P1's core 「往日饮食事实」 contradicts 原则 1 and misstates what P1 delivers.",
+    "evidence": "Line 93. Line 99 (原则 1: facts 「只出现在今天的条目里」). Line 260 (「回顾是整理出来的回忆，不是核验事实」).",
+    "fix": "首期的核心是让往日的饮食进入近三天的回顾，并给家里做的晚饭写出菜名"
+   },
+   {
+    "severity": "minor",
+    "quote": "今天的条目和全部回顾里匹配的",
+    "problem": "The text says keyword matching also covers 长期 views that did not fit the budget, and the doc repeatedly promises those views stay reachable by search. The result table never returns them in any row, including the 全部 + 关键词 row.",
+    "evidence": "Line 354 (table row 全部). Line 356 (「匹配范围是…各级回顾，以及「长期」装不下的看法」). Lines 164 and 425.",
+    "fix": "| 全部 | 返回 `MEMORY_KEYWORD_REQUIRED` | 今天的条目、全部回顾和「长期」装不下的看法里匹配的 |；按日期、区间、月、年查询时，带关键词也匹配那段时间里记下、但「长期」装不下的看法。"
+   }
+  ]
+ },
+ "rulings": {
+  "verdict": "The final (P3) design mostly follows both rulings. The day, month and year tiers are LLM-written paragraphs, and the 长期 view list (裁决 17) and the raw-entry fallback (裁决 23) are flagged. search_memory is the only memory tool in P3, recall_task_summary stays as it is, and no AS2 built-in tool or MEMORY.md reaches any prompt (V event 6015 has exactly 10 tools and its prompt contains no MEMORY.md content). Two gaps in rulings coverage remain. First, the doc says each phase can ship on its own, yet it keeps the three memory_* tools, which return raw episode rows, open to the LLM through P1 and P2 without flagging this. Second, plan_day keeps reading yesterday as concatenated event rows, while the doc says events are no longer shown to the model as memory. Four of the nine 近三天 example paragraphs contain invented details. Every one of them still passes the doc's own number and name guards. The examples also break the prompt's Arabic-numeral rule, and the one wrong number among them is written in Chinese numerals.",
+  "issues": [
+   {
+    "severity": "blocker",
+    "quote": "| 三个 `memory_*` 工具及其分派代码 | P3 | `search_memory` |",
+    "problem": "Ruling (2) says search_memory is the only memory tool and the three memory_* tools are deleted. The doc deletes them only in P3, and it says every phase can ship on its own (「每一期都可以单独上线」, :625). So in a shipped P1 or P2 the LLM keeps memory_recent, memory_search and memory_time_range with their descriptions. The unchanged rule 「提交前可以查询记忆或回看任务」 still teaches it to use them. These tools return raw episodes.jsonl rows from any past day, so they also reintroduce concatenated past-day rows that ruling (1) excludes. The read-only path also keeps the memory tools until P3. This interim deviation is never flagged as a decision: the P1/P2 rule table (:410-414) only says the earlier versions 「不提 memory_*」 and does not remove the tools.",
+    "evidence": "doc:299, :406 (TOOL_DESCRIPTIONS removes memory_* only in P3), :408, :619 (「工具指纹只在 P3 变」), :625, :679; custom/agents/life_agent.py:169-180 (_TOOL_MODELS includes _MEMORY_TOOL_MODELS), :182, :401-403 (read-only path keeps the memory tools plus finish); src/worldmock/agents/prompt/life_prompt.py:32,91 (rules about 查询记忆), :122-124 (memory_* descriptions); vendor/agentsociety2/.../agent/memory.py recent()/search() return raw episode dicts; V footprints event_seq 6015 request.tools = [...,'recall_task_summary','memory_recent','memory_search','memory_time_range']",
+    "fix": "把三个 memory_* 及只读路径的记忆工具提前到 P1 删除（P1 和 P3 工具指纹各变一次；P1、P2 的系统规则把「提交前可以查询记忆或回看任务」改为「提交前可以回看任务」，「查询记忆和回看任务当场完成」改为「回看任务当场完成」），P3 再加 search_memory。如果坚持 P3 才删，就在第五章新增一条裁决：「P1–P2 期间模型仍可用三个 memory_*，读到的是 episodes.jsonl 的原始记录，偏离 2026-10-29 的裁定」，请你确认。"
+   },
+   {
+    "severity": "major",
+    "quote": "供审计、导出和零点计划使用，只是不再作为记忆给模型看。",
+    "problem": "This is false for plan_day. plan_day is an LLM call, and from P1 on its input is still yesterday rendered as concatenated rows: 已核验经历 sentences, 动作结果, the persona's 收尾记录 and 上一天的目标. P1 even edits these rows (shared day function, kit sentence, orders helper). The day digest is already registered before plan_day runs, but plan_day does not read it. This conflicts with principle 4 (「往日不再以拼接的事件行出现」, :102) and with ruling (1). 裁决 14 defers the question to P4 as a cost matter (12.5k tokens) and never says that the row input deviates from the ruling. The doc itself calls this input 「一份确定性的昨日回顾」 (:66).",
+    "evidence": "src/worldmock/simulation_engine/scheduling/plans/day_plan_inputs.py:83-107 (payload 动作结果/收尾记录/上一天的目标 plus experience sentences); src/worldmock/simulation_engine/scheduling/plans/day_planning.py:44-46 (PLAN_DAY_PROMPT 「根据…已核验经历、已结算动作结果、明确为主观的收尾记录…」); doc:66, :102, :440, :766 (裁决 14 「推荐 P4 再定」)",
+    "fix": "第 251 行改为：「事件本身仍完整留在 footprints.sqlite 里，供审计和导出使用；零点计划在 P4 之前仍按事件行读昨天，这偏离了「往日只以回顾段落出现」，见裁决 14。」裁决 14 改写为两个选项：A 在 P1 让零点计划改读昨天的日回顾（在途订单和个人事务仍按现状给出）；B 保留事件行输入，作为对 2026-10-29 裁定的明示例外。"
+   },
+   {
+    "severity": "major",
+    "quote": "早上点了火腿芝士牛角三明治和冰美式咖啡送到公司。",
+    "problem": "The croissant was ordered at home and delivered to the apartment at 08:11, before the commute. Only the iced americano went to the office. 「公司」 is not a catalog place name, so the name guard does not catch this invented destination.",
+    "evidence": "V footprints action_requested seq 1658 summary 「…预计 08:11 送到公寓，正好当今天的早饭」; seq 1697 「08:11 淘宝闪购的火腿芝士牛角三明治送到公寓，正好当早饭吃掉」; action_result order for sandwich-ham-cheese-croissant destination_id \"wc-home\"; export/activities.jsonl 购买火腿芝士牛角三明治 at wc-home 08:00, travel 08:11–08:41",
+    "fix": "「早上在家点了火腿芝士牛角三明治，08:11 送到公寓当早饭；到公司后又点了冰美式咖啡送到前台。」"
+   },
+   {
+    "severity": "major",
+    "quote": "下午和王磊互评代码、修缺陷，又写了会议分析与工作总结，17:25 打卡下班。",
+    "problem": "On 10-09 the code review and bug-fix session with 王磊 ran 10:46–12:16, in the late morning before lunch. That afternoon was 功能开发与自测 (13:45–15:45) followed by 会议分析与工作总结. The time of day is invented.",
+    "evidence": "export/activities.jsonl 进行代码评审与缺陷修复（10月9日 10:46 起） 10-09 10:46:25→12:16:25; V action_requested seq 2042 summary 「10:46 到 12:16 和王磊互相评审代码合并请求…」",
+    "fix": "「上午后半段和王磊互评代码、修缺陷；下午又写了会议分析与工作总结，17:25 打卡下班。」"
+   },
+   {
+    "severity": "major",
+    "quote": "晚上回家后在哔哩哔哩上刷了三个多小时视频，一晃就过去了，有点失控，想收着点，把时间留给做饭和早睡",
+    "problem": "The evening Bilibili session on 10-09 ran 20:01–22:38, about 2h37m, and the self-report says 「约两个半小时」. The view written that night says the spare time should go to 「洗漱和早点睡」, not 做饭; dinner had already been cooked before 19:10. The wrong duration is written in Chinese numerals, so the number guard cannot check it.",
+    "evidence": "export/activities.jsonl 进行哔哩哔哩（10月9日 20:01 起） 20:01:26→22:38:08; V action_requested seq 2724 summary 「…约两个半小时、放到第 21 条」 and view 「连着两小时以上就有点过头了；控制在半小时到一小时，剩下的时间留给洗漱和早点睡」; 做饭 18:00→19:10",
+    "fix": "「晚上回家后从 20:01 刷哔哩哔哩到 22:38，觉得连着刷太久有点过头，想收着点，把时间留给洗漱和早睡；」"
+   },
+   {
+    "severity": "major",
+    "quote": "一边听网易云音乐一边读了很久的微信读书",
+    "problem": "On 10-11 the persona never listened to music while reading. 网易云音乐 ran 07:45–09:00 as background to cleaning, and the self-report says it was switched off when the cleaning finished. 微信读书 started at 09:00. The two later music sessions (11:30 cooking, 16:06 tidying) also do not overlap any reading. The pairing is invented.",
+    "evidence": "export/activities.jsonl 10-11: 进行网易云音乐 07:45:53→09:00:00, 进行微信读书 09:00:00→11:30:00, 12:40→13:30, 19:05→19:35; 网易云音乐 11:30→12:40, 16:06→17:00; V seq 4518 summary 「07:45 开始打扫卫生时打开网易云音乐…08:30 卫生收完…音乐也就顺势关掉」",
+    "fix": "「上午放着网易云音乐打扫卫生，之后坐下读了很久的微信读书，中间整理了房间。」"
+   },
+   {
+    "severity": "major",
+    "quote": "汉字写的数（如「两次」）查不了，所以提示要求一律用阿拉伯数字。",
+    "problem": "The hand-written example paragraphs break this rule. They write counts and durations in Chinese numerals: 「和母亲通了两次电话」 (the exact case this line names), 「睡了九个小时」, 「三个多小时」, 「一小时就定下来」 and 「刷半小时短视频」. The only wrong number in the nine paragraphs (三个多小时) is one of these unchecked Chinese numerals. There is also an unaddressed design conflict: the self-reports state durations in Chinese (「约两个半小时」, 「约九个小时」). Under the digit-must-appear-in-input guard plus the Arabic-only prompt, the model then has no legal way to state such a duration. The example quietly ignores this.",
+    "evidence": "doc:269 prompt 「时刻、价钱和数量只写输入里出现过的，一律用阿拉伯数字」; doc:285; example cells at doc:498, :500, :503, :504, :505; V seq 2957 summary 「约九个小时」, seq 2724 「约两个半小时」",
+    "fix": "示例改成只用输入里出现过的时刻来表达时长和次数，例如「22:58 睡到 07:58」「13:30 和 15:41 两回给母亲打电话」改为「13:30 和 15:41 都给母亲打了电话」；同时在提示和第 285 行明确：时长、次数用起止时刻表达，或者允许汉字数字，并承认数字守卫查不到它们。"
+   },
+   {
+    "severity": "minor",
+    "quote": "刷半小时短视频、看一集剧、读一小时微信读书就收手，比撑到困得不行才洗漱舒服。",
+    "problem": "微信读书 on 10-10 ran 22:06–23:30, about 1h25m (the self-report says 「前后约 1 小时 25 分」), and it came after washing up, not before. 「一小时」 is borrowed from the view's 「一个小时上下」 rather than taken from 核验.",
+    "evidence": "export/activities.jsonl 进行微信读书（10月10日 22:06 起） 22:06:17→23:30:53, 睡前洗漱 21:56→22:06; V seq 4225 summary 「前后约 1 小时 25 分」",
+    "fix": "「…晚上洗了衣服，刷半小时短视频、看一集剧，22:06 洗漱完读微信读书到 23:30，比撑到困得不行才洗漱舒服。」"
+   },
+   {
+    "severity": "minor",
+    "quote": "查到的往日是那一天、那个月或那一年的回顾",
+    "problem": "The model-facing rule, and principle 4 (「往日不再以拼接的事件行出现」), present past-day results as digests only. But the adopted 裁决 23 option A returns that day's raw 核验/自述 entries when a digest cell is missing, and keyword search also returns 长期-overflow view rows. The model is never told it may receive raw rows for a past day, or how to read them.",
+    "evidence": "doc:102, :124, :287, :350, :356, :386, :795",
+    "fix": "rules[1] 在这句后加：「某天某一类缺回顾时，查到的是那天这一类的原始记录（核验和自述）；长期里放不下的看法也能按关键词查到。」原则 4 补一句「缺回顾的那一格除外，见裁决 23」。"
+   },
+   {
+    "severity": "minor",
+    "quote": "如「07:00–08:00 生活 4 项，用 search_memory 查今天」",
+    "problem": "The fold and count-line logic ships in P1 (entries.py, layout.py), but search_memory only arrives in P3. In P1–P2 the count line would tell the model to use a tool it does not have, and folded 自述 marked 「收起」 cannot be retrieved. This contradicts the doc's own 「终稿之前的版本…也不教尚未上线的工具」.",
+    "evidence": "doc:167, :195, :408, :533 (entries.py with 折叠 in P1)",
+    "fix": "P1–P2 的计数行写成「07:00–08:00 生活 4 项」，不提检索；或者把折叠推迟到 P3 再启用。"
+   },
+   {
+    "severity": "minor",
+    "quote": "模型能从回顾里看到四件事",
+    "problem": "The fourth item (刀削面那条看法最后记于 10-09，一共记过两天) comes from 长期, not from any 回顾 paragraph.",
+    "evidence": "doc:458 (长期 item 记于 2026-10-09, 记过天数 2), :493 (10-09 回顾 has no date or count for the view), :523",
+    "fix": "「模型能从回顾和长期里看到四件事」"
+   }
+  ]
+ },
+ "risk": {
+  "verdict": "The doc reflects both rulings correctly. Compaction is model-written at the day, month and year tiers. search_memory is the only memory tool, recall_task_summary is kept, and the tool count goes from 10 to 8. Several things hold up: the digest never mutates state, and the groceries gate is enforced by the environment (location_activities.py:62-87), so a wrong memory cannot make cooking possible without a kit. LabelKit cuts unknown kinds down to {kind} (export_source.py:355-357). The export timeline reads only activity_progress and action_result (timeline_labels.py:68-75). Transport failures mirror plan_day's failure evidence (day_planning.py:195-203). Replay reads events, and after the checkpoint it regenerates digests exactly as plan_day does. Multi-agent midnight latency does not apply, because the world requires exactly one agent (world.py:109-111). The plan_day analogue in V took 1.9–4.1 s per attempt, with retries on 3 of 5 days, so the digest adds only seconds per midnight. The real gaps sit where ruling (1) makes model paragraphs the only past memory. (a) The invented home dinners come from a catalog summary shown in the start and completion results, which the kit sentence does not touch, and the 'tightened' food guard does not catch the doc's own example. (b) The guards check only that a name or number appears somewhere in the input, not what it is paired with, so swapped kits and wrong meal slots pass. (c) A failed digest renders as the same null as 'no records'. (d) No pilot metric or acceptance criterion measures whether a digest is faithful or complete. Month and year drift, source_event_ids provenance, and the memory gates are minor gaps.",
+  "issues": [
+   {
+    "severity": "major",
+    "quote": "V 的人物因此在 10-09 的自述里编出了「做了番茄炒蛋和清炒上海青」",
+    "problem": "The diagnosis is wrong. The invented dish comes from the catalog summary of home-dinner-1-cook, which reads 「比如番茄炒蛋、清炒上海青」. The start result (result_projection.py:70) and the completion result (:91) put this summary into the progress layer unchanged. The persona takes it as verified and believes it cooked that dish. The doc's kit sentence only changes the ending sentence, so the summary keeps arriving and the persona keeps writing the dish into its self-reports. Those self-reports go into the daily digest input. The invented dish has also become a long-term view: in the doc's own 11:50 example, 「长期」 keeps 「自己做的番茄炒蛋配清炒青菜」 (line 461), and no guard ever checks views.",
+    "evidence": "WorldMock-Dataset/environment/0001-white-collar-lianqiu/package/catalog/content-catalog.jsonl:533 (source sources/catalog/contents/life.json:334) has the summary 「在家洗菜切配，做一两道简单的家常菜，比如番茄炒蛋、清炒上海青…」. In V, model_request seq 1092 (10-08 18:30, start result) and seq 1150 (10-08 19:15, 'Activity completed' details) both carry this summary. Self-reports with the dish: action_requested 1123 and 1152 (10-08) and 2486 (10-09 19:10). Reasoning in model_response 6583 (10-12 19:40): 'The contents say 备菜做饭 making 番茄炒蛋 and 清炒上海青. Fine.' The kit actually used that evening was 土豆烧牛肉 (callback_effect 5325 reset, 6513 consume). 351 of the 437 decision model_requests in V carry 「番茄炒蛋配清炒青菜」, as a 人设层 preference.",
+    "fix": "第一章这一句改为：「V 的人物在 10-08、10-09 的自述里写「番茄炒蛋配清炒青菜」「做了番茄炒蛋和清炒上海青」，来源是目录内容 home-dinner-1-cook 的摘要「比如番茄炒蛋、清炒上海青」，开始结果和完成结果都原样给出（result_projection.py:70,91）；结束句不写食材包，人物无从纠正。」「家里做的饭叫得出名字」一节加：「包 0001 把 home-dinner-1-cook 的 summary 改成不点名菜式的写法，例如「在家洗菜切配，照手头的食材做一两道家常菜，同时用电饭煲煮好米饭。」，与 office-eat-lunch 的覆盖同一次重生成；凡是消耗食品状态的内容，开始结果和完成结果的 content 也加「用的是M月D日收到的〈商品名〉」。」"
+   },
+   {
+    "severity": "major",
+    "quote": "饮食类的名称再收紧一道：日回顾里的商品名必须出现在那天的饮食核验里",
+    "problem": "The tightening checks only catalog goods names that occur in the text, so the example it cites still passes. Neither 「番茄炒蛋配清炒青菜」 nor 「番茄炒蛋和清炒上海青」 contains any catalog name. A day digest that repeats the self-report therefore passes the name guard, the food tightening and the number guard. The previous round raised this, and the revised text still gets it wrong. Omission is not guarded either: nothing requires the day's meals to appear in the digest at all, and after midnight the persona sees only the digest.",
+    "evidence": "Doc :283 says the name guard checks 「文本里出现的目录名称」. The frozen V catalog has only 番茄炒蛋盖浇饭, 番茄炒蛋配清炒时蔬一人份食材包 and 清炒时蔬 (input/catalog/merchant-catalog.jsonl), none of which is a substring of the invented phrases. V food names per day (export/purchases.jsonl purchase and receipt rows of meal, drink, snack and goods, plus the kit used for cooking) come to 3–6 names and 26–60 characters per day, which fits inside the 200-character digest.",
+    "fix": "改为：「名称守卫只认得目录名称，「番茄炒蛋配清炒青菜」这类不在目录里的菜名查不出来。饮食类另加覆盖守卫：当天饮食核验里收货的 meal、snack、drink 商品名，以及做饭结束句里「用的是…」的食材包名，必须全部出现在饮食日回顾里（V 每天 3–6 个，合计不到 60 字）；与「做饭」同句出现的食材包名必须等于那天做饭结束句里的那一个。不通过同样附英文错误重试。」"
+   },
+   {
+    "severity": "major",
+    "quote": "守卫只拦得住名称和数字，拦不住「中午没吃饭」这类不带名称和数字的错误叙述",
+    "problem": "The doc understates what the guards miss. They check only that each name and each digit string appears somewhere in the category's input, never what it is paired with. Swapping the kit that was cooked with the one just ordered passes every guard. So do calling breakfast lunch and moving one item's time or price onto another. Digits such as 10, 9 and 12 occur in every 核验 line through dates and times. This is exactly the error the V persona made (10-11: it believed the 板栗烧鸡 kit was still for dinner after using it at lunch), and after midnight the digest is all the model sees. Line 114 「名称和数字守卫拦住编造」, line 754 「数字守卫能拦住编造」 (the basis for recommending option A in 裁决 8) and rules[1] 「回顾里的名称、时刻和价钱都出自当时的记录」 all overstate the protection.",
+    "evidence": "Under the proposed kit sentence, V's 10-09 food 核验 holds both 「用的是10月8日收到的可乐鸡翅配清炒菌菇一人份食材包」 (reset seq 1232, consume seq 2421) and the 20:00 purchase and 20:20 delivery of 香煎鸡胸肉配清炒时蔬一人份食材包. The digest 「晚上用香煎鸡胸肉配清炒时蔬一人份食材包做饭，又订了可乐鸡翅配清炒菌菇一人份食材包」 therefore passes :283-285. Same day: breakfast 火腿芝士牛角三明治 was received at 08:11 and lunch 番茄牛肉刀削面 at 12:09, so 「中午吃了火腿芝士牛角三明治」 also passes.",
+    "fix": "第 290 行改为：「守卫只核对名称和数字各自在输入里出现过，不核对搭配：把做的那份食材包和新订的对调、把早饭写成午饭、把一样东西的时刻或价钱写到另一样上，都能通过。饮食类靠覆盖守卫和做饭食材包核对压住最要紧的一种，其余在 M11 里计数。」数字守卫改为：「时刻（HH:MM）、金额（带「元」）和数量（带量词）按完整写法核对，并且必须与同一句里的名称出现在同一条输入里。」rules[1] 改为「回顾里的名称、时刻和价钱都在当时的记录里出现过，但搭配和经过可能有误，它是整理出来的回忆，不是核验事实。」裁决 8 的理由改为「数字守卫拦得住输入里没有的数字，拦不住张冠李戴」。"
+   },
+   {
+    "severity": "major",
+    "quote": "重试用尽时，这些类记为 null 并写入 `fallback`",
+    "problem": "A cell whose digest failed validation and a cell with no records both render as null in 「近三天」 (:166, :264, :287), and rules[1] never says what null means. The persona cannot tell 'nothing happened in this category that day' from 'that day's memory was not compacted'. Since past days exist only as digests, a null food cell reads as having eaten nothing. That records an unknown outcome as a definite empty one, against the project rule that unknown-outcome calls are recorded as unknown (CLAUDE.md). The shape of `fallback` is never defined, and an all-fallback event is still named memory_digest_generated. M3 also contradicts P1 acceptance: M3 requires the 近三天 food digest to be non-empty in 100% of observations (:705), while P1 accepts up to 10% of category-days in fallback (:645).",
+    "evidence": "Doc :166 「某格回顾缺失时只占键名，写 null」. Doc :264 「某一类那天没有任何条目时，这一类为 null」. Doc :287 says validation exhaustion also yields null. rules[1] at :386 has no sentence about null. The event data shape at :322 lists `fallback` without a type.",
+    "fix": "存储一节加：「`fallback` 是重试用尽的类别键列表；某类为 null 且在 fallback 里表示「未整理」，不在里面表示那天没有这类记录。」「近三天」里未整理的格写 `{\"日期\":…,\"回顾\":null,\"未整理\":true}`。rules[1] 加一句：「某一格写着「未整理」时，那天这一类的回顾没有整理出来，不代表那天没有这类事；用 search_memory 查那一天，能看到当时的条目。」M3 改为「近三天饮食格非空或标明未整理的比例 100%；未整理的格另计，并入 M10 的 fallback」。"
+   },
+   {
+    "severity": "major",
+    "quote": "每天调用次数、重试、fallback、三道守卫各自的丢弃次数、回顾被引用的比例",
+    "problem": "No pilot metric or P1 acceptance criterion measures whether a digest is correct or complete. The metrics measure only whether a digest exists (M3), whether it is cited (M1, M10) and how often guards fire (M10). M1 counts a citation of a wrongly written dish as success. The verification table is left 「供人工抽查」 with no sample size, no pass criterion and no named reviewer. 裁决 23 admits omissions become invisible to the model after midnight, but the omission rate is never measured. P1 can therefore pass while digests drop lunches or swap kits, and M4 (lunch repetition) cannot be traced back to memory quality.",
+    "evidence": "Doc :703-712 (M1–M10), the P1 acceptance list :643-653, and :290 and :654 「试点报告附上每天的回顾和当天核验的对照表」. Doc :797 「代价是回顾漏写的细节，过了零点就只能靠事件日志审计，模型查不到」. Every input needed for a deterministic fidelity check already exists in footprints.sqlite: goods receipts, callback_effect reset and consume rows, and the digest events.",
+    "fix": "试点指标表加一行：「| M11 回顾保真 | memory_pilot.py 从事件和回顾事件确定性算出：①饮食覆盖：当天饮食核验里的食品名（收货的 meal、snack、drink 和做饭所用食材包）出现在饮食日回顾里的比例；②做饭错配：回顾里与「做饭」同句的食材包不是那天做饭结束句里那一份的次数；③餐次错配：与「早饭/午饭/晚饭」同句的食品名，收货时刻不在对应时段的次数；④外来菜名：回顾和「长期」里出现、当天饮食核验里没有的菜名次数（词表取目录内容摘要和自述里的菜名） | — | P1 验收：饮食覆盖 ≥95%，做饭错配 0；③④只报告 |」。P1 确定性验收加「M11 的饮食覆盖 ≥95%、做饭错配为 0」。对照表一句后加：「抽查写明抽查人、抽查的「类·日」数和判定标准；如果由模型核对，报告写「模型核对」，不写人工抽查。」"
+   },
+   {
+    "severity": "minor",
+    "quote": "每一级只压缩下一级：月回顾读那个月的日回顾，年回顾读那一年的月回顾，都不回头读事件",
+    "problem": "This contradicts :275 and :319, where the month digest also gets per-category counts that code computes from committed events. The year digest gets no such counts, so year-level text can only be checked against month-level text, and an error in a day digest has no factual anchor by the time it reaches the year. At month level the number guard only checks that a digit string occurs, so 「番茄牛肉刀削面 5 次」 passes whenever a 5 appears anywhere in the input; the count line does not constrain anything. Not letting the day digest read earlier digests does not stop errors carrying forward either: the persona writes each day's self-reports while looking at the 近三天 digests and the 「长期」 views, and those self-reports feed the next day's digest. In V, 「番茄炒蛋配清炒青菜」 was carried from 10-08 through 10-12.",
+    "evidence": "Doc :252 vs :275 「另附代码算出的每类次数统计作背景」 and :319 (the counts are pure functions of committed events). Doc :275-276 gives the year tier only month digests. Doc :115 justifies not reading earlier digests with 「接上会把旧印象续写进新的一天」. V: requests carrying the phrase are 21 on 10-08, 86 on 10-09, 89 on 10-10, 69 on 10-11 and 90 on 10-12.",
+    "fix": "改为：「每一级只压缩下一级的文字；月回顾和年回顾另附代码从事件算出的每类次数统计（年回顾按年统计）。月、年回顾里写次数时，必须照抄统计行（如「番茄牛肉刀削面 3 次」）作为连续子串，否则按数字守卫不通过重试。」P3 验收加「跨月试点里月回顾写到的次数与统计逐条相符」。"
+   },
+   {
+    "severity": "minor",
+    "quote": "日回顾的 `source_event_ids` 是它所引条目背后的事件",
+    "problem": "refs need only be non-empty (:281), so a digest narrating the whole day can cite just n1. Deriving `source_event_ids` from refs then understates provenance. This is the digest event's only provenance field, and compare_runs maps it by event identity, so audits and causal tracing read an incomplete source set while it looks authoritative.",
+    "evidence": "Doc :281 「refs 非空，且都属于这一类的编号」. Doc :322 builds source_event_ids from the cited entries. The Chapter 3 code table adds the path data.digests.*.source_event_ids[] to compare_runs.py.",
+    "fix": "改为：「`source_event_ids` 是这一类全部输入条目背后的事件；由 refs 推出的另记为 `cited_event_ids`，只表示模型自报的依据，不作来源证明。」compare_runs 的路径同时加 `data.digests.*.cited_event_ids[]`。"
+   },
+   {
+    "severity": "minor",
+    "quote": "`memory_md_identity_residue` 照常只检查示例身份残留",
+    "problem": "Neither remaining subjective-memory gate covers the digests. The repetition gate reads episode snapshots in memory_updated, and the identity-residue gate reads MEMORY.md. Digests are environment_event bodies, and the subjective summary in MEMORY.md stops updating in P1. The only form in which the persona sees past days therefore has no repetition or residue check.",
+    "evidence": "tools/analysis/behavior/metrics.py:601-611 (_memory_repetition_gate, built on _episode_pairs at :563 over memory_updated) and :616-631 (_memory_residue_gate over memory_md_texts). Doc :320-322 records digests as environment_event kind memory_digest_generated.",
+    "fix": "在这一段后加：「行为工具另对 `memory_digest_generated` 的回顾正文单独报告两项：同一类相邻两天日回顾的字二元组 Jaccard ≥0.6 的比例，以及示例身份标记的命中数；只报告，不并入现有门禁的阈值。」"
+   }
+  ]
+ }
+}

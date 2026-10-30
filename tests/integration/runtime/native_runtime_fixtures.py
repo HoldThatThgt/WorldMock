@@ -11,7 +11,7 @@ import tomlkit
 from tests.data_paths import ENVIRONMENT_ROOT
 from tests.frozen_inputs import fixture_metadata
 from tests.integration.runtime.current_contract_fixtures import ROOT, ToolResponse, aligned_process, metadata_service
-from tests.life.conftest import MAIN_TOOL, StubPlanDayClient, main_arguments
+from tests.life.conftest import MAIN_TOOL, StubMemoryDigestClient, StubPlanDayClient, main_arguments
 from worldmock.configuration.inputs.environment import load_environment
 
 
@@ -128,6 +128,7 @@ def native_runtime(tmp_path, monkeypatch):
 
     monkeypatch.setattr(llm_dispatcher, "init_dispatchers", initialize)
     monkeypatch.setattr(runtime, "PlanDayClient", StubPlanDayClient)
+    monkeypatch.setattr(runtime, "MemoryDigestClient", StubMemoryDigestClient)
     monkeypatch.setattr(runtime, "_build_society", build)
     monkeypatch.setattr(society_module, "create_direct_agents_batch",
                         SimpleNamespace(remote=_create_direct_agents_batch_async))

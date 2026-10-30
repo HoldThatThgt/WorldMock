@@ -1,0 +1,13 @@
+== day digest (V real days; input = card + prompt + all entries with full 自述 + query answers)
+  10-08: input  13266 tok {card 535, prompt 423, 核验 1111, 自述 5942, 查询答案 3086, keys 2171} output 515 tok; cost first try $0.0045, with 3 retries $0.0072
+  10-09: input  12399 tok {card 535, prompt 423, 核验 1107, 自述 6576, 查询答案 1508, keys 2252} output 515 tok; cost first try $0.0042, with 3 retries $0.0069
+  10-10: input  14099 tok {card 535, prompt 423, 核验 1221, 自述 8118, 查询答案 1578, keys 2225} output 515 tok; cost first try $0.0047, with 3 retries $0.0075
+  10-11: input  10645 tok {card 535, prompt 423, 核验 1149, 自述 6689, 查询答案 0, keys 1849} output 515 tok; cost first try $0.0037, with 3 retries $0.0064
+  10-12: input  16192 tok {card 535, prompt 423, 核验 1149, 自述 8614, 查询答案 3086, keys 2386} output 515 tok; cost first try $0.0054, with 3 retries $0.0082
+  mean input 13320 tok; per day $0.0045 (worst $0.0082)
+== month digest (input 31 days x 3 categories x 200字 + keys + count lines + card + prompt)
+  input 17271 tok {digests 15226, count_lines 1088, card 535, prompt 423}; output 1960 tok; first try $0.0074; with 3 retries $0.0167
+== year digest (input 12 months x 3 categories x 800字 + keys + year count lines + card + prompt)
+  input 25745 tok {digests 21496, count_lines 3291, card 535, prompt 423}; output 4389 tok (6000 字 of text); first try $0.0129; with 3 retries $0.0333
+== amortised per simulated day: day 0.0045 + month 0.00024 + year 0.000035
+   output tokens vs reserves: year 4389 tok vs PLAN_DAY_MAX_TOKENS 8000 / ACTION_MAX_TOKENS 16000 / legacy 4096 default

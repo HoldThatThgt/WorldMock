@@ -243,6 +243,7 @@ const S = {
   eventsFile: null,      // 导出的 events.jsonl（File）：事件全文按 event_lines 的字节区间从这里读
   loading: false,        // 正在加载一份导出时为 true，期间的拖入被拒绝
   events: [],            // {seq,t,agent,type,sum} 按 seq 升序
+  bySeq: new Map(),      // seq -> events 里的同一对象
   summaries: new Map(),  // seq -> 摘要字段对象
   typeCounts: {},
   agents: {}, agentIds: [],
@@ -465,6 +466,7 @@ function buildIndex(log){
     S.events.push({ seq:r.seq, type, agent, t, sum:'' });
     S.typeCounts[type] = (S.typeCounts[type]||0)+1;
   }
+  S.bySeq = new Map(S.events.map(e=>[e.seq,e]));
   S.t0 = S.events.length? S.events[0].t : 0;
   S.t1 = S.events.length? S.events[S.events.length-1].t : 0;
 
@@ -572,8 +574,7 @@ function buildIndex(log){
   });
 
   /* 观测的 agent/时间补全（从事件索引查，不重复解析 body） */
-  const bySeq = new Map(S.events.map(e=>[e.seq,e]));
-  for (const o of S.obs){ const e=bySeq.get(o.seq); if(e){ o.t=e.t; o.agent=e.agent; } }
+  for (const o of S.obs){ const e=S.bySeq.get(o.seq); if(e){ o.t=e.t; o.agent=e.agent; } }
   S.obs = S.obs.filter(o=>o.t!=null);
 
   buildOrders();
@@ -1111,7 +1112,7 @@ async function toggleDetail(row, seq){
   }
   det = document.createElement('div');
   det.className='tl-detail on';
-  if (S.events.find(event => event.seq === seq)?.type === 'model_request') {
+  if (S.bySeq.get(seq)?.type === 'model_request') {
     const button = document.createElement('button');
     button.type = 'button'; button.textContent = '查看上下文';
     button.onclick = () => ContextView.select(seq);
@@ -1423,9 +1424,8 @@ function renderMemory(){
   const agent = agentFilterVal();
   const rows = q(`SELECT event_seq AS seq, json_extract(body,'$.data.episodes') AS episodes
     FROM events WHERE json_extract(body,'$.event_type')='memory_updated' ORDER BY event_seq DESC`);
-  const events = new Map(S.events.map(e=>[e.seq,e]));
   const entries = rows.flatMap(row=>{
-    const event = events.get(row.seq);
+    const event = S.bySeq.get(row.seq);
     if (!event || (agent && String(event.agent)!==agent)) return [];
     let episodes;
     try{ episodes = JSON.parse(row.episodes||'[]'); }
@@ -1727,26 +1727,25 @@ async function indexRun(manifests, assets, log){
   summarize(log);
 }
 
-/** @brief 收集同一次拖入或选中的文件：manifest.json、events.jsonl 与数据库文件经 noteFile 记下；顶层文件名恰为 64 位
- *  十六进制摘要的文件记作素材（只记句柄，同名取先遇到的）；拖入的句柄交给 loadDirFiles。顶层文件的路径就是文件名。 */
+/** @brief 收集同一次拖入或选中的文件：清单、事件、数据库文件与素材都经 noteFile 记下；拖入的句柄交给 loadDirFiles。
+ *  顶层文件的路径就是文件名。 */
 async function collectDropped(files, handles){
   const dropped = {manifests:[], events:[], databases:[], assets:new Map()};
-  for (const file of Array.from(files)){
-    noteFile(dropped, file.name, async ()=>file);
-    if (/^[0-9a-f]{64}$/.test(file.name) && !dropped.assets.has(file.name))
-      dropped.assets.set(file.name, async ()=>file);
-  }
+  for (const file of Array.from(files)) noteFile(dropped, file.name, async ()=>file);
   await loadDirFiles(handles, dropped);
   return dropped;
 }
 
-/** @brief 按文件名记下一个拖入的文件：manifest.json 记作清单候选，events.jsonl 记下路径与取得 File 的函数，数据库文件
- *  （.sqlite、.sqlite3、.db）只记路径，供拒绝时说明。 */
+/** @brief 按路径记下一个拖入的文件：manifest.json 记作清单候选，events.jsonl 记下路径与取得 File 的函数，数据库文件
+ *  （.sqlite、.sqlite3、.db）只记路径，供拒绝时说明；assets 目录里的文件与名字恰为 64 位十六进制摘要的顶层文件记作素材
+ *  （只记取得 File 的函数，同名取先遇到的）。 */
 function noteFile(dropped, path, open){
-  const name = path.split('/').at(-1);
+  const parts = path.split('/'), name = parts.at(-1);
   if (name==='manifest.json') dropped.manifests.push({path, read:async ()=>(await open()).text()});
   if (name==='events.jsonl') dropped.events.push({path, open});
   if (/\.(sqlite3?|db)$/i.test(name)) dropped.databases.push(path);
+  const asset = parts.at(-2)==='assets' || (parts.length===1 && /^[0-9a-f]{64}$/.test(name));
+  if (asset && !dropped.assets.has(name)) dropped.assets.set(name, open);
 }
 
 /** @brief 逐个读取并解析拖入的 manifest.json；读不出或不是 JSON 的写英文错误日志后跳过。 */
@@ -1793,8 +1792,6 @@ async function loadDirFiles(handles, dropped){
     const full = path ? path+'/'+handle.name : handle.name;
     if (handle.kind==='file'){
       const file = ()=>handle.getFile();
-      const asset = path.split('/').at(-1)==='assets' || (!path && /^[0-9a-f]{64}$/.test(handle.name));
-      if (asset && !dropped.assets.has(handle.name)) dropped.assets.set(handle.name, file);
       noteFile(dropped, full, file);
       if (handle.name==='MEMORY.md'){
         const m = full.match(/agent_?0*(\d+)/i);
@@ -1811,7 +1808,8 @@ async function loadDirFiles(handles, dropped){
 /** @brief 清空上一份运行：关闭索引库，丢掉事件、摘要、名称表、订单表、缓存、缺失记录与各视图状态；sql.js 引擎与加载标志保留。 */
 function resetRun(){
   if (S.db) S.db.close();
-  S.db=null; S.eventsFile=null; S.fileName=''; S.events=[]; S.summaries=new Map(); S.typeCounts={}; S.obs=[]; S.acts=[];
+  S.db=null; S.eventsFile=null; S.fileName=''; S.events=[]; S.bySeq=new Map(); S.summaries=new Map();
+  S.typeCounts={}; S.obs=[]; S.acts=[];
   S.memFiles={}; S.bodyCache=new Map(); S.world=null; S.runId=''; S.tz=''; S.agents={}; S.agentIds=[];
   S.runManifest=null; S.orders=new Map(); S.uses=null; S.catalogMissing=[];
   ViewerWording.reset(); S.missingNames=new Set(); S.reminded=new Map(); S.day=null;

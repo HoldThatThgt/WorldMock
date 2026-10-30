@@ -1,0 +1,22 @@
+== result sizes (rendered JSON)
+  单类 31 天区间 (31x200字): 7290 chars, 5072 tok (0.696 tok/char)
+  全部 一年 (3x2000字): 6137 chars, 4368 tok (0.712 tok/char)
+  全部 一月 (3x800字): 2549 chars, 1822 tok (0.715 tok/char)
+  全部 一天 (3x200字): 746 chars, 514 tok (0.689 tok/char)
+  单类 一天 (1x200字): 279 chars, 189 tok (0.678 tok/char)
+== proposed cap: body text (回顾/条目 values) <= 6400字 per call, newest first, rest listed in 未列出; item count not capped separately
+  worst rendered at cap (32 x 200字 + keys): 7523 chars, 5230 tok
+  单类 一年 without year digest (12x800=9600字): returns 8 months (6400字), 未列出 4 months
+  全部 31 天 (93x200=18600字): returns 32 cells (~10.7 days x 3), 未列出 the rest -> fix: 指定类别或缩短区间
+== added per decision (on top of the 1-turn decision), S2s baseline
+  small result (1 day x 3 cats, 513 tok), 0 searches: +0 prompt tok on the final turn, +0 turns, +$0.0000
+  small result (1 day x 3 cats, 513 tok), 1 searches: +574 prompt tok on the final turn, +1 turns, +$0.0007
+  small result (1 day x 3 cats, 513 tok), 2 searches: +1147 prompt tok on the final turn, +2 turns, +$0.0015
+  small result (1 day x 3 cats, 513 tok), 3 searches: +1721 prompt tok on the final turn, +3 turns, +$0.0022
+  cap-size result (5230 tok), 0 searches: +0 prompt tok on the final turn, +0 turns, +$0.0000
+  cap-size result (5230 tok), 1 searches: +5290 prompt tok on the final turn, +1 turns, +$0.0021
+  cap-size result (5230 tok), 2 searches: +10580 prompt tok on the final turn, +2 turns, +$0.0043
+  cap-size result (5230 tok), 3 searches: +15871 prompt tok on the final turn, +3 turns, +$0.0065
+== capacity: threshold = 0.85 x 1,048,576 (V frozen model_metadata.context_window) = 891,290 tok; at the ModelConfig floor 262,144 it would be 222,822
+  worst single decision: V max decision prompt 37,421 + 3 cap-size searches + 16,000 reserve = 69,292 tok (7.8% of threshold)
+  worst chain (max chain length 3 in V; replayed earlier decisions keep their search results): 101,033 tok (11.3%; 45.3% of the 262k floor)

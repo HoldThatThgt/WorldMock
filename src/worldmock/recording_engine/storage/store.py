@@ -9,7 +9,7 @@ import logging
 import sqlite3
 import time
 import zlib
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -195,7 +195,7 @@ class FootprintStore:
     def append_evidence(self, events: list[EventDraft]) -> list[Event]:
         """@brief 同版本追加证据事件：不接收、不改写世界，事件的前后版本都是已提交版本。
 
-        观察、模型请求与响应、记忆更新、决策开始与行动请求、运行失败和零点计划失败证据都走这里；证据不能带资金变化，
+        观察、模型请求与响应、记忆更新、决策开始与行动请求、运行失败、零点计划与回顾失败证据都走这里；证据不能带资金变化，
         初始注资只属于创建世界的那一步推进。
         @param events 证据事件，按提交顺序，至少一条
         @return 分配了序号的事件
@@ -291,16 +291,16 @@ class FootprintStore:
 
     def _insert_event(self, event: Event) -> None:
         """@brief 在调用方事务内插入事件和素材索引；观察引用的每个观察分件须已在 parts 表。"""
-        self._index_artifacts(event)
+        self._index_artifacts(event.artifact_refs)
         if event.event_type == "observation":
             require_parts(self.connection, event.data)
         self.connection.execute("INSERT INTO events VALUES(?,?,?)", (
             event.event_seq, event.event_id, canonical_json(event.model_dump()).decode(),
         ))
 
-    def _index_artifacts(self, event: Event) -> None:
-        """@brief 在调用方事务内登记事件引用的素材索引。"""
-        for reference in event.artifact_refs:
+    def _index_artifacts(self, references: Iterable[AssetRef]) -> None:
+        """@brief 在调用方事务内登记素材索引行；同一摘要先到先留。"""
+        for reference in references:
             self.connection.execute("INSERT OR IGNORE INTO artifacts VALUES(?,?)", (
                 reference.sha256, canonical_json(reference.model_dump()).decode(),
             ))
@@ -457,10 +457,7 @@ class FootprintStore:
         try:
             with self.connection:
                 self.connection.execute("INSERT INTO main.parts SELECT sha256, body FROM parent.parts")
-                for reference in references:
-                    self.connection.execute("INSERT OR IGNORE INTO artifacts VALUES(?,?)", (
-                        reference.sha256, canonical_json(reference.model_dump()).decode(),
-                    ))
+                self._index_artifacts(references)
                 self.connection.execute("INSERT INTO events SELECT event_seq,event_id,body FROM parent.events "
                                         "WHERE event_seq<=? ORDER BY event_seq", (cutoff,))
         except Exception:
@@ -569,10 +566,7 @@ class FootprintStore:
                     checkpoint.checkpoint_id, zlib.compress(encoded, _CHECKPOINT_ZLIB_LEVEL), digest,
                 ))
                 self._insert_event(records[0])
-                for reference in snapshots.values():
-                    self.connection.execute("INSERT OR IGNORE INTO artifacts VALUES(?,?)", (
-                        reference.sha256, canonical_json(reference.model_dump()).decode(),
-                    ))
+                self._index_artifacts(snapshots.values())
                 self._require_stored_version(committed.version)
         except Exception:
             logging.exception("Common checkpoint transaction failed")

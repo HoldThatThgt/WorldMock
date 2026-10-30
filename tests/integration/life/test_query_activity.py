@@ -38,6 +38,7 @@ from tests.life.environment_runtime import act, act_group, events, finish_activi
 from worldmock.agents.prompt.prompt_schemas import validate_layer
 from worldmock.foundation.randomness import random_stream
 from worldmock.foundation.time.readable import duration_phrase
+from worldmock.simulation_engine.observation.layers.result_projection import public_result
 
 ZONE = ZoneInfo("Asia/Shanghai")
 #: 运行开始的时刻：2026 年 1 月 5 日（周一）08:00。
@@ -401,7 +402,8 @@ def test_query_ending_with_the_main_activity_still_needs_the_main_conclusion(eng
 
 def test_concluded_query_has_no_answer_and_frees_slot_two(engine_factory):
     """conclude_activity 结束进行中的查询：活动 cancelled、没有 answer；这条查询请求的最新结果是 cancelled，
-    details.query 恰为 app 与「没有查完」；那条结束请求自己的 outcome 是「提前结束」；同一秒再决策，购买被受理。"""
+    details.query 恰为 app 与「没有查完」；那条结束请求自己的 outcome 是「提前结束」；两者都只在事件里，收尾之后的
+    观察里都不在进度层；同一秒再决策，购买被受理。"""
     engine, running = _mid_query(engine_factory, "零食")
     app = {"eleme": "饿了么", "meituan": "美团", "bilibili": "哔哩哔哩"}[running.data["app_id"]]
     _, concluded = act(engine, "stop", conclude_request(running.name), "conclude_activity")
@@ -409,11 +411,15 @@ def test_concluded_query_has_no_answer_and_frees_slot_two(engine_factory):
     stopped = engine.context.state.activities[running.activity_id]
     assert (stopped.status, stopped.interruption_reason) == ("cancelled", "agent_cancelled")
     assert "answer" not in stopped.data and stopped.concluded_at == engine.context.state.current_time
-    observed = engine.observe(context(engine, "after"))
-    record = progress_calls(observed, SIDE_TOOL)[0]["result"]
+    results = events(engine, "action_result")
+    terminal = [row for row in results if row.action_id == running.origin_action_id][-1]
+    record = public_result(terminal.data, engine.context.inputs, {})
     assert record["status"] == "cancelled" and record["details"]["query"] == {"app": app, "state": "没有查完"}
-    own = progress_calls(observed, "conclude_activity")[0]["result"]["details"]
+    own = public_result(next(row for row in results if row.action_id == concluded.action_id).data,
+                        engine.context.inputs, {})["details"]
     assert own["outcome"] == [{"activity": running.name, "outcome": "提前结束"}] and "query" not in own
+    observed = engine.observe(context(engine, "after"))
+    assert not progress_calls(observed, SIDE_TOOL) and not progress_calls(observed, "conclude_activity")
     validate_layer(observed["progress_layer"])
     _, bought = act(engine, "buy", purchase("薯片"))
     assert bought.status == "in_progress"
@@ -452,10 +458,8 @@ def _app_name(activity) -> str | None:
 
 def _terminal_details(engine, activity) -> dict:
     """开始这项查询的那条动作最后一条结果投影给人物的 details。"""
-    from worldmock.simulation_engine.observation.layers.result_projection import public_result
-
     rows = [row for row in events(engine, "action_result") if row.action_id == activity.origin_action_id]
-    return public_result(rows[-1].data, engine.context.inputs)["details"]
+    return public_result(rows[-1].data, engine.context.inputs, {})["details"]
 
 
 def test_query_finishing_at_local_midnight_answers_after_the_day_plan(engine_factory):

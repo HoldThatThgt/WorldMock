@@ -46,6 +46,9 @@ from tests.life.prerequisite_inputs import app_content, dingtalk_environment
 from worldmock.recording_engine.projections.presentation.timeline_labels import label_findings
 from worldmock.state.interaction.requests import RecallTaskSummaryRequest
 from worldmock.agents.prompt.prompt_schemas import validate_layer
+from worldmock.simulation_engine.observation.layers.result_projection import public_result
+from worldmock.simulation_engine.observation.memory.days import published_today
+from worldmock.simulation_engine.observation.memory.entries import short_name
 
 ZONE = ZoneInfo("Asia/Shanghai")
 #: 五集副本里那次使用的活动名。
@@ -222,27 +225,30 @@ def test_timeline_row_of_a_long_app_use_lists_three_titles_and_the_count(engine_
     assert brief.endswith(" 使用哔哩哔哩《测试剧集第五集》 → active")
 
 
-@pytest.mark.parametrize("how,sentence", [
-    ("concluded", f"{WATCHING}：08:00–08:30，结束使用，《测试剧集第一集》《测试剧集第二集》《测试剧集第三集》等 4 条"
-                  "（《测试剧集第五集》未完）"),
-    ("finished", f"{WATCHING}：08:00–08:33，按计划结束，《测试剧集第一集》《测试剧集第二集》《测试剧集第三集》等 5 条"),
+@pytest.mark.parametrize("how,short,full", [
+    ("concluded", "哔哩哔哩 08:00–08:30，《测试剧集第一集》等4条",
+     "哔哩哔哩 08:00–08:30，《测试剧集第一集》《测试剧集第二集》《测试剧集第三集》《测试剧集第四集》"
+     "（《测试剧集第五集》未完）"),
+    ("finished", "哔哩哔哩 08:00–08:33，《测试剧集第一集》等5条",
+     "哔哩哔哩 08:00–08:33，《测试剧集第一集》《测试剧集第二集》《测试剧集第三集》《测试剧集第四集》《测试剧集第五集》"),
 ], ids=["concluded", "finished"])
-def test_settled_sentence_lists_three_titles_the_count_and_the_unfinished_item(engine_factory, tmp_path, how,
-                                                                                sentence):
-    """五集副本收尾之后驾车去五里公园：记忆层 earlier_today 里这次使用的结束句只列前三集，「等 K 条」数的是放完的条数，
-    08:30 收尾的那一句后面紧接「（《测试剧集第五集》未完）」，自己停下后收尾的那一句没有这半句。"""
+def test_settled_sentence_lists_three_titles_the_count_and_the_unfinished_item(engine_factory, tmp_path, how, short,
+                                                                                full):
+    """五集副本收尾之后驾车去五里公园：记忆层「今天」里这次使用的结束行只写第一个放完的标题再接「等N条」，N 是放完的
+    条数；条目全文的完整行列出全部放完的标题，08:30 收尾的那一行后面紧接「（《测试剧集第五集》未完）」，自己停下后收尾的
+    那一行没有这半句。"""
     engine, _, activity_id = _watch(engine_factory, tmp_path)
     _end(engine, activity_id, how)
     _, trip = act(engine, "leave", travel("五里公园", "驾车"))
     assert trip.status == "in_progress", trip.error_code
     memory = observe_only(engine, "road")["memory_layer"]
-    found = [line for entry in memory["earlier_today"] for line in entry["settled"] if line.startswith(WATCHING)]
-    assert found == [sentence]
+    assert [line for item in memory["今天"] for line in item.get("核验", ()) if line.startswith("哔哩哔哩 ")] == [short]
+    assert _full_lines(engine, short) == [full]
 
 
 def test_settled_sentence_of_a_place_series_over_three_episodes_lists_three_and_the_count(engine_factory, tmp_path):
-    """在地点做的系列同样截断：家的「做晚饭」加第四集《倒垃圾》，做完四集后收尾、驾车出门；记忆层里这一段的结束句以
-    「按计划结束，《备菜做饭》《吃晚饭》《洗碗收拾厨房》等 4 条」结尾，不列第四集，没有「未完」半句。"""
+    """在地点做的系列同样截断：家的「做晚饭」加第四集《倒垃圾》，做完四集后收尾、驾车出门；记忆层「今天」里这一项的
+    结束行以「《备菜做饭》《吃晚饭》《洗碗收拾厨房》等4条」结尾，不列第四集，没有「未完」半句；条目全文的完整行四集全列。"""
     root = meal_environment(tmp_path / "meal")
     rows = catalog_rows(root, "content-catalog.jsonl")
     rows.append({"content_id": "dinner-4-trash", "duration_seconds": 600, "exertion": "light",
@@ -262,24 +268,36 @@ def test_settled_sentence_of_a_place_series_over_three_episodes_lists_three_and_
     _, trip = act(engine, "leave", travel("五里公园", "驾车"))
     assert trip.status == "in_progress", trip.error_code
     memory = observe_only(engine, "road")["memory_layer"]
-    found = [line for entry in memory["earlier_today"] for line in entry["settled"] if line.startswith(name)]
-    assert len(found) == 1 and found[0].endswith("，按计划结束，《备菜做饭》《吃晚饭》《洗碗收拾厨房》等 4 条"), found
+    label = short_name(name)
+    found = [line for item in memory["今天"] for line in item.get("核验", ()) if line.startswith(f"{label} ")]
+    assert len(found) == 1 and found[0].endswith("，《备菜做饭》《吃晚饭》《洗碗收拾厨房》等4条"), found
+    assert "未完" not in found[0]
+    assert [line.endswith("，《备菜做饭》《吃晚饭》《洗碗收拾厨房》《倒垃圾》") for line in _full_lines(engine, found[0])] == [
+        True]
+
+
+def _full_lines(engine, short: str) -> list[str]:
+    """今天条目里短句等于 short 的结束行的完整行。"""
+    today = published_today(engine.context.inputs, engine.context.store, 1, engine.context.state.current_time,
+                            engine.context.store.last_event_seq)
+    return [line.full for entry in today.entries for line in entry.lines if line.kind == "ending" and line.text == short]
 
 
 @pytest.mark.parametrize("how,played", [("concluded", 4), ("finished", 5)], ids=["concluded", "finished"])
 def test_ended_app_use_lists_three_contents_and_says_how_many_are_left_out(engine_factory, tmp_path, how, played):
-    """五集副本收尾之后，进度层里开始请求的记录是第二条结果：恰为第一至三集三行（放完、「约 7 分钟」）加「还有 2 条没列」，
+    """五集副本收尾之后进度层没有这条记录；终态结果的投影恰为第一至三集三行（放完、「约 7 分钟」）加「还有 2 条没列」，
     整份进度层通过层校验；落库的终态结果事件里活动快照的 played 照旧是完整的四项或五项。"""
     engine, _, activity_id = _watch(engine_factory, tmp_path)
     _end(engine, activity_id, how)
     observed = observe_only(engine, "ended")
-    [record] = progress_calls(observed, SIDE_TOOL)
-    rows = [{"title": _episode(number), "summary": f"{_episode(number)}的测试用合成摘要。", "duration": "约 7 分钟",
-             "finished": True} for number in (1, 2, 3)]
-    assert record["result"]["details"] == {"contents": rows, "contents_omitted": "还有 2 条没列"}
+    assert progress_calls(observed, SIDE_TOOL) == []
     validate_layer(observed["progress_layer"])
     [terminal] = [row for row in events(engine, "action_result")
                   if row.action_id == action_identity("watch") and row.data["status"] != "in_progress"]
+    rows = [{"title": _episode(number), "summary": f"{_episode(number)}的测试用合成摘要。", "duration": "约 7 分钟",
+             "finished": True} for number in (1, 2, 3)]
+    assert public_result(terminal.data, engine.context.inputs, {})["details"] == {
+        "contents": rows, "contents_omitted": "还有 2 条没列"}
     assert terminal.data["status"] == ("cancelled" if how == "concluded" else "completed")
     assert [item["content_id"] for item in terminal.data["activity"]["data"]["played"]] == [
         f"c-drama-{number}" for number in range(1, played + 1)]

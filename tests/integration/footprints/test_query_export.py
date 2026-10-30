@@ -188,7 +188,7 @@ def test_query_leaves_no_foreground_event_order_attempt_experience_or_content_co
     assert not [row for row in artifact_rows(directory, "app_usage")
                 if row["fact_kind"] == "content_consumed" and row.get("activity_id") in queries]
     quality = json.loads((directory / "quality.json").read_bytes())
-    assert quality["schema_version"] == 9 and set(quality) == QUALITY_KEYS
+    assert quality["schema_version"] == 10 and set(quality) == QUALITY_KEYS
 
 
 def test_query_line_of_the_timeline_is_chinese(query_export):

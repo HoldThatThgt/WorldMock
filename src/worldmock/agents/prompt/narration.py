@@ -19,7 +19,7 @@ PERSONA_CARD_HANZI_BUDGET = 600
 #: *_bindings 是名称到内部身份的私有绑定。
 #: persona_views、progress_meta、progress_event_ids 与 continuation 是观察私有证据
 #: （docs/design/06-agent.md「提示与工具」）；个人事务的两类私有绑定与事务身份 errand_id 同列禁键
-#: （docs/design/04-simulation-engine.md）。七层字段 activity（记忆层 self_notes 与结果 outcome 的活动名）是可读名称，
+#: （docs/design/04-simulation-engine.md）。七层字段 activity（结果 outcome 的活动名）是可读名称，
 #: 不在禁键之列。
 FORBIDDEN_OBSERVATION_KEYS = frozenset({
     "world_state_version",

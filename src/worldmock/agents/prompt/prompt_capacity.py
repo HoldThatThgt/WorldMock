@@ -2,10 +2,10 @@
 
 计量覆盖原生 tools、系统层、六层 JSON、续接消息（含回传的 reasoning_content）、此后的原生消息与预留输出。达到上下文 85% 时依次：
 0. 提前结束本秒续接：链前缀换成新快照（系统层与此刻的六层），思考不再出现；
-1. 从旧到新逐条去掉未受保护记录的 self_note；
-2. 把最旧一段连续的未受保护记录（紧邻其前的 condensed 记录并入）折成一条 condensed 记录，重复到阈值以下或无可折叠；
-每步之后重新计数。受保护记录从不改变；工具层、人设层、记忆层、待办层与环境层不浓缩。仍超限时按层记录 token 用量
-并以容量故障停止，不静默删减。
+1. 把最旧一段连续的未受保护记录（紧邻其前的 condensed 记录并入）折成一条 condensed 记录，重复到阈值以下或无可折叠；
+每步之后重新计数。受保护记录从不改变；人设层、记忆层、待办层、工具层与环境层不浓缩，记忆层的 14,000 字上限由构建器
+保证（simulation_engine/observation/memory/layout.py），这里不量它的字数。仍超限时按层记录 token 用量并以容量故障停止，
+不静默删减。
 
 工具层的可调用索引 callable_index 在 user 消息里，照样计入整次请求的容量计数（阈值与浓缩步骤不变），也从不被浓缩或删减；
 它不计入单次呈现上限（docs/design/04-simulation-engine.md）。容量故障的分层记录另单列它的 token 用量。
@@ -119,11 +119,7 @@ def _progress_records(layer: dict[str, Any], meta: tuple[dict, ...]) -> tuple[li
 
 
 def _condensation_steps(records: list[dict], meta: list[dict]):
-    """@brief 逐步产出浓缩后的（记录, 元数据）：先从旧到新逐条去 self_note，再逐段折叠为 condensed 记录。"""
-    for position, record in enumerate(records):
-        if not meta[position]["protected"] and "self_note" in record:
-            del record["self_note"]
-            yield records, meta
+    """@brief 逐步产出浓缩后的（记录, 元数据）：逐段把最旧一段连续的未受保护记录折为 condensed 记录。"""
     while (run := _oldest_foldable_run(records, meta)) is not None:
         start, end = run
         folded = records[start:end]

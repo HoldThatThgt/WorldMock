@@ -42,7 +42,7 @@ test('context reads current seven-layer actions and complete other requests', as
     assert.equal(app.state.bodyCache.size, 0, 'Index must not load complete requests');
     const model = await app.run('ContextView.read(2)');
     assert.deepEqual(Array.from(model.current.blocks.filter(block => block.role === 'user'), block => block.key),
-      ['tool', 'persona', 'memory', 'todo', 'environment', 'progress']);
+      ['persona', 'memory', 'todo', 'tool', 'environment', 'progress']);
     assert.ok(model.current.blocks.some(block => block.key === 'tools'));
     assert.equal(model.current.warnings.length, 0);
     const user = model.current.blocks.filter(block => block.role === 'user').map(block => block.text).join('');
@@ -52,7 +52,8 @@ test('context reads current seven-layer actions and complete other requests', as
     assert.ok(html.includes('结构与填充'));
     assert.ok(html.includes('层切片'));
     assert.ok(html.includes('按顶层数组无损切片'));
-    assert.ok(html.includes('self_note 未经核验'));
+    assert.ok(html.includes('「自述」与「回顾」未经核验'));
+    assert.ok(!html.includes('self_note'));
     assert.ok(html.includes('完整请求消息与工具'));
     assert.ok(!html.includes('形成自述'));
     const continuation = await app.run('ContextView.read(3)');
@@ -96,7 +97,8 @@ test('a decision first request with extra messages is a continuation matched to 
     await app.get('button:message:2:message').onclick();
     const filled = app.get('#ctx-body').innerHTML;
     assert.ok(filled.includes('为它的每个世界请求各追加一条 tool 消息'), filled);
-    assert.ok(filled.includes('一个世界请求一条，开始组两条，changes 与 events 只写在最后一条上。'));
+    assert.ok(filled.includes('一个世界请求一条，开始组两条，changes 与 events 只写在最后一条上；'
+      + 'changes.memory.added 是上一决策的今天条目。'));
     assert.ok(!filled.includes('与一条 tool 消息'));
     await app.run('ContextView.select(1)');
     const output = app.get('#ctx-body').innerHTML;
@@ -191,10 +193,23 @@ test('context navigation, stage filter and all rule paths are available through 
       ['environment', '日期例外改了这一天上不上班时，duty 的 note 写一句说明'],
       ['environment', 'tomorrow 写下一个本地日的日期、星期和那天是工作日还是休息日'],
       ['progress', '事务提醒到点（errand_reminder）与环境确认办成（errand_completed）两种记录只写事务名称，' +
-        '由人物可见的事务事件派生；二者不迁入记忆层。'],
-      ['tools', '去掉全部只读工具（回看任务与记忆查询），只留世界请求工具']]) {
+        '由人物可见的事务事件派生；办成同时在记忆层「今天」的核验里写成「办成「事务名」」。'],
+      ['tools', '只剩最后一个回合时与输出截断后的那次重试时去掉全部只读工具（回看任务与 search_memory），' +
+        '只留世界请求工具。']]) {
       await app.get('#ctx-rule').onchange({target: {value: rule}});
       assert.ok(app.get('#ctx-body').innerHTML.includes(sentence), sentence);
+    }
+    // 分层记忆的三步说明逐字可查看：记忆层的「兜底」、进度层的「已发布界」与回顾的「校验重试」。
+    for (const [rule, label, sentence] of [
+      ['memory', '兜底', '追加一条后超过 14,000 字时一次回落到 12,000 字以内：先把只交了播报的条目的自述换成「…」，' +
+        '再让其余条目只留核验，最后按小时合成计数行。'],
+      ['progress', '已发布界', '下界是上一次决策的提交，且不早于本地零点；在它之前已经了结的事在记忆层「今天」里。'],
+      ['digest', '校验重试', '输出被截断、参数不合格式，或正文、依据、名称、饮食核验名称、饮食覆盖、做饭那一句、数字与次数照抄' +
+        '各守卫不通过时附英文错误重试，至多 reflection_validation_max_retries 次；用尽时没通过的类记为 null 并写进 fallback，' +
+        '运行不失败。']]) {
+      await app.get('#ctx-rule').onchange({target: {value: rule}});
+      const html = app.get('#ctx-body').innerHTML;
+      assert.ok(html.includes(`<span>${label}</span>`) && html.includes(`<span>${sentence}</span>`), `${rule} · ${label}`);
     }
     assert.equal(app.get('#ctx-prev').disabled, true);
     assert.equal(app.get('#ctx-next').disabled, true);
@@ -205,11 +220,12 @@ test('context navigation, stage filter and all rule paths are available through 
   } finally { app.close(); }
 });
 
-test('context drills into current tools and real-shaped progress self notes', async () => {
+test('context drills into current tools and progress records', async () => {
   const request = contextRequest();
   const values = JSON.parse(request.messages[1].content);
   values[5].events = [{occurred_at:'2026-01-05T08:00:00+08:00', type:'tool_call',
-    tool:'start_side_activity', result:{status:'completed'}, self_note:'先浏览。'}];
+    tool:'start_side_activity', request:{action:'interact', target:['哔哩哔哩'], prefer:null},
+    result:{status:'in_progress'}}];
   request.messages[1].content = JSON.stringify(values);
   const app = await viewer([contextEvent('current', request)]);
   try {
@@ -230,20 +246,24 @@ test('context drills into current tools and real-shaped progress self notes', as
     assert.doesNotMatch(options, / · (walk|drive|take_bus|take_taxi|interact|travel|sleep|purchase) · /);
     assert.ok(!options.includes('：进行'));
     await app.get('button:message:1:progress').onclick();
-    assert.ok(app.get('#ctx-item').innerHTML.includes('self_note（未经核验）'));
-    app.get('#ctx-item').onchange({target:{value:'0'}});
-    assert.ok(app.get('#ctx-body').innerHTML.includes('先浏览。'));
-    // 工具定义块的说明按现行工具面计数：六个世界请求、一个回看工具、三个记忆查询，共十个；录制的请求正是这十个。
-    assert.equal(request.tools.length, 10);
-    assert.ok(!request.tools.some(tool => tool.function.name === 'query_world'));
-    assert.deepEqual(request.tools.slice(0, 2).map(tool => tool.function.name),
-      ['start_main_activity', 'start_side_activity']);
-    assert.ok(!request.tools.some(tool => tool.function.name === 'start_activity'));
+    // 进度层记录不带 self_note：下钻标签是「时刻 · 类型 · 主体」，正文是记录的原始 JSON。
+    const records = app.get('#ctx-item');
+    assert.ok(records.innerHTML.includes('2026-01-05T08:00:00+08:00 · tool_call · start_side_activity'));
+    assert.ok(!records.innerHTML.includes('self_note'));
+    records.value = '0';
+    records.onchange();
+    assert.equal(app.get('#ctx-raw').textContent, JSON.stringify(values[5].events[0], null, 2));
+    // 工具定义块的说明按现行工具面计数：六个世界请求、一个回看工具、一个记忆检索工具，共八个；录制的请求正是这八个。
+    assert.equal(request.tools.length, 8);
+    assert.deepEqual(request.tools.map(tool => tool.function.name), ['start_main_activity', 'start_side_activity',
+      'report_status', 'pause_activity', 'conclude_activity', 'revise_day_plan', 'recall_task_summary',
+      'search_memory']);
     await app.get('button:tools').onclick();
     const filled = app.get('#ctx-body').innerHTML;
-    assert.ok(filled.includes('六个世界请求工具（两个开始工具、三个活动控制工具与计划修订）、' +
-      '一个回看工具（recall_task_summary）与三个记忆查询工具，共十个，严格参数结构，整次运行字节相同。'), filled);
-    assert.ok(!filled.includes('五个世界请求工具') && !filled.includes('query_world') && !filled.includes('十一'));
+    assert.ok(filled.includes('<dt>填入</dt><dd>六个世界请求工具（两个开始工具、三个活动控制工具与计划修订）、' +
+      '一个回看工具（recall_task_summary）与一个记忆检索工具（search_memory），共八个，严格参数结构，整次运行字节相同。</dd>'),
+    filled);
+    assert.doesNotMatch(filled, /query_world|memory_recent|memory_time_range|三个记忆查询|共十个/);
   } finally { app.close(); }
 });
 
@@ -261,7 +281,8 @@ function inlineContextRequest() {
     {kind: 'location', action: 'sleep', shared: {state: '全天营业', available: true, note: '现在不欠觉'},
       targets: [{name: '家'}]},
   ], callable_index: {}};
-  const layers = [toolLayer, ...['人设层', '记忆层', '待办层', '环境层', '进度层'].map(layer => ({layer}))];
+  const layers = ['人设层', '记忆层', '待办层', '工具层', '环境层', '进度层'].map(
+    layer => (layer === toolLayer.layer ? toolLayer : {layer}));
   return {model: 'test-model', messages: [
     {role: 'system', content: JSON.stringify({layer: '系统层', role, rules: []})},
     {role: 'user', content: JSON.stringify(layers)}],
@@ -286,12 +307,13 @@ test('context drills into an inline current tool layer and lists travel methods 
     select.onchange();
     assert.deepEqual(JSON.parse(app.get('#ctx-raw').textContent), {action: 'travel', state: '全天营业', available: true,
       name: '公司', detail: '公共交通', price: '2 元', duration: '约 8 分钟', note: '轻松', kind: 'location'});
-    // 工具定义块的「填入」说明是现行工具面的定稿，不读录制样例：一个回看工具与三个记忆查询，共十个，没有世界查询工具。
+    // 工具定义块的「填入」说明是现行工具面的定稿，不读录制样例：一个回看工具与一个记忆检索工具，共八个，没有世界查询工具。
     await app.get('button:tools').onclick();
     const filled = app.get('#ctx-body').innerHTML;
     assert.ok(filled.includes('<dt>填入</dt><dd>六个世界请求工具（两个开始工具、三个活动控制工具与计划修订）、' +
-      '一个回看工具（recall_task_summary）与三个记忆查询工具，共十个，严格参数结构，整次运行字节相同。</dd>'), filled);
-    assert.doesNotMatch(filled, /query_world|世界查询|十一/);
+      '一个回看工具（recall_task_summary）与一个记忆检索工具（search_memory），共八个，严格参数结构，整次运行字节相同。</dd>'),
+    filled);
+    assert.doesNotMatch(filled, /query_world|世界查询|三个记忆查询|共十个/);
     assert.deepEqual(app.errors, []);
   } finally { app.close(); }
 });

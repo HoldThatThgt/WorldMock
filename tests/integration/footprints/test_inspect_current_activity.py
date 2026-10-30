@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from scripts import inspect_run
-from tests.integration.reflection_fixtures import host_run
+from tests.integration.host_run_fixtures import host_run
 from tests.integration.runtime.current_contract_fixtures import ToolResponse, decide
 from tests.life.conftest import action_identity, advance_next, do_at, purchase, sleep, stage_day_plan, travel, use_app
 from tests.life.environment_runtime import act, conclude_app_use, events, finish_activity, reach
@@ -203,7 +203,7 @@ def test_inspector_accepted_and_rejected_lines_read_the_current_fields(engine_fa
 @pytest.mark.asyncio
 async def test_inspector_plan_revision_and_memory_lines(engine_factory, capsys, tmp_path):
     """经真实宿主流程修订一次当日计划（current_contract_fixtures 的 decide），再由启用记忆的真实人物在家做一次「测试休息」、
-    收尾时写下一条记忆（reflection_fixtures 的 host_run）：不带活动快照的受理行是「Day plan revised → completed」；记忆行
+    收尾时写下一条记忆（host_run_fixtures 的 host_run）：不带活动快照的受理行是「Day plan revised → completed」；记忆行
     的条数等于事件 episodes 的条数，且不为 0。"""
     engine = engine_factory()
     stage_day_plan(engine)

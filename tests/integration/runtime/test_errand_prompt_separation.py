@@ -29,7 +29,6 @@ async def test_errand_arguments_never_become_memory_or_progress_parameters(engin
                for text in ["独特买面事务", "独特事务备注"])
     observed = engine.observe(context(engine, "next"))
     assert "独特买面事务" in json.dumps(observed["todo_layer"], ensure_ascii=False)
-    controls = [row for row in observed["progress_layer"]["events"]
+    assert not [row for row in observed["progress_layer"]["events"]
                 if row["type"] == "tool_call" and row["tool"] == "conclude_activity"]
-    assert controls and all("errands" not in row["arguments"] for row in controls)
     assert "独特事务备注" not in json.dumps(observed["progress_layer"], ensure_ascii=False)

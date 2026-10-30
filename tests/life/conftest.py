@@ -189,6 +189,77 @@ class StubPlanDayClient:
         return self.responses.pop(0) if self.responses else plan_day_response(self.goals, model=self.model_name)
 
 
+def memory_digest_response(arguments: dict | str, finish_reason: str = "tool_calls", model: str = "test-model") -> dict:
+    """回顾模型的确定性原始响应：唯一 submit_memory_digest 调用（arguments 为字符串时原样作为参数文本）。"""
+    text = arguments if isinstance(arguments, str) else json.dumps(arguments, ensure_ascii=False)
+    return {"model": model,
+            "choices": [{"finish_reason": finish_reason, "message": {"role": "assistant", "content": None, "tool_calls": [
+                {"id": "call-memory-digest", "type": "function",
+                 "function": {"name": "submit_memory_digest", "arguments": text}}]}}],
+            "usage": {"prompt_tokens": 40, "completion_tokens": 12, "total_tokens": 52}}
+
+
+#: 回顾用户消息的中文类别键与工具参数的英文键。
+_DIGEST_KEYS = (("饮食", "food"), ("工作", "work"), ("生活", "life"))
+
+
+def _fixture_goods_names() -> tuple[str, ...]:
+    """测试环境 tests/fixtures/dataset-environment 目录里全部商品的名称（不按长度过滤），按目录行序。"""
+    from tests.data_paths import CATALOG_ROOT
+
+    rows = (json.loads(line) for line in (CATALOG_ROOT / "merchant-catalog.jsonl").read_text(encoding="utf-8").splitlines())
+    return tuple(row["name"] for row in rows if "goods_id" in row)
+
+
+class StubMemoryDigestClient:
+    """确定性回顾客户端桩（经后台任务的 client 参数注入）：按脚本依次返回响应并记录请求。
+
+    脚本用尽后按请求的用户消息写一份能通过全部守卫的回答：有「人物卡片」键是日回顾，否则是月、年回顾；每个有输入的类写一段，
+    refs 是这一类全部编号，无输入的类为 null。日回顾的饮食类列出作子串出现在饮食核验里的商品名称（按首次出现的位置、去重），
+    没有时写「这一天吃喝照常。」，工作类、生活类写「这一天这一类的事照常。」；月、年回顾写「这段时间的回顾已经整理。」。
+    raises 非空时下一次调用抛出该异常（模拟传输失败）。
+    """
+
+    model_name = "test-model"
+
+    def __init__(self, model_identity: dict | None = None, responses: list[dict] | None = None,
+                 raises: BaseException | None = None, goods_names: tuple[str, ...] | None = None):
+        self.model_name = (model_identity or {}).get("requested_model", "test-model")
+        self.calls: list[dict] = []
+        self.responses = list(responses or [])
+        self.raises = raises
+        self.goods_names = tuple(goods_names) if goods_names is not None else _fixture_goods_names()
+
+    async def call(self, request: dict) -> dict:
+        self.calls.append(request)
+        if self.raises is not None:
+            raise self.raises
+        if self.responses:
+            return self.responses.pop(0)
+        return memory_digest_response(self.answer(json.loads(request["messages"][1]["content"])),
+                                      model=self.model_name)
+
+    def answer(self, payload: dict) -> dict:
+        """按一份用户消息写出的合格参数。"""
+        day = "人物卡片" in payload
+        arguments = {}
+        for name, key in _DIGEST_KEYS:
+            rows = payload[name] if day else next(value for label, value in payload[name].items() if label != "次数统计")
+            if not rows:
+                arguments[key] = None
+                continue
+            text = self._food_text(rows) if day and key == "food" else (
+                "这一天这一类的事照常。" if day else "这段时间的回顾已经整理。")
+            arguments[key] = {"text": text, "refs": [row["编号"] for row in rows]}
+        return arguments
+
+    def _food_text(self, rows: list[dict]) -> str:
+        """日回顾饮食类的一段：饮食核验里出现的商品名称按首次出现的位置排列。"""
+        verified = "\n".join(line for row in rows for line in row.get("核验", ()))
+        named = sorted((name for name in dict.fromkeys(self.goods_names) if name in verified), key=verified.find)
+        return "收到和用到了" + "、".join(named) + "。" if named else "这一天吃喝照常。"
+
+
 def drive(coroutine):
     """不经事件循环驱动只含立即完成的 await 的协程（确定性客户端桩），同步与异步用例都能调用。"""
     try:
@@ -199,11 +270,14 @@ def drive(coroutine):
     raise AssertionError("coroutine suspended on a real await")
 
 
-def settle_day_plans(engine: LifeEngine, client=None) -> list[dict]:
-    """执行零点计划后台任务（确定性桩），零点边界随后执行零点节律入口；返回登记摘要。"""
-    from worldmock.runtime.lifecycle.runner import settle_pending_day_plans
+def settle_midnight_tasks(engine: LifeEngine, plan_client=None, digest_client=None) -> list[dict]:
+    """依次执行零点的后台任务（缺省都用确定性桩）：先回顾，再零点计划，零点边界随后执行零点节律入口；返回零点计划的
+    登记摘要。"""
+    from worldmock.runtime.lifecycle.runner import settle_pending_day_plans, settle_pending_memory_digests
 
-    registered = drive(settle_pending_day_plans(engine, client=client or StubPlanDayClient({"requested_model": engine.context.config.model.requested_model})))
+    model = {"requested_model": engine.context.config.model.requested_model}
+    drive(settle_pending_memory_digests(engine, client=digest_client or StubMemoryDigestClient(model)))
+    registered = drive(settle_pending_day_plans(engine, client=plan_client or StubPlanDayClient(model)))
     if engine.midnight_rhythm_pending:
         engine.decide_midnight_rhythm()
     return registered
@@ -239,12 +313,13 @@ NIGHT_SLEEP_MINUTES = 450
 
 
 def advance_next(engine: LifeEngine) -> None:
-    """推进到环境报告的下一个严格未来边界；零点边界照 LifeEnv.step 先生成当日计划（确定性空清单桩）再判定节律。"""
+    """推进到环境报告的下一个严格未来边界；零点边界照 LifeEnv.step 先生成回顾（确定性桩），再生成当日计划（确定性空清单桩），
+    最后判定节律。"""
     state = engine.scheduling_state()
     assert state.next_event_at is not None
     engine.advance(int(state.next_event_at.timestamp()) - engine.context.state.current_time, state.next_event_at)
     if engine.midnight_rhythm_pending:
-        settle_day_plans(engine)
+        settle_midnight_tasks(engine)
 
 
 def advance_until_ready(engine: LifeEngine, limit: int = 64) -> bool:

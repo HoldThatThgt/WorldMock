@@ -36,6 +36,8 @@ from tests.life.prerequisite_inputs import OFFICE, add_rows, dingtalk_environmen
 from worldmock.simulation_engine.actions.admission import present_location
 from worldmock.simulation_engine.activities.content.content_select import ContentRequest, select_content
 from worldmock.foundation.randomness import random_stream
+from worldmock.simulation_engine.observation.memory.days import published_today
+from worldmock.simulation_engine.observation.memory.entries import short_name
 from worldmock.simulation_engine.activities.lifecycle.sessions import current_session
 
 ZONE = ZoneInfo("Asia/Shanghai")
@@ -435,8 +437,9 @@ def _concluded_in(engine, case: str) -> tuple[str, object]:
 
 @pytest.mark.parametrize("case", ["running", "paused", "clock"])
 def test_a_concluded_app_use_reads_end_of_use(engine_factory, tmp_path, case):
-    """被收尾的一次 app 使用（进行中或暂停中）：收尾结果的 outcome 与记忆层的结束句都是「结束使用」，机器状态仍是
-    cancelled、agent_cancelled，开始请求的第二条结果仍是 cancelled；只有一条、不会接续的打卡也一样。"""
+    """被收尾的一次 app 使用（进行中或暂停中）：收尾结果的 outcome 是「结束使用」，机器状态仍是 cancelled、
+    agent_cancelled，开始请求的第二条结果仍是 cancelled；只有一条、不会接续的打卡也一样。记忆层「今天」的结束行不写
+    「结束使用」，条目全文的完整行以「（《测试慢跑》未完）」收尾。"""
     if case == "clock":
         engine = engine_factory(dingtalk_environment(tmp_path / "clock"),
                                 mutate=example_window(days=1, at_office=True, reconsideration_interval_seconds=20))
@@ -455,9 +458,14 @@ def test_a_concluded_app_use_reads_end_of_use(engine_factory, tmp_path, case):
     _, trip = act(engine, "leave", travel("公司", "驾车"))
     assert trip.status == "in_progress", trip.error_code
     memory = engine.observe(context(engine, "road"))["memory_layer"]
-    (sentence,) = [line for entry in memory["earlier_today"] for line in entry["settled"]
-                   if line.startswith(ended.name)]
-    assert sentence.endswith("，结束使用，（《测试慢跑》未完）")
+    label = short_name(ended.name)
+    (sentence,) = [line for item in memory["今天"] for line in item.get("核验", ()) if line.startswith(f"{label} ")]
+    assert "结束使用" not in sentence and "未完" not in sentence
+    today = published_today(engine.context.inputs, engine.context.store, 1, engine.context.state.current_time,
+                            engine.context.store.last_event_seq)
+    (full,) = [line.full for entry in today.entries for line in entry.lines
+               if line.kind == "ending" and line.text == sentence]
+    assert full.endswith("（《测试慢跑》未完）")
 
 
 def test_progress_events_carry_the_played_count_and_other_snapshots_the_list(engine_factory):

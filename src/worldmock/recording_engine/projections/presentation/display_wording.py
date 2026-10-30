@@ -6,7 +6,8 @@ tools/run-viewer-wording.js 是这里的镜像，两份实现由 tests/fixtures/
 写法不含时刻、状态和时长，由各处另写。名称取不到是运行故障，不给任何降级文字。
 
 一串内容标题至多照列 TITLE_LIST_LIMIT 条，多出时只写前几条再接「等 K 条」（title_list）；列表之外的各条照样按身份取名。
-人物读到的结束句（settled_text）与第二条结果的 details.contents（result_projection）也用这个上限。
+零点计划「动作结果」的活动句（settled_text）也调用 title_list；今天条目结束行的标题段（entries，写法「等N条」不留空格）
+与第二条结果的 details.contents（result_projection）另用这个上限。
 """
 
 from __future__ import annotations

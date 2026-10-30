@@ -1,0 +1,194 @@
+{
+ "consistency": {
+  "verdict": "Moving search_memory to P1 landed cleanly in most places. The phase mentions agree: the decision table (:122), the retirement table (:301), the tool count (10→8), the tool fingerprint changing only in P1 (:378, :634), the P1 list and acceptance, the costs ($0.33–0.35 adds up), the effort table, and 裁决 9, 17, 19, 21 and 22. Four majors remain. (a) Principle 4 and 裁决 23 each say the 「未整理」 fallback is the only exception to \"past days only as digests\", but :252 and 裁决 14 add the plan_day exception. (b) The P1 rule text promises that year queries return day digests, but the search table returns month digests, and none exist before P3. (c) Three tests that break when memory_* is deleted in P1 are missing from the test list. (d) M11 ①/② only restate the coverage guard. Separately, 「同句」/「一句」 is never defined, and under the normal reading (split at 。) the doc's own example digests fail the number guard and the cooking-kit guard. The rest are minor slips: guard naming, 「三级相同」, the 3–6 count, a stale plan_day claim, the phase-table header, P0's M1–M10, and gaps in the 未整理 search semantics.",
+  "issues": [
+   {
+    "severity": "major",
+    "quote": "往日不再以拼接的事件行出现，唯一的例外是某一类某一天的回顾没能整理出来（见裁决 23）",
+    "problem": "Principle 4 and 裁决 23 (「它是裁定之下唯一一处会出现原始条目的地方」) each say the 未整理 fallback is the only exception to 'past days appear only as digests'. The doc itself names a second exception: plan_day keeps reading yesterday as event rows until P4.",
+    "evidence": "PROPOSAL:102 (principle 4) and :814 (裁决 23: 「唯一一处会出现原始条目的地方」) contradict :252 (「零点计划在 P4 之前仍按事件行读昨天，这是对「往日只以回顾出现」的例外，见裁决 14」) and :781 (裁决 14: 「按第一条裁定，往日不应再以拼接的事件行出现，这里是例外」). The intro at :743 also lists 14 as an exception the owner must confirm.",
+    "fix": "原则 4 改为：「往日不再以拼接的事件行出现，例外只有两处：某一类某一天的回顾没能整理出来时检索退回原始条目（裁决 23），以及零点计划在 P4 之前仍按事件行读昨天（裁决 14）。」裁决 23 的「它是裁定之下唯一一处会出现原始条目的地方」改为「它是人物检索里唯一一处会出现原始条目的地方（零点计划的输入另见裁决 14）」。"
+   },
+   {
+    "severity": "major",
+    "quote": "已经压过的年份给年回顾；否则给这一年已有的月回顾",
+    "problem": "The search table defines a year query that has not been compacted as returning month digests. Month digests do not exist before P3, so in P1–P2 a year query returns nothing. The P1 rule text tells the model it gets 'that year's day digests'. 裁决 9 only covers the month case, so the two disagree on P1/P2 behaviour.",
+    "evidence": ":357 (年 row) vs :418 P1 phase row (「按月、按年查的句子写成「查到的是那个月或那一年已有的日回顾」」) and :771 (「月、年回顾出来之前按月查给的是那个月已有的日回顾」, no year case). Month digests ship only in P3 (:249, :274, :697).",
+    "fix": "年 一行改为：「已经压过的年份给年回顾；否则给这一年已有的月回顾，没有月回顾的月份给那个月已有的日回顾，新的在前，放不下的计入 `未列出`」；裁决 9 括号里补「按年查同理」。"
+   },
+   {
+    "severity": "major",
+    "quote": "记忆工具和只读快照：tests/integration/runtime/test_output_truncation.py:56,288,343",
+    "problem": "The memory_* tools and their request models are deleted in P1. The P1 test list leaves out three tests that import or dispatch them, and those tests would fail or error at import, which breaks the coverage gate.",
+    "evidence": "tests/integration/runtime/test_agent_branch_coverage.py:19-21 imports MemoryRecentRequest/MemorySearchRequest/MemoryTimeRangeRequest, :73-78 constructs them, and :294 and :304 call dispatch_react_tool(\"memory_recent\"/\"memory_search\"). tests/integration/runtime/test_grounded_evidence.py:192 runs `assert \"memory_recent\" in first_names`. tests/integration/runtime/test_host_failure_stages.py:94 and :111 dispatch memory_recent. grep finds none of these three files in the proposal.",
+    "fix": "在「记忆工具和只读快照」一项后补：「tests/integration/runtime/test_agent_branch_coverage.py:19-21,73-78,294,304、tests/integration/runtime/test_grounded_evidence.py:192、tests/integration/runtime/test_host_failure_stages.py:94,111（P1，改用 search_memory 或删去）」。"
+   },
+   {
+    "severity": "major",
+    "quote": "P1 验收：①≥95%，②为 0；③④只报告",
+    "problem": "M11 ① and ② restate the food coverage guard exactly. A digest that passes the guard has 100% coverage and zero cooking mismatches by construction, so ① can drop below 100% only on fallback (null) days, and ② is always 0. The doc never says whether fallback days count. If they do, P1's allowance of ≤10% fallback conflicts with ①≥95%. If they don't, the threshold measures nothing. Either way, 裁决 23's claim that M11 measures the omission rate is false.",
+    "evidence": ":286 (coverage guard: received meal/snack/drink names and the kit used must all appear; a kit in the same sentence as 做饭 must be the one used), :726 (M11 ① and ② use the same definitions), :661 (「落到 fallback 的「类·日」不超过 10%」), :814 (「漏写率由 M11 的饮食覆盖来量」).",
+    "fix": "M11 ①② 改为：「①饮食覆盖：分母为有饮食核验的「类·日」，fallback 的格计为未覆盖，用来核对守卫实现；②做饭错配：同理」，P1 验收改为「①与 fallback 率之和为 100%，②为 0（守卫实现的独立复核）」；裁决 23 的「漏写率由 M11 的饮食覆盖来量」改为「饮食的漏写由覆盖守卫拦下并计入 fallback，其他类的漏写只能抽查」。"
+   },
+   {
+    "severity": "major",
+    "quote": "一句里同时写了名称时，这个数字还必须与其中一个名称出现在同一条输入里",
+    "problem": "The number guard (一句里) and the cooking-kit clause of the coverage guard (同句) are keyed to a 'sentence', and the doc never defines it. Read as a 。-delimited sentence, the doc's own hand-written example digests, which it says follow the guards, fail both guards. They pass only if a 句 is a comma-delimited clause. Acceptance requires M11 ② = 0, so the definition decides pass or fail.",
+    "evidence": "10-08 work example: 「接着开需求评审会议，再写会议分析与工作总结，17:30 打卡下班，开车回家。」 In V, 17:30 appears only in the 钉钉 17:30–17:31《下班打卡》 and drive 17:30–18:05 entries. The 会议分析与工作总结 conclude (event 951, 10-08 17:07) summary reads 「从十五点四十七到十七点零七」, with no 17:30. 10-09 food example: a single 。-sentence contains 「…可乐鸡翅…食材包做饭…；在盒马订的香煎鸡胸肉配清炒时蔬一人份食材包 20:20 送到」. The 香煎鸡胸肉 kit was reset at 20:20 (seq 2580) and consumed 10-10 18:15 (seq 3804), not that day. The 10-10 food example has the same pattern.",
+    "fix": "在校验一节加：「这里的「一句」「同句」指以逗号、分号、句号、问号、叹号切开的分句。」或者保留整句口径，并把示例改成每个分句只写一个名称和它的数字，例如「…再写会议分析与工作总结。17:30 打卡下班，开车回家。」「…食材包做饭，收拾完厨房觉得比点外卖踏实。在盒马订的香煎鸡胸肉…20:20 送到…」。"
+   },
+   {
+    "severity": "minor",
+    "quote": "往日只以回顾段落出现，不再拼事件行",
+    "problem": "This is a leftover absolute claim in the decision table. It omits both the 裁决 23 fallback (raw entries for a 未整理 cell) and the 裁决 14 plan_day exception that the rest of the doc now states.",
+    "evidence": ":114 vs :125 (「某一类某一天缺回顾时，退回那天这一类的原始条目」) and :252.",
+    "fix": "往日在提示里只以回顾段落出现；检索只在某格「未整理」时退回原始条目（裁决 23），零点计划另见裁决 14；守卫拦住输入里没有的名称和数字，拦不住张冠李戴，所以回顾只当回忆"
+   },
+   {
+    "severity": "minor",
+    "quote": "一起删除（life_agent.py:169-195,665-683）",
+    "problem": "The deletion list for the memory_* tools leaves out the three public request models and their time parser. Those would remain as dead public classes, which conflicts with 「删掉的公开接口必须同期删干净」.",
+    "evidence": "custom/agents/life_agent.py:95 MemoryRecentRequest, :101 MemorySearchRequest, :117 MemoryTimeRangeRequest, :158 _parse_memory_time. None are named in the proposal. :303 requires deleted public interfaces to be removed in the same phase.",
+    "fix": "三个 `memory_*` 工具连同 `MemoryRecentRequest`、`MemorySearchRequest`、`MemoryTimeRangeRequest`、`_parse_memory_time`（life_agent.py:95-142,158-166）、`_MEMORY_TOOL_MODELS`、`_MEMORY_RUNTIME_ACTIONS`、`_MEMORY_RESULT_FIELDS` 和 `_dispatch_strict_memory` 一起删除（life_agent.py:169-195,665-683）。"
+   },
+   {
+    "severity": "minor",
+    "quote": "（三级相同，全部是确定性检查）",
+    "problem": "The header says all three tiers are validated the same way. But the tighter food-name check and the food coverage guard apply only to day digests, and month/year digests carry an extra rule (counts must copy a stat line verbatim) that is not in the list and has no test. The four guards are also named inconsistently: the second one has no name in the definition (「饮食类的名称再收紧一道」), the test list calls it 「饮食核验名称」, and :286 shortens the coverage guard to 「覆盖守卫」.",
+    "evidence": ":280 header; :285 (「日回顾里的商品名…」); :286 (「饮食覆盖守卫（日回顾）」); :276 (month/year stat-line rule); :607 (「四道守卫（名称、饮食核验名称、饮食覆盖、数字）」); the test list has no month/year guard test.",
+    "fix": "标题改为「**校验**（全部是确定性检查；第 5、6 条只用于日回顾，月、年回顾另加统计行照抄规则）」；第二条写成「饮食核验名称守卫（日回顾）：…」；新增测试里补「月、年回顾的统计行照抄规则」。"
+   },
+   {
+    "severity": "minor",
+    "quote": "（V 每天 3–6 个，合计不到 60 字）",
+    "problem": "Under the guard's own definition (received meal/snack/drink plus the kit actually cooked), V has 2–5 names per day, not 3–6. The figure 3–6 matches only if every received item is counted, including kits that were not cooked that day.",
+    "evidence": "V goods_received and callback events: 10-08 has 美式咖啡 (seq 398) and 番茄牛肉刀削面 (seq 595), and the cola kit (goods, seq 1231) is not cooked that day; cooking at 18:05 has no prior reset (seq 1061, household ingredients) → 2. 10-09 → 5, 10-10 → 4, 10-11 → 4, 10-12 → 5.",
+    "fix": "（V 每天 2–5 个，合计不到 60 字）"
+   },
+   {
+    "severity": "minor",
+    "quote": "零点之后的决策和零点计划都能立刻看到",
+    "problem": "This is a stale rationale. Under the recommended 裁决 14 B and :252, plan_day does not read the digest before P4.",
+    "evidence": ":111 vs :252 (「零点计划在 P4 之前仍按事件行读昨天」), :446, :784 (recommends B).",
+    "fix": "零点之后的决策立刻能看到；零点计划在它之后运行，P4 之前仍读事件行（裁决 14）；不需要 AS2 补丁；正文作为事件记录下来"
+   },
+   {
+    "severity": "minor",
+    "quote": "选项 A：P1 就让零点计划改读昨天的日回顾",
+    "problem": "裁决 14 option A says plan_day would read yesterday's digest. The P4 item and :446 say it would read the last three days' digests.",
+    "evidence": ":782 vs :708 (「零点计划改读近三天的回顾」) and :446 (「零点计划要不要改读近三天的回顾，见裁决 14」).",
+    "fix": "统一成一种说法，例如 :708 和 :446 改为「零点计划改读昨天的日回顾」，或者把选项 A 改为「改读近三天的回顾」。"
+   },
+   {
+    "severity": "minor",
+    "quote": "计算下面表格里的 M1–M10，并记录 V 和 B 的基线",
+    "problem": "M11 was added and is defined as computed by memory_pilot.py with a V baseline, but P0's tool scope still says M1–M10. P1 pilots read M1–M11.",
+    "evidence": ":644 vs :726 (「memory_pilot.py 从事件和回顾事件确定性算出」, baseline 「番茄炒蛋配清炒青菜」挂了 5 天) and :672 (「看 M1–M11」).",
+    "fix": "计算下面表格里的 M1–M11（M11 的①②③在有回顾事件后才有值，P0 只记录④的基线），并记录 V 和 B 的基线"
+   },
+   {
+    "severity": "minor",
+    "quote": "| 阶段 | 与终稿的差别 |",
+    "problem": "The P1 row lists differences from the final text, but the P2 and P3 rows list changes made in that phase. The P2 row never says what still differs from the final text after P2: the month/year sentence keeps its P1 wording. A reader using the header cannot reconstruct P2's text.",
+    "evidence": ":416 header; :419 P2 row consists of 「…改为终稿」 items; :420 P3 is the first row to touch the month/year sentence.",
+    "fix": "表头改为「各阶段的规则文字」，P1 行写「与终稿的差别：…」，P2 行写「在 P1 的基础上：…；与终稿仍差按月、按年查的句子（仍是 P1 写法）」，P3 行写「在 P2 的基础上：…，即为终稿」。"
+   },
+   {
+    "severity": "minor",
+    "quote": "某一类某一天没有回顾时，「近三天」那一格写 null，按日期检索时退回那天这一类的原始条目",
+    "problem": "This sentence blurs the two null cases the doc separates elsewhere. A day with no record omits the cell, and a failed digest shows null plus 未整理:true. Here 'no digest' is said to render a null cell, without the 未整理 flag.",
+    "evidence": ":166 (「那天这一类没有任何记录时，这一格省略；回顾没能整理出来时，写 {\"日期\":…,\"回顾\":null,\"未整理\":true}，两种情况不能混为一谈」), :326 (fallback semantics).",
+    "fix": "某一类某一天的回顾没能整理出来时，「近三天」那一格写 `{\"日期\":…,\"回顾\":null,\"未整理\":true}`，按日期检索时退回那天这一类的原始条目"
+   },
+   {
+    "severity": "minor",
+    "quote": "某格「未整理」时，按日期查那一天会退回那天这一类的原始条目",
+    "problem": "The raw-entry fallback is specified only for a single-date query. The range, month and keyword rows (「那天匹配的回顾」, 「全部回顾…里匹配的」) don't say what a 未整理 day returns, yet :360 and rules[1] state the fallback generally. Month- and year-tier fallback cells (P3) have no defined search behaviour.",
+    "evidence": ":354-358 table rows; :360 (「往日的原始条目不在检索范围内，缺回顾的那一格除外」); :392 rules[1] (「某天某一类「未整理」时给那天的原始条目」); :289 covers only the day tier.",
+    "fix": "补一句：「区间、月、年和带关键词的查询里，「未整理」的那一天同样以那天这一类的原始条目代替，并标「未整理」；月回顾或年回顾某类「未整理」时，退回那个月的日回顾或那一年的月回顾。」"
+   },
+   {
+    "severity": "minor",
+    "quote": "`days.py`（归日、零点界、近三天的取法、月回顾输入里的次数统计）",
+    "problem": "The month-digest count statistics are P3 work but sit in the P1/P2 package row, which would ship unused code in P1 against the no-stub rule. The P3 search change (month and year queries return month/year digests) has no code-table row; the package row is marked P1、P2 only.",
+    "evidence": ":540 row stage 「P1、P2」; :697-698 P3 changes include 「按月、按年查询给月回顾、年回顾」; :739 effort table P3 「按月按年查询」.",
+    "fix": "该行改为「`days.py`（归日、零点界、近三天的取法；P3 加月回顾输入里的次数统计）…；P1 加 `search.py`，P3 改为按月、按年给月回顾、年回顾；P2 加 `longterm.py` | P1–P3」。"
+   }
+  ]
+ },
+ "factsExample": {
+  "verdict": "This round's fixes mostly landed. I checked the facts in all nine 近三天 paragraphs against V: activities.jsonl, purchases.jsonl joined to input/catalog/merchant-catalog.jsonl, and the conclude summaries and views in footprints.sqlite. Every time, name and place is correct, and every feeling traces to a same-day view. The food-coverage set is complete each day, and no count or duration is written in Chinese numerals. The new code and test citations exist and match: result_projection.py:70,91; life_agent.py:303-304, 324-337, 595; life_memory_store.py:98-110; exchange.py:11-12; 05-recording-engine.md:86-95, 642-643; and every test path and line added to 第三章. The home-dinner-1-cook summary claim holds (package 0001 content-catalog.jsonl:533). The remaining problems: (1) Five of the nine example paragraphs fail the doc's own number guard, and two of the three food paragraphs fail the cooking-kit same-sentence check, because 「句」 is never defined. (2) The pinned digest prompt does not state the coverage or name-pairing requirements that the new guards enforce. (3) The search table's 年 row returns nothing in P1 and P2. (4) The 351/437 count should be 348. (5) There are a few citation and test-list slips.",
+  "issues": [
+   {
+    "severity": "major",
+    "quote": "午休先刷了会儿哔哩哔哩，13:00 在公司小睡到 13:45，觉得午休刷视频不能拖过午睡时间。",
+    "problem": "The doc says the example 近三天 paragraphs were written by hand to the day-digest prompt and guards (:453). Five of the nine fail the number guard (:287: 「一句里同时写了名称时，这个数字还必须与其中一个名称出现在同一条输入里」). Each fails whether 「句」 ends at 。 or at ；.",
+    "evidence": "Checked against V's entries, where an entry is one decision time and one category. (1) 工作 10-08 「接着开需求评审会议，再写会议分析与工作总结，17:30 打卡下班」: 需求评审会议 ran 14:47–15:47 and 会议分析与工作总结 ran 15:47–17:07 (concluded 17:07:45). 17:30 appears only in the 钉钉 下班打卡 entry (17:30–17:31). (2) 工作 10-09 「之后写会议分析与工作总结，处理完消息，17:25 打卡下班。」: 会议分析与工作总结 ran 15:45–17:05. 17:25 appears only in the 处理消息与收尾 entry (17:05–17:25) and the 钉钉 entry (17:25–17:26). (3) 生活 10-09: 哔哩哔哩 ran 12:31–13:00. 13:45 appears only in the sleep entry 13:00–13:45, whose summary (「在练秋湖研发中心工位旁小睡…睡到 13:45」) does not name 哔哩哔哩. (4) 生活 10-10 「午饭后刷了会儿哔哩哔哩，12:58 在公司小睡到 13:55」: 哔哩哔哩 ran 12:28–12:58. 13:55 appears only in the sleep entry, whose summary says 「刷完视频」, not 哔哩哔哩. (5) 生活 10-11 「晚上看了腾讯视频的《周末的修理铺》，22:08 睡下。」: 腾讯视频 ran 20:30–22:00 (summary 「片子看完正好 22 点」). 22:08 appears only in the 睡前洗漱 entry (22:00–22:08) and the sleep-start line. The only reading under which these pass is one where every comma clause counts as its own 句, and the doc never states that.",
+    "fix": "Define the unit in 校验: 「数字守卫和饮食覆盖守卫里的「句」指以。！？结尾的一段文字」. Then split the five sentences: 10-08 工作 「…改完心里踏实；接着开需求评审会议，再写会议分析与工作总结。17:30 打卡下班，开车回家。」. 10-09 工作 「之后写会议分析与工作总结。处理完消息，17:25 打卡下班。」. 10-09 生活 「午休先刷了会儿哔哩哔哩，13:00 收手。在公司小睡到 13:45，觉得午休刷视频不能拖过午睡时间。」. 10-10 生活 「午饭后刷了会儿哔哩哔哩，12:58 收手。在公司小睡到 13:55，醒来清醒又不昏沉。」. 10-11 生活 「傍晚洗了衣服，晚上看了腾讯视频的《周末的修理铺》。22:08 睡下。」. Then recompute the 近三天 size (1,713) and the longest-paragraph figure (156)."
+   },
+   {
+    "severity": "major",
+    "quote": "与「做饭」同句出现的食材包名，必须是那天做饭结束句里的那一份",
+    "problem": "「同句」 is undefined. With 。-terminated sentences, the 10-09 and 10-10 food examples each put the kit just received in the same sentence as 做饭. The guard would reject both paragraphs, and M11② (P1 acceptance requires 0) would count 2 mismatches in the doc's own examples. They pass only if ； also ends a sentence.",
+    "evidence": "10-09: 「晚上回家用可乐鸡翅配清炒菌菇一人份食材包做饭，…；在盒马订的香煎鸡胸肉配清炒时蔬一人份食材包 20:20 送到，…。」. V's groceries events: consume_on_start at 10-09 18:00 used kit-dinner-cola-chicken-wings (reset 10-08 19:41). kit-dinner-chicken-greens was reset at 10-09 20:20 and was not cooked that day. 10-10: 「晚上用香煎鸡胸肉…做饭，这套流程已经很顺；在盒马订的板栗烧鸡配清炒娃娃菜一人份食材包 20:26 送到…。」. The consume at 10-10 18:15 used chicken-greens. Chestnut-chicken was reset at 20:26.",
+    "fix": "Use the same 「句」 definition as the number guard (ends at 。！？) and change the ； in both paragraphs to 。: 「…收拾完厨房觉得比点外卖踏实。在盒马订的香煎鸡胸肉配清炒时蔬一人份食材包 20:20 送到，留给第二天，睡前又买了奶香馒头。」 and 「…这套流程已经很顺。在盒马订的板栗烧鸡配清炒娃娃菜一人份食材包 20:26 送到，留着第二天吃。」"
+   },
+   {
+    "severity": "major",
+    "quote": "提到的东西只用输入里出现过的名字；时刻、价钱和数量只写输入里出现过的，一律用阿拉伯数字",
+    "problem": "The digest prompt is given as pinned 原文, but it never tells the model about two rules this round added to the validator: the food coverage guard (every received meal, snack and drink plus the kit cooked must be named) and the number guard's pairing rule (a time must share an input entry with a name in the same sentence). A digest that follows the prompt exactly can still be rejected on its first attempt. That pushes up retries and fallback, and P1 caps fallback at 10% of category-days.",
+    "evidence": "Prompt :270 asks only for 「写那天这类事经过了什么、他觉得怎样、打算怎样」 and for names and numbers to come from the input. The coverage rule (:286) and the pairing rule (:287) appear only under 校验. The doc's own hand-written examples, which follow this prompt, break the pairing rule five times (see the first issue).",
+    "fix": "Add to the prompt: 「饮食类要写出核验里当天收到的每样吃的、喝的，以及做饭用的那份食材包，做饭的那一句里只写当天做饭用的那一份；写某个时刻时，同一句里提到的名字要和这个时刻出自同一条记录。」"
+   },
+   {
+    "severity": "major",
+    "quote": "已经压过的年份给年回顾；否则给这一年已有的月回顾",
+    "problem": "search_memory now ships in P1, but month digests only arrive in P3. In P1 and P2 a 年 query therefore gets back an empty set of month digests, and the keyword column (「当年匹配的月回顾和年回顾」) matches nothing either. The P1 rule text tells the model the opposite: 「按月、按年查的句子写成「查到的是那个月或那一年已有的日回顾」」 (:418).",
+    "evidence": "Search table :357 (年 row) against the phase table's P1 row :418 and the tier table :249-250 (月回顾 and 年回顾 are generated only from P3). The 年-月 row :356 does fall back to day digests, but the 年 row does not.",
+    "fix": "Change the 年 row to: 「已经压过的年份给年回顾；否则给这一年已有的月回顾，P3 之前没有月回顾时给这一年已有的日回顾，新的在前，放不下的计入 `未列出`」. Change its keyword column to 「当年匹配的日回顾、月回顾和年回顾」."
+   },
+   {
+    "severity": "major",
+    "quote": "记忆层旧形状（`earlier_today`、`earlier_days`）的读者",
+    "problem": "The P1 list of tests that must change is still incomplete. P1 deletes `_dispatch_memory_llm`, the memory_* tools with their request models, and the earlier_today/earlier_days layer shape. Several tests that use these break and are not listed.",
+    "evidence": "Not listed: tests/integration/runtime/test_model_exchange_attempts.py:83,85 (`agent._dispatch_memory_llm(...)`); tests/integration/runtime/test_agent_branch_coverage.py:20,76-78,294,304,350-368 (imports MemorySearchRequest, dispatches memory_recent and memory_search); tests/integration/runtime/test_grounded_evidence.py:192 (`assert \"memory_recent\" in first_names`); tests/integration/runtime/test_host_failure_stages.py:94,111 (memory_recent dispatch); tests/integration/life/test_autoplay_display.py:239,265 and tests/integration/start_interfaces/test_location_activities.py:542 (read `memory[\"earlier_today\"]`, the same pattern as the listed test_autoplay.py:458); tests/unit/agent_protocol/test_decision_context_protocol.py:198 (an `earlier_days`/`earlier_today` literal; only :110 and :191 are listed).",
+    "fix": "Add to the P1 lists: 「tests/integration/runtime/test_model_exchange_attempts.py:83,85（_dispatch_memory_llm）、test_agent_branch_coverage.py、test_grounded_evidence.py:192、test_host_failure_stages.py:94,111（记忆工具）；tests/integration/life/test_autoplay_display.py:239,265、tests/integration/start_interfaces/test_location_activities.py:542、tests/unit/agent_protocol/test_decision_context_protocol.py:198（记忆层旧形状）」."
+   },
+   {
+    "severity": "minor",
+    "quote": "V 的 437 次决策请求里有 351 次带着它",
+    "problem": "The view 「自己做的番茄炒蛋配清炒青菜」 is in 348 of the 437 decision requests, not 351. The figure 351 counts the shorter substring 「番茄炒蛋配清炒青菜」, and three of those hits do not come from the persona-layer view.",
+    "evidence": "Query over V's footprints.sqlite: model_request events whose call_id contains :model: number 437. The full view string 「自己做的番茄炒蛋配清炒青菜」 appears in 348 of them (344 of 406 decisions). 「番茄炒蛋配清炒青菜」 appears in 351. The 3 extra hits are report_status summary echoes at 10-08 19:00 and 19:15 and a memory_recent result at 10-09 22:38.",
+    "fix": "「V 的 437 次决策请求里有 348 次带着它」"
+   },
+   {
+    "severity": "minor",
+    "quote": "`_memory_call_id` 的反思分支（:339-346）",
+    "problem": ":339-346 is the whole of `_memory_call_id`, not one branch. Its only caller is `_dispatch_memory_llm` (:421), which the same row deletes, so the non-reflection branch becomes dead code too. The row also cites `_dispatch_memory_llm` as :411-421, but the method runs to :434.",
+    "evidence": "custom/agents/life_agent.py: `def _memory_call_id` spans :339-346, and grep finds only one call, `call_id = self._memory_call_id()` at :421. `_dispatch_memory_llm` spans :411-434 and ends with `return response`.",
+    "fix": "「删除 `_memory_call_id`（:339-346，唯一调用方在 :421）…巩固与反思都退役后 `_dispatch_memory_llm`（:411-434）没有生产调用方，同期删除」"
+   },
+   {
+    "severity": "minor",
+    "quote": "开始结果和完成结果里的 `content` 也加同一句",
+    "problem": "Only the start result has a `content` key (:70). The completion result is `{\"contents\": [...]}`, with one {title, summary, duration, finished} row per played episode (:91-97). Saying 「完成结果里的 `content`」 points at a key that does not exist and does not say which row gets the kit sentence. The code table (:545) repeats the slip.",
+    "evidence": "src/worldmock/simulation_engine/observation/layers/result_projection.py:70 `return {\"content\": {...\"summary\": content.summary...}}`; :91 `rows = [{\"title\": ..., \"summary\": contents[key].summary, ...}]`; :97 `return {\"contents\": rows}`.",
+    "fix": "「开始结果的 `content`（:70）和完成结果 `contents` 里做饭系列的各行（:91）也加同一句「用的是M月D日收到的〈商品名〉」」"
+   },
+   {
+    "severity": "minor",
+    "quote": "（V 每天 3–6 个，合计不到 60 字）",
+    "problem": "The guard covers received meal, snack and drink items plus the kit that was cooked. By that definition V has 2–5 items a day. The range 3–6 only comes out if received kits (category goods) are counted as well, and the guard does not count them.",
+    "evidence": "From V's purchases.jsonl and groceries events: 10-08 has 美式咖啡 and 番茄牛肉刀削面, and dinner used 家里原有的食材, so 2. 10-09 has 4 plus the 可乐鸡翅 kit, so 5. 10-10 has 3 plus 香煎鸡胸肉, so 4. 10-11 has 3 plus 板栗烧鸡, so 4. 10-12 has 4 plus 土豆烧牛肉, so 5. The largest daily total is 45 characters.",
+    "fix": "「（V 每天 2–5 个，合计不到 50 字）」"
+   },
+   {
+    "severity": "minor",
+    "quote": "调用类表（:642-643）新增 memory_digest",
+    "problem": "memory_digest is appended at the end of CALL_CLASSES, after plan_day (:644), not at :642-643. The sentence right after the table, 「六类按上表次序总是列出」 (:646), also has to change and is not mentioned.",
+    "evidence": "docs/design/05-recording-engine.md:637-644 is the call-class table (consolidation at :642, reflection at :643, plan_day at :644). :646 reads 「六类按上表次序总是列出」. quality.py:49-51 defines six classes, and its comment at :51 also says 「六类」.",
+    "fix": "「调用类表（:637-644）末尾新增 memory_digest 一行，consolidation（:642）和 reflection（:643）两行保留为零计数的类；:646 的「六类」改为「七类」」"
+   }
+  ]
+ }
+}

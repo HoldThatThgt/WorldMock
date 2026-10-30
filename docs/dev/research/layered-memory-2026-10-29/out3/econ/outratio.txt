@@ -1,0 +1,23 @@
+n 88 kinds {None: 70, 'plan_day': 18}
+overall completion tok/char 0.597
+no-purpose(consolidation/reflection) tok/char 0.637 class mix [0.762 0.075 0.1   0.062 0.001] mean chars 337
+plan_day tok/char 0.530 class mix [0.331 0.029 0.341 0.3   0.   ] mean chars 796
+input class model predicts 22692 vs actual 22628 output tokens
+V ['2026-10-08', 'attempt', '1'] msgs 2 prompt 1338 hit 0 out 185
+V ['2026-10-09', 'attempt', '1'] msgs 2 prompt 14062 hit 640 out 350
+V ['2026-10-10', 'attempt', '1'] msgs 2 prompt 12362 hit 640 out 498
+V ['2026-10-10', 'attempt', '2'] msgs 3 prompt 13210 hit 12288 out 503
+V ['2026-10-10', 'attempt', '3'] msgs 3 prompt 13220 hit 12288 out 489
+V ['2026-10-11', 'attempt', '1'] msgs 2 prompt 14408 hit 640 out 480
+V ['2026-10-11', 'attempt', '2'] msgs 3 prompt 15240 hit 14336 out 452
+V ['2026-10-12', 'attempt', '1'] msgs 2 prompt 13706 hit 640 out 512
+V ['2026-10-12', 'attempt', '2'] msgs 3 prompt 14638 hit 13696 out 456
+B ['2026-10-08', 'attempt', '1'] msgs 2 prompt 1338 hit 0 out 340
+B ['2026-10-08', 'attempt', '2'] msgs 3 prompt 2026 hit 1280 out 305
+B ['2026-10-09', 'attempt', '1'] msgs 2 prompt 12627 hit 640 out 404
+B ['2026-10-09', 'attempt', '2'] msgs 3 prompt 13380 hit 12544 out 375
+B ['2026-10-10', 'attempt', '1'] msgs 2 prompt 12526 hit 640 out 290
+B ['2026-10-11', 'attempt', '1'] msgs 2 prompt 11477 hit 640 out 583
+B ['2026-10-11', 'attempt', '2'] msgs 3 prompt 12517 hit 11392 out 444
+B ['2026-10-12', 'attempt', '1'] msgs 2 prompt 14420 hit 640 out 502
+B ['2026-10-12', 'attempt', '2'] msgs 3 prompt 15345 hit 14336 out 415

@@ -6,6 +6,7 @@ Schema，另有原生 tools 的一项定义。各层构建器的输出由测试�
 """
 
 from __future__ import annotations
+import itertools
 from jsonschema import Draft202012Validator
 from worldmock.agents.prompt.tool_groups import expand_tool_layer
 
@@ -14,11 +15,15 @@ from typing import Any
 from worldmock.recording_engine.projections.presentation.display_wording import TITLE_LIST_LIMIT
 from worldmock.simulation_engine.body import felt
 from worldmock.simulation_engine.observation.targets.callable_index import MAX_EXAMPLES
+from worldmock.simulation_engine.observation.layers.todo_layer import ORDER_ROW_LIMIT
+from worldmock.state.interaction.actions import START_TOOLS
 from worldmock.state.interaction.control_items import CONTROL_TOOLS
 from worldmock.exchange_engine.conditions.activity_rules import ACTIVITY_ACTIONS
 from worldmock.state.world.kinds import ActionStatus
 from worldmock.state.planning.schedule import INTENT_KINDS
+from worldmock.configuration.persona.persona_text import INTIMACY_LEVELS
 from worldmock.configuration.persona.work_schedule import DUTY_DAYS, DUTY_STATUSES, WEEKDAY_NAMES
+from worldmock.state.model.memory import MEMORY_CATEGORIES
 
 #: 带时区的 ISO 8601 时刻（秒精度）。
 _TIME = {"type": "string", "pattern": r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$"}
@@ -142,22 +147,47 @@ PERSONA_LAYER_SCHEMA: dict[str, Any] = {
         "tastes": {"oneOf": [{"type": "null"}, _TASTES]},
         "coping": _NULLABLE_TEXT,
         "relationships": {"type": "array", "items": _object({
-            "person": _TEXT, "role": _NULLABLE_TEXT, "closeness": {"enum": ["很亲近", "较亲近", "一般", "疏远", None]},
-            "channels": {"type": "array", "items": _TEXT}, "view": _NULLABLE_TEXT})},
-        "preferences": {"type": "array", "items": _object({"subject": _TEXT, "preference": _TEXT,
-                                                           "noted_on": _DATE})},
+            "person": _TEXT, "role": _TEXT, "closeness": {"enum": list(INTIMACY_LEVELS)},
+            "channels": {"type": "array", "items": _TEXT}})},
     }),
 }
 
-_NOTE = _object({"activity": _NULLABLE_TEXT, "text": _TEXT})
+#: 「类别」：类别闭集里互不相同的一到三项，以「、」相连（今天条目与计数行共用）。
+_CATEGORY_TEXT = {"enum": ["、".join(names) for size in range(1, len(MEMORY_CATEGORIES) + 1)
+                           for names in itertools.permutations(MEMORY_CATEGORIES, size)]}
+#: 今天条目的一项核验或自述：每条合计至多 120 字（由条目构建器保证），所以单项也至多 120 字。
+_ENTRY_LINES = {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1, "maxLength": 120}}
+#: 今天条目：时刻、类别，核验与自述至少有一。
+_TODAY_ENTRY = _object({"时刻": {"type": "string", "pattern": r"^([01][0-9]|2[0-3]):[0-5][0-9]$"},
+                        "类别": _CATEGORY_TEXT, "核验": _ENTRY_LINES, "自述": _ENTRY_LINES}, optional=("核验", "自述"))
+_TODAY_ENTRY["anyOf"] = [{"required": ["核验"]}, {"required": ["自述"]}]
+#: 「可查」：能查到的最早日期；只读问答尚无快照时的空记忆层里是空对象。
+_AVAILABLE = _object({"最早日期": _DATE}, optional=("最早日期",))
+#: 计数行「时刻」的全部写法：HH:00–(HH+1):00，23 时写 23:00–24:00。
+_HOUR_SPANS = [f"{hour:02d}:00–{hour + 1:02d}:00" for hour in range(24)]
+#: 兜底合成的计数行：同一本地小时、同一类别串的各项合成一行。
+_COUNT_LINE = _object({"时刻": {"enum": _HOUR_SPANS}, "类别": _CATEGORY_TEXT,
+                       "条数": {"type": "integer", "minimum": 1}})
+
+
+def _recent_cells(work: bool) -> dict[str, Any]:
+    """@brief 一类「近三天」的格子数组 Schema：至多三格；每格有日期、星期，工作格另有安排；回顾是 1–200 字的段落，
+    没整理出来时回顾为 null 并带「未整理」。"""
+    head = {"日期": _DATE, "星期": {"enum": list(WEEKDAY_NAMES)}, **({"安排": {"enum": list(DUTY_DAYS)}} if work else {})}
+    return {"type": "array", "maxItems": 3, "items": {"oneOf": [
+        _object({**head, "回顾": {"type": "string", "minLength": 1, "maxLength": 200}}),
+        _object({**head, "回顾": {"type": "null"}, "未整理": {"const": True}})]}}
+
+
+#: 「近三天」三类各自的格子数组。
+_RECENT_CELLS = {name: _recent_cells(name == MEMORY_CATEGORIES[1]) for name in MEMORY_CATEGORIES}
 MEMORY_LAYER_SCHEMA: dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema", "title": "记忆层",
     **_object({
         "layer": {"const": "记忆层"},
-        "earlier_days": {"type": "array", "items": _object({
-            "date": _DATE, "settled": _LINES, "self_notes": {"type": "array", "items": _NOTE}})},
-        "earlier_today": {"type": "array", "items": _object({
-            "recorded_at": _TIME, "settled": _LINES, "self_notes": {"type": "array", "items": _NOTE}})},
+        "可查": _AVAILABLE,
+        "近三天": _object(_RECENT_CELLS, optional=MEMORY_CATEGORIES),
+        "今天": {"type": "array", "items": {"oneOf": [_TODAY_ENTRY, _COUNT_LINE]}},
     }),
 }
 
@@ -168,6 +198,11 @@ _GOAL = _object({"intent_kind": {"enum": list(INTENT_KINDS)}, "goal": _TEXT,
 _ERRAND = _object({"name": _TEXT, "done_when": _TEXT, "progress": _TEXT, "memo": _NULLABLE_TEXT,
                    "remind_time": {"type": ["string", "null"], "pattern": r"^([01][0-9]|2[0-3]):[0-5][0-9]$"},
                    "noted_on": _DATE})
+#: 待办层的一行在途订单（docs/design/09-io-formats.md「提示层的机器形状」）：订单标签、状态、送到的地点与预计到达。
+_ORDER = _object({"order": _TEXT, "status": {"enum": ["pending", "ready_for_pickup"]}, "destination": _TEXT,
+                  "expected_at": _TIME})
+#: 在途订单多于 ORDER_ROW_LIMIT 行时末尾的合成行。
+_MORE_ORDERS = _object({"order": {"type": "string", "pattern": r"^另有 [1-9][0-9]* 笔在途$"}})
 TODO_LAYER_SCHEMA: dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema", "title": "待办层",
     **_object({
@@ -177,6 +212,7 @@ TODO_LAYER_SCHEMA: dict[str, Any] = {
             "tools": {"type": "array", "minItems": 2, "maxItems": 2, "prefixItems": [
                 _tool_action(("report_status",)), _tool_action(("conclude_activity",))]}})},
         "errands": {"type": "array", "maxItems": 8, "items": _ERRAND},
+        "orders": {"type": "array", "maxItems": ORDER_ROW_LIMIT + 1, "items": {"oneOf": [_ORDER, _MORE_ORDERS]}},
         "day_plan": {"oneOf": [{"type": "null"}, _object({
             "date": _DATE, "goals": {"type": "array", "maxItems": 8, "items": _GOAL}})]},
     }),
@@ -266,9 +302,8 @@ PROGRESS_LAYER_SCHEMA: dict[str, Any] = {
             "written": {}, "why": {"type": "string", "maxLength": 60},
             "times": {"type": "integer", "minimum": 1}, "last": _TIME, "accepted_as": {}})},
         "events": {"type": "array", "items": {"oneOf": [
-            _record("tool_call", {"tool": {"type": "string", "pattern": r"^[a-z][a-z0-9_]*$"},
-                                  "arguments": {"type": "object"}, "result": _RESULT, "self_note": _TEXT},
-                    optional=("self_note",)),
+            _record("tool_call", {"tool": {"enum": list(START_TOOLS)}, "arguments": {"type": "object"},
+                                  "result": _RESULT}),
             _record("delivery", {"order": _TEXT, "status": {"enum": ["pending", "ready_for_pickup", "delivered"]},
                                  "message": _TEXT}),
             _record("app_push", {"app": _TEXT, "title": _TEXT, "summary": _SUMMARY}),
@@ -289,8 +324,8 @@ TOOL_DEFINITION_SCHEMA: dict[str, Any] = {
         "parameters": {"type": "object", "minProperties": 1}, "strict": {"const": True}})}),
 }
 
-#: user 消息中六层的固定顺序。
-USER_LAYER_NAMES: tuple[str, ...] = ("工具层", "人设层", "记忆层", "待办层", "环境层", "进度层")
+#: user 消息中六层的固定顺序：整次运行不变的在前，进度层在最后（docs/design/06-agent.md「提示与工具」）。
+USER_LAYER_NAMES: tuple[str, ...] = ("人设层", "记忆层", "待办层", "工具层", "环境层", "进度层")
 #: 层名（含系统层）→ Schema。
 LAYER_SCHEMAS: dict[str, dict[str, Any]] = {
     "系统层": SYSTEM_LAYER_SCHEMA, "工具层": TOOL_LAYER_SCHEMA, "人设层": PERSONA_LAYER_SCHEMA,

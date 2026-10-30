@@ -12,12 +12,12 @@ from tests.life.conftest import (
     SIDE_TOOL,
     advance_next,
     advance_until_ready,
-    conclude_request,
     context,
     do_at,
     progress_calls,
     purchase,
     query,
+    sleep,
     travel,
     use_app,
 )
@@ -59,17 +59,37 @@ def _app_use_finished(engine_factory) -> dict:
     return observed
 
 
-def _location_activity_ended_early(engine_factory) -> dict:
-    """在地点做事被提前结束：「测试休息」做 5 分钟后用 conclude_activity 结束，观察里有 cancelled 的第二条结果与收尾记录。"""
-    engine = engine_factory(mutate=every_five_minutes)
-    _, rest = act(engine, "named", do_at("家", "测试休息"))
-    assert advance_until_ready(engine)
-    name = engine.context.state.activities[rest.activity_id].name
-    act(engine, "stop", conclude_request(name), "conclude_activity")
-    observed = engine.observe(context(engine, "ended"))
-    result = progress_calls(observed, "start_main_activity")[0]["result"]
-    assert result["status"] == "cancelled" and "contents" in result["details"]
-    assert progress_calls(observed, "conclude_activity")
+def _sleep_awaiting_conclusion(engine_factory) -> dict:
+    """睡眠做完、待收尾：睡 30 分钟，醒来那一秒观察；带入的睡眠记录是 completed 的终态结果。"""
+    engine = engine_factory()
+    _, slept = act(engine, "nap", sleep(30))
+    until_ended(engine, slept.activity_id)
+    observed = engine.observe(context(engine, "woke"))
+    (record,) = progress_calls(observed, "start_main_activity")
+    assert record["arguments"]["action"] == "sleep" and record["result"]["status"] == "completed"
+    return observed
+
+
+def _trip_awaiting_conclusion(engine_factory) -> dict:
+    """出行到达、待收尾：开车去公司，到达那一秒观察；带入的出行记录是带 arrival 的终态结果。"""
+    engine = engine_factory()
+    _, trip = act(engine, "drive", travel("公司", "驾车"))
+    until_ended(engine, trip.activity_id)
+    observed = engine.observe(context(engine, "arrived"))
+    (record,) = progress_calls(observed, "start_main_activity")
+    assert record["result"]["status"] == "completed" and "arrival" in record["result"]["details"]
+    return observed
+
+
+def _paid_purchase_awaiting_conclusion(engine_factory) -> dict:
+    """购买付完款、待收尾：经饿了么买柠檬茶，付款完成那一秒观察；带入的购买记录是付了款的终态结果。"""
+    engine = engine_factory()
+    _, bought = act(engine, "tea", purchase("柠檬茶", prefer="饿了么"))
+    until_ended(engine, bought.activity_id)
+    observed = engine.observe(context(engine, "paid"))
+    (record,) = progress_calls(observed, SIDE_TOOL)
+    assert record["result"]["status"] == "completed"
+    assert ["paid" in row for row in record["result"]["details"]["purchases"]] == [True]
     return observed
 
 
@@ -153,32 +173,18 @@ def _answered_query(engine_factory) -> dict:
     return observed
 
 
-def _unfinished_query(engine_factory) -> dict:
-    """没有查完的查询：每 60 秒一次重估，查询进行中用 conclude_activity 结束它；结果是「没有查完」的第二条。"""
-    def attentive(persona, config):
-        config["reconsideration_interval_seconds"] = 60
-
-    engine = engine_factory(mutate=attentive)
-    _, result = act(engine, "unfinished", query("柠檬茶"))
-    assert advance_until_ready(engine)
-    name = engine.context.state.activities[result.activity_id].name
-    act(engine, "stop", conclude_request(name), "conclude_activity")
-    observed = engine.observe(context(engine, "unfinished-read"))
-    assert progress_calls(observed, SIDE_TOOL)[0]["result"]["details"]["query"]["state"] == "没有查完"
-    return observed
-
-
 @pytest.mark.parametrize("situation", [
     pytest.param(_location_activity_in_progress, id="location-activity-in-progress"),
     pytest.param(_location_activity_finished, id="location-activity-finished"),
     pytest.param(_app_use_finished, id="app-use-finished"),
-    pytest.param(_location_activity_ended_early, id="location-activity-ended-early"),
+    pytest.param(_sleep_awaiting_conclusion, id="sleep-awaiting-conclusion"),
+    pytest.param(_trip_awaiting_conclusion, id="trip-awaiting-conclusion"),
+    pytest.param(_paid_purchase_awaiting_conclusion, id="paid-purchase-awaiting-conclusion"),
     pytest.param(_carried_record_finished, id="carried-record-finished"),
     pytest.param(_purchase_in_progress, id="purchase-in-progress"),
     pytest.param(_app_in_progress_here, id="app-in-progress-in-this-segment"),
     pytest.param(_app_in_progress_carried, id="app-in-progress-carried-into-the-next-segment"),
     pytest.param(_answered_query, id="answered-query"),
-    pytest.param(_unfinished_query, id="unfinished-query"),
 ])
 def test_real_progress_layer_passes_layer_validation(engine_factory, situation):
     """走真实引擎到给定情形后，观察里的进度层通过层校验。"""

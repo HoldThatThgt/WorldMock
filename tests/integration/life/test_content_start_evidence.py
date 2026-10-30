@@ -57,8 +57,8 @@ def test_start_remaining_time_and_same_source_resume_keep_actual_full_content_du
     assert result.status == "in_progress"
     activity = engine.context.state.activities[result.activity_id]
     content = engine.context.catalog.contents[activity.data["content_id"]]
-    assert public_result(result.model_dump(mode="json"), engine.context.inputs)["details"]["content"]["duration"] == (
-        duration_phrase(content.duration_seconds))
+    started = public_result(result.model_dump(mode="json"), engine.context.inputs, {})["details"]
+    assert started["content"]["duration"] == duration_phrase(content.duration_seconds)
     assert advance_until_ready(engine)
     position = engine.context.state.agents[1].content_progress[content.content_id].position_seconds
     assert 0 < position < content.duration_seconds
@@ -66,7 +66,7 @@ def test_start_remaining_time_and_same_source_resume_keep_actual_full_content_du
     assert paused.status == "completed"
     _, resumed = act(engine, "resume-content", report_request(activity.name), "report_status")
     assert resumed.status == "completed"
-    assert public_result(resumed.model_dump(mode="json"), engine.context.inputs)["details"]["planned"] == [
+    assert public_result(resumed.model_dump(mode="json"), engine.context.inputs, {})["details"]["planned"] == [
         {"name": activity.name, "duration": duration_phrase(content.duration_seconds - position)}]
     restored = engine.context.state.activities[result.activity_id]
     assert restored.data["content_id"] == content.content_id and restored.media_position_seconds == position
@@ -78,7 +78,7 @@ def test_start_remaining_time_and_same_source_resume_keep_actual_full_content_du
     assert restarted.status == "in_progress"
     next_activity = engine.context.state.activities[restarted.activity_id]
     assert next_activity.activity_id != activity.activity_id and next_activity.data["content_id"] == content.content_id
-    details = public_result(restarted.model_dump(mode="json"), engine.context.inputs)["details"]
+    details = public_result(restarted.model_dump(mode="json"), engine.context.inputs, {})["details"]
     assert details["planned"][0]["duration"] == duration_phrase(content.duration_seconds - partial)
     assert details["content"]["duration"] == duration_phrase(content.duration_seconds)
 
@@ -98,7 +98,7 @@ def test_current_started_activity_public_result_and_complete_export(engine_facto
         assert activity.name.startswith("进行测试休息（")
     else:
         assert data["app_id"] is not None and activity.resource_claims == {"second"}
-    details = public_result(result.model_dump(mode="json"), inputs)["details"]
+    details = public_result(result.model_dump(mode="json"), inputs, {})["details"]
     assert details["planned"] == [{"name": activity.name,
                                    "duration": duration_phrase(activity.planned_duration_seconds)}]
     content = inputs.catalog.contents[data["content_id"]]
@@ -106,7 +106,7 @@ def test_current_started_activity_public_result_and_complete_export(engine_facto
         "title": content.title, "summary": content.summary,
         "duration": duration_phrase(content.duration_seconds), "pushed": False}
     assert "content" not in public_result({"occurred_at": result.occurred_at, "status": "completed",
-        "message": "Completed", "data": result.data}, inputs)["details"]
+        "message": "Completed", "data": result.data}, inputs, {})["details"]
     controls = engine.observe(context(engine, "control-observation"))["activity_bindings"]
     assert controls and all(row["title"] is None for row in controls)
     run_to_end(engine)
@@ -114,7 +114,7 @@ def test_current_started_activity_public_result_and_complete_export(engine_facto
     (terminal,) = [event for event in events(engine, "action_result")
                    if event.action_id == result.action_id and event.data["status"] != "in_progress"]
     assert (terminal.data["status"], terminal.data["message"]) == ("completed", "Activity completed")
-    finished = public_result(terminal.data, inputs)["details"]
+    finished = public_result(terminal.data, inputs, {})["details"]
     assert finished["contents"][0] == {"title": content.title, "summary": content.summary,
                                        "duration": duration_phrase(content.duration_seconds), "finished": True}
     assert all(list(row) == ["title", "summary", "duration", "finished"] for row in finished["contents"])

@@ -47,13 +47,13 @@ from tests.engine_fixture import engine_factory as _engine_factory  # noqa: F401
 from tests.life.conftest import MAIN_TOOL, advance_next, context, main_arguments, stage_day_plan  # noqa: F401
 from worldmock.recording_engine.export.export import export_run  # noqa: E402
 from worldmock.agents.prompt import prompt_capacity  # noqa: E402
-from worldmock.state.interaction.requests import REQUEST_MODELS  # noqa: E402
+from worldmock.state.interaction.requests import QUERY_MODELS, REQUEST_MODELS  # noqa: E402
 
 #: 截断回合的思考（每次不同，用来确认它不进入任何后续请求）。
 _SPIRALS = ("先想想要不要回家，家里没有吃的，外卖要等，还是先去楼下……", "再算一遍：回家要四十分钟，楼下那家没有菜单……")
 #: 在家点名歇一会儿：start_main_activity 的完整参数（夹具里家的内容单元「测试休息」）。
 _WAIT = main_arguments("interact", "家", "测试休息")
-_MEMORY_TOOLS = {"memory_recent", "memory_search", "memory_time_range"}
+_MEMORY_TOOLS = set(QUERY_MODELS)
 #: 截断纠错回给模型的正文（第四章结构，登记的原因与改法）。
 _TRUNCATION_FEEDBACK = json.loads(TRUNCATION_CONTENT)
 
@@ -223,7 +223,7 @@ async def test_identical_corrections_replace_each_other_across_consecutive_trunc
 @pytest.mark.asyncio
 async def test_a_retry_that_is_truncated_again_is_not_retried_again(_engine_factory) -> None:
     """重试只发一次：重试本身又被截断时，它的纠错与前一条相同，替换而不叠加；下一次请求回到行动参数（开启思考、
-    tool_choice=auto、记忆查询照常开放），不再重试。"""
+    tool_choice=auto、检索记忆照常开放），不再重试。"""
     engine = _engine_factory()
     stage_day_plan(engine)
     responses = [TruncatedResponse(_SPIRALS[0]), TruncatedResponse(_SPIRALS[1]), *_wait_reply()]
@@ -285,12 +285,12 @@ async def test_a_world_request_from_the_retry_ends_the_decision_and_breaks_the_s
 @pytest.mark.parametrize(("retried", "code", "named"), [
     pytest.param(("call-bad", MAIN_TOOL, main_arguments("interact", "家", "不存在的对象")),
                  "NAME_NOT_FOUND", "不存在的对象", id="misspelled_name"),
-    pytest.param(("call-memory", "memory_recent", {"limit": 3}), "TOOL_CALL_REQUIRED", "memory_recent",
-                 id="memory_query"),
+    pytest.param(("call-memory", "search_memory", {"category": "全部", "time": "今天", "keyword": None}),
+                 "TOOL_CALL_REQUIRED", "search_memory", id="memory_query"),
 ])
 async def test_a_rejected_retry_turn_is_dropped_so_a_continued_decision_keeps_every_thought(
         _engine_factory, retried: tuple, code: str, named: str) -> None:
-    """同一秒续接的决策里截断后，重试写错名称或去查记忆（重试不开放记忆查询，不执行）都被纠错：重试的回合同截断回合
+    """同一秒续接的决策里截断后，重试写错名称或去查记忆（重试不开放检索记忆，不执行）都被纠错：重试的回合同截断回合
     一样不留在历史中，纠错作为 user 消息接在后面；下一次请求续接链前缀逐字节不变，其中每个 assistant 都带思考（发送前
     自检不失败），最后带思考的世界请求照常登记。"""
     engine = _engine_factory()
@@ -338,9 +338,9 @@ async def test_a_truncation_in_a_continued_decision_leaves_the_chain_prefix_unto
 @pytest.mark.asyncio
 async def test_readonly_questions_keep_their_parameters_and_a_truncated_answer_is_retried_with_finish_only() -> None:
     """只读问答与行动经同一请求入口：没有截断时只读请求的参数不变（开启思考、tool_choice=auto、16000）；只读回答被截断时
-    按状态同样重试一次，关闭思考、tool_choice=required，只开放 finish。"""
+    按状态同样重试一次，关闭思考、tool_choice=required；只读问答每个回合都只开放 finish。"""
     dispatcher = _GroundedCorrectionDispatcher(responses=[
-        _ModelResponse("call-memory", "memory_recent", '{"limit":1}'),
+        _TextOnly(),
         _ModelResponse("call-finish-1", "finish", '{"answer":"first"}'),
         TruncatedResponse(_SPIRALS[0]),
         _ModelResponse("call-finish-2", "finish", '{"answer":"second"}'),
@@ -351,8 +351,7 @@ async def test_readonly_questions_keep_their_parameters_and_a_truncated_answer_i
     assert await agent.run_react_loop(question) == "first"
     assert await agent.run_react_loop(question) == "second"
     assert [_is_retry(item) for item in dispatcher.requests] == [False, False, False, True]
-    assert [_tools(item) for item in dispatcher.requests] == [
-        _MEMORY_TOOLS | {"finish"}, _MEMORY_TOOLS | {"finish"}, _MEMORY_TOOLS | {"finish"}, {"finish"}]
+    assert [_tools(item) for item in dispatcher.requests] == [{"finish"}] * 4
     retry = dispatcher.requests[3]
     assert retry["messages"][:-1] == dispatcher.requests[2]["messages"]
     assert json.loads(retry["messages"][-1]["content"]) == _TRUNCATION_FEEDBACK
@@ -385,7 +384,7 @@ async def test_the_exported_quality_report_counts_the_truncations_the_run_record
         "responses_missing_output_tokens": 0, "responses_missing_reasoning_tokens": 0,
         "method": quality["truncations"]["method"]}
     assert quality["truncations"]["wasted_output_tokens"] == 24001 == quality["truncations"]["reasoning_tokens"]
-    assert quality["schema_version"] == 9
+    assert quality["schema_version"] == 10
 
 
 def _exported_files(directory) -> dict:

@@ -13,6 +13,7 @@ from worldmock.foundation.models import DeepFrozenModel, require_finite_number
 from worldmock.resource_engine.map.graph import Graph
 from worldmock.foundation.errors import reject_value
 from worldmock.exchange_engine.definitions.types import GoodsCategory
+from worldmock.state.model.memory import MemoryCategory
 
 if TYPE_CHECKING:
     from worldmock.resource_engine.catalog.callback_models import CallbackRule, CallbackState
@@ -48,12 +49,19 @@ class CatalogFile(DeepFrozenModel):
 class CatalogManifest(DeepFrozenModel):
     """@brief 目录版本、规则版本和完整文件集合的发布身份。"""
 
-    format_version: Literal[5]
+    format_version: Literal[6]
     environment_id: NonEmptyString
     environment_version: NonEmptyString
     rules_version: StrictInt
     files: tuple[CatalogFile, ...]
     catalog_content_sha256: str = Field(pattern=r"^[a-f0-9]{64}$", strict=True)
+
+
+def require_declared_category(value):
+    """@brief 显式记忆类别必须是类别名；不覆盖只有省略这一种写法。"""
+    if value is None:
+        reject_value("A declared memory category must be a category name.")
+    return value
 
 
 class App(DeepFrozenModel):
@@ -64,6 +72,11 @@ class App(DeepFrozenModel):
     role: Literal["content", "function"]
     actions: tuple[FunctionAction, ...] = ()
     travel_method_ids: tuple[NonEmptyString, ...] = ()
+    #: 记忆类别覆盖（docs/design/06-agent.md「记忆的类别」规则 0）；省略表示按推导规则。
+    memory_category: MemoryCategory | None = None
+
+    #: 显式记忆类别必须是类别名，缺省才表示按推导规则。
+    _declared_category = field_validator("memory_category", mode="before")(require_declared_category)
 
 
 class TravelMethod(DeepFrozenModel):
@@ -240,6 +253,8 @@ class Content(DeepFrozenModel):
     prerequisite: ContentPrerequisite | None = None
     consumes_state: NonEmptyString | None = None
     completion_effects: CompletionEffects | None = None
+    #: 记忆类别覆盖（docs/design/06-agent.md「记忆的类别」规则 0）；省略表示按推导规则。
+    memory_category: MemoryCategory | None = None
 
     #: 显式内容前提必须是对象，缺省才表示没有前提。
     _declared_prerequisite = field_validator("prerequisite", mode="before")(require_declared_prerequisite)
@@ -247,6 +262,8 @@ class Content(DeepFrozenModel):
     _declared_state = field_validator("consumes_state", mode="before")(require_declared_state)
     #: 显式完成效果必须是对象，缺省才表示做完没有效果。
     _declared_effects = field_validator("completion_effects", mode="before")(require_declared_effects)
+    #: 显式记忆类别必须是类别名，缺省才表示按推导规则。
+    _declared_category = field_validator("memory_category", mode="before")(require_declared_category)
 
 
 class MapEdge(DeepFrozenModel):
@@ -310,6 +327,16 @@ class Catalog:
     callback_states: Mapping[str, CallbackState]
     #: 回调规则声明。
     callback_rules: Mapping[str, CallbackRule]
+
+    def food_states(self) -> frozenset[str]:
+        """@brief 食品状态：至少被一条 completion_effects.food 不为空的内容凭着的回调状态。"""
+        return frozenset(content.consumes_state for content in self.contents.values()
+                         if content.consumes_state is not None and content.completion_effects is not None
+                         and content.completion_effects.food is not None)
+
+    def kit_states(self) -> frozenset[str]:
+        """@brief 食材包状态：reset_on_goods 非空的食品状态；只有凭它们的活动写所用食材包。"""
+        return frozenset(name for name in self.food_states() if self.callback_states[name].reset_on_goods)
 
     def shortest_m(self, origin: str, destination: str) -> int:
         """@brief 全部登记地点参与寻路的最短距离。"""

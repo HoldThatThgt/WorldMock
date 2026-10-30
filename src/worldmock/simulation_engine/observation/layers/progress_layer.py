@@ -1,22 +1,25 @@
-"""@brief 当前停留或路程的有序记录，只从真实人物可见事件和已交付提醒派生；只读本段下界之后的事件，带入的记录例外。
+"""@brief 进度层：此刻还没了结的事，只从真实人物可见事件和已交付提醒派生（docs/design/06-agent.md「进度、待办与记忆」）。
 
-带入的记录：用内容 app 或在地点做事的开始请求，在这项活动仍在进行或在其中结束的每一段里都有记录，请求与第一条结果
-按事件身份读出，来源早于本段下界（docs/design/06-agent.md「进度、待办与记忆」）。
+每种记录各取各的下界：送达、到站与办成取已发布界 P_k = max(C_{k-1}, B_D)，序号不超过它的事实已写进记忆层「今天」或属于
+前一天；app 推送、回调提醒、余额减少与事务提醒取上一次决策的观察与零点界中较大的一个，上一次决策提交里产生的不丢；计划提醒
+取提醒时刻晚于上一次决策的时刻。开始请求的记录只有带入的记录，不看下界：占槽位的本人活动（进行中或待收尾，不分种类）与这段
+停留或路程里做完的查询，请求与第一条结果按事件身份读出，结果取最新的一条。控制请求、被拒的请求与已收尾的活动不在这里，
+记录不带 self_note；被拒原因只在 rejected_today。
 """
 
 from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 
 from worldmock.foundation.errors import IntegrityError
 from worldmock.recording_engine.events.models import Event
 from worldmock.recording_engine.storage.store import FootprintStore
-from worldmock.state.planning import schedule
 from worldmock.simulation_engine.activities.lifecycle import sessions
-from worldmock.state.interaction.control_items import CONTROL_TOOLS, control_request
+from worldmock.simulation_engine.activities.lifecycle.activity_control import slot_activities
 from worldmock.state.planning.errands import COMPLETED_KIND, REMINDED_KIND
 from worldmock.state.world.kinds import ActivityKind, ActivityStatus
 from worldmock.state.world.activity import ActivityState
@@ -25,24 +28,29 @@ from worldmock.foundation.time.readable import (
     clock_phrase,
     iso_time,
     local_date,
-    local_day_start,
     money_phrase,
     portion_phrase,
 )
 from worldmock.simulation_engine.observation.layers.result_projection import public_result
+from worldmock.simulation_engine.observation.memory.days import day_bound
+from worldmock.simulation_engine.observation.memory.entries import AgentEvents, agent_events, decision_commits
 from worldmock.recording_engine.projections.activities.session_bounds import session_lower
-from worldmock.simulation_engine.observation.wording.settled_text import ActivityFacts, record_lines
+from worldmock.simulation_engine.observation.wording.settled_text import KitUse, record_lines
 from worldmock.simulation_engine.observation.targets.tool_layer import LayerContext
 
 #: 订单仍在途的状态（相关记录受保护）。
 OPEN_ORDER_STATUSES = frozenset({"pending", "ready_for_pickup"})
 #: 被进度层消费的两种个人事务事件（人物可见）→ 记录类型；其余四种事务事件只供审计与指标，不进进度层。
 _ERRAND_RECORDS = {REMINDED_KIND: "errand_reminder", COMPLETED_KIND: "errand_completed"}
+#: 记忆事实的环境事件种类：它们的事实写进记忆层「今天」的条目，进度层只写序号大于已发布界的。
+FACT_EVENT_KINDS = frozenset({"delivery_arrival", COMPLETED_KIND})
+#: 非记忆的环境事件种类：不进今天条目，进度层只写序号大于上一次决策观察（且大于零点界）的。
+NOTICE_EVENT_KINDS = frozenset({REMINDED_KIND, "app_push", "callback_reminder", "balance_decreased"})
 
 
 @dataclass(frozen=True, slots=True)
 class ProgressView:
-    """@brief 本段进度、浓缩元数据与实际人物可见来源。"""
+    """@brief 进度层、浓缩元数据与实际人物可见来源。"""
 
     layer: dict
     meta: list[dict]
@@ -59,6 +67,14 @@ class _Record:
     orders: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True, slots=True)
+class _PreviousDecision:
+    """@brief 上一次决策：它的观察事件序号与决策时刻。"""
+
+    observation_seq: int
+    decided_at: int
+
+
 def session_bound(store: FootprintStore, state: WorldState, agent_id: int) -> tuple[int, int]:
     """@brief 当前 session 的 (开始时刻, 事件序号下界)：下界是开启它的边界提交的末事件序号（运行开始为 0）。"""
     session = sessions.current_session(state, agent_id)
@@ -68,43 +84,59 @@ def session_bound(store: FootprintStore, state: WorldState, agent_id: int) -> tu
     return session.started_at, session_lower(store, state, session)
 
 
-def progress_view(context: LayerContext, store: FootprintStore, facts: ActivityFacts | None = None) -> ProgressView:
+def progress_view(context: LayerContext, store: FootprintStore, published: int,
+                  kits: Mapping[str, KitUse]) -> ProgressView:
     """@brief 进度层 JSON 与私有浓缩元数据及真实来源事件身份。
 
-    :param facts: 本人活动的暂停区间与结束事件（记忆层同一份）；结束活动的调用在 settled 句中只写在本 session 内结束的
-        活动（起止含暂停区间，与记忆层同一写法），更早 session 结束的已在记忆层。
+    :param published: 已发布界 P_k（memory_view 求出）：送达、到站与办成只写序号大于它的。
+    :param kits: 同一次观察的 ActivityFacts.kits：带入记录的结果投影（public_result）写食材包句。
     """
-    started_at, lower = session_bound(store, context.state, context.agent_id)
-    records = _session_records(context, store, (started_at, lower))
-    request_seq, request_time = _last_request(store, context.agent_id)
-    here = None if facts is None else ActivityFacts(facts.pauses, {
-        activity_id: event for activity_id, event in facts.endings.items() if event.event_seq > lower},
-        facts.app_progress)
-    meta = [{"protected": _protected(context, item, (request_seq, request_time)),
-             "lines": record_lines(context, item.record, list(item.sources), here)} for item in records]
-    layer = {"layer": "进度层", "session_started_at": iso_time(started_at, context.config.timezone),
+    stay = session_bound(store, context.state, context.agent_id)
+    cached = agent_events(store, context.agent_id, context.catalog.kit_states())
+    previous = _previous_decision(store, cached, context.agent_id)
+    now, zone = context.state.current_time, context.config.timezone
+    day = day_bound(store, local_date(now, zone), zone, now)
+    notice_after = max(0 if previous is None else previous.observation_seq, day)
+    records = sorted([*_carried_records(context, store, stay, kits),
+                      *_world_records(context, store, (published, notice_after)),
+                      *_plan_reminders(context, None if previous is None else previous.decided_at)],
+                     key=lambda item: item.key)
+    request = _last_request(store, context.agent_id)
+    meta = [{"protected": _protected(context, item, request),
+             "lines": record_lines(context, item.record, list(item.sources))} for item in records]
+    layer = {"layer": "进度层", "session_started_at": iso_time(stay[0], zone),
              "events": [item.record for item in records], "rejected_today": rejected_today(context, store)}
     return ProgressView(layer=layer, meta=meta,
                         event_ids=list(dict.fromkeys(event.event_id for item in records for event in item.sources)))
 
 
-def records_after(context: LayerContext, store: FootprintStore, after_seq: int) -> list[tuple[dict, list[str]]]:
-    """@brief 当前 session 中来源事件序号都大于 after_seq 的事件记录及其来源身份（推导记录没有来源，不在其中；带入的记录
-    请求早于下界，也不在其中）。"""
-    bound = session_bound(store, context.state, context.agent_id)
-    return [(item.record, [event.event_id for event in item.sources])
-            for item in _session_records(context, store, bound)
-            if item.sources and all(event.event_seq > after_seq for event in item.sources)]
+def notice_records(context: LayerContext, store: FootprintStore, after: int) -> list[dict]:
+    """@brief 序号大于 after 的非记忆世界记录（推送、回调提醒、余额减少、事务提醒），按进度层的次序；同秒续接的 events 读它。"""
+    items = _world_records(context, store, (store.last_event_seq, after))
+    return [item.record for item in sorted(items, key=lambda item: item.key)]
 
 
-def _session_records(context: LayerContext, store: FootprintStore, bound: tuple[int, int]) -> list[_Record]:
-    """@brief 当前 session 的全部记录：下界之后的事件派生的记录，另加请求与第一条结果早于下界的带入记录；按发生时刻、
-    推导优先、最小来源序号排序（带入的记录因此排在最前）。"""
-    started_at, lower = bound
-    records = _tool_records(context, store, lower)
-    records += _world_records(context, store, lower)
-    records += _derived_records(context, started_at)
-    return sorted(records, key=lambda item: item.key)
+def tool_call_record(context: LayerContext, request: Event, result: Event, kits: Mapping[str, KitUse]) -> dict:
+    """@brief tool_call 记录：请求时刻、工具、请求原文与 result；result 是给定结果的公开投影，kits 是同一次观察的
+    ActivityFacts.kits。"""
+    data = request.data
+    return {"occurred_at": iso_time(request.occurred_at, context.config.timezone), "type": "tool_call",
+            "tool": data["tool_name"], "arguments": data["request"],
+            "result": public_result(result.data, context.inputs, kits)}
+
+
+def _previous_decision(store: FootprintStore, cached: AgentEvents, agent_id: int) -> _PreviousDecision | None:
+    """@brief 上一次决策（第 02 章【E1】的最后一次决策）的观察（序号最大的一条）与决策时刻；没有决策时为 None，
+    缺观察时 IntegrityError。"""
+    decisions = decision_commits(store, cached, store.last_event_seq)
+    if not decisions:
+        return None
+    last = decisions[-1]
+    observations = store.read_decision_observations(agent_id, last.decision_id, last.occurred_at)
+    if not observations:
+        logging.error("Previous decision %s has no observation", last.decision_id)
+        raise IntegrityError("Previous decision has no observation")
+    return _PreviousDecision(max(event.event_seq for event in observations), last.occurred_at)
 
 
 def _event_key(occurred_at: int, sources: list[Event]) -> tuple:
@@ -112,80 +144,55 @@ def _event_key(occurred_at: int, sources: list[Event]) -> tuple:
     return (occurred_at, 1, 0, 0, min(event.event_seq for event in sources))
 
 
-def _tool_records(context: LayerContext, store: FootprintStore, lower: int) -> list[_Record]:
-    """@brief 本段的世界请求记录与带入的记录：每条记录的 result 取这条请求最新的一条结果。
-
-    开始活动的请求在活动结束后显示第二条结果：做过的内容 contents、付款后的订单、到达都写在第二条上，第一条的
-    planned、content 与报价随之不再显示（docs/design/06-agent.md「进度、待办与记忆」）；活动目标的 state 只写终局说法与
-    客观进度。开始请求在更早的段里、活动在本段仍在进行或在本段结束的用内容 app 或在地点做事，另带入一条记录。
-    """
-    requests = store.read_agent_events("action_requested", context.agent_id, after=lower)
-    results = store.read_agent_events("action_result", context.agent_id, after=lower)
-    return _session_calls(context, requests, results) + _carried_calls(context, store, requests, results)
+def _carried_records(context: LayerContext, store: FootprintStore, stay: tuple[int, int],
+                     kits: Mapping[str, KitUse]) -> list[_Record]:
+    """@brief 全部带入记录：每项带入活动一条；kits 交给结果投影。"""
+    return [_carried_record(context, store, activity, kits) for activity in _carried_activities(context, store, stay)]
 
 
-def _session_calls(context: LayerContext, requests: list[Event], results: list[Event]) -> list[_Record]:
-    """@brief 本段的每个 action_requested 连同它在本段的结果（第一条与最新一条作来源）与 self_note；没有结果的不出记录。"""
-    records: list[_Record] = []
-    for index, request in enumerate(requests):
-        later = next((item.event_seq for item in requests[index + 1:] if item.action_id == request.action_id), None)
-        own = [event for event in results if event.action_id == request.action_id
-               and event.event_seq > request.event_seq and (later is None or event.event_seq < later)]
-        if not own:
-            continue
-        record = _tool_record(context, request, own[-1])
-        if request.data.get("self_note"):
-            record["self_note"] = request.data["self_note"]
-        records.append(_call_record(record, request, own))
-    return records
+def _carried_activities(context: LayerContext, store: FootprintStore, stay: tuple[int, int]) -> list[ActivityState]:
+    """@brief 要带入的本人活动：占槽位的（进行中或待收尾，不分种类），加上这段停留或路程里做完的查询。"""
+    carried = {activity.activity_id: activity for activity in slot_activities(context.open_activities)}
+    carried.update((activity.activity_id, activity) for activity in _finished_queries(context, store, stay))
+    return list(carried.values())
 
 
-def _carried_calls(context: LayerContext, store: FootprintStore, requests: list[Event],
-                   results: list[Event]) -> list[_Record]:
-    """@brief 带入的记录：开始请求与第一条结果按事件身份读出，结果取本段里的第二条，没有就取第一条；不带 self_note。
-
-    只读当前世界与本段已经读出的事件，不为它扩大读取范围、不扫描下界之前的事件。
-    """
-    records: list[_Record] = []
-    for activity in _carried_activities(context, requests, results):
-        request = store.read_event(activity.origin_request_event_id)
-        own = [store.read_event(activity.data["accepted_event_id"]),
-               *(event for event in results if event.action_id == activity.origin_action_id)]
-        records.append(_call_record(_tool_record(context, request, own[-1]), request, own))
-    return records
+def _finished_queries(context: LayerContext, store: FootprintStore, stay: tuple[int, int]) -> list[ActivityState]:
+    """@brief 这段停留或路程里做完的本人查询：completed、结束不早于本段开始、终态结果序号大于本段下界。"""
+    started_at, lower = stay
+    finished = [activity for _, activity in sorted(context.state.activities.items())
+                if activity.agent_id == context.agent_id and activity.kind == ActivityKind.QUERY
+                and activity.status == ActivityStatus.COMPLETED and activity.ended_at >= started_at]
+    return [activity for activity in finished
+            if _terminal_result(store, activity, store.read_event(activity.data["accepted_event_id"])).event_seq
+            > lower]
 
 
-def _carried_activities(context: LayerContext, requests: list[Event], results: list[Event]) -> list[ActivityState]:
-    """@brief 要带入本段的活动：本人的 interact 活动，本段下界之后没有开始它的请求，而它此刻进行中，或本段里有它的
-    结果（更早的请求在后面的段里只可能再得到一条结果，即第二条）。暂停着的活动只在待办层，不带入。"""
-    asked = {event.action_id for event in requests}
-    ended = {event.action_id for event in results}
-    return [activity for _, activity in sorted(context.state.activities.items())
-            if activity.agent_id == context.agent_id and activity.kind == ActivityKind.INTERACT
-            and activity.origin_action_id not in asked
-            and (activity.status == ActivityStatus.ACTIVE or activity.origin_action_id in ended)]
+def _carried_record(context: LayerContext, store: FootprintStore, activity: ActivityState,
+                    kits: Mapping[str, KitUse]) -> _Record:
+    """@brief 一项带入活动的 tool_call 记录：请求与第一条结果按事件身份读出，结果取最新的一条（结束了就是终态结果）。"""
+    request = store.read_event(activity.origin_request_event_id)
+    own = [store.read_event(activity.data["accepted_event_id"])]
+    if activity.ended_at is not None:
+        own.append(_terminal_result(store, activity, own[0]))
+    return _call_record(tool_call_record(context, request, own[-1], kits), request, own)
+
+
+def _terminal_result(store: FootprintStore, activity: ActivityState, first: Event) -> Event:
+    """@brief 已结束活动的终态结果：开始动作在第一条结果之后的那条 action_result，只从结束那一秒读起；缺失时 IntegrityError。"""
+    after = max(first.event_seq, store.last_event_seq_before(activity.ended_at))
+    terminal = next((event for event in store.read_agent_events("action_result", activity.agent_id, after)
+                     if event.action_id == activity.origin_action_id), None)
+    if terminal is None:
+        logging.error("Ended activity %s has no terminal result", activity.activity_id)
+        raise IntegrityError("Ended activity has no terminal result")
+    return terminal
 
 
 def _call_record(record: dict, request: Event, own: list[Event]) -> _Record:
     """@brief 一条 tool_call 记录连同来源（请求、第一条与最新一条结果）、排序键与关联订单。"""
     sources = [request, own[0]] + ([own[-1]] if len(own) > 1 else [])
     return _Record(record, tuple(sources), _event_key(request.occurred_at, sources), _order_ids(own))
-
-
-def _tool_record(context: LayerContext, request: Event, result: Event) -> dict:
-    """@brief tool_call 记录：发生时刻、工具、参数（conclude_activity 略去看法与偏好）与 result，result 取最新一条结果。"""
-    data = request.data
-    return {"occurred_at": iso_time(request.occurred_at, context.config.timezone), "type": "tool_call",
-            "tool": data["tool_name"], "arguments": _arguments(data["tool_name"], data["request"]),
-            "result": public_result(result.data, context.inputs)}
-
-
-def _arguments(tool: str, request: dict) -> dict:
-    """@brief 请求参数原文；三个控制工具经 control_items 读出后按现行形状写出（每项活动名、自述，结束另带普通记忆），
-    看法与偏好（views 派生的 relationship 与 preference 记忆）略去，只在人设层出现。"""
-    if tool not in CONTROL_TOOLS:
-        return request
-    return control_request(tool, request)
 
 
 def _order_ids(results: list[Event]) -> tuple[str, ...]:
@@ -206,32 +213,40 @@ def _tool_calls(response: Event) -> list[dict]:
     return [call for call in calls if isinstance(call, dict)] if isinstance(calls, list) else []
 
 
-def _world_records(context: LayerContext, store: FootprintStore, lower: int) -> list[_Record]:
-    """@brief 只读取人物可见的真实送达、事务、内容推送和声明的回调提示。"""
+def _world_records(context: LayerContext, store: FootprintStore, bounds: tuple[int, int]) -> list[_Record]:
+    """@brief 人物可见的环境事件记录：记忆事实只取序号大于 bounds[0] 的，非记忆提示只取序号大于 bounds[1] 的。"""
+    facts_after, notices_after = bounds
     records: list[_Record] = []
-    for event in store.read_agent_events("environment_event", context.agent_id, after=lower):
+    for event in store.read_agent_events("environment_event", context.agent_id, after=min(bounds)):
+        kind = event.data.get("kind")
         if event.visibility != "agent":
             continue
-        kind = event.data.get("kind")
-        if kind in _ERRAND_RECORDS:
-            records.append(_errand_record(context, event))
-        elif kind == "delivery_arrival":
-            records.extend(_delivery_records(context, event))
-        elif kind == "app_push" and event.data.get("pushed", True):
-            record = {"occurred_at": iso_time(event.occurred_at, context.config.timezone), "type": "app_push",
-                      "app": context.catalog.apps[event.data["app_id"]].name,
-                      "title": event.data["title"], "summary": event.data["summary"]}
-            records.append(_Record(record, (event,), _event_key(event.occurred_at, [event])))
-        elif kind == "callback_reminder":
-            record = {"occurred_at": iso_time(event.occurred_at, context.config.timezone),
-                      "type": "callback_reminder", "app": context.catalog.apps[event.data["app_id"]].name,
-                      "text": event.data["text"]}
-            records.append(_Record(record, (event,), _event_key(event.occurred_at, [event])))
-        elif kind == "balance_decreased":
-            record = {"occurred_at": iso_time(event.occurred_at, context.config.timezone),
-                      "type": "balance_decreased", "message": f"余额减少了 {money_phrase(event.data['amount_fen'])}"}
-            records.append(_Record(record, (event,), _event_key(event.occurred_at, [event])))
+        if kind in FACT_EVENT_KINDS and event.event_seq > facts_after:
+            records.extend(_delivery_records(context, event) if kind == "delivery_arrival"
+                           else [_errand_record(context, event)])
+        elif kind in NOTICE_EVENT_KINDS and event.event_seq > notices_after:
+            records.extend(_notice_record(context, event))
     return records
+
+
+def _notice_record(context: LayerContext, event: Event) -> list[_Record]:
+    """@brief 一条非记忆世界记录：事务提醒、推送（不取 pushed 为假的）、回调提醒或余额减少。"""
+    kind, zone = event.data["kind"], context.config.timezone
+    if kind == REMINDED_KIND:
+        return [_errand_record(context, event)]
+    if kind == "app_push":
+        if not event.data.get("pushed", True):
+            return []
+        record = {"occurred_at": iso_time(event.occurred_at, zone), "type": "app_push",
+                  "app": context.catalog.apps[event.data["app_id"]].name,
+                  "title": event.data["title"], "summary": event.data["summary"]}
+    elif kind == "callback_reminder":
+        record = {"occurred_at": iso_time(event.occurred_at, zone), "type": "callback_reminder",
+                  "app": context.catalog.apps[event.data["app_id"]].name, "text": event.data["text"]}
+    else:
+        record = {"occurred_at": iso_time(event.occurred_at, zone), "type": "balance_decreased",
+                  "message": f"余额减少了 {money_phrase(event.data['amount_fen'])}"}
+    return [_Record(record, (event,), _event_key(event.occurred_at, [event]))]
 
 
 def _errand_record(context: LayerContext, event: Event) -> _Record:
@@ -241,10 +256,6 @@ def _errand_record(context: LayerContext, event: Event) -> _Record:
     record = {"occurred_at": iso_time(event.occurred_at, context.config.timezone),
               "type": _ERRAND_RECORDS[event.data["kind"]], "errand": event.data["errand"]["name"]}
     return _Record(record, (event,), _event_key(event.occurred_at, [event]))
-
-
-
-
 
 
 def _delivery_records(context: LayerContext, event: Event) -> list[_Record]:
@@ -273,22 +284,16 @@ def order_label(order: dict, names: dict[str, str], clock: tuple[str, int]) -> s
             f"{clock_phrase(order['created_at'], now, timezone_name)} 购买）")
 
 
-def _derived_records(context: LayerContext, started_at: int) -> list[_Record]:
-    """@brief 由截止时刻与提醒写入时刻推导的记录：工具层每个任务的截止预警（提前量与唤醒同源，
-    schedule.TASK_DUE_SOON_SECONDS）与到期，今日目标的提醒，各只一次。"""
+def _plan_reminders(context: LayerContext, after: int | None) -> list[_Record]:
+    """@brief 今日目标的提醒：提醒时刻晚于 after（上一次决策的时刻；None 时不设下界）、不晚于此刻的各一条。"""
     now, zone = context.state.current_time, context.config.timezone
-    decided = sessions.current_session(context.state, context.agent_id).opened_by_action_id is not None
-
-    def in_range(moment: int) -> bool:
-        """@brief 时刻落在本 session 内且不晚于此刻；决策切换的 session 不含切换那一秒（已在前一 session）。"""
-        return (moment > started_at if decided else moment >= started_at) and moment <= now
-
-    records = []
     plan = context.state.agents[context.agent_id].day_plan
+    records = []
     for order, goal in enumerate(plan.goals if plan is not None else ()):
-        if goal.reminded_at is not None and in_range(goal.reminded_at):
-            record = {"occurred_at": iso_time(goal.reminded_at, zone), "type": "plan_reminder", "goal": goal.goal}
-            records.append(_Record(record, (), (goal.reminded_at, 0, 1, order, 0)))
+        moment = goal.reminded_at
+        if moment is not None and (after is None or moment > after) and moment <= now:
+            record = {"occurred_at": iso_time(moment, zone), "type": "plan_reminder", "goal": goal.goal}
+            records.append(_Record(record, (), (moment, 0, 1, order, 0)))
     return records
 
 
@@ -319,7 +324,7 @@ def rejected_today(context: LayerContext, store: FootprintStore) -> list[dict]:
     同一决策的两条开始动作被拒时内容相同，只统计一次。只读本地零点之前最后一个事件之后的证据，不解码更早的历史。
     """
     day = local_date(context.state.current_time, context.config.timezone)
-    after = store.last_event_seq_before(local_day_start(context.state.current_time, context.config.timezone))
+    after = day_bound(store, day, context.config.timezone, context.state.current_time)
     events = sorted((event for kind in ("model_response", "action_rejected", "action_accepted", "action_requested")
                      for event in store.read_agent_events(kind, context.agent_id, after)
                      if event.occurred_at <= context.state.current_time

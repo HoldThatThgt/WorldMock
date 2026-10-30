@@ -11,6 +11,7 @@ from tests.footprints.display_fixtures import sample_catalog_rows, sample_displa
 from worldmock.recording_engine.projections.presentation.display_wording import display_names
 from worldmock.recording_engine.reports.quality import (
     CALL_CLASSES,
+    _call_class,
     _estimate_cost,
     _model_quality,
     build_quality_report,
@@ -598,7 +599,7 @@ def test_decision_rhythm_counts_silent_boundaries_and_wake_reasons():
     report = build_quality_report(events, [], _manifest(), sample_display_names())
     rhythm = report["decision_rhythm"]
 
-    assert report["schema_version"] == 9
+    assert report["schema_version"] == 10
     assert "decision_budget_exhausted_events" not in rhythm
     assert rhythm["body_settlement_events"] == 4
     assert rhythm["boundaries_with_decision_field"] == 3
@@ -629,7 +630,7 @@ def test_report_sections_are_the_documented_grouping_without_a_language_count():
     assert documented[plan:plan + 3] == ["day_plan_metrics", "errand_metrics", "conclusion_memories"]
     assert list(report)[3:] == documented
     assert set(report) == {"schema_version", "run_id", "source_group_id", *documented}
-    assert report["schema_version"] == 9
+    assert report["schema_version"] == 10
     assert (report["errand_metrics"], report["conclusion_memories"]) == (None, None)
     assert [key for key in report if any(word in key for word in ("language", "english", "chinese"))] == []
 
@@ -1051,12 +1052,31 @@ def _class_request(name):
         request["extra_body"] = {"thinking": {"type": "disabled" if name == "truncation_retry" else "enabled"}}
         if name != "fresh_decision_turn":
             request["messages"] += [{"role": "assistant"}, {"role": "tool"}]
-    if name in {"reflection", "plan_day"}:
-        request["tools"] = [{"function": {"name": "submit_reflection" if name == "reflection" else "submit_day_plan"}}]
+    tools = {"reflection": "submit_reflection", "plan_day": "submit_day_plan", "memory_digest": "submit_memory_digest"}
+    if name in tools:
+        request["tools"] = [{"function": {"name": tools[name]}}]
     data = {"call_id": name, "request": request}
-    if name == "plan_day":
-        data["purpose"] = "plan_day"
+    if name in {"plan_day", "memory_digest"}:
+        data["purpose"] = name
     return data
+
+
+def test_memory_digest_requests_form_their_own_call_class():
+    """purpose 为 memory_digest 的请求归 memory_digest 一类，不看工具名；它是调用类的最后一类，报告结构号是 10。"""
+    for tools in ([{"function": {"name": "submit_memory_digest"}}], [{"function": {"name": "start_main_activity"}}],
+                  [{"function": {"name": "submit_reflection"}}], []):
+        data = {"call_id": "digest", "purpose": "memory_digest",
+                "request": {"messages": [{"role": "system"}, {"role": "user"}], "tools": tools,
+                            "extra_body": {"thinking": {"type": "enabled"}}}}
+        assert _call_class(data) == "memory_digest"
+    assert _call_class({**_class_request("plan_day"), "purpose": "plan_day"}) == "plan_day"
+    assert CALL_CLASSES[-1] == "memory_digest" and len(CALL_CLASSES) == 7
+    events = [_event(1, "model_request", data=_class_request("memory_digest")),
+              _event(2, "model_response", data=_tool_response("memory_digest", _usage()))]
+    report = build_quality_report(events, [], _manifest(), sample_display_names())
+    assert report["schema_version"] == 10
+    [row] = [row for row in report["model_usage"]["by_call_class"] if row["call_class"] == "memory_digest"]
+    assert row["request_events"] == row["provider_responses"] == 1
 
 
 def test_model_usage_lists_every_call_class_from_the_recorded_request_shape():

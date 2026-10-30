@@ -1,0 +1,14 @@
+S0 actual V (current order, current content): decision-turn cost $1.6432 (/day $0.3286, delta vs S0 +0.0000/day) fresh hit% 0.336 fresh mean prompt 19783 hit 6648 | history hit% 0.800 unmapped=0
+    per day: 10-08 $0.2789 10-09 $0.3154 10-10 $0.3385 10-11 $0.3025 10-12 $0.4079
+S1 current order + new memory, per-decision: decision-turn cost $1.8002 (/day $0.3600, delta vs S0 +0.0314/day) fresh hit% 0.310 fresh mean prompt 21445 hit 6638 | history hit% 0.809 unmapped=0
+    per day: 10-08 $0.3483 10-09 $0.3586 10-10 $0.3617 10-11 $0.3296 10-12 $0.4020
+S2 proposal order, per-decision (ii): decision-turn cost $1.4197 (/day $0.2839, delta vs S0 -0.0447/day) fresh hit% 0.507 fresh mean prompt 21445 hit 10881 | history hit% 0.809 unmapped=0
+    per day: 10-08 $0.2612 10-09 $0.2782 10-10 $0.2823 10-11 $0.2805 10-12 $0.3175
+S3 todo before memory, per-decision: decision-turn cost $1.4133 (/day $0.2827, delta vs S0 -0.0460/day) fresh hit% 0.511 fresh mean prompt 21445 hit 10952 | history hit% 0.809 unmapped=0
+    per day: 10-08 $0.2618 10-09 $0.2794 10-10 $0.2790 10-11 $0.2788 10-12 $0.3144
+S4 proposal order, per-second publish: decision-turn cost $1.4166 (/day $0.2833, delta vs S0 -0.0453/day) fresh hit% 0.508 fresh mean prompt 21444 hit 10884 | history hit% 0.811 unmapped=0
+    per day: 10-08 $0.2607 10-09 $0.2775 10-10 $0.2816 10-11 $0.2799 10-12 $0.3169
+S5 proposal order, per-segment publish: decision-turn cost $1.2970 (/day $0.2594, delta vs S0 -0.0692/day) fresh hit% 0.537 fresh mean prompt 20005 hit 10736 | history hit% 0.801 unmapped=0
+    per day: 10-08 $0.2384 10-09 $0.2532 10-10 $0.2567 10-11 $0.2584 10-12 $0.2903
+S6 todo first, per-segment publish: decision-turn cost $1.3147 (/day $0.2629, delta vs S0 -0.0657/day) fresh hit% 0.527 fresh mean prompt 20005 hit 10540 | history hit% 0.801 unmapped=0
+    per day: 10-08 $0.2414 10-09 $0.2584 10-10 $0.2597 10-11 $0.2614 10-12 $0.2937

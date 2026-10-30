@@ -1,0 +1,432 @@
+{
+ "rows": [
+  {
+   "id": "T1",
+   "owner_claim": "Session = the persona's activities while staying at one place.",
+   "current_reality": "The code has `SessionState`, which is either a `stay` or a `transit`. The system opens and closes it; the persona never does. A session is a place or road container, not the activities inside it. No call site splits a stay at midnight or at sleep. In the variety run the home stay 10-10 18:15 → 10-11 14:30 held 23 activities. The 进度层 is scoped to the current session (`session_started_at`, events after the session's lower sequence bound).",
+   "evidence": [
+    "src/worldmock/state/world/agent.py:57-95 (per MAP loop)",
+    "src/worldmock/simulation_engine/observation/layers/progress_layer.py:62-88 (verified: session_bound/progress_view)",
+    "src/worldmock/simulation_engine/activities/lifecycle/sessions.py:72-95,129-134 (per MAP loop)",
+    "variety run: 21 sessions, 11 stays and 10 transits (MAP loop)"
+   ],
+   "verdict": "partial",
+   "implication": "Treat the owner's session as a code `stay` SessionState and say how transit sessions count. Any memory or progress scope keyed to a session inherits the overnight problem: yesterday evening reaches 'today' through the session. Prefer keying memory by local date and round, not by session."
+  },
+  {
+   "id": "T2",
+   "owner_claim": "Round = one activity start/end process. A start, pause or conclude activity tool call ends one round.",
+   "current_reality": "The owner's round is the code's *decision* (`decision_id`): one frozen observation, a ReAct loop, then a step tail. Registering any of six world requests ends it: start_main/start_side (alone or as a pair), report_status, pause_activity, conclude_activity or revise_day_plan. Read-only queries do not end it. In code, 'round' already means the AS2 decision round (`round_id`). Variety run, 406 decisions: conclude 137, report_status 136, start_main 71 and start_side 82 (20 of them as pairs), pause 0. 103 of the decisions are same-second re-decisions, for example after `no_active_activity`.",
+   "evidence": [
+    "src/worldmock/agents/prompt/life_prompt.py:29-37 (verified: '每次决策以世界请求结束…提交即结束本次决策')",
+    "custom/agents/life_agent.py:563-583 (verified: loop ends once a world request is registered)",
+    "custom/agents/life_agent.py:179-180 (_WORLD_TOOL_MODELS = REQUEST_MODELS minus recall_task_summary, verified)",
+    "variety footprints action_requested by tool: start_main 71, start_side 82, conclude 137, report_status 136 (verified, scratchpad/memgap/gapcheck.py)",
+    "simulation_engine/decisions/same_moment.py:124-135 (per MAP loop)"
+   ],
+   "verdict": "partial",
+   "implication": "About one third of rounds end with report_status. A rule of 'entry per round' must say whether progress-report, revise-plan and same-second no-activity rounds produce memory entries. Keep the code's 'decision' name, or document that the owner's round = decision ≠ AS2 round_id."
+  },
+  {
+   "id": "T3",
+   "owner_claim": "Turn = one LLM call.",
+   "current_reality": "This matches. Each model call in a decision is one turn, numbered `…:model:NNNN`. `_remaining_turns` counts `_model_call_sequence` against the budget. Bedtime-reflection calls get their own ids, `{decision_id}:reflection:NNNN`, and use no turn budget. Step-tail consolidation calls run after the loop but reuse the decision's call numbering.",
+   "evidence": [
+    "custom/agents/life_agent.py:388-395 (verified)",
+    "custom/agents/life_agent.py:339-346 (verified: _memory_call_id)",
+    "vendor/agentsociety2/packages/agentsociety2/agentsociety2/agent/base/agent_runtime.py:536-540,965-974 (per MAP loop)"
+   ],
+   "verdict": "matches",
+   "implication": "No change is needed. A new compaction call should take its own id family outside the turn budget, as reflection does."
+  },
+  {
+   "id": "T4",
+   "owner_claim": "Each round grants the LLM a budget of 32 (?) turns.",
+   "current_reality": "`max_react_turns` defaults to 16 (strict int, 1–64), and the variety config sets 16. It is frozen into stage model identity and must be equal on resume. In practice 402 of 406 decisions used 1 turn and the maximum was 2. Only 1 of 406 decisions used a memory tool. On the last turn the memory tools are removed. Running out of turns aborts the round and fails the run.",
+   "evidence": [
+    "src/worldmock/configuration/inputs/models.py:223 (verified)",
+    "custom/agents/life_agent.py:397-404 (verified: queries dropped when remaining ≤1 or on retry)",
+    "src/worldmock/runtime/lifecycle/runner.py:418-421 (per MAP loop/contracts)",
+    "MAP loop §7 turn counts"
+   ],
+   "verdict": "differs",
+   "implication": "Going to 32 is only a config value (it changes model identity, and existing runs cannot resume under it). It will not bind: the model almost never takes a second turn. If search_memory becomes expected, each search turn costs about one more fresh-sized call (≈$0.0046 per fresh round, MAP evidence §5)."
+  },
+  {
+   "id": "T5",
+   "owner_claim": "This is a custom agent loop, similar to an agent loop.",
+   "current_reality": "It is the AS2 PersonAgent ReAct loop, customised through registered overrides: build_react_messages, prepare_react_loop, _run_react_turn and _execute_react_tool. It is not a standalone loop. The live design limits the Life extension channel to read-only methods (`read_query`, `due_reflection`), each with a thin forward, and leaves the AS2 patches unchanged. Messages are built once per decision; turns only append.",
+   "evidence": [
+    "custom/agents/life_agent.py:453-492 (verified)",
+    "docs/design/10-runtime.md:87-91 (verified)",
+    "docs/dev/SPEC-as2-integration.md:1 carries a 'historical record' banner (verified); its no-second-loop rule is history, but 10-runtime.md keeps the boundary"
+   ],
+   "verdict": "partial",
+   "implication": "Inject memory through the observation and prompt hooks. A compaction trigger needs a new read-only `due_*` forward like due_reflection. Do not fork the loop."
+  },
+  {
+   "id": "M1",
+   "owner_claim": "Every round generates a log in events, and that log becomes a memory entry for today.",
+   "current_reality": "Every decision does write events: decision_started 406, observation 406, action_requested 426, plus model and result events. But a 记忆层 'today' entry is one *ended session*, not one round: `earlier_today` = sessions whose `ended_at` falls today. The rounds of the current session appear only in 进度层; session bounds make the two layers disjoint. The subjective store is written only by conclude_activity (137 of 406 decisions). Start, report_status and pause rounds write nothing to it.",
+   "evidence": [
+    "src/worldmock/simulation_engine/observation/layers/memory_layer.py:104-109,216-222 (verified)",
+    "src/worldmock/simulation_engine/observation/layers/memory_layer.py:283-296 (verified: self_notes come only from pause/conclude summary and plain memories)",
+    "custom/agents/life_agent.py:750-762 (verified: _conclusion_memories returns [] for other tools)",
+    "variety event counts (verified, gapcheck.py)"
+   ],
+   "verdict": "differs",
+   "implication": "A deterministic per-round projection is needed: settled outcome lines plus the round's own summary or self_note. This also changes the 记忆层 within same-second chains, which life_continuation.py:8 assumes is constant. Chains must either carry memory deltas or break."
+  },
+  {
+   "id": "M2",
+   "owner_claim": "Every day, the memory entries are compacted into a paragraph that feeds the next day.",
+   "current_reality": "No daily paragraph exists. Three partial analogues exist:\n(a) Bedtime reflection at the first wake of the day: 1–5 insights from the last 30 *subjective* records, which covered only about 13:45–23:45 of the prior day. They are filed under wake-date−1 and shown in earlier_days.\n(b) The midnight plan_day: reviews yesterday 00:00→now (settled results, conclusion records, goals, orders, errands) but outputs *intentions* (day_plan in 待办层), not memory.\n(c) Threshold consolidation: a rolling ≤4000-char prose summary in state.json/MEMORY.md that no decision prompt reads.",
+   "evidence": [
+    "src/worldmock/simulation_engine/evidence/memory.py:13-34 (verified)",
+    "src/worldmock/agents/memory/life_memory.py:127-143,264-267 (verified)",
+    "src/worldmock/simulation_engine/scheduling/plans/day_plan_inputs.py:83-115 (verified)",
+    "src/worldmock/agents/memory/life_memory.py:79-92,240-262 (verified)",
+    "MAP store §9: reflection input window"
+   ],
+   "verdict": "partial",
+   "implication": "Pick one compaction point. Reuse the plan_inputs review window and its deterministic sentences as the fact input. Replace reflection's 'last 30' with the full day. Record the output as memory_updated (no new event type) so resume and replay never regenerate it."
+  },
+  {
+   "id": "M3",
+   "owner_claim": "The current 'memory last day' content belongs to the progress layer, so the target is memory-today / memory-longterm / progress-today / progress-longterm.",
+   "current_reality": "记忆层 = earlier_days[{date, settled, self_notes}] + earlier_today[{recorded_at, settled, self_notes}].\n- earlier_today.settled: verified facts of today's ended sessions (progress-like).\n- earlier_today.self_notes: subjective (memory-today).\n- earlier_days.settled: only still-open orders (progress-longterm). It was empty in every observed entry.\n- earlier_days.self_notes: bedtime reflections, which are genuine long-term memory.\nElsewhere: 待办层 (paused activities, errands, day plan) is already progress-longterm; 进度层 covers the current session only. The system prompt already separates verified (进度层 results, 记忆层 settled) from subjective (summary, self_note, self_notes, persona views).",
+   "evidence": [
+    "src/worldmock/agents/prompt/prompt_schemas.py:152-162 (verified)",
+    "src/worldmock/simulation_engine/observation/layers/memory_layer.py:225-257 (verified: open_only for earlier days)",
+    "src/worldmock/agents/prompt/life_prompt.py:75-78 (verified)",
+    "MAP evidence §2: 503/753 earlier_days entries, all with empty settled"
+   ],
+   "verdict": "partial",
+   "implication": "The claim is right for the `settled` lines and wrong for earlier_days' actual content (reflections). Moving facts into 进度层 has two costs. 进度层 is condensable under capacity pressure, while memory is not (prompt_capacity.py:1-10, verified). Per MAP contracts, 进度层 is also not stored in observation events. Either change can lose evidence."
+  },
+  {
+   "id": "C1",
+   "owner_claim": "Memory should be split into at least three groups: food, life, work.",
+   "current_reality": "No category field exists anywhere: not in requests, store records, events or layers. `ConclusionMemory.type` is psychological (commitment/goal/conflict/resolution/identity/routine/reflection); views are relationship or preference. Variety episodes: routine 138, preference 68, reflection 33, commitment 9, relationship 7. Every stay mixes 4–7 categories. Usable derivation signals exist: activity kind, goods category, `completion_effects.food`, workplace location kind, dingtalk. Edge cases: `office-eat-lunch` has no food signal, and 22 of 25 'goods' are dinner kits. Goal intent is null on 147/147 activities.",
+   "evidence": [
+    "src/worldmock/state/interaction/requests.py:451-490 (verified)",
+    "variety episodes.jsonl type/source counts (verified, gapcheck.py)",
+    "MAP taxonomy §1-2; MAP evidence §3: 79.6% of rounds fall in one clean class"
+   ],
+   "verdict": "missing_in_system",
+   "implication": "Derive the category deterministically from the activity, order or goods, preferably via an explicit catalog `domain` field. Subjective notes inherit the category of the activity they name (235/235 linkage). Reflections need multi-labels. Consider a fourth category, rest, or subtags."
+  },
+  {
+   "id": "C2",
+   "owner_claim": "Each category appends and compacts on its own.",
+   "current_reality": "There is one store (episodes.jsonl) with one consolidation over the last 30 unconsolidated entries, into one summary. The merge rule is same `type`, within 24h, bigram Jaccard ≥0.6. On a merge it keeps the old text and only bumps merge_count and time.",
+   "evidence": [
+    "src/worldmock/agents/memory/life_memory.py:240-262 (verified)",
+    "src/worldmock/agents/memory/life_memory_store.py:13-16,70-79,123-150 (verified)"
+   ],
+   "verdict": "missing_in_system",
+   "implication": "Per-category compaction means about 3–4 model calls a day instead of 1. Memory upkeep is currently about 1.4% of the $1.68 run cost. The merge key must include the category, and the merge should stop discarding new text."
+  },
+  {
+   "id": "G1",
+   "owner_claim": "Each event logged today gets one memory entry.",
+   "current_reality": "Today gets one entry per *ended session*. A session that crosses midnight is filed whole under the day it ends. 35–37% of the settled characters in 'today' happened the previous calendar day.",
+   "evidence": [
+    "src/worldmock/simulation_engine/observation/layers/memory_layer.py:105-111 (verified)",
+    "MAP evidence §2"
+   ],
+   "verdict": "differs",
+   "implication": "Key each entry to the local date of its round's end event, as the planner does at day_plan_inputs.py:109-115, not to the session."
+  },
+  {
+   "id": "G2",
+   "owner_claim": "Each of the last 3 days gets one entry.",
+   "current_reality": "earlier_days has one entry per date. The content is only reflections plus open orders, and there is no 3-day cap. The single 8000-char window deletes the oldest day's reflections first. Verified on the variety run: earlier_days is present in 112/141 requests before noon, 71/100 from 12:00–17:00, and only 21/169 after 17:00.",
+   "evidence": [
+    "src/worldmock/simulation_engine/observation/layers/memory_layer.py:36,225-237,320-336 (verified)",
+    "scratchpad/memgap/gapcheck2.py (verified counts)"
+   ],
+   "verdict": "partial",
+   "implication": "The day tier needs its own character budget. Otherwise a 3-day tier will be evicted every evening, just as reflections are now."
+  },
+  {
+   "id": "G3",
+   "owner_claim": "Each previous month gets one entry, each previous year gets one entry, and so on.",
+   "current_reality": "There are no month or year tiers. On the package calendar (09-28 → 10-28), a month tier fires once (Sept, 3 days) and a year tier never fires.",
+   "evidence": [
+    "MAP taxonomy §5 (DS config.toml:4-5)"
+   ],
+   "verdict": "missing_in_system",
+   "implication": "Low value for 30-day runs. Daily and weekly entries matter more; build month/year tiers only for longer runs."
+  },
+  {
+   "id": "S1",
+   "owner_claim": "Today's memories and the last 3 days' memories are sent to the LLM at the start of each round.",
+   "current_reality": "Mechanically this already happens. 记忆层 is rebuilt from the event log at every observation and frozen for the decision, so it is sent at the start of each round. But the content differs (rows M1, G1, G2), and the window empties earlier days by evening. In the layer order 工具层 comes before 记忆层; 工具层 changes on every request, so 记忆层 is never in the cached prefix.",
+   "evidence": [
+    "src/worldmock/simulation_engine/observation/layers/memory_layer.py:99-113 (verified)",
+    "src/worldmock/agents/prompt/life_prompt.py:144-156 (verified)",
+    "MAP evidence §4 cache analysis"
+   ],
+   "verdict": "partial",
+   "implication": "Place the stable tiers (D-1..D-3 and long-term) before the growing 'today' list, and reorder layers, so that per-round growth does not break prompt caching."
+  },
+  {
+   "id": "S2",
+   "owner_claim": "Everything else is reachable via search_memory(category, time).",
+   "current_reality": "Three tools exist: memory_recent(limit), memory_search(query, limit) and memory_time_range(start, end, limit). They are answered by the AS2 store over episodes.jsonl only. Search matches the query as one case-insensitive substring of each serialized record, newest first. Range returns the first N records in file order. Results are cut down to {type, text, time, epistemic_status}. Verified facts cannot be searched, and there is no category filter. Variety run: 2 searches, both returned [] (multi-word queries), even though 15 records contain 食材包.",
+   "evidence": [
+    "custom/agents/life_agent.py:95-140,169-195,665-683 (verified)",
+    "vendor/agentsociety2/packages/agentsociety2/agentsociety2/agent/memory.py:624-722 (verified)",
+    "variety episodes containing 食材包 = 15 (verified, gapcheck.py)"
+   ],
+   "verdict": "differs",
+   "implication": "Implement search_memory WorldMock-side in `_dispatch_strict_memory` over an index of category, day and tier covering both facts and notes. Avoid an AS2 patch. The tool-schema fingerprint changes, and the tests that pin ten tools must change too."
+  },
+  {
+   "id": "P1",
+   "owner_claim": "The system prompt explicitly teaches the model how to use the memory system for decisions.",
+   "current_reality": "There are 20 rules, pinned verbatim by a test. Memory appears only as fragments: '记忆层写此前经历' (:25-27), 'you may query memory before submitting' (:32), verified vs own thoughts (:75-78), queries are instant (:91), and the reply body lasts until the stay ends (:96-97). Each tool description is one line. Nothing explains the tiers, trimming, search semantics, or when to search. Memory-tool use: 1 of 406 decisions.",
+   "evidence": [
+    "src/worldmock/agents/prompt/life_prompt.py:21-99,122-124 (verified)",
+    "tests/unit/*/test_system_layer_text.py:105-110 (verified: exactly 20 rules)"
+   ],
+   "verdict": "missing_in_system",
+   "implication": "Add one rule covering the tiers, the categories, the verified/subjective split, and when to search, for example before choosing a meal or resuming work. Rules belong only in the system layer (06-agent.md:74). The prompt fingerprint changes."
+  },
+  {
+   "id": "X1",
+   "owner_claim": "(Target requirement the owner did not state) Each tier has a budget and an eviction policy.",
+   "current_reality": "There is one 8000-char window. Trimming deletes reflections first, then shrinks the oldest non-exempt today entry to its open lines. If the layer is still over, only a warning is logged.",
+   "evidence": [
+    "src/worldmock/simulation_engine/observation/layers/memory_layer.py:320-336 (verified)"
+   ],
+   "verdict": "missing_in_system",
+   "implication": "Set a budget for each tier and each category. A full-day today list is roughly 2.0–2.4k settled chars, or 8–12k with model summaries (MAP evidence §2)."
+  },
+  {
+   "id": "X2",
+   "owner_claim": "(Target requirement) The compaction output is recorded with provenance.",
+   "current_reality": "Recovery and replay read committed events and never regenerate them. The event types form a closed set of 14, and LabelKit-DataSet pins it. memory_updated has fixed operations (append_episodes, refresh_summary) and write points (activity_conclusion, reflection).",
+   "evidence": [
+    "MAP contracts §3-4 (memory_evidence.py:14,49-80; models.py:110-114; LabelKit export_source.py:150-152)"
+   ],
+   "verdict": "missing_in_system",
+   "implication": "Reuse memory_updated, adding a new write point or operation via WorldMock wrapping. A new call class bumps the quality schema."
+  }
+ ],
+ "hidden_mechanisms": [
+  {
+   "name": "Persona-layer preferences and relationship views as undated long-term memory",
+   "what_it_does": "Reads every successful conclude_activity across the whole run. Keeps the last view per exact `subject` string, with `noted_on` set to the latest write date. There is no expiry and no cap. The result is rendered in 人设层, not 记忆层. At the variety run's end it held 39 preferences mixing food, work and life, including near-duplicates such as 美式咖啡 and 冰美式咖啡.",
+   "evidence": [
+    "src/worldmock/simulation_engine/observation/layers/memory_layer.py:127-144 (verified)",
+    "src/worldmock/agents/prompt/life_persona.py:29-54 (verified)",
+    "MAP layers §5"
+   ],
+   "why_owner_should_know": "It is the only digested long-term memory that reaches the prompt today, and it is not categorised. The redesign must decide whether it becomes the keyed, per-category long-term store or is folded into the memory tiers."
+  },
+  {
+   "name": "Midnight planner's review of yesterday",
+   "what_it_does": "After the midnight advance, plan_day assembles yesterday 00:00→now: settled results, conclusion records marked as unverified self-reports, verified experiences, previous goals, in-transit orders and errands. Each section keeps its source event ids. It reads the full history every midnight. Its output is the day plan in 待办层.",
+   "evidence": [
+    "src/worldmock/simulation_engine/scheduling/plans/day_plan_inputs.py:77-115,217-247 (verified)"
+   ],
+   "why_owner_should_know": "This is already a deterministic daily review, with a clean 00:00 boundary. It is the natural input for a per-day, per-category compaction, and its output already 'feeds the next day', but as intentions rather than memory."
+  },
+  {
+   "name": "Bedtime reflection at first wake",
+   "what_it_does": "Runs before the first observation of a local day, about 8h after the midnight plan. It reads the last 30 subjective records, which cover about half of the prior day, writes 1–5 insights, files them to wake-date−1, and shows them in earlier_days.",
+   "evidence": [
+    "src/worldmock/simulation_engine/evidence/memory.py:13-34 (verified)",
+    "src/worldmock/agents/memory/life_memory.py:127-143,264-267 (verified)",
+    "custom/agents/life_agent.py:311-337 (verified)"
+   ],
+   "why_owner_should_know": "It is the closest thing to the owner's daily paragraph. It conflicts with a midnight compaction on timing, input and day boundary."
+  },
+  {
+   "name": "Threshold consolidation that nobody reads",
+   "what_it_does": "At the step tail it fires when the summed importance is ≥3 or there are ≥10 pending non-reflection entries. It rewrites a ≤4000-char subjective summary and MEMORY.md. `build_context` deliberately omits the summary, so no decision prompt sees it. Variety run: 31 calls; 153 of 294 memory_updated events are MEMORY.md re-renders with an empty trigger.",
+   "evidence": [
+    "src/worldmock/agents/memory/life_memory.py:29-31,79-92,94-125,202-262 (verified)",
+    "grep: no reader of subjective_summary/MEMORY.md outside life_memory.py, the run viewer and tools/analysis metrics"
+   ],
+   "why_owner_should_know": "It is an existing compaction call with a cost and an evidence trail but no consumer. It could be repurposed as the per-category compactor or removed. The analysis metric memory_md_identity_residue depends on MEMORY.md."
+  },
+  {
+   "name": "AS2 memory tools (subjective-only, substring search)",
+   "what_it_does": "memory_recent, memory_search and memory_time_range search only episodes.jsonl. Search treats the query as one literal substring of the record JSON. Range returns the first N records by a `time` field that merges can rewrite.",
+   "evidence": [
+    "vendor/agentsociety2/packages/agentsociety2/agentsociety2/agent/memory.py:636-722 (verified)",
+    "src/worldmock/agents/memory/life_memory_store.py:75-79 (verified: merge overwrites time)"
+   ],
+   "why_owner_should_know": "The owner's search_memory already has a weak predecessor. Both real searches in the evidence runs returned nothing because of its matching semantics."
+  },
+  {
+   "name": "Read-only Q&A snapshot",
+   "what_it_does": "Every life decision writes the 人设层 and 记忆层 to `life_prompt_snapshot.json` in the workspace. The read-only Q&A path answers from that snapshot with the memory tools plus `finish`.",
+   "evidence": [
+    "custom/agents/life_agent.py:486-487 (verified)",
+    "src/worldmock/agents/prompt/life_persona.py:72-84 (verified)",
+    "src/worldmock/agents/prompt/life_prompt.py:102-111,164-169 (verified)"
+   ],
+   "why_owner_should_know": "A new memory shape changes the snapshot and the read-only system layer too. MAP contracts found no production caller of the read-only path."
+  },
+  {
+   "name": "8000-char memory window trim order",
+   "what_it_does": "While the layer is over 8000 chars it deletes the oldest dated reflections first, then cuts the oldest non-exempt today entry down to its open lines. The latest ended session is exempt.",
+   "evidence": [
+    "src/worldmock/simulation_engine/observation/layers/memory_layer.py:36,320-336 (verified)",
+    "variety: earlier_days in 21/169 requests after 17:00 (verified, scratchpad/memgap/gapcheck2.py)"
+   ],
+   "why_owner_should_know": "This is why the persona has no 'last days' and no morning in its evening prompts. A last-3-days tier under the same window would vanish the same way."
+  },
+  {
+   "name": "Session-end-date rule for overnight stays",
+   "what_it_does": "A session ended today is filed whole under today, including the previous evening and the sleep. Only open order lines are re-dated by origin for earlier_days. While the home stay stays open, yesterday evening lives in 进度层.",
+   "evidence": [
+    "src/worldmock/simulation_engine/observation/layers/memory_layer.py:105-111,225-232 (verified)",
+    "MAP loop §1: 10-11 09:00 progress layer started 10-10 18:15"
+   ],
+   "why_owner_should_know": "The owner's 'today' and 'last 3 days' boundaries cannot be computed from sessions. The codebase uses four different day boundaries (memory layer, planner, reflection, plan_date)."
+  },
+  {
+   "name": "Same-second continuation assumes a constant 记忆层",
+   "what_it_does": "Same-second re-decisions carry the previous decision's messages and reasoning. The design says the 记忆层 and location do not change within a chain; chains break on a time or session change.",
+   "evidence": [
+    "src/worldmock/agents/protocol/life_continuation.py:1-11 (verified)",
+    "simulation_engine/decisions/continuation.py:74-88 (per MAP loop)"
+   ],
+   "why_owner_should_know": "Per-round memory entries would change the 记忆层 inside chains (103 same-second rounds per run). This needs a memory delta in `changes`, or chains break more often, which loses reasoning and cache hits."
+  },
+  {
+   "name": "Round text that never reaches memory",
+   "what_it_does": "The reply body (`self_note`), report_status summaries and query answers appear only in the 进度层 of the current session. Afterwards they are reachable only through recall_task_summary, which was used 0 times.",
+   "evidence": [
+    "src/worldmock/simulation_engine/observation/layers/progress_layer.py:130-138 (verified)",
+    "src/worldmock/agents/prompt/life_prompt.py:96-97 (verified)",
+    "docs/design/06-agent.md:265 (verified)"
+   ],
+   "why_owner_should_know": "If every round should become a memory entry, these are the texts that are lost today. About a third of rounds are report_status."
+  },
+  {
+   "name": "Identity, fingerprint and downstream gates",
+   "what_it_does": "The prompt SHA hashes both system layers plus LAYER_SCHEMAS. The tool-schema SHA hashes all tools. Both are frozen into model identity, and resume requires them to be identical. The event types are a closed set pinned by LabelKit-DataSet. Quality call classes are keyed by request shape.",
+   "evidence": [
+    "src/worldmock/agents/prompt/life_prompt.py:172-177 (verified)",
+    "MAP contracts §2-4 (setup.py:81-98, runner.py:276-290, export_source.py:20,150-152, quality.py:795-812)"
+   ],
+   "why_owner_should_know": "Any memory redesign is a new run identity: old runs cannot be resumed. New event kinds or schema bumps break LabelKit ingest until it is updated."
+  }
+ ],
+ "owner_model_ambiguities": [
+  {
+   "question": "What covers days 4–30, between the 3-day tier and the previous-month tier?",
+   "options": [
+    "Keep one entry per day permanently, searchable but not sent",
+    "Add an ISO-week rollup tier",
+    "Make 'month' a rolling 30-day window rather than a calendar month"
+   ],
+   "recommended": "Keep daily entries as a permanent searchable tier and add weekly rollups. Build month and year tiers only for runs longer than 30 days.",
+   "reason": "On the 30-day package calendar the month tier fires once and the year tier never fires. Without daily or weekly entries, 10-01..10-16 are unreachable on 10-20 (MAP taxonomy §5)."
+  },
+  {
+   "question": "Does 'every event logged today gets one entry' mean per round, per world request, per activity ending, or per event row?",
+   "options": [
+    "Per decision (round)",
+    "Per world request (start pairs count twice)",
+    "Per settled outcome (activity ending, purchase, delivery)",
+    "Per event row (≈10+ rows per decision)"
+   ],
+   "recommended": "Per decision: one deterministic fact line built from its settled outcomes plus the round's own summary. Collapse rounds that settled nothing and wrote nothing.",
+   "reason": "There are about 81 decisions per day but only 35–38 settled lines per day. Event rows include checkpoints and model calls, which are noise."
+  },
+  {
+   "question": "Which tools end a round: only start/pause/conclude, or also report_status, revise_day_plan and same-second re-decisions?",
+   "options": [
+    "The owner's narrow definition",
+    "The code's definition (any world request)"
+   ],
+   "recommended": "Adopt the code's definition and say explicitly that report_status rounds produce entries.",
+   "reason": "The code and the system prompt already define the decision this way. report_status is about 1/3 of decisions."
+  },
+  {
+   "question": "Is memory-today verified facts, subjective notes, or both?",
+   "options": [
+    "Facts only (progress)",
+    "Notes only",
+    "Both, each tagged with an epistemic status"
+   ],
+   "recommended": "In the 2x2, put verified facts on the progress axis and subjective notes on the memory axis. Each per-round entry may hold both, tagged.",
+   "reason": "The system prompt already teaches settled = verified and self_notes = own thoughts (life_prompt.py:75-78). The owner's complaint is exactly that the two are mixed."
+  },
+  {
+   "question": "How does the 2x2 map onto the existing six layers?",
+   "options": [
+    "记忆层 = memory-today + memory-longterm; 进度层 = progress-today for the whole day; 待办层 = progress-longterm",
+    "Keep the layers and re-split sections inside 记忆层",
+    "Add new layers"
+   ],
+   "recommended": "Use the first option. Move open orders into 待办层 and widen 进度层 from session to local day.",
+   "reason": "待办层 already holds paused activities, errands and the plan, which are progress-longterm. Caveat: 进度层 is condensable and is not stored in observation parts, so the evidence rules must move with the content."
+  },
+  {
+   "question": "How are subjective notes, reflections and mixed rounds categorised (lunch at the office, commute, office nap, cooking videos, the team dinner)?",
+   "options": [
+    "Inherit the category from the named activity",
+    "Have the model tag each note",
+    "Allow multiple labels"
+   ],
+   "recommended": "Inherit the category deterministically from the activity, order or goods via a catalog `domain` field. Give reflections the union of the categories they reference. Add a 'rest' category or subtags.",
+   "reason": "Conclude notes link to exactly one activity (235/235). Model tagging adds unverifiable output. 20% of activities are ambiguous under derived rules (MAP evidence §3)."
+  },
+  {
+   "question": "What does 'compact' mean for verified facts versus feelings?",
+   "options": [
+    "One model paragraph over everything",
+    "Deterministic rollup for facts plus a model paragraph for subjective notes",
+    "Facts never compacted, only searchable"
+   ],
+   "recommended": "Compact facts deterministically (meals, spend, work done, content), with no model call. Compact subjective notes with a recorded model call whose output is marked subjective.",
+   "reason": "A model must never rewrite verified facts (life_prompt.py:75-78; life_memory.py:243 rule '模型仅归纳主观 episode'). Replay must read recorded output and never regenerate it."
+  },
+  {
+   "question": "Which day boundary applies, and when does compaction run?",
+   "options": [
+    "At midnight, aligned with plan_day's 00:00 window",
+    "At first wake, aligned with reflection",
+    "At session end"
+   ],
+   "recommended": "Key entries to the local date of each round's end event and compact at the midnight advance, so plan_day can consume the result. Attach the wake reflection to that day afterwards.",
+   "reason": "Four boundaries currently disagree. The home session is still open at midnight, so a session-keyed rule fails."
+  },
+  {
+   "question": "Is 'last 3 days' measured in calendar days or in days that have entries for that category?",
+   "options": [
+    "Calendar days",
+    "The last 3 days with entries, per category"
+   ],
+   "recommended": "Calendar days for food and life; the last 3 days with entries for work.",
+   "reason": "On 10-08 the calendar window is 10-05..10-07, all holidays, so the last workday would be invisible (MAP taxonomy §5)."
+  },
+  {
+   "question": "Is 32 turns a requirement or a guess?",
+   "options": [
+    "Set 32",
+    "Keep 16"
+   ],
+   "recommended": "Keep 16 unless measured search behaviour shows it binding.",
+   "reason": "The observed maximum is 2 turns. Changing the default changes code and model identity."
+  },
+  {
+   "question": "Where do preferences and relationship views live in the target design?",
+   "options": [
+    "Stay in 人设层, undated",
+    "Move into per-category memory-longterm",
+    "Both: a keyed store rendered by category"
+   ],
+   "recommended": "Keep a keyed long-term store, but tag each item with a category and date and deduplicate near-duplicate subjects.",
+   "reason": "It is the only long-term memory in the prompt today, it has no categories, and it grows without bound."
+  }
+ ]
+}

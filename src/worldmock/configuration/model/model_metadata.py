@@ -59,21 +59,15 @@ def _get_metadata(url: str, secret: str) -> object:
 def _fetch_metadata(url: str, secret: str) -> object:
     """@brief 整次读取元数据（GET、状态与 JSON）；连接、超时、429 与 5xx 按固定间隔重试，至多五次；用尽或其他失败时
     写英文错误日志并抛出最后一次错误。"""
-    for tries, wait in enumerate(_METADATA_FETCH_WAITS, start=1):
+    for tries, wait in enumerate((*_METADATA_FETCH_WAITS, None), start=1):
         try:
             return _get_metadata(url, secret)
         except requests.RequestException as error:
-            if not _transient_metadata_error(error):
+            if wait is None or not _transient_metadata_error(error):
                 _LOGGER.error("Model metadata fetch failed after %d tries: %s", tries, type(error).__name__)
                 raise
             _LOGGER.warning("Model metadata fetch failed (%s); retrying in %.0f s", type(error).__name__, wait)
             time.sleep(wait)
-    try:
-        return _get_metadata(url, secret)
-    except requests.RequestException as error:
-        _LOGGER.error("Model metadata fetch failed after %d tries: %s", len(_METADATA_FETCH_WAITS) + 1,
-                      type(error).__name__)
-        raise
 
 
 def _transient_metadata_error(error: requests.RequestException) -> bool:

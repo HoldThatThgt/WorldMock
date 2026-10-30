@@ -8,11 +8,14 @@
 中文种类表只定义活动种类；出行方式的名称来自出行方式表，地点类型直接使用数据集声明的原文。
 环境层与显示写法模块 src/worldmock/footprints/display_wording.py 共用这些说法（docs/design/05-recording-engine.md）；
 表的英文键合成 ENGLISH_KIND_NAMES，质量报告据此检查时间线里有没有漏出英文种类名。
+
+今天条目的核验另用紧凑写法：金额与份数的数字后紧接单位（「18.3元」「1份」），时刻相对条目日期写「HH:MM」「昨HH:MM」或
+「M月D日HH:MM」；这几种写法也只在这里定义。
 """
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 
@@ -37,9 +40,10 @@ def local_date(epoch: int, timezone_name: str) -> str:
     return _local(epoch, timezone_name).date().isoformat()
 
 
-def local_day_start(epoch: int, timezone_name: str) -> int:
-    """@brief epoch 所在场景本地日期的零点时刻。"""
-    return int(_local(epoch, timezone_name).replace(hour=0, minute=0, second=0, fold=0).timestamp())
+def month_day_phrase(epoch: int, timezone_name: str) -> str:
+    """@brief 场景本地日期「M月D日」，月与日不补零，例如「10月10日」。"""
+    moment = _local(epoch, timezone_name)
+    return f"{moment.month}月{moment.day}日"
 
 
 def clock_phrase(epoch: int, now: int, timezone_name: str) -> str:
@@ -47,7 +51,17 @@ def clock_phrase(epoch: int, now: int, timezone_name: str) -> str:
     moment = _local(epoch, timezone_name)
     if moment.date() == _local(now, timezone_name).date():
         return f"{moment:%H:%M}"
-    return f"{moment.month}月{moment.day}日 {moment:%H:%M}"
+    return f"{month_day_phrase(epoch, timezone_name)} {moment:%H:%M}"
+
+
+def entry_clock(epoch: int, day: str, timezone_name: str) -> str:
+    """@brief 今天条目里的时刻：与条目日期 day 同一天写「HH:MM」，前一天写「昨HH:MM」，其余写「M月D日HH:MM」。"""
+    moment = _local(epoch, timezone_name)
+    if moment.date().isoformat() == day:
+        return f"{moment:%H:%M}"
+    if moment.date() == date.fromisoformat(day) - timedelta(days=1):
+        return f"昨{moment:%H:%M}"
+    return f"{month_day_phrase(epoch, timezone_name)}{moment:%H:%M}"
 
 
 def duration_phrase(seconds: float) -> str:
@@ -81,6 +95,16 @@ def money_phrase(fen: int) -> str:
 def portion_phrase(quantity: float) -> str:
     """@brief 份数写成「1 份」「0.25 份」。"""
     return f"{_decimal(quantity)} 份"
+
+
+def compact_money_phrase(fen: int) -> str:
+    """@brief 今天条目里的金额：至多两位小数、去掉末尾零，数字后紧接「元」，例如「18.3元」。"""
+    return f"{_decimal(fen / 100)}元"
+
+
+def compact_portion_phrase(quantity: float) -> str:
+    """@brief 今天条目里的份数：数字后紧接「份」，例如「1份」「0.5份」。"""
+    return f"{_decimal(quantity)}份"
 
 
 def count_phrase(count: int) -> str:

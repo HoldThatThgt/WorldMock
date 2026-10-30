@@ -5,7 +5,12 @@ from __future__ import annotations
 from worldmock.state.model.reflection import REFLECTION_TOOL
 from worldmock.state.model.truncation import RETRY_THINKING
 from worldmock.state.interaction.actions import START_TOOLS
-from worldmock.state.model.exchange import PLAN_DAY_PURPOSE, is_action_request, request_tool_names
+from worldmock.state.model.exchange import (
+    MEMORY_DIGEST_PURPOSE,
+    PLAN_DAY_PURPOSE,
+    is_action_request,
+    request_tool_names,
+)
 from worldmock.foundation.time.intervals import valid_interval, body_settlements
 from worldmock.recording_engine.events.memory_evidence import MEMORY_WRITE_POINTS
 from worldmock.state.model.memory import valid_subjective_snapshots
@@ -44,11 +49,11 @@ _MEMORY_ERROR_WORDS = ("memory", "memories", "views")
 #: 输出截断按用途分列时，无 purpose 的请求的分组名。
 _DECISION_PURPOSE = "decision"
 
-#: 模型调用按请求形状分的六类，model_usage.by_call_class 按这个次序逐类列出
+#: 模型调用按请求形状分的七类，model_usage.by_call_class 按这个次序逐类列出
 #: （docs/design/05-recording-engine.md「完整导出认证」）。
 CALL_CLASSES = ("fresh_decision_turn", "turn_with_history", "truncation_retry", "consolidation", "reflection",
-                "plan_day")
-#: 请求形状不属于六类、或终态响应没有对应请求事件的调用的分组名；只在出现时列在六类之后。
+                "plan_day", "memory_digest")
+#: 请求形状不属于七类、或终态响应没有对应请求事件的调用的分组名；只在出现时列在七类之后。
 _UNRECOGNIZED_CLASS = "unrecognized"
 #: 可计价响应按计价拆开的三种 token。
 _PRICED_TOKEN_KEYS = ("cache_hit_input_tokens", "cache_miss_input_tokens", "output_tokens")
@@ -69,8 +74,9 @@ _PRICING = {
 def build_quality_report(events: list[Event], activities: list[dict], manifest: dict, names: DisplayNames) -> dict:
     """@brief 汇总完成、异常、内容、效率、记忆、模型用量、实测加速比、当日目标、个人事务与收尾记忆、运行输入警告与输出截断。
 
-    报告结构 9（docs/design/05-recording-engine.md「完整导出认证」）：input_warnings.code_counts 的键恰为运行输入警告码
-    闭集的两个值；lineage 节报告父运行各段的结束原因与停机秒数。两个只报告分组 errand_metrics、conclusion_memories 紧随 day_plan_metrics；三者读同一份事件字典，
+    报告结构 10（docs/design/05-recording-engine.md「完整导出认证」）：input_warnings.code_counts 的键恰为运行输入警告码
+    闭集的两个值；lineage 节报告父运行各段的结束原因与停机秒数；调用类 memory_digest（日、月、年回顾）是结构号升到 10 的
+    原因。两个只报告分组 errand_metrics、conclusion_memories 紧随 day_plan_metrics；三者读同一份事件字典，
     按事件模型的 JSON 形状只构造一次。
 
     @param events 已经认证且按 event_seq 排序的完整事件。
@@ -83,7 +89,7 @@ def build_quality_report(events: list[Event], activities: list[dict], manifest: 
     _validate_inputs(events, activities, manifest)
     rows = [{**event.model_dump(mode="json"), "code_sha256": manifest.get("code_sha256")} for event in events]
     return {
-        "schema_version": 9,
+        "schema_version": 10,
         "run_id": manifest["run_id"],
         "source_group_id": manifest["source_group_id"],
         "event_range": {
@@ -389,6 +395,7 @@ def _memory_quality(events: list[Event], timezone_name: str) -> dict:
     写入点只有结束活动（activity_conclusion，对应同一决策已登记的 conclude_activity）与就寝反思（reflection，
     只凭事件独立重算：当天第一次睡醒、归属前一天、排在观察之前且只登记一次；
     docs/design/05-recording-engine.md「事件与来源」）。本地日按运行清单的窗口时区分。
+    就寝反思的登记只出现在本规格交付之前的历史运行里，新运行中为零。
     """
     state = {
         "known": defaultdict(set), "conclusions": {}, "requests": set(), "wakes": defaultdict(set),
@@ -430,7 +437,7 @@ def _inspect_conclusion_request(event: Event, state: dict) -> None:
 def _inspect_memory_response(event: Event, state: dict) -> None:
     """@brief 人物决策的结构化错误路径指向 memories 或 views 时记为记忆协议问题。
 
-    带 purpose 的系统请求（工作验收、零点计划 plan_day）不是记忆写入点，其响应错误不计入记忆问题。
+    带 purpose 的系统请求（工作验收、零点计划 plan_day、日月年回顾 memory_digest）不是记忆写入点，其响应错误不计入记忆问题。
     """
     if event.data.get("purpose"):
         return
@@ -477,7 +484,7 @@ def _inspect_sleep_wake(event: Event, state: dict) -> None:
 
 def _reflection_sourced(event: Event, key: tuple, state: dict) -> bool:
     """@brief 就寝反思登记的来源只凭事件重算：有对应的睡醒、是当天第一次睡醒、归属前一天、排在本决策的观察之前，
-    并且该人物在这一时刻只登记这一次。"""
+    并且该人物在这一时刻只登记这一次。就寝反思的登记只出现在本规格交付之前的历史运行里，新运行中为零。"""
     filed, moment = event.data.get("reflection"), (event.agent_id, event.occurred_at)
     repeated = moment in state["reflected"]
     state["reflected"].add(moment)
@@ -591,7 +598,8 @@ def _valid_memory_update_payload(data: dict) -> bool:
 
 
 def _valid_update_binding(data: dict) -> bool:
-    """@brief 来源观察与就寝反思归属二选一：步尾登记绑定非空的观察，反思登记的观察为空并带归属日期与所属睡眠。"""
+    """@brief 来源观察与就寝反思归属二选一：步尾登记绑定非空的观察，反思登记的观察为空并带归属日期与所属睡眠。
+    就寝反思的登记只出现在本规格交付之前的历史运行里，新运行中为零。"""
     observation, filed = data.get("observation_event_id"), data.get("reflection")
     if filed is None:
         return isinstance(observation, str) and bool(observation)
@@ -617,10 +625,11 @@ def _add_memory_problem(state: dict, code: str, event_id: str, agent_id: Any, re
 def _model_quality(events: list[Event]) -> dict:
     """@brief 去重调用身份，累计提供商实报 token 并估算公开标价成本。"""
     requests = [event for event in events if event.event_type == "model_request"]
-    request_times = {event.data["call_id"]: event.recorded_at for event in requests
-                     if isinstance(event.data.get("call_id"), str)}
-    classes = {event.data["call_id"]: _call_class(event.data) for event in requests
-               if isinstance(event.data.get("call_id"), str)}
+    request_classes = [_call_class(event.data) for event in requests]
+    identified = [(event, name) for event, name in zip(requests, request_classes)
+                  if isinstance(event.data.get("call_id"), str)]
+    request_times = {event.data["call_id"]: event.recorded_at for event, _ in identified}
+    classes = {event.data["call_id"]: name for event, name in identified}
     terminals: dict[str, list[Event]] = defaultdict(list)
     for event in events:
         if event.event_type == "model_response" and isinstance(event.data.get("call_id"), str):
@@ -631,7 +640,7 @@ def _model_quality(events: list[Event]) -> dict:
              if isinstance(event.data.get("response"), dict)]
     reported = [item for item in usage if item["tokens"] is not None]
     estimated = [item for item in usage if item["estimated_cost_usd"] is not None]
-    request_ids = {event.data.get("call_id") for event in requests if isinstance(event.data.get("call_id"), str)}
+    request_ids = set(classes)
     terminal_ids = set(terminals)
     failures = sum(event.data.get("phase") == "failure" for event in selected)
     pending = sorted(request_ids - terminal_ids)
@@ -650,7 +659,7 @@ def _model_quality(events: list[Event]) -> dict:
         "token_usage": _aggregate_tokens(usage, reported, missing_responses + len(pending)),
         "estimated_cost": _aggregate_cost(usage, estimated, missing_responses, pending),
         "by_actual_model": _usage_by_model(usage),
-        "by_call_class": _usage_by_call_class(requests, usage),
+        "by_call_class": _usage_by_call_class(request_classes, usage),
         "pricing_snapshot": _PRICING,
     }
 
@@ -793,12 +802,15 @@ def _usage_by_model(usage: list[dict]) -> list[dict]:
 
 def _call_class(data: dict) -> str:
     """@brief 一次模型调用的类，只凭它的 model_request 事件判定，不读响应里的请求副本：purpose 为 plan_day 是零点计划；
-    没有 purpose 时，行动请求（decision_start.is_action_request）消息恰为 system、user 两条是新决策回合，更多是带历史的
-    回合；工具含 start_main_activity 且思考开关是截断重试的那一个（life_truncation.RETRY_THINKING）是截断重试；不带
-    工具是记忆巩固；工具恰为 submit_reflection 是就寝反思；其余为 unrecognized。"""
+    purpose 为 memory_digest 是日、月、年回顾；没有 purpose 时，行动请求（decision_start.is_action_request）消息恰为
+    system、user 两条是新决策回合，更多是带历史的回合；工具含 start_main_activity 且思考开关是截断重试的那一个
+    （life_truncation.RETRY_THINKING）是截断重试；不带工具是记忆巩固；工具恰为 submit_reflection 是就寝反思；其余为
+    unrecognized。就寝反思与记忆巩固的请求只出现在本规格交付之前的历史运行里，新运行中为零。"""
     purpose, request = data.get("purpose"), data.get("request")
     if purpose == PLAN_DAY_PURPOSE:
         return "plan_day"
+    if purpose == MEMORY_DIGEST_PURPOSE:
+        return "memory_digest"
     if purpose is not None or not isinstance(request, dict):
         return _UNRECOGNIZED_CLASS
     if is_action_request(request):
@@ -819,10 +831,10 @@ def _message_roles(request: dict) -> list:
     return [message.get("role") if isinstance(message, dict) else None for message in messages]
 
 
-def _usage_by_call_class(requests: list[Event], usage: list[dict]) -> list[dict]:
-    """@brief 按调用类分列：六类按 CALL_CLASSES 次序总是列出，unrecognized 只在出现时列在最后；每类给出请求事件数、
+def _usage_by_call_class(request_classes: list[str], usage: list[dict]) -> list[dict]:
+    """@brief 按调用类分列：七类按 CALL_CLASSES 次序总是列出，unrecognized 只在出现时列在最后；每类给出请求事件数、
     提供商响应数、已知 token、可计价响应按计价拆开的 token、峰时占比与估算成本。"""
-    counts = Counter(_call_class(event.data) for event in requests)
+    counts = Counter(request_classes)
     groups: dict[str, list[dict]] = defaultdict(list)
     for item in usage:
         groups[item["call_class"]].append(item)

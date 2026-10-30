@@ -20,8 +20,8 @@ from worldmock.simulation_engine.activities.lifecycle.activity_control import PH
 _REASON = ("Submit one world request, start_main_activity together with start_side_activity, "
            "or a batch containing only read queries.")
 _FIX = "Submit one world request, the two start tools together, or only read queries."
-_RECENT = ("memory_recent", {"limit": 1})
-_SEARCH = ("memory_search", {"query": "休息", "limit": 1})
+_RECENT = ("search_memory", {"category": "全部", "time": "今天", "keyword": None})
+_SEARCH = ("search_memory", {"category": "生活", "time": "全部", "keyword": "休息"})
 _REPORT = ("report_status", _control_args("report_status", _WAIT))
 _MAIN = (MAIN_TOOL, _WAIT_CHOICE)
 _SIDE = (SIDE_TOOL, _WORK_CHOICE)
@@ -45,7 +45,7 @@ def test_three_legal_batch_shapes_pass(calls):
     """全部是只读查询；恰好一个世界请求；两个开始工具各一次，先后不限。"""
     feedback, offered = _feedback(*calls)
     assert feedback == ""
-    assert offered[:2] == [MAIN_TOOL, SIDE_TOOL] and len(offered) == 10 and "start_activity" not in offered
+    assert offered[:2] == [MAIN_TOOL, SIDE_TOOL] and len(offered) == 8 and "start_activity" not in offered
 
 
 @pytest.mark.parametrize("calls", [

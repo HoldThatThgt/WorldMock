@@ -1,0 +1,742 @@
+{
+ "run": "V",
+ "decisions": 406,
+ "same_second_chain": 103,
+ "replay_requests": 101,
+ "types": {
+  "conclude": 137,
+  "report_status": 124,
+  "start_only": 77,
+  "purchase_start": 19,
+  "start_pair_only": 12,
+  "report_status+settled": 12,
+  "start+body": 11,
+  "query_start": 6,
+  "rejected_only": 5,
+  "start+settled": 2,
+  "start_pair+body": 1
+ },
+ "chain_types": {
+  "start_pair+body": 1,
+  "start_pair_only": 12,
+  "start_only": 66,
+  "query_start": 6,
+  "rejected_only": 3,
+  "purchase_start": 9,
+  "start+body": 6
+ },
+ "per_day": {
+  "2026-10-08": {
+   "all": 81,
+   "fresh": 67,
+   "prim:生活": 30,
+   "any:生活": 36,
+   "chain": 14,
+   "prim:工作": 35,
+   "any:工作": 35,
+   "prim:饮食": 16,
+   "any:饮食": 19,
+   "mixed": 9
+  },
+  "2026-10-09": {
+   "all": 84,
+   "fresh": 61,
+   "prim:生活": 28,
+   "any:生活": 32,
+   "chain": 23,
+   "prim:饮食": 18,
+   "any:饮食": 23,
+   "mixed": 9,
+   "prim:工作": 38,
+   "any:工作": 38
+  },
+  "2026-10-10": {
+   "all": 83,
+   "fresh": 62,
+   "prim:生活": 32,
+   "any:生活": 35,
+   "chain": 21,
+   "prim:工作": 35,
+   "any:工作": 35,
+   "prim:饮食": 16,
+   "any:饮食": 20,
+   "mixed": 7
+  },
+  "2026-10-11": {
+   "all": 69,
+   "fresh": 48,
+   "prim:生活": 59,
+   "any:生活": 62,
+   "chain": 21,
+   "prim:饮食": 10,
+   "any:饮食": 13,
+   "mixed": 6
+  },
+  "2026-10-12": {
+   "all": 89,
+   "fresh": 65,
+   "prim:生活": 30,
+   "any:生活": 32,
+   "chain": 24,
+   "prim:工作": 43,
+   "any:工作": 43,
+   "prim:饮食": 16,
+   "any:饮食": 20,
+   "mixed": 6
+  }
+ },
+ "mixed_category_entries": 37,
+ "fact_kinds": {
+  "start": 128,
+  "natural_end": 80,
+  "end": 41,
+  "purchase": 19,
+  "delivery": 19,
+  "query": 6,
+  "rejection": 5,
+  "errand_change": 1,
+  "errand_done": 1
+ },
+ "category_rules_used": {
+  "1": 9,
+  "6": 52,
+  "7": 20,
+  "4": 8,
+  "5": 23,
+  "2": 6,
+  "0": 4,
+  "3": 5
+ },
+ "windows_with_n_ends": {
+  "0": 282,
+  "1": 121,
+  "2": 3
+ },
+ "receipts_items": {
+  "1": 34,
+  "2": 4
+ },
+ "len_verify_compact": {
+  "n": 406,
+  "median": 9.0,
+  "p90": 33,
+  "max": 89,
+  "mean": 13.1
+ },
+ "len_verify_compact_nonzero": {
+  "n": 282,
+  "median": 16.0,
+  "p90": 36,
+  "max": 89,
+  "mean": 18.9
+ },
+ "len_verify_current_forms": {
+  "n": 406,
+  "median": 0.0,
+  "p90": 70,
+  "max": 188,
+  "mean": 24.2
+ },
+ "len_verify_current_nonzero": {
+  "n": 157,
+  "median": 50,
+  "p90": 105,
+  "max": 188,
+  "mean": 62.5
+ },
+ "verify_current_over120": 11,
+ "verify_compact_over120": 0,
+ "verify_compact_over_60": 2,
+ "len_self_visible": {
+  "n": 406,
+  "median": 92.0,
+  "p90": 197,
+  "max": 355,
+  "mean": 93.4
+ },
+ "len_self_all_incl_routine": {
+  "n": 406,
+  "median": 115.0,
+  "p90": 219,
+  "max": 409,
+  "mean": 109.6
+ },
+ "len_combined_visible": {
+  "n": 406,
+  "median": 102.5,
+  "p90": 213,
+  "max": 388,
+  "mean": 106.5
+ },
+ "len_combined_incl_routine": {
+  "n": 406,
+  "median": 123.5,
+  "p90": 250,
+  "max": 475,
+  "mean": 122.7
+ },
+ "over120_visible": 173,
+ "over120_incl_routine": 207,
+ "over120_by_type": {
+  "conclude": 90,
+  "report_status": 74,
+  "report_status+settled": 9
+ },
+ "type_counts_and_combined": {
+  "start+body": {
+   "n": 11,
+   "median": 44,
+   "p90": 51,
+   "max": 66,
+   "mean": 43.7
+  },
+  "conclude": {
+   "n": 137,
+   "median": 154,
+   "p90": 286,
+   "max": 388,
+   "mean": 167.7
+  },
+  "start_pair+body": {
+   "n": 1,
+   "median": 36,
+   "p90": 36,
+   "max": 36,
+   "mean": 36.0
+  },
+  "report_status": {
+   "n": 124,
+   "median": 132.5,
+   "p90": 190,
+   "max": 236,
+   "mean": 132.0
+  },
+  "start_pair_only": {
+   "n": 12,
+   "median": 11.0,
+   "p90": 21,
+   "max": 21,
+   "mean": 12.6
+  },
+  "purchase_start": {
+   "n": 19,
+   "median": 36,
+   "p90": 60,
+   "max": 89,
+   "mean": 36.1
+  },
+  "report_status+settled": {
+   "n": 12,
+   "median": 148.5,
+   "p90": 193,
+   "max": 266,
+   "mean": 150.1
+  },
+  "start_only": {
+   "n": 77,
+   "median": 6,
+   "p90": 11,
+   "max": 18,
+   "mean": 6.8
+  },
+  "query_start": {
+   "n": 6,
+   "median": 6.0,
+   "p90": 10,
+   "max": 47,
+   "mean": 13.5
+  },
+  "start+settled": {
+   "n": 2,
+   "median": 18.5,
+   "p90": 23,
+   "max": 23,
+   "mean": 18.5
+  },
+  "rejected_only": {
+   "n": 5,
+   "median": 27,
+   "p90": 33,
+   "max": 33,
+   "mean": 25.8
+  }
+ },
+ "modes_rule_a": {
+  "fit": 233,
+  "cut": 168,
+  "dropped": 5
+ },
+ "modes_rule_b": {
+  "fit": 233,
+  "cut": 162,
+  "dropped": 11
+ },
+ "fact_len_compact_vs_current": {
+  "start": {
+   "compact": {
+    "n": 128,
+    "median": 6.0,
+    "p90": 17,
+    "max": 31,
+    "mean": 8.7
+   },
+   "current": {
+    "n": 128,
+    "median": 0.0,
+    "p90": 0,
+    "max": 0,
+    "mean": 0.0
+   }
+  },
+  "natural_end": {
+   "compact": {
+    "n": 80,
+    "median": 19.0,
+    "p90": 27,
+    "max": 60,
+    "mean": 21.3
+   },
+   "current": {
+    "n": 80,
+    "median": 47.0,
+    "p90": 56,
+    "max": 86,
+    "mean": 49.0
+   }
+  },
+  "end": {
+   "compact": {
+    "n": 41,
+    "median": 33,
+    "p90": 40,
+    "max": 42,
+    "mean": 32.4
+   },
+   "current": {
+    "n": 41,
+    "median": 95,
+    "p90": 122,
+    "max": 133,
+    "mean": 90.4
+   }
+  },
+  "purchase": {
+   "compact": {
+    "n": 19,
+    "median": 31,
+    "p90": 36,
+    "max": 48,
+    "mean": 32.3
+   },
+   "current": {
+    "n": 19,
+    "median": 50,
+    "p90": 61,
+    "max": 98,
+    "mean": 55.5
+   }
+  },
+  "delivery": {
+   "compact": {
+    "n": 19,
+    "median": 9,
+    "p90": 18,
+    "max": 21,
+    "mean": 11.8
+   },
+   "current": {
+    "n": 19,
+    "median": 43,
+    "p90": 52,
+    "max": 81,
+    "mean": 46.6
+   }
+  },
+  "query": {
+   "compact": {
+    "n": 6,
+    "median": 30.5,
+    "p90": 31,
+    "max": 31,
+    "mean": 30.5
+   },
+   "current": {
+    "n": 6,
+    "median": 37.5,
+    "p90": 38,
+    "max": 38,
+    "mean": 37.5
+   }
+  },
+  "rejection": {
+   "compact": {
+    "n": 5,
+    "median": 27,
+    "p90": 33,
+    "max": 33,
+    "mean": 25.8
+   },
+   "current": {
+    "n": 5,
+    "median": 0,
+    "p90": 0,
+    "max": 0,
+    "mean": 0.0
+   }
+  },
+  "errand_change": {
+   "compact": {
+    "n": 1,
+    "median": 15,
+    "p90": 15,
+    "max": 15,
+    "mean": 15.0
+   },
+   "current": {
+    "n": 1,
+    "median": 0,
+    "p90": 0,
+    "max": 0,
+    "mean": 0.0
+   }
+  },
+  "errand_done": {
+   "compact": {
+    "n": 1,
+    "median": 13,
+    "p90": 13,
+    "max": 13,
+    "mean": 13.0
+   },
+   "current": {
+    "n": 1,
+    "median": 19,
+    "p90": 19,
+    "max": 19,
+    "mean": 19.0
+   }
+  }
+ },
+ "self_len_by_kind": {
+  "body": {
+   "n": 30,
+   "median": 38.0,
+   "p90": 53,
+   "max": 55,
+   "mean": 35.6,
+   "total": 1068
+  },
+  "summary": {
+   "n": 140,
+   "median": 93.5,
+   "p90": 150,
+   "max": 218,
+   "mean": 100.0,
+   "total": 14004
+  },
+  "routine": {
+   "n": 138,
+   "median": 46.0,
+   "p90": 60,
+   "max": 86,
+   "mean": 47.6,
+   "total": 6573
+  },
+  "memory": {
+   "n": 22,
+   "median": 52.5,
+   "p90": 63,
+   "max": 66,
+   "mean": 52.6,
+   "total": 1158
+  },
+  "report": {
+   "n": 158,
+   "median": 108.0,
+   "p90": 176,
+   "max": 236,
+   "mean": 112.6,
+   "total": 17783
+  },
+  "view": {
+   "n": 76,
+   "median": 52.0,
+   "p90": 65,
+   "max": 78,
+   "mean": 51.6,
+   "total": 3922
+  }
+ },
+ "self_survival_rule_a": {
+  "body": {
+   "whole": 19,
+   "cut": 2,
+   "left_out": 9
+  },
+  "summary": {
+   "whole": 64,
+   "cut": 74,
+   "left_out": 2
+  },
+  "memory": {
+   "left_out": 22
+  },
+  "report": {
+   "whole": 75,
+   "cut": 80,
+   "left_out": 3
+  },
+  "view": {
+   "cut": 12,
+   "left_out": 64
+  }
+ },
+ "self_survival_rule_b": {
+  "body": {
+   "whole": 24,
+   "cut": 2,
+   "left_out": 4
+  },
+  "summary": {
+   "whole": 49,
+   "cut": 89,
+   "left_out": 2
+  },
+  "memory": {
+   "cut": 16,
+   "whole": 1,
+   "left_out": 5
+  },
+  "report": {
+   "whole": 68,
+   "cut": 90
+  },
+  "view": {
+   "whole": 25,
+   "cut": 49,
+   "left_out": 2
+  }
+ },
+ "today_size_at_decision_rule_a": {
+  "n": 406,
+  "median": 4640.0,
+  "p90": 8608,
+  "max": 10703,
+  "mean": 4722.7
+ },
+ "today_size_at_decision_rule_b": {
+  "n": 406,
+  "median": 4671.0,
+  "p90": 8678,
+  "max": 10799,
+  "mean": 4749.9
+ },
+ "today_size_at_decision_line_form": {
+  "n": 406,
+  "median": 3621.0,
+  "p90": 6809,
+  "max": 8525,
+  "mean": 3710.4
+ },
+ "today_max_at_any_decision": {
+  "a": [
+   10703,
+   "2026-10-12 23:52:57",
+   88
+  ],
+  "b": [
+   10799,
+   "2026-10-12 23:52:57",
+   88
+  ],
+  "line": [
+   8525,
+   "2026-10-12 23:52:57",
+   88
+  ]
+ },
+ "day_end_list": {
+  "2026-10-08": {
+   "entries": 81,
+   "rendered_rule_a": 9053,
+   "rendered_rule_b": 9064,
+   "rendered_line_form": 7041,
+   "text_chars_capped": 5803,
+   "rendered_uncapped_visible": 9802,
+   "key_overhead_rule_a": 3250,
+   "entries_by_primary_category": {
+    "生活": 30,
+    "工作": 35,
+    "饮食": 16
+   },
+   "text_chars_by_primary_category": {
+    "饮食": 1329,
+    "工作": 2640,
+    "生活": 1834
+   },
+   "report_status_entries": 30,
+   "report_status_rendered": 3797,
+   "start_only_rendered": 567,
+   "closing_facts_for_this_day": 0,
+   "crossing_lines": [
+    "23:45 开始睡觉，跨过零点"
+   ]
+  },
+  "2026-10-09": {
+   "entries": 84,
+   "rendered_rule_a": 9673,
+   "rendered_rule_b": 9737,
+   "rendered_line_form": 7616,
+   "text_chars_capped": 6365,
+   "rendered_uncapped_visible": 11345,
+   "key_overhead_rule_a": 3308,
+   "entries_by_primary_category": {
+    "生活": 28,
+    "饮食": 18,
+    "工作": 38
+   },
+   "text_chars_by_primary_category": {
+    "饮食": 1208,
+    "工作": 3225,
+    "生活": 1932
+   },
+   "report_status_entries": 30,
+   "report_status_rendered": 4433,
+   "start_only_rendered": 806,
+   "closing_facts_for_this_day": 0,
+   "crossing_lines": [
+    "22:58 开始睡觉，跨过零点"
+   ]
+  },
+  "2026-10-10": {
+   "entries": 83,
+   "rendered_rule_a": 10134,
+   "rendered_rule_b": 10220,
+   "rendered_line_form": 8063,
+   "text_chars_capped": 6820,
+   "rendered_uncapped_visible": 13733,
+   "key_overhead_rule_a": 3314,
+   "entries_by_primary_category": {
+    "生活": 32,
+    "工作": 35,
+    "饮食": 16
+   },
+   "text_chars_by_primary_category": {
+    "饮食": 1234,
+    "工作": 3223,
+    "生活": 2363
+   },
+   "report_status_entries": 27,
+   "report_status_rendered": 4100,
+   "start_only_rendered": 812,
+   "closing_facts_for_this_day": 0,
+   "crossing_lines": [
+    "23:30 开始睡觉，跨过零点"
+   ]
+  },
+  "2026-10-11": {
+   "entries": 69,
+   "rendered_rule_a": 7944,
+   "rendered_rule_b": 8002,
+   "rendered_line_form": 6201,
+   "text_chars_capped": 5173,
+   "rendered_uncapped_visible": 10545,
+   "key_overhead_rule_a": 2771,
+   "entries_by_primary_category": {
+    "生活": 59,
+    "饮食": 10
+   },
+   "text_chars_by_primary_category": {
+    "饮食": 800,
+    "工作": 0,
+    "生活": 4373
+   },
+   "report_status_entries": 18,
+   "report_status_rendered": 2565,
+   "start_only_rendered": 846,
+   "closing_facts_for_this_day": 0,
+   "crossing_lines": [
+    "22:08 开始睡觉，跨过零点"
+   ]
+  },
+  "2026-10-12": {
+   "entries": 89,
+   "rendered_rule_a": 10742,
+   "rendered_rule_b": 10838,
+   "rendered_line_form": 8541,
+   "text_chars_capped": 7215,
+   "rendered_uncapped_visible": 14290,
+   "key_overhead_rule_a": 3527,
+   "entries_by_primary_category": {
+    "生活": 30,
+    "工作": 43,
+    "饮食": 16
+   },
+   "text_chars_by_primary_category": {
+    "饮食": 1125,
+    "工作": 3807,
+    "生活": 2283
+   },
+   "report_status_entries": 31,
+   "report_status_rendered": 4725,
+   "start_only_rendered": 764,
+   "closing_facts_for_this_day": 0,
+   "crossing_lines": []
+  }
+ },
+ "per_entry_rendered_overhead_mean": 38.8,
+ "entry_rendered_size": {
+  "n": 406,
+  "median": 143.0,
+  "p90": 163,
+  "max": 170,
+  "mean": 116.1
+ },
+ "closing_entries": {},
+ "rule_b_head_sensitivity": {
+  "30": {
+   "whole": 7,
+   "cut": 67,
+   "left_out": 2
+  },
+  "40": {
+   "whole": 25,
+   "cut": 49,
+   "left_out": 2
+  },
+  "50": {
+   "whole": 16,
+   "cut": 57,
+   "left_out": 3
+  },
+  "60": {
+   "cut": 64,
+   "whole": 6,
+   "left_out": 6
+  }
+ },
+ "whatif_report_status_cap60_day_rendered": {
+  "2026-10-08": 8038,
+  "2026-10-09": 8265,
+  "2026-10-10": 8846,
+  "2026-10-11": 7222,
+  "2026-10-12": 9198
+ },
+ "chain_new_entries_visible": {
+  "decisions": 103,
+  "entries": {
+   "n": 103,
+   "median": 1,
+   "p90": 1,
+   "max": 2,
+   "mean": 1.0
+  },
+  "rendered_chars": {
+   "n": 103,
+   "median": 162,
+   "p90": 170,
+   "max": 234,
+   "mean": 155.9
+  }
+ }
+}

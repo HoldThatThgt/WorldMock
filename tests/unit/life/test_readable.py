@@ -2,7 +2,7 @@
 
 时刻字段是带时区偏移、秒精度的 ISO 8601；日期是场景本地日期；短语里的时刻是本地 HH:MM，跨日加「M月D日 」；时长不到一分钟
 写「不到 1 分钟」，不足一小时按分钟取整，一小时以上按半小时取整；金额以元、份数都至多两位小数并去掉末尾的零；数字与单位
-之间一个空格。
+之间一个空格。今天条目的核验另用紧凑写法：数字后紧接「元」「份」，时刻相对条目日期写「HH:MM」「昨HH:MM」或「M月D日HH:MM」。
 """
 
 from __future__ import annotations
@@ -12,7 +12,10 @@ from zoneinfo import ZoneInfo
 
 from worldmock.foundation.time.readable import (
     clock_phrase,
+    compact_money_phrase,
+    compact_portion_phrase,
     duration_phrase,
+    entry_clock,
     iso_time,
     local_date,
     money_phrase,
@@ -58,6 +61,23 @@ def test_money_and_portion_phrases_keep_at_most_two_decimals() -> None:
         "32 元", "32.5 元", "32.55 元", "0.05 元", "0 元"]
     assert [portion_phrase(quantity) for quantity in (1, 0.25, 0.2, 1 / 3, 2.0, 0)] == [
         "1 份", "0.25 份", "0.2 份", "0.33 份", "2 份", "0 份"]
+
+
+def test_compact_money_and_portion() -> None:
+    """今天条目里的金额与份数：至多两位小数、去掉末尾的零，数字后紧接「元」「份」，中间没有空格。"""
+    assert [compact_money_phrase(fen) for fen in (1830, 2176, 1700)] == ["18.3元", "21.76元", "17元"]
+    assert [compact_portion_phrase(quantity) for quantity in (1, 0.5)] == ["1份", "0.5份"]
+
+
+def test_entry_clock_is_relative_to_the_entry_day() -> None:
+    """条目里的时刻只相对条目日期写：同一天「HH:MM」，前一天「昨HH:MM」，更早或之后「M月D日HH:MM」（不补零、没有空格）；
+    跨月的前一天同样写「昨」。"""
+    day = "2026-01-05"
+    assert entry_clock(_epoch(2026, 1, 5, 8, 50), day, ZONE) == "08:50"
+    assert entry_clock(_epoch(2026, 1, 4, 22, 8), day, ZONE) == "昨22:08"
+    assert entry_clock(_epoch(2026, 1, 3, 23, 0), day, ZONE) == "1月3日23:00"
+    assert entry_clock(_epoch(2026, 1, 6, 0, 20), day, ZONE) == "1月6日00:20"
+    assert entry_clock(_epoch(2026, 1, 31, 23, 40), "2026-02-01", ZONE) == "昨23:40"
 
 
 def test_count_phrase_for_the_callable_index() -> None:

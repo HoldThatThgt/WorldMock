@@ -35,7 +35,7 @@ from tests.integration.runtime.test_life_agent_protocol import (
     _prepared,
     _wire_agent,
 )
-from tests.integration.runtime.test_strict_reflection import _waking_decision
+from tests.integration.host_run_fixtures import waking_decision
 from tests.engine_fixture import engine_factory  # noqa: F401
 from tests.life.conftest import MAIN_TOOL, SIDE_TOOL
 from worldmock.agents.prompt import prompt_capacity
@@ -87,18 +87,19 @@ async def test_evidence_write_failure_stops_with_structured_stage():
 
 @pytest.mark.asyncio
 async def test_tool_service_failure_points_to_real_call_without_claiming_execution(monkeypatch, caplog):
-    """第二个合法查询服务异常保留真实下标，不声称已取得数据；先留一条带异常链的英文 error 日志，再按失败阶段码上抛
-    （docs/design/10-runtime.md ）。"""
+    """第二个合法检索在环境 read_query 处服务异常，保留真实下标，不声称已取得数据；先留一条带异常链的英文 error 日志，
+    再按失败阶段码上抛（docs/design/10-runtime.md ）。"""
     person, environment = _prepared(), _Environment()
     _wire_agent(person, environment, None, 4)
-    decisions = [ReactDecision("", "memory_recent", {"limit": 1}, "", f"call-{index}") for index in range(2)]
+    arguments = {"category": "全部", "time": "今天", "keyword": None}
+    decisions = [ReactDecision("", "search_memory", arguments, "", f"call-{index}") for index in range(2)]
     assert person.validate_react_decisions(decisions, False) == ""
     injected = OSError("query store unavailable")
 
-    async def fail(action, args, *, readonly=False):
+    async def fail(context, tool, request):
         raise injected
 
-    monkeypatch.setattr(person, "dispatch_react_tool", fail)
+    monkeypatch.setattr(environment, "read_query", fail)
     with caplog.at_level(logging.ERROR), pytest.raises(RuntimeError) as failure:
         await person._execute_react_tool(decisions[1])
     feedback = failure.value.args[0]
@@ -108,7 +109,7 @@ async def test_tool_service_failure_points_to_real_call_without_claiming_executi
     assert environment.calls == []
     records = [record for record in caplog.records if record.getMessage().startswith("LifeAgent tool dispatch failed")]
     assert [(record.levelno, record.getMessage()) for record in records] == [
-        (logging.ERROR, "LifeAgent tool dispatch failed: memory_recent")]
+        (logging.ERROR, "LifeAgent tool dispatch failed: search_memory")]
     assert records[0].exc_info[1] is injected
 
 
@@ -180,7 +181,7 @@ async def test_tool_service_failure_on_the_real_engine_is_logged_and_raised_with
     TOOL_SERVICE_FAILED 反馈，原因是注入的异常对象；库里只多出观察、decision_started 与一对模型请求与响应，没有
     action_requested，也没有 memory_updated。"""
     _fixed_context_window(monkeypatch)
-    run = await _waking_decision(engine_factory, tmp_path, note=None)
+    run = await waking_decision(engine_factory, tmp_path, note=None)
     injected = OSError("environment actor unavailable")
 
     async def fail(call):
@@ -213,7 +214,7 @@ async def test_model_service_failure_on_the_real_engine_is_logged_once_and_rerai
     该次模型证据以 failure 阶段记下 MODEL_SERVICE_FAILED；库里只多出观察、decision_started、模型请求与这条失败证据，
     没有世界请求，也没有 memory_updated。"""
     _fixed_context_window(monkeypatch)
-    run = await _waking_decision(engine_factory, tmp_path, note=None)
+    run = await waking_decision(engine_factory, tmp_path, note=None)
     injected = OSError("model transport unavailable")
 
     async def fail(**request):
@@ -254,7 +255,7 @@ async def test_tool_service_failure_of_any_exception_type_is_logged_and_raised_w
     TOOL_SERVICE_FAILED 反馈，原因是注入的异常对象（没有把原异常原样漏出去）；库里只多出观察、decision_started 与一对
     模型请求与响应，没有 action_requested，也没有 memory_updated。"""
     _fixed_context_window(monkeypatch)
-    run = await _waking_decision(engine_factory, tmp_path, note=None)
+    run = await waking_decision(engine_factory, tmp_path, note=None)
     assert not isinstance(injected, (OSError, RuntimeError))
 
     async def fail(call):
@@ -298,7 +299,7 @@ async def test_evidence_write_failure_of_the_footprint_store_is_raised_with_its_
     之前已写入的事件。"""
     _fixed_context_window(monkeypatch)
     model_calls, kept = _EVIDENCE_FAILURES[failure_phase]
-    run = await _waking_decision(engine_factory, tmp_path, note=None)
+    run = await waking_decision(engine_factory, tmp_path, note=None)
     injected = sqlite3.OperationalError("database is locked")
     record, call, requests = run.environment.record_model_exchange, run.model.call, []
 

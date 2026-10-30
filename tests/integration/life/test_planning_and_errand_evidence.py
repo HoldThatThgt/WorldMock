@@ -8,6 +8,7 @@ from datetime import timedelta
 import pytest
 
 from tests.life.conftest import (
+    advance_next,
     advance_until_ready,
     conclude_request,
     do_at,
@@ -15,7 +16,8 @@ from tests.life.conftest import (
     errand_update,
     plan_day_response,
     purchase,
-    settle_day_plans,
+    query,
+    settle_midnight_tasks,
     stage_errands,
     travel,
     use_app,
@@ -107,10 +109,15 @@ def test_control_updates_and_cancels_open_errands_with_one_request_cause(engine_
 
 
 def test_plan_inputs_read_verified_travel_without_changing_world_or_store(engine_factory):
+    """到了公司开始上班、再推进一个边界之后取计划输入：到达在生成时刻之前（回顾时段不含生成时刻那一秒），经历里有这段
+    步行；读取不改世界、不写事件。"""
     engine = engine_factory()
     _, departure = act(engine, "actual-travel", travel("公司"))
     assert departure.status == "in_progress"
     finish_activity(engine, departure, "arrived-office")
+    _, work = act(engine, "work", do_at("公司", "季度销售数据整理"))
+    assert work.status == "in_progress", work.error_code
+    advance_next(engine)
     before = engine.context.state.model_dump(mode="json")
     event_sequence = engine.context.store.last_event_seq
     planned = plan_inputs(engine.context, engine.observations, engine.midnight_rhythm_pending, 1)
@@ -175,9 +182,12 @@ async def test_invalid_reminder_uses_only_its_validation_budget_and_retains_corr
 def test_plan_inputs_word_app_use_and_location_activities_like_the_timeline(engine_factory, tmp_path):
     """用完 app、在地点做完一件事和一个系列之后，零点计划读到的内容经历句是「<起>–<止> 使用哔哩哔哩《……》」「<起>–<止>
     在家：测试休息」「<起>–<止> 在家：做晚饭《<集>》」，系列逐集一句；不再写「进行《……》」。同一天的到达句与收货句
-    照旧。"""
+    照旧。回顾时段不含生成时刻那一秒，所以收货之后先在店里查一次商品、推进一个边界再取计划输入。"""
     engine = engine_factory(environment_root=_dinner_environment(tmp_path))
     titles = _lived_day(engine)
+    _, looked = act(engine, "look", query("纸巾"))
+    assert looked.status == "in_progress", looked.error_code
+    advance_next(engine)
     planned = plan_inputs(engine.context, engine.observations, engine.midnight_rhythm_pending, 1)
     sentences = [sentence for sentence, _ in planned.experiences]
     assert [sentence for sentence in sentences if "到了" in sentence or "收到" in sentence] == _arrival_and_receipt(engine)
@@ -212,7 +222,7 @@ def test_midnight_plan_request_carries_the_same_experience_sentences(engine_fact
     planned = plan_inputs(engine.context, engine.observations, True, 1)
     expected = [sentence for sentence, _ in planned.experiences]
     assert _content_tails(expected)
-    settle_day_plans(engine)
+    settle_midnight_tasks(engine)
     [request] = [row for row in events(engine, "model_request") if row.data.get("purpose") == "plan_day"]
     payload = json.loads(request.data["request"]["messages"][1]["content"])
     assert payload["已核验经历"] == expected

@@ -1,0 +1,150 @@
+{
+ "V": {
+  "run": "V",
+  "decisions": 406,
+  "fresh": 305,
+  "chain": 101,
+  "per_day": {
+   "2026-10-08": 81,
+   "2026-10-09": 84,
+   "2026-10-10": 83,
+   "2026-10-11": 69,
+   "2026-10-12": 89
+  },
+  "fresh_per_day": {
+   "2026-10-08": 67,
+   "2026-10-09": 62,
+   "2026-10-10": 63,
+   "2026-10-11": 48,
+   "2026-10-12": 65
+  },
+  "classes": {
+   "conclude_activity|facts|nonote": 130,
+   "conclude_activity|facts|note": 7,
+   "rejected|nofacts|nonote": 5,
+   "report_status|facts|nonote": 10,
+   "report_status|facts|note": 2,
+   "report_status|nofacts|nonote": 121,
+   "report_status|nofacts|note": 3,
+   "start|facts|nonote": 7,
+   "start|facts|note": 1,
+   "start|nofacts|nonote": 103,
+   "start|nofacts|note": 17
+  },
+  "raw_entry_chars": {
+   "median": 127.0,
+   "p90": 258,
+   "max": 421,
+   "mean": 122.1
+  },
+  "entries_over_120": 215,
+  "verified_only_over_120": 2,
+  "nfacts_dist": {
+   "0": 249,
+   "1": 127,
+   "2": 28,
+   "3": 2
+  },
+  "stated_only_over_120": 163,
+  "empty_entries": 108,
+  "day_chars_capped120": {
+   "2026-10-08": 9610,
+   "2026-10-09": 10211,
+   "2026-10-10": 10284,
+   "2026-10-11": 8148,
+   "2026-10-12": 11030
+  },
+  "day_chars_uncapped": {
+   "2026-10-08": 11015,
+   "2026-10-09": 12791,
+   "2026-10-10": 15037,
+   "2026-10-11": 11805,
+   "2026-10-12": 15727
+  },
+  "chain_runs": {
+   "1": 95,
+   "2": 3
+  },
+  "midnight_split_windows": 3,
+  "stated_items": {
+   "n": 426,
+   "over_120": 108,
+   "median": 78.5,
+   "max": 238
+  }
+ },
+ "B": {
+  "run": "B",
+  "decisions": 409,
+  "fresh": 309,
+  "chain": 100,
+  "per_day": {
+   "2026-10-08": 84,
+   "2026-10-09": 80,
+   "2026-10-10": 79,
+   "2026-10-11": 85,
+   "2026-10-12": 81
+  },
+  "fresh_per_day": {
+   "2026-10-08": 62,
+   "2026-10-09": 63,
+   "2026-10-10": 60,
+   "2026-10-11": 62,
+   "2026-10-12": 62
+  },
+  "classes": {
+   "conclude_activity|facts|nonote": 135,
+   "conclude_activity|facts|note": 2,
+   "pause_activity|nofacts|nonote": 1,
+   "rejected|nofacts|nonote": 2,
+   "report_status|facts|nonote": 12,
+   "report_status|nofacts|nonote": 133,
+   "revise_day_plan|nofacts|nonote": 1,
+   "start|facts|nonote": 2,
+   "start|facts|note": 2,
+   "start|nofacts|nonote": 106,
+   "start|nofacts|note": 13
+  },
+  "raw_entry_chars": {
+   "median": 112,
+   "p90": 241,
+   "max": 377,
+   "mean": 111.2
+  },
+  "entries_over_120": 177,
+  "verified_only_over_120": 6,
+  "nfacts_dist": {
+   "0": 256,
+   "1": 126,
+   "2": 21,
+   "3": 6
+  },
+  "stated_only_over_120": 114,
+  "empty_entries": 109,
+  "day_chars_capped120": {
+   "2026-10-08": 9548,
+   "2026-10-09": 10013,
+   "2026-10-10": 9841,
+   "2026-10-11": 9988,
+   "2026-10-12": 9999
+  },
+  "day_chars_uncapped": {
+   "2026-10-08": 11193,
+   "2026-10-09": 12125,
+   "2026-10-10": 12294,
+   "2026-10-11": 12954,
+   "2026-10-12": 13788
+  },
+  "chain_runs": {
+   "1": 96,
+   "2": 2
+  },
+  "midnight_split_windows": 3,
+  "stated_items": {
+   "n": 422,
+   "over_120": 57,
+   "median": 77.5,
+   "max": 211
+  }
+ }
+}

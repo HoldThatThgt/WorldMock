@@ -19,7 +19,7 @@ flowchart LR
 
 模型服务的 metadata_url 必须与实际 base_url 属于同一服务，模型唯一匹配且容量满足声明。
 模型、预算、实际元数据、阶段参数与框架源码身份共同冻结；恢复逐项核对，不用静态容量估计。
-生成请求与后台日计划、反思共用相同 dispatcher 和冻结身份，输出纠错是独立逻辑请求。
+生成请求与零点的日计划、回顾共用相同 dispatcher 和冻结身份，输出纠错是独立逻辑请求。
 停放与单次发送整次期限的规则归[配置](08-configuration.md)。
 AgentSociety2 worker 任务在自己的事件循环结束之前，关闭并移出本循环在 LiteLLM 客户端缓存里的异步客户端；环境 actor 在 LifeEnv
 关闭时做同样的事，在 Ray 结束 actor 之前完成。
@@ -57,7 +57,7 @@ run、resume、replay 成功后写 `result.json`，其中 `token_stats` 是数�
 - `wall_time.last_event_age_seconds`：最后一条事件距今秒数。
 
 墙钟在 `running` 与 `waiting_for_model` 时止于此刻，失联时止于最后一次心跳，其余止于最后一条事件。首末事件按主键读取。
-心跳新鲜而最后一条事件很旧，表示驱动还在、环境或模型调用很慢；零点计划的请求与响应一起落盘，它的停放显示为 running。
+心跳新鲜而最后一条事件很旧，表示驱动还在、环境或模型调用很慢；零点计划与回顾的请求与响应一起落盘，它们的停放显示为 running。
 判断只看心跳的新旧，`pid` 只作参考：Windows 上探测进程会结束它。
 
 写文件：原子写在 Windows 上遇到拒绝访问（同步或杀毒软件短暂占用目标）按 0.05 秒起倍增的八个间隔重试，共约 13 秒，
@@ -65,7 +65,7 @@ run、resume、replay 成功后写 `result.json`，其中 `token_stats` 是数�
 
 运维日志：`logs/ops-*.jsonl` 只用于定位长运行问题，不参与审计：模型往来记录 `MODEL_EXCHANGE` 带证据写入耗时 `commit_ms`；
 另有传输等待 `MODEL_TRANSPORT_WAIT`（失败发送数、累计等待毫秒数与最后的错误链）、协议拒绝 `MODEL_PROTOCOL_REJECTED`（响应
-阶段带协议纠错时的错误码）与零点计划调用耗时 `PLAN_DAY_CALL`。
+阶段带协议纠错时的错误码）与零点计划调用耗时 `PLAN_DAY_CALL`、回顾调用耗时 `MEMORY_DIGEST_CALL`。
 
 用户通过 `--environment` 显式指定完整环境根，删除 `--scenario` 生活运行输入和地图生成命令。
 环境验证、导出和状态查询使用原有公开入口；独立行为分析由仓库工具读取事实。
@@ -76,19 +76,15 @@ run、resume、replay 成功后写 `result.json`，其中 `token_stats` 是数�
 
 ## 原生模型与工具
 
-十个原生工具的清单、批次形状、七层提示、最后回合只读查询控制、原生 tool_calls 纠错和截断纠正归[人物](06-agent.md)，
+八个原生工具的清单、批次形状、七层提示、最后回合只读查询控制、原生 tool_calls 纠错和截断纠正归[人物](06-agent.md)，
 两个开始工具 start_main_activity、start_side_activity 的参数与受理归[模拟引擎](04-simulation-engine.md)。
-工具定义指纹覆盖全部十个原生工具。
+工具定义指纹覆盖全部八个原生工具。
 LifeEnv 再次核验请求、人物身份、已提交版本和观察时刻。环境为每条开始调用登记一条动作，一个决策至多两条，
 两条结果都落库；AgentSociety2 的决策轮核对要求环境对每个人物恰好返回一条结果，
 所以环境只向框架返回该决策第一条动作的结果，AS2 补丁不改。原生 Society 的当前时钟接口与生活绝对时钟一致，
 只读查询不代替模型活动、不消耗世界随机流。
 
-Life 扩展通道在锁定的 AgentSociety2 之上只加只读方法，环境代理、环境 actor 子类、LifeEnv 与生活引擎各有一个同名的薄转发，
-AS2 补丁不改。通道上有两个方法：`read_query` 回答回看任务（`recall_task_summary`）；`due_reflection` 以本次决策的上下文为参，
-先做上下文校验并要求决策轮已开启，返回空或 `{"date": "YYYY-MM-DD", "sleep_activity_id": "..."}`，
-不写事件、不改世界。AS2 的人物步骤是先跑决策循环、后做记忆收尾；「先反思、再做当天第一次决策」在宿主一侧实现：
-LifeAgent 在取观察之前调用 `due_reflection`，判定与登记见[人物](06-agent.md)和[记录引擎](05-recording-engine.md)。
+Life 扩展通道在锁定的 AgentSociety2 之上只加一个只读方法 `read_query`，环境代理与环境 actor 子类各有一个同名的薄转发，LifeEnv 按工具名把它交给生活引擎的 `read_task_summary` 或 `search_memory`，AS2 补丁不改。`read_query` 回答回看任务（`recall_task_summary`）与检索记忆（`search_memory`），只接受这两个工具名与各自的请求类型，别的组合是协议错误；回答只读本次决策冻结观察所在事件序号及以前的事件，不写事件、不改世界。LifeEnv 在 init 时核对人物侧的只读查询工具集等于这份白名单。
 
 模型服务也可以是开发工具在本机起的录音应答服务（`scripts/recorded_response_run.py`）。它从运行冻结的输入素材复原一份输入，只把 config.toml 的 `base_url` 与 `metadata_url` 改到 127.0.0.1，凭据变量给占位值，真实密钥不进入子进程；运行代码不为它留任何入口或开关。
 

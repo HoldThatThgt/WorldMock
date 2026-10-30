@@ -189,8 +189,7 @@ def test_protocol_feedback_is_persisted_in_next_model_request(_engine_factory): 
         assert "error" not in feedback
         first_names = {item["function"]["name"] for item in events[0].data["request"]["tools"]}
         second_names = {item["function"]["name"] for item in events[2].data["request"]["tools"]}
-        assert "memory_recent" in first_names
-        assert second_names == {"finish"}
+        assert first_names == second_names == {"finish"}
         assert all("Authoritative" not in event.data["request"]["messages"][0]["content"]
                    for event in (events[0], events[2]))
         assert [event for event in list(reopened.iter_events(reopened.last_event_seq))

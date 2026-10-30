@@ -1,4 +1,4 @@
-"""@brief 零点计划只读人物声明、当前上班安排、真实经历与结果、主观收尾、个人事务和本人在途订单。"""
+"""@brief 零点计划只读人物声明、当前上班安排、真实经历与结果、主观收尾、个人事务和本人在途订单。回顾时段按左闭右开的本地日窗口取（docs/design/04-simulation-engine.md「归日」）。"""
 
 from __future__ import annotations
 
@@ -9,12 +9,16 @@ from zoneinfo import ZoneInfo
 
 from worldmock.recording_engine.projections.activities.experiences import project_verified_experiences
 from worldmock.recording_engine.events.models import Event
+from worldmock.foundation.time.readable import local_date
+from worldmock.simulation_engine.observation.memory.days import DayWindow, day_window
 from worldmock.simulation_engine.scheduling.plans import errands
 from worldmock.simulation_engine.observation.layers import progress_layer
+from worldmock.simulation_engine.observation.layers import todo_layer
 from worldmock.configuration.persona import work_schedule
 from worldmock.state.interaction.control_items import control_items
 from worldmock.simulation_engine.scheduling.plans.day_planning import SELF_REPORT_NOTE, plan_date
 from worldmock.simulation_engine.observation.wording.settled_text import (
+    EMPTY_KIT_TRACK,
     ActivityFacts,
     activity_endings,
     app_progress,
@@ -23,6 +27,7 @@ from worldmock.simulation_engine.observation.wording.settled_text import (
     pause_intervals,
     record_lines,
     tool_record,
+    track_kits,
 )
 
 @dataclass(frozen=True, slots=True)
@@ -32,32 +37,6 @@ class PlanInputs:
     payload: dict[str, Any]
     experiences: tuple[tuple[str, str], ...]
     sources: tuple[str, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class _Window:
-    """@brief 回顾时段（start 至 end）与场景时区。"""
-
-    start: int
-    end: int
-    timezone: str
-
-    def covers(self, epoch: int) -> bool:
-        """@brief 动作结果、收尾与交付的发生时刻是否落在回顾时段内（闭区间）。"""
-        return self.start <= epoch <= self.end
-
-    def ends_within(self, epoch: int) -> bool:
-        """@brief 结算区间的结束时刻是否落在回顾时段内（左开右闭：起点那一刻结束的区间属于前一日）。"""
-        return self.start < epoch <= self.end
-
-    def clock(self, epoch: int) -> str:
-        """@brief 本地时刻 HH:MM。"""
-        return f"{datetime.fromtimestamp(epoch, ZoneInfo(self.timezone)):%H:%M}"
-
-    def when(self, epoch: int) -> str:
-        """@brief 人读日期时刻「M月D日 HH:MM」。"""
-        local = datetime.fromtimestamp(epoch, ZoneInfo(self.timezone))
-        return f"{local.month}月{local.day}日 {local:%H:%M}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,26 +72,35 @@ def plan_inputs(context: Any, observations: Any, midnight_pending: bool, agent_i
     local = datetime.fromtimestamp(state.current_time, ZoneInfo(zone))
     payload = {
         "计划日期": plan_date(state.current_time, zone),
-        "生成时刻": f"{window.when(state.current_time)}（{work_schedule.WEEKDAY_NAMES[local.weekday()]}）",
-        "回顾时段": f"{window.when(window.start)} 至 {window.when(window.end)}",
+        "生成时刻": f"{_when(window, state.current_time)}（{work_schedule.WEEKDAY_NAMES[local.weekday()]}）",
+        "回顾时段": f"{_when(window, window.start)} 至 {_when(window, window.end)}",
         "人物": _persona(context, agent_id),
         "上班安排": _duty_arrangement(context, agent_id),
         "动作结果": results,
         "收尾记录": conclusions,
         "个人事务": errands.plan_rows(agent, _product_names(context), zone),
-        "在途订单": _pending_orders(context, agent_id, window),
+        "在途订单": _open_order_rows(context, agent_id, window),
         "上一天的目标": goals,
     }
     return PlanInputs(payload, experiences, (*result_sources, *conclusion_sources, *goal_sources))
 
 
-def _review_window(now: int, timezone_name: str, midnight_boundary: bool) -> _Window:
-    """@brief 回顾时段：零点边界（midnight_pending）回顾刚结束的前一日，自前一日零点至 now；
-    启动路径（新建、恢复与反事实分支）回顾生成时刻所在本地日中生成时刻之前的部分，起点恰为零点时为空时段。
-    """
-    local = datetime.fromtimestamp(now - 1 if midnight_boundary else now, ZoneInfo(timezone_name))
-    start = local.replace(hour=0, minute=0, second=0, microsecond=0, fold=0)
-    return _Window(int(start.timestamp()), now, timezone_name)
+def _review_window(now: int, timezone_name: str, midnight_boundary: bool) -> DayWindow:
+    """@brief 回顾时段：零点边界回顾刚结束的前一日，运行开始、恢复与分支回顾生成时刻所在本地日中生成时刻之前的部分；
+    都是左闭右开的本地日窗口（docs/design/04-simulation-engine.md「归日」），起点恰为零点时为空时段。"""
+    day = local_date(now - 1 if midnight_boundary else now, timezone_name)
+    return DayWindow(day, day_window(day, timezone_name).start, now, timezone_name)
+
+
+def _clock(window: DayWindow, epoch: int) -> str:
+    """@brief 本地时刻 HH:MM。"""
+    return f"{datetime.fromtimestamp(epoch, ZoneInfo(window.timezone)):%H:%M}"
+
+
+def _when(window: DayWindow, epoch: int) -> str:
+    """@brief 人读日期时刻「M月D日 HH:MM」。"""
+    local = datetime.fromtimestamp(epoch, ZoneInfo(window.timezone))
+    return f"{local.month}月{local.day}日 {local:%H:%M}"
 
 
 def _persona(context: Any, agent_id: int) -> dict[str, Any]:
@@ -154,7 +142,7 @@ def _duty_arrangement(context: Any, agent_id: int) -> dict[str, Any] | None:
 
 
 def _experience_sentences(
-    context: Any, observations: Any, agent_id: int, history: _AgentHistory, window: _Window
+    context: Any, observations: Any, agent_id: int, history: _AgentHistory, window: DayWindow
 ) -> tuple[tuple[str, str], ...]:
     """@brief 回顾时段里已核验经历的确定性句子（settled_text 的共享写法），按时间顺序，带来源事件身份；
     事件取自本次计划共用的一次读取。"""
@@ -166,15 +154,16 @@ def _experience_sentences(
     return tuple(
         (experience_sentence(context, fact), fact["source_event_id"])
         for fact in facts
-        if window.ends_within(fact["occurred_at"])
+        if window.contains(fact["occurred_at"])
     )
 
 
 def _result_sentences(
-    context: Any, observations: Any, agent_id: int, history: _AgentHistory, window: _Window
+    context: Any, observations: Any, agent_id: int, history: _AgentHistory, window: DayWindow
 ) -> tuple[list[str], list[str]]:
     """@brief 本人已结算的公开动作结果与送达，写成 settled 句（与记忆层同一共享句式，不含身份）：下单、
-    送达，以及在回顾时段内结束的活动（按结束事件，起止含已恢复的暂停区间）；失败的请求与其余工具不写。
+    送达，以及在回顾时段内结束的活动（按结束事件，起止含已恢复的暂停区间，开始时用掉食材包状态的带完整式食材包句）；
+    失败的请求与其余工具不写。
     事件取自本次计划共用的一次读取。"""
     context = observations._layer_context(context.state.agents[agent_id], [])
     outcomes = history.results
@@ -185,14 +174,14 @@ def _result_sentences(
     rows: list[tuple[int, str, str]] = []
     for request in history.requests:
         result = results.get(request.action_id)
-        if result is None or result.visibility != "agent" or not window.covers(result.occurred_at):
+        if result is None or result.visibility != "agent" or not window.contains(result.occurred_at):
             continue
         rows.extend(
             (result.event_seq, text, result.event_id)
             for text in record_lines(context, tool_record(context, request), [request, result])
         )
     for event in environment:
-        if event.data.get("kind") == "delivery_arrival" and window.covers(event.occurred_at):
+        if event.data.get("kind") == "delivery_arrival" and window.contains(event.occurred_at):
             rows.extend(
                 (event.event_seq, line, event.event_id)
                 for item in progress_layer._delivery_records(context, event)
@@ -200,10 +189,11 @@ def _result_sentences(
             )
     progress = history.progress
     endings = activity_endings([*progress, *environment, *outcomes])
-    facts = ActivityFacts(pause_intervals(environment), endings, app_progress(progress, {}))
+    facts = ActivityFacts(pause_intervals(environment), endings, app_progress(progress, {}),
+                          track_kits(environment, outcomes, EMPTY_KIT_TRACK, context.catalog.kit_states()).uses)
     rows.extend(
         (event.event_seq, text, event.event_id)
-        for event, text in ending_lines(context, facts, lambda event: window.covers(event.occurred_at))
+        for event, text in ending_lines(context, facts, lambda event: window.contains(event.occurred_at))
     )
     rows.sort(key=lambda item: item[0])
     return [text for _, text, _ in rows], [source for _, _, source in rows]
@@ -214,7 +204,7 @@ def _place(context: Any, location_id: str) -> str:
     return context.catalog.locations[location_id].display_name
 
 
-def _conclusion_records(history: _AgentHistory, window: _Window) -> tuple[list[dict], list[str]]:
+def _conclusion_records(history: _AgentHistory, window: DayWindow) -> tuple[list[dict], list[str]]:
     """@brief 回顾时段里已受理的 conclude_activity 请求逐项记下的 summary 与记忆原文（人物自述，未经核验；经 control_items
     读出，每项先普通记忆、后看法与偏好）。
 
@@ -230,13 +220,13 @@ def _conclusion_records(history: _AgentHistory, window: _Window) -> tuple[list[d
         if (
             event.data.get("tool_name") != "conclude_activity"
             or event.action_id not in completed
-            or not window.covers(event.occurred_at)
+            or not window.contains(event.occurred_at)
         ):
             continue
         for item in control_items("conclude_activity", event.data["request"]):
             records.append(
                 {
-                    "时间": window.clock(event.occurred_at),
+                    "时间": _clock(window, event.occurred_at),
                     "活动": item.activity_name,
                     "收尾说明": item.summary,
                     "想记住的": [memory["text"] for memory in item.memories],
@@ -256,21 +246,20 @@ def _product_names(context: Any) -> dict[str, str]:
 
 
 
-def _pending_orders(context: Any, agent_id: int, window: _Window) -> list[dict[str, Any]]:
-    """@brief 在途订单及预计送达（state.deliveries 中本人待交付的订单）。"""
+def _open_order_rows(context: Any, agent_id: int, window: DayWindow) -> list[dict[str, Any]]:
+    """@brief 在途订单及预计送达：本人已付款、还没收到的订单（含已到驿站待领取的），与待办层 orders 同一个选择。"""
     return [
         {
             "商品": context.catalog.goods[item.goods_id].name,
             "数量": item.quantity,
-            "预计送达": window.when(item.expected_at),
+            "预计送达": _when(window, item.expected_at),
             "送到": _place(context, item.destination_id),
         }
-        for item in sorted(context.state.deliveries.values(), key=lambda value: (value.expected_at, value.order_id))
-        if item.agent_id == agent_id and item.status == "pending"
+        for item in todo_layer.open_orders(context.state, agent_id)
     ]
 
 
-def _previous_goals(history: _AgentHistory, window: _Window) -> tuple[list[dict], list[str]]:
+def _previous_goals(history: _AgentHistory, window: DayWindow) -> tuple[list[dict], list[str]]:
     """@brief 上一天目标的推进情况：回顾时段结束于本次零点时，取该日计划最后一份快照（含末段推进）；
     事件取自本次计划共用的一次读取。"""
     snapshots = []

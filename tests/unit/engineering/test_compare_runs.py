@@ -129,8 +129,9 @@ class Recording:
         request = {"model": "test-model", "messages": [{"role": "system", "content": "你是测试人物。"}],
                    "max_tokens": 100}
         rows = [
-            ("observation", T0, 1, [], {"summary": "开始", "memory_layer": {"earlier_today": [
-                {"recorded_at": T0 - 600, "text": "早饭"}]}}),
+            ("observation", T0, 1, [], {"summary": "开始", "memory_layer": {
+                "layer": "记忆层", "可查": {"最早日期": "2026-01-05"}, "近三天": {"饮食": [], "工作": [], "生活": []},
+                "今天": [{"时刻": "07:50", "类别": "生活", "核验": ["早饭"]}]}}),
             ("checkpoint_created", T0, None, [], {"checkpoint_id": self.cid(2)}),
             ("decision_started", T0, 1, [], {"round_id": f"{self.run_id}:round:{T0}"}),
             ("model_request", T0, 1, [], {"request": request}),
@@ -310,12 +311,54 @@ def test_event_and_checkpoint_ids_and_wall_clock_are_mapped_or_masked(tmp_path):
     assert report["masks"]["event:recorded_at"] == 16
 
 
-def test_nested_recorded_at_is_compared(tmp_path):
+def test_nested_simulated_time_is_compared(tmp_path):
     head = Recording()
-    _event(head, "observation")["data"]["memory_layer"]["earlier_today"][0]["recorded_at"] = T0 - 300
+    _event(head, "observation")["data"]["memory_layer"]["今天"][0]["时刻"] = "07:55"
     report = _compare(tmp_path, Recording(), head)
     assert report["verdict"] == "different"
-    assert ".data.memory_layer.earlier_today[0].recorded_at" in _paths(report)
+    assert ".data.memory_layer.今天[0].时刻" in _paths(report)
+
+
+def test_a_nested_key_named_like_a_wall_clock_mask_is_compared(tmp_path):
+    base, head = Recording(), Recording()
+    _event(base, "activity_progress")["data"]["recorded_at"] = "2026-10-15T09:00:00+00:00"
+    _event(head, "activity_progress")["data"]["recorded_at"] = "2026-10-16T09:00:00+00:00"
+    report = _compare(tmp_path, base, head)
+    assert report["verdict"] == "different"
+    assert ".data.recorded_at" in _paths(report)
+
+
+def _digests(recording: Recording, source: str, cited: str) -> None:
+    """@brief 在进度事件的 data.digests 里写一份回顾形状：饮食一类带两种身份列表，工作与生活为 null。"""
+    _event(recording, "activity_progress")["data"]["digests"] = {
+        "food": {"text": "早饭吃了包子。", "source_event_ids": [source], "cited_event_ids": [cited]},
+        "work": None, "life": None}
+
+
+def test_memory_digest_references_follow_event_identity(tmp_path):
+    base, head = Recording(), Recording(prefix="b")
+    _digests(base, base.eid(4), base.eid(5))
+    _digests(head, head.eid(4), head.eid(5))
+    report = _compare(tmp_path, base, head)
+    assert report["verdict"] == "equal", _paths(report)
+    assert report["problems"] == []
+
+
+def test_memory_digest_reference_to_another_event_is_a_difference(tmp_path):
+    """头一侧回顾的 source_event_ids 指向别的事件是差异、没有 problem；指向未知事件时报 REFERENCE_NOT_AN_ID。"""
+    base, head = Recording(), Recording(prefix="b")
+    _digests(base, base.eid(4), base.eid(5))
+    _digests(head, head.eid(3), head.eid(5))
+    report = _compare(tmp_path / "other", base, head)
+    assert report["verdict"] == "different"
+    assert ".data.digests.food.source_event_ids[0]" in _paths(report)
+    assert ".data.digests.food.cited_event_ids[0]" not in _paths(report)
+    assert report["problems"] == []
+    _digests(head, "f" * 32, head.eid(5))
+    report = _compare(tmp_path / "unknown", base, head)
+    assert report["verdict"] == "different"
+    assert {"kind": "REFERENCE_NOT_AN_ID", "id_kind": "event", "side": "head",
+            "path": ".data.digests.food.source_event_ids[0]", "value": "f" * 32} in report["problems"]
 
 
 def test_a_reference_to_another_event_is_a_difference(tmp_path):

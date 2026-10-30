@@ -1,4 +1,4 @@
-"""失败发送只进入证据信封，决策、记忆与日计划的供应商响应保持原样；之后由已存响应重建的提示与没有失败发送时逐字节相同。"""
+"""失败发送只进入证据信封，决策、记忆、日计划与回顾的供应商响应保持原样；之后由已存响应重建的提示与没有失败发送时逐字节相同。"""
 
 import json
 from dataclasses import replace
@@ -68,27 +68,6 @@ def test_malformed_attempts_are_rejected(engine_factory, attempts):
     engine.record_model_exchange(replace(request, phase="response", transport_attempts=ATTEMPTS))
 
 
-@pytest.mark.parametrize("fails", [False, True])
-async def test_memory_call_evidence_carries_attempts(engine_factory, monkeypatch, fails):
-    """真实记忆分发经过一次暂时失败或最终拒绝，都把本次发送记录交给宿主落盘。"""
-    engine, request = opened_exchange(engine_factory)
-    raw = ToolResponse("report_status", {"items": [], "errands": []})
-    kind = AuthenticationError if fails else APIConnectionError
-    client, _ = _client(monkeypatch, [_error(kind), raw], clock=[0.0])
-    client.model_name = engine.context.inputs.model_metadata.requested_model
-    agent = person(environment(engine), request.context, client)
-    arguments = {"model": agent._model_name, "messages": [{"role": "user", "content": "memory"}]}
-    if fails:
-        with pytest.raises(Exception, match="Failed to get valid response"):
-            await agent._dispatch_memory_llm(**arguments)
-    else:
-        assert await agent._dispatch_memory_llm(**arguments) is raw
-    [record] = events(engine, "model_response")
-    assert record.data["phase"] == ("failure" if fails else "response")
-    assert record.data["transport_attempts"] == [{"attempt": 1, "error": kind.__name__,
-        "failed_after_ms": 0, "wait_ms": None if fails else 2000}]
-
-
 #: 第一次发送以 APIConnectionError 失败、等 2 秒后重发：这次调用的那一条失败发送。
 SENT_AGAIN = {"attempt": 1, "error": "APIConnectionError", "failed_after_ms": 0, "wait_ms": 2000}
 
@@ -129,6 +108,34 @@ async def test_plan_day_evidence_carries_attempts(engine_factory, monkeypatch, s
     assert [row["transport_attempts"] for row in stored] == attempts
     assert all("transport_attempts" not in (row["response"] or {}) for row in stored)
     assert bool(engine.context.state.agents[1].plan_submitted_dates) is not fails
+
+
+@pytest.mark.parametrize("script,attempts", [
+    ((APIConnectionError, "digest"), [[SENT_AGAIN]]),
+    ((APIConnectionError, "invalid", "digest"), [[SENT_AGAIN], []]),
+], ids=["response", "validation-retry"])
+async def test_memory_digest_evidence_carries_attempts(engine_factory, monkeypatch, script, attempts):
+    """日回顾经真实 MemoryDigestClient 与真实分发器：每次调用的失败发送进入这次调用自己的响应证据（含校验纠错的那次）；
+    供应商响应不增加字段。"""
+    from tests.integration.life.test_memory_digest_runtime import _digest_caller, _late, _night
+    from tests.life.conftest import StubMemoryDigestClient, memory_digest_response
+    from worldmock.runtime.lifecycle.runner import settle_pending_memory_digests
+    from worldmock.simulation_engine.evidence import memory_digest
+
+    engine = engine_factory(mutate=_late)
+    _night(engine)
+    [inputs] = memory_digest.pending_inputs(engine.context, engine.observations, 1, "day")
+    identity = engine.context.store.manifest["stage_model_identity"]
+    answers = {"digest": memory_digest_response(StubMemoryDigestClient().answer(inputs.payload),
+                                                model=identity["requested_model"]),
+               "invalid": memory_digest_response("not json", model=identity["requested_model"])}
+    caller = _digest_caller(monkeypatch, identity,
+                            [answers[item] if isinstance(item, str) else _error(item) for item in script])
+    assert [item["period"] for item in await settle_pending_memory_digests(engine, caller)] == ["2026-01-05"]
+    stored = [row.data for row in events(engine, "model_response") if row.data["purpose"] == "memory_digest"]
+    assert [row["phase"] for row in stored] == ["response"] * len(attempts)
+    assert [row["transport_attempts"] for row in stored] == attempts
+    assert all("transport_attempts" not in (row["response"] or {}) for row in stored)
 
 
 #: 同一秒的三次回答：本回合没有的工具（TOOL_CALL_REQUIRED 纠错）、改交修订今日计划、续接后开始在家歇一刻钟。

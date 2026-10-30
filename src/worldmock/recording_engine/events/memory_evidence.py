@@ -24,7 +24,7 @@ def conclusion_has_memories(request: Any) -> bool:
 def memory_write_points(requests: list, decision_id: str, written: bool) -> list[str]:
     """@brief 推导步尾登记的记忆写入点（只可能是 activity_conclusion），并核对来源。
 
-    结束活动对应同一决策已登记的带记忆 conclude_activity；就寝反思的写入点由取观察之前的反思登记给出，不在这里推导。
+    结束活动对应同一决策已登记的带记忆 conclude_activity；写入点 reflection 只出现在历史运行的反思登记里，新运行不再产生。
     本步写入了条目却找不到写入点，就是宿主越过写入点写记忆，按协议违约拒绝。
 
     :param requests: 本人已持久化的 action_requested 事件。
@@ -47,7 +47,7 @@ def memory_write_points(requests: list, decision_id: str, written: bool) -> list
 
 
 def _memory_evidence_data(evidence: Any) -> dict[str, Any]:
-    """@brief 核验实际记忆操作、主观条目快照及四个文件身份；来源观察为空（就寝反思）或非空字符串（步尾）。"""
+    """@brief 核验实际记忆操作、主观条目快照及四个文件身份；来源观察为非空字符串，consolidated 恒为假。"""
     created = tuple(evidence.created_episode_ids)
     merged = tuple(evidence.merged_episode_ids)
     identities = created + merged
@@ -57,9 +57,8 @@ def _memory_evidence_data(evidence: Any) -> dict[str, Any]:
               evidence.episodes_sha256, evidence.state_sha256)
     if (evidence.operation not in {"append_episodes", "refresh_summary"}
             or any(not is_sha256(value) for value in hashes)
-            or type(evidence.consolidated) is not bool
-            or evidence.observation_event_id is not None and (
-                not isinstance(evidence.observation_event_id, str) or not evidence.observation_event_id)
+            or evidence.consolidated is not False
+            or not isinstance(evidence.observation_event_id, str) or not evidence.observation_event_id
             or any(not isinstance(item, str) or not item for item in identities + verified)
             or len(set(identities)) != len(identities)
             or len(set(verified)) != len(verified)

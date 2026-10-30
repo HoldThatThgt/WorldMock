@@ -1,0 +1,98 @@
+{
+ "V": {
+  "objects_kept_by_slots": {
+   "4": {
+    "工作": "14/19=74%",
+    "生活": "17/30=57%",
+    "饮食": "17/18=94%",
+    "all": "48/67=72%"
+   },
+   "5": {
+    "工作": "16/19=84%",
+    "生活": "20/30=67%",
+    "饮食": "18/18=100%",
+    "all": "54/67=81%"
+   },
+   "6": {
+    "工作": "18/19=95%",
+    "生活": "23/30=77%",
+    "饮食": "18/18=100%",
+    "all": "59/67=88%"
+   }
+  },
+  "projection": {
+   "饮食": {
+    "views_chars_per_day": 192.6,
+    "x_day_cap": 0.96,
+    "month_raw": 5778,
+    "month_cap_share": "14%",
+    "year_raw": 70299,
+    "year_cap_share": "2.8%"
+   },
+   "工作": {
+    "views_chars_per_day": 215.0,
+    "x_day_cap": 1.07,
+    "month_raw": 6450,
+    "month_cap_share": "12%",
+    "year_raw": 78475,
+    "year_cap_share": "2.5%"
+   },
+   "生活": {
+    "views_chars_per_day": 376.8,
+    "x_day_cap": 1.88,
+    "month_raw": 11304,
+    "month_cap_share": "7%",
+    "year_raw": 137532,
+    "year_cap_share": "1.5%"
+   }
+  }
+ },
+ "B": {
+  "objects_kept_by_slots": {
+   "4": {
+    "工作": "12/12=100%",
+    "生活": "17/30=57%",
+    "饮食": "11/11=100%",
+    "all": "40/53=75%"
+   },
+   "5": {
+    "工作": "12/12=100%",
+    "生活": "20/30=67%",
+    "饮食": "11/11=100%",
+    "all": "43/53=81%"
+   },
+   "6": {
+    "工作": "12/12=100%",
+    "生活": "23/30=77%",
+    "饮食": "11/11=100%",
+    "all": "46/53=87%"
+   }
+  },
+  "projection": {
+   "饮食": {
+    "views_chars_per_day": 101.6,
+    "x_day_cap": 0.51,
+    "month_raw": 3048,
+    "month_cap_share": "26%",
+    "year_raw": 37084,
+    "year_cap_share": "5.4%"
+   },
+   "工作": {
+    "views_chars_per_day": 139.2,
+    "x_day_cap": 0.7,
+    "month_raw": 4176,
+    "month_cap_share": "19%",
+    "year_raw": 50808,
+    "year_cap_share": "3.9%"
+   },
+   "生活": {
+    "views_chars_per_day": 337.2,
+    "x_day_cap": 1.69,
+    "month_raw": 10116,
+    "month_cap_share": "8%",
+    "year_raw": 123078,
+    "year_cap_share": "1.6%"
+   }
+  }
+ }
+}

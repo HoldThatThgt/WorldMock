@@ -2,6 +2,7 @@ from tests.integration.runtime.current_contract_fixtures import profile as curre
 """真实人物、环境与足迹边界上的跨轮决策上下文验收。"""
 
 
+from worldmock.agents.prompt.life_prompt import user_layer
 from worldmock.agents.prompt.tool_groups import compact_render, expand_tool_layer
 
 import copy
@@ -18,7 +19,7 @@ from agentsociety2.agent.base import ReactLoopRequest
 from custom.agents.life_agent import LifeAgent
 from custom.envs.life_env import LifeEnv
 
-#: 提交世界请求那一次回复的正文（写成 action_requested.data.self_note，并出现在本段停留的进度层）。
+#: 提交世界请求那一次回复的正文（写成 action_requested.data.self_note；不进进度层，只经记忆层「今天」条目的「正文：」进入 user 消息）。
 _REPLY = "我先歇一会儿，再接着做事。"
 
 
@@ -96,8 +97,9 @@ def _tool_calls(observation: dict) -> list[dict]:
 
 @pytest.mark.asyncio
 async def test_real_context_roundtrip_preserves_evidence_and_delays_results(_engine_factory, monkeypatch):
-    """登记留宿主、结算后调用与结果进入本段停留的进度层（带回复正文；结果取该请求的最新结果，活动结束后是终态），
-    刚结束的活动当秒收尾；decision_started 与首个行动请求同批提交，观察事件只存进度层来源引用（即时与终态结果）。"""
+    """登记留宿主、结算后等待活动的带入记录在进度层（不带 self_note；结果取该请求的最新结果，活动结束后是终态），回复
+    正文经记忆层「今天」的「正文：」留在 user 消息里；刚结束的活动当秒收尾；decision_started 与首个行动请求同批提交，
+    观察事件只存进度层来源引用（即时与终态结果）。"""
     monkeypatch.setattr('worldmock.agents.prompt.prompt_capacity.model_context_length',
                         lambda _model, metadata: metadata.context_window)
     engine = _engine_factory()
@@ -117,13 +119,13 @@ async def test_real_context_roundtrip_preserves_evidence_and_delays_results(_eng
     feedback, second_requests = await _decide(environment, second, _conclude_just_ended)
     [waited_call] = _tool_calls(feedback)
     assert (waited_call["tool"], waited_call["arguments"]) == _wait(initial)
-    assert waited_call["result"]["status"] == "completed" and waited_call["self_note"] == _REPLY
+    assert waited_call["result"]["status"] == "completed" and "self_note" not in waited_call
     assert "action_id" not in json.dumps(waited_call, ensure_ascii=False)
     [waited] = pending_names(feedback)
     user = second_requests[0]["messages"][1]["content"]
     assert json.loads(user)[5] == compact_render(feedback["progress_layer"]) and _REPLY in user
     assert any(row["name"] == waited and row["kind"] == "activity" and row["phase"] == "刚结束"
-               for row in expand_tool_layer(json.loads(user)[0])["targets"])
+               for row in expand_tool_layer(user_layer(json.loads(user), "工具层"))["targets"])
     assert "in_progress" not in first_requests[0]["messages"][1]["content"]
     concluded = engine.commit_decision_round(second.round_id)[0]
     assert concluded.status.value == "completed"

@@ -10,17 +10,24 @@ import requests
 
 from tests.data_paths import ENVIRONMENT_ROOT
 from tests.integration.runtime.current_contract_fixtures import ROOT, inputs, profile, metadata_service
-from tests.life.conftest import StubPlanDayClient, stage_day_plan
+from tests.life.conftest import StubMemoryDigestClient, StubPlanDayClient, stage_day_plan
 from tests.life.environment_runtime import settle_decision
 from worldmock.agents.prompt.life_context import persona_card_text
 from worldmock.agents.protocol.life_continuation import tool_message
 from worldmock.agents.prompt.life_persona import persona_layer, readonly_layers, write_prompt_snapshot
 from worldmock.foundation.errors import EnvironmentInputError, IntegrityError, ProtocolError
 from worldmock.agents.prompt.narration import RenderBudgetExceededError
+from worldmock.agents.prompt.prompt_schemas import validate_layer
 from worldmock.configuration.model import model_metadata as model_endpoint
 from worldmock.configuration.model.model_metadata import credential_value, load_model_metadata, model_context_length
 from worldmock.runtime.framework.setup import validate_manifest_stage_identity, validate_stage_model_identity
-from worldmock.runtime.lifecycle.runner import CounterfactualRequest, PlanDayClient, ResumeRequest, RunRequest
+from worldmock.runtime.lifecycle.runner import (
+    CounterfactualRequest,
+    MemoryDigestClient,
+    PlanDayClient,
+    ResumeRequest,
+    RunRequest,
+)
 from worldmock.runtime.lifecycle.runner import run_world, resume_world, replay_world
 from worldmock.state.decisions.results import CounterfactualIntervention
 
@@ -37,7 +44,7 @@ def test_persona_layer_rejects_actual_overlong_card_without_truncation():
     prepared["persona_card_struct"]["tastes"]["content_genres"] = ["纪" * 601]
     original = copy.deepcopy(prepared)
     with pytest.raises(RenderBudgetExceededError, match="input-side problem, not truncated"):
-        persona_layer(prepared, "林舟", {"relationships": [], "preferences": []})
+        persona_layer(prepared, "林舟")
     assert prepared == original
 
 
@@ -45,6 +52,8 @@ def test_readonly_prompt_uses_saved_snapshot_and_requires_the_persona_card(tmp_p
     prepared = profile()
     initial, memory = readonly_layers(None, prepared, "林舟")
     assert initial["identity"]["name"] == "林舟"
+    assert memory == {"layer": "记忆层", "可查": {}, "近三天": {}, "今天": []}
+    validate_layer(memory)
     write_prompt_snapshot(tmp_path, initial, memory)
     assert readonly_layers(tmp_path, {}, "不同的姓名") == (initial, memory)
     with pytest.raises(IntegrityError, match="Persona card structure is required"):
@@ -147,6 +156,8 @@ async def test_day_plan_client_caps_output_using_actual_frozen_metadata(monkeypa
     monkeypatch.setattr(agentsociety2.config, "build_client_for_role", lambda role: transport)
     request = {"messages": [], "max_tokens": 1000000}
     assert await PlanDayClient(identity).call(request) == {"choices": []}
+    assert await MemoryDigestClient(identity).call(request) == {"choices": []}
+    assert received[1] == received[0]
     assert received[0]["max_tokens"] == identity["model_metadata"]["max_output_tokens"]
     assert received[0]["max_retries"] == identity["max_retries"]
     assert received[0]["transport_max_retries"] == identity["transport_max_retries"]
@@ -202,6 +213,7 @@ async def test_real_environment_midnight_step_registers_next_plan_before_rhythm(
     environment = LifeEnv()
     environment.engine = engine
     monkeypatch.setattr(runtime, "PlanDayClient", StubPlanDayClient)
+    monkeypatch.setattr(runtime, "MemoryDigestClient", StubMemoryDigestClient)
     for index in range(100):
         state = engine.scheduling_state()
         if state.current_time.hour == 0:

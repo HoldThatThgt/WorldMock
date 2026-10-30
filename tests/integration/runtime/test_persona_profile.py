@@ -65,7 +65,7 @@ def test_frozen_persona_identity_reaches_the_native_agent_prompt_as_the_persona_
     specification = creation_inputs(frozen)[0][0]
     profile = specification["profile"]
     person = frozen.persona
-    persona = persona_layer(profile, person.name, {"relationships": [], "preferences": []})
+    persona = persona_layer(profile, person.name)
     layer_names = (("tool_layer", "工具层"), ("memory_layer", "记忆层"), ("todo_layer", "待办层"),
                    ("environment_layer", "环境层"), ("progress_layer", "进度层"))
     observation = {key: {"layer": name} for key, name in layer_names}
@@ -74,7 +74,7 @@ def test_frozen_persona_identity_reaches_the_native_agent_prompt_as_the_persona_
     assert persona["identity"] == {"name": person.name, "age": 32, "occupation": "产品经理",
                                    "living_arrangement": "与伴侣合租两居室"}
     assert [(row["person"], row["role"]) for row in persona["relationships"]] == [("母亲", "家人"), ("老周", "老友")]
-    assert all(row["closeness"] is None and row["channels"] == [] for row in persona["relationships"][2:])
+    assert [list(row) for row in persona["relationships"]] == [["person", "role", "closeness", "channels"]] * 2
     assert "你不是AI助手" not in system and person.name not in system
     assert profile["persona_card"] == render_card(card)
     assert render_card(card) not in user and card.situation.busy_this_week not in user
@@ -100,7 +100,7 @@ def test_relationship_channels_reach_the_persona_layer_as_the_dataset_wrote_them
     edit_persona(root, mutate)
     loaded = _loaded(root)
     profile = creation_inputs(loaded)[0][0]["profile"]
-    persona = persona_layer(profile, loaded.persona.name, {"relationships": [], "preferences": []})
+    persona = persona_layer(profile, loaded.persona.name)
     assert [(row["person"], row["channels"]) for row in persona["relationships"]] == [
         ("母亲", ["飞书", "邮件", "飞书"]), ("老周", ["写信"])]
     assert "母亲（家人，很亲近，飞书、邮件、飞书联系）" in profile["persona_card"]
@@ -285,42 +285,35 @@ async def test_new_run_makes_no_model_request_for_the_persona_and_shows_the_tabl
 
 
 @pytest.mark.asyncio
-async def test_memory_prompts_carry_the_card_text_rendered_from_the_persona_table(tmp_path):
-    """@brief 记忆提示这一处：真实 LifeAgent 的记忆巩固请求里的 persona_card，就是由 persona.toml 构造的卡片渲染出的
-    文本，时刻写到分钟；人物工作区里保存的也是同一段文本。"""
+async def test_memory_view_identity_is_the_card_text_rendered_from_the_persona_table(tmp_path):
+    """@brief 卡片文本这一处：真实 LifeAgent 的记忆运行时做一次步尾，工作区 MEMORY.md 的「## 身份」段逐行以「> 」引用的
+    就是由 persona.toml 构造的卡片渲染出的文本，时刻写到分钟；人物档案里保存的也是同一段文本。"""
     from agentsociety2.agent.memory_runtime import MemoryRuntimeConfig
     from custom.agents.life_agent import LifeAgent
     from datetime import datetime, timezone
-    from types import SimpleNamespace
     from worldmock.agents.memory.life_memory import WorldMockMemoryRuntime
     from worldmock.configuration.persona.persona_card import persona_card
     from worldmock.configuration.persona.persona_text import render_card
 
     declared = _declared_inputs(tmp_path, **DECLARED)
     profile = creation_inputs(declared)[0][0]["profile"]
-    requests = []
-
-    async def dispatch(**request):
-        requests.append(request)
-        message = SimpleNamespace(content="我想保留这些记忆。", tool_calls=None, reasoning_content="")
-        return SimpleNamespace(choices=[SimpleNamespace(message=message)])
-
     agent = LifeAgent()
     agent._id, agent._name, agent._profile, agent._model_name = 1, "林舟", profile, "test-model"
-    agent._dispatch_memory_llm, agent.trace_span = dispatch, None
+    agent.trace_span = None
+    agent._life_verified_experiences, agent._life_observation_event_id = [], "observation-identity"
     runtime = WorldMockMemoryRuntime(agent, MemoryRuntimeConfig())
     store = runtime.ensure_store(tmp_path / "memory")
     moment = datetime(2026, 1, 5, 8, 0, tzinfo=timezone.utc)
-    store.append_episodes([{"type": "goal", "importance": 0.7, "text": "我想周末去江边走走",
-                            "epistemic_status": "subjective", "source": "activity_conclusion"}],
-                          tick=60, t=moment, step_count=1)
-    assert await runtime._consolidate_subjective(60, moment, 1, "daily reflection")
-    payload = json.loads(requests[0]["messages"][1]["content"])
-    assert payload["persona_card"] == profile["persona_card"] == render_card(persona_card(declared.persona))
+    await runtime.after_step(tick=60, t=moment, step_count=1, finish_memories=[])
+    card = render_card(persona_card(declared.persona))
+    assert profile["persona_card"] == card
+    view = store.memory_md_path.read_text(encoding="utf-8")
+    identity = view.split("## 身份\n", 1)[1].split("\n\n## 已核验经历", 1)[0]
+    assert identity == "\n".join("> " + line for line in card.splitlines())
     for phrase in ("约6点三刻到7点一刻起床、8点6分到8点24分出门", "午餐11点三刻到12点三刻、晚餐19点到20点",
                    "就寝23点半到0点半，睡眠中点约4点6分，需睡7.6小时；下班18点到18点半；到家18点一刻到18点三刻",
                    "压力时去江边散步", "本周在忙新版上线收尾"):
-        assert phrase in payload["persona_card"]
+        assert phrase in card and phrase in identity
 
 
 def test_midnight_plan_input_reads_the_persona_table(tmp_path, engine_factory):
@@ -410,7 +403,7 @@ def _persona_rhythm(loaded) -> dict:
     from worldmock.agents.prompt.life_persona import persona_layer
 
     profile = creation_inputs(loaded)[0][0]["profile"]
-    return persona_layer(profile, loaded.persona.name, {"relationships": [], "preferences": []})["rhythm"]
+    return persona_layer(profile, loaded.persona.name)["rhythm"]
 
 
 @pytest.mark.asyncio
@@ -460,7 +453,7 @@ def test_formerly_rejected_windows_reach_the_persona_layer_and_the_plan_as_writt
     root = _declared_environment(tmp_path, **declared)
     loaded = _loaded(root)
     profile = creation_inputs(loaded)[0][0]["profile"]
-    rhythm = persona_layer(profile, loaded.persona.name, {"relationships": [], "preferences": []})["rhythm"]
+    rhythm = persona_layer(profile, loaded.persona.name)["rhythm"]
     assert {name: rhythm[name] for name in layer} == layer
     assert all(text in profile["persona_card"] for text in layer.values())
     anchors = profile["persona_card_struct"]["time_anchors"]

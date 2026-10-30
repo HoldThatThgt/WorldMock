@@ -44,7 +44,7 @@ def test_timeline_and_quality_are_hash_bound_projections_of_actual_run(engine_fa
     directory = tmp_path / "export"
     manifest = export_run(engine.context.store, point.last_event_seq, directory)
     quality = json.loads((directory / "quality.json").read_bytes())
-    assert quality["schema_version"] == 9
+    assert quality["schema_version"] == 10
     assert quality["activities"]["person_elapsed_seconds_by_agent"]["1"] == 3600
     assert manifest["quality_report"]["sha256"] == hashlib.sha256((directory / "quality.json").read_bytes()).hexdigest()
     rows = []

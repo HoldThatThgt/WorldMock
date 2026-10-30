@@ -12,8 +12,8 @@ from tests.life.conftest import (
     conclude_request,
     context,
     do_at,
-    last_result,
     pause_request,
+    progress_calls,
     purchase,
     sleep,
     stage_day_plan,
@@ -88,10 +88,9 @@ def test_pause_with_179_seconds_left_is_refused_changes_nothing_and_conclude_suc
     seen, concluded = act(engine, "conclude", conclude_request(name), "conclude_activity")
     assert seen["todo_layer"]["paused_activities"] == []
     assert target_tools(seen, name)["pause_activity"]["reason"] == _reason(name)
-    shown = last_result(seen)
-    assert shown["status"] == "rejected" and shown["error_code"] == "ACTIVITY_PAUSE_UNAVAILABLE"
-    assert shown["details"]["reason"] == _reason(name)
-    assert shown["details"]["next_step"] == f"Conclude {name} or let it finish."
+    assert progress_calls(seen, "pause_activity") == []
+    (row,) = seen["progress_layer"]["rejected_today"]
+    assert row["why"] == _reason(name)[:60]
     assert concluded.status == "completed", concluded.error_code
     ended = engine.context.state.activities[activity_id]
     assert ended.status == "cancelled" and ended.concluded_at == ended.ended_at == engine.context.state.current_time

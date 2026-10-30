@@ -116,8 +116,8 @@ def test_every_staging_entry_refuses_a_diverged_engine_world(engine_factory, com
 def test_guard_wraps_every_public_engine_method(committed_world_guard):
     """守卫包住引擎当前的全部公开方法，以后新增的公开方法也自动包住。"""
     expected = {"observe", "advance", "commit_decision_round", "abort_decision_round", "register_day_plan",
-                "decide_midnight_rhythm", "apply_counterfactual", "checkpoint", "record_model_exchange",
+                "register_memory_digest", "decide_midnight_rhythm", "apply_counterfactual", "checkpoint", "record_model_exchange",
                 "record_memory_update", "submit_action", "begin_decision_round", "scheduling_state",
-                "due_reflection", "read_task_summary", "fail_run", "meal_windows_by_agent", "close"}
+                "read_task_summary", "search_memory", "fail_run", "meal_windows_by_agent", "close"}
     assert expected <= set(public_methods(LifeEngine))
     assert all(hasattr(getattr(LifeEngine, name), "__wrapped__") for name in expected)

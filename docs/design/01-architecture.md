@@ -60,7 +60,7 @@ LifeAgent 承载数字人，LifeEnv 是模拟引擎接入 AgentSociety 2 的环�
 
 | 负责方 | 负责什么 | 向协作方交付什么 |
 | --- | --- | --- |
-| [数字人](06-agent.md) | 画像、七层提示组装、行动选择、收尾记忆与反思 | 向模拟引擎提交动作请求（播报、暂停与收尾请求可携带个人事务的新增、更新与取消），提供决策和记忆证据 |
+| [数字人](06-agent.md) | 画像、七层提示组装、行动选择与收尾记忆 | 向模拟引擎提交动作请求（播报、暂停与收尾请求可携带个人事务的新增、更新与取消），提供决策和记忆证据 |
 | [资源引擎](03-resource-engine.md) | 资源与对象定义、动作与内容绑定、版本与来源、查询与提供 | 返回指定版本的定义、属性、匹配条目、内容片段与素材引用 |
 | [交换引擎](02-exchange-engine.md) | 维护与查询交换规则，校验条件，计算投入产出，校验资源分录 | 返回条件判定、资源变化明细、履约条件或拒绝原因 |
 | [模拟引擎](04-simulation-engine.md) | 初始化、时间调度、动作受理、世界结算与恢复编排 | 人物观察与反馈、实际事件、状态和共同快照 |
@@ -70,7 +70,7 @@ LifeAgent 承载数字人，LifeEnv 是模拟引擎接入 AgentSociety 2 的环�
 
 LifeEnv 与活动属于模拟引擎的执行职责；数字足迹、检查点和分支存储属于记录引擎。
 离线数据加工由 LabelKit-DataSet 消费认证导出，
-默认不写回仍在运行的数字人；数字人运行中的记忆与反思由人物模块维护。
+默认不写回仍在运行的数字人；数字人运行中的收尾记忆由人物模块维护，今天条目与日、月、年回顾由模拟引擎从已提交事件和零点的模型调用生成。
 反事实分支中的实际执行由模拟引擎编排，分支保存和来源关系由记录引擎维护。
 
 <a name="architecture-状态归属与写入边界"></a>
@@ -119,7 +119,7 @@ flowchart LR
 ### 观察、行动与执行
 
 模拟引擎先冻结人物观察，人物模块据此组织请求并作选择。
-宿主绑定调用身份；只读查询（记忆查询与回看任务）返回冻结事实，世界请求在收齐本轮请求后确定性结算。
+宿主绑定调用身份；只读查询（检索记忆与回看任务）返回冻结事实，世界请求在收齐本轮请求后确定性结算。
 模型的叙述只作为主观文字保存，不能代替实际进度、支付或收货。
 
 请求和受理规则见[人物工具与管理接口](04-simulation-engine.md)，
@@ -169,7 +169,7 @@ LifeEngine 保留创建、打开、观察、动作、推进与检查点接口；
 
 | 职责 | 现有承载位置 | 详细设计 |
 | --- | --- | --- |
-| 数字人 | [LifeAgent](../../custom/agents/life_agent.py)、[就寝反思工具](../../src/worldmock/agents/memory/life_reflection.py)、[人物画像](../../src/worldmock/configuration/persona)、AgentSociety 2 人物与记忆模块 | [人物](06-agent.md) |
+| 数字人 | [LifeAgent](../../custom/agents/life_agent.py)、[日、月、年回顾](../../src/worldmock/simulation_engine/evidence/memory_digest.py)、[人物画像](../../src/worldmock/configuration/persona)、AgentSociety 2 人物与记忆模块 | [人物](06-agent.md) |
 | 资源引擎 | [目录登记、加载与图查询](../../src/worldmock/resource_engine)及只读反向索引；内容选择与进度由模拟引擎负责 | [资源引擎](03-resource-engine.md) |
 | 交换引擎 | [固定类型、常数与算子](../../src/worldmock/exchange_engine)、[具体动作声明](../../src/worldmock/exchange_engine/conditions/activity_rules.py)、[资源分录计算与校验](../../src/worldmock/exchange_engine/ledger)及生活模型中的条件、费用和报酬规则 | [交换引擎](02-exchange-engine.md) |
 | 模拟引擎 | [模拟职责](../../src/worldmock/simulation_engine)、[LifeEnv](../../custom/envs/life_env.py)、[运行装配](../../src/worldmock/runtime) | [模拟引擎](04-simulation-engine.md) |
@@ -265,7 +265,8 @@ python -m pytest tests
 交给 `scripts/freeze_rrs_baseline.py`；两份候选逐项相等且身份合法才写入，否则目标文件保留原字节，
 先查明不确定性的来源，不重试到相等为止。`tests/` 不计入代码身份，提交基线不会让它再次失效。
 `scripts/render_day.py` 不计入代码身份，但导出的一天时间线由它生成并进基线摘要，改它同样要重冻。
-查看器录制样例 `tests/fixtures/viewer-context.json` 逐字记着系统层与工具定义，改了这两样要用真实宿主重录。
+查看器录制样例 `tests/fixtures/viewer-context.json` 逐字记着系统层、工具定义、用户层的层序和续接 `changes` 的键，
+改了其中任何一样都要用真实宿主重录。
 模型提供商、平台能力和长期人物行为必须由对应真实运行证明，离线测试不能替代。
 
 引擎优化指声明不改变人物经历、只改成本或记录形式的变更。证明它的工具有三项，都在 `scripts/`，不计入代码身份：

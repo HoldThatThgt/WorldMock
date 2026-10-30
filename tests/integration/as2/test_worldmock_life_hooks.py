@@ -1,7 +1,7 @@
 """WorldMock 修订合同的 AS2 vendor 钩子测试。
 
 覆盖：观察单写、决策前决策自述钩子（默认关闭与启用）、reasoning_content
-回传、空记忆列表、三类记忆失败传播、巩固三触发、宿主巩固提示、相似合并与严格就寝反思。
+回传、空记忆列表、记忆失败传播、步尾不调用模型（已退役的巩固阈值不再触发）与相似合并。
 """
 
 import json
@@ -337,12 +337,7 @@ def test_person_finish_schema_allows_empty_memories() -> None:
 # ----------------------------------------------------------------------
 
 
-def _framework_runtime(
-    tmp_path: Path,
-    *,
-    dispatch=None,
-    profile: dict[str, Any] | None = None,
-) -> tuple[PersonMemoryRuntime, AgentMemoryStore]:
+def _framework_runtime(tmp_path: Path) -> tuple[PersonMemoryRuntime, AgentMemoryStore]:
     async def noop_dispatch(**request: Any) -> Any:
         return _text_response("# Memory\n\n## 关于我\n- 暂无记录。\n")
 
@@ -353,23 +348,20 @@ def _framework_runtime(
         agent_name="Alice",
         config=MemoryRuntimeConfig(),
         get_model_name=lambda: "m",
-        dispatch_llm=dispatch or noop_dispatch,
-        get_profile=lambda: profile or {"name": "Alice", "language": "zh-CN"},
+        dispatch_llm=noop_dispatch,
+        get_profile=lambda: {"name": "Alice", "language": "zh-CN"},
         logger=SimpleNamespace(warning=lambda *a, **k: None),
     )
     runtime._store = store
     return runtime, store
 
 
-def _runtime(tmp_path: Path, *, dispatch=None, profile=None):
-    async def noop_dispatch(**request):
-        return _text_response("我想保留这些记忆。")
-
+def _runtime(tmp_path: Path):
     from tests.integration.runtime.current_contract_fixtures import profile as current_profile
 
-    profile = profile or current_profile()
+    profile = current_profile()
     owner = SimpleNamespace(
-        id=1, name="Alice", _model_name="m", _dispatch_memory_llm=dispatch or noop_dispatch,
+        id=1, name="Alice", _model_name="m",
         get_profile=lambda: profile, _logger=SimpleNamespace(warning=lambda *a: None), trace_span=None,
         _persona_card_text=lambda: json.dumps(profile, ensure_ascii=False),
         _life_verified_experiences=[], _life_observation_event_id="observation-1")
@@ -461,20 +453,8 @@ async def test_silent_zero_persist_is_a_save_failure(tmp_path: Path) -> None:
         )
 
 
-@pytest.mark.asyncio
-async def test_consolidation_failure_propagates(tmp_path: Path) -> None:
-    async def empty_content(**request):
-        return _text_response("   ")
-
-    runtime, _ = _framework_runtime(tmp_path, dispatch=empty_content)
-    with pytest.raises(RuntimeError, match="empty content"):
-        await runtime.after_step(tick=60, t=_T0, step_count=1,
-                                 finish_memories=[_memory("重要的目标", importance=0.9)])
-
-
-
 # ----------------------------------------------------------------------
-# 巩固三触发与候选
+# 主观条目的类型
 # ----------------------------------------------------------------------
 
 
@@ -484,138 +464,11 @@ def _trigger_store(tmp_path: Path) -> WorldMockMemoryStore:
     return store
 
 
-def test_consolidation_triggers_importance_accumulation(tmp_path: Path) -> None:
-    store = _trigger_store(tmp_path)
-    store.append_episodes(
-        [
-            _memory("上午参加了社区组织的志愿活动", importance=0.8),
-            _memory("傍晚和邻居聊了小区绿化改造", importance=0.8),
-            _memory("夜里重读了大学时的旧信", importance=0.8),
-            _memory("中午尝试了新的川菜馆子", importance=0.8),
-        ],
-        tick=60,
-        t=_T0,
-        step_count=1,
-    )
-    runtime, _ = _runtime(tmp_path)
-    should, reason = runtime._consolidation_due()
-
-    assert should is True
-    assert reason == "importance accumulation threshold"
-
-
-
-
-def test_consolidation_triggers_pending_threshold(tmp_path: Path) -> None:
-    store = _trigger_store(tmp_path)
-    store.append_episodes(
-        [
-            _memory("买了一把新雨伞", importance=0.1),
-            _memory("修好了厨房水龙头", importance=0.1),
-            _memory("读完了小说第三章", importance=0.1),
-            _memory("给母亲打了个电话", importance=0.1),
-            _memory("换掉了旧牙刷", importance=0.1),
-            _memory("整理了阳台的花盆", importance=0.1),
-            _memory("退掉了不合适的鞋", importance=0.1),
-            _memory("给手机换了壳", importance=0.1),
-            _memory("补交了水电费", importance=0.1),
-            _memory("预约了体检", importance=0.1),
-        ],
-        tick=60,
-        t=_T0,
-        step_count=1,
-    )
-    runtime, _ = _runtime(tmp_path)
-    should, reason = runtime._consolidation_due()
-
-    assert should is True
-    assert reason == "pending episode threshold"
-
-
-
-
-@pytest.mark.asyncio
-async def test_sleep_boundary_no_longer_forces_consolidation_at_the_step_tail(tmp_path: Path) -> None:
-    """步尾不再因睡眠而强制巩固：锁定的 AS2 传来的 sleep_boundary 没有读者，没到阈值就不调用模型；
-    睡醒的反思阶段有未归纳的记录时才巩固一次，原因文字为 daily reflection。"""
-    requests: list[dict] = []
-
-    async def dispatch(**request):
-        requests.append(request)
-        if "tools" in request:
-            identity = json.loads(request["messages"][1]["content"].split("<memory_reflection_input>", 1)[1].split(
-                "</memory_reflection_input>", 1)[0])["episodes"][0]["id"]
-            arguments = json.dumps({"insights": [{"insight": "想把日子过得规律一些。", "refs": [identity]}]},
-                                   ensure_ascii=False)
-            function = SimpleNamespace(name="submit_reflection", arguments=arguments)
-            message = SimpleNamespace(content=None, tool_calls=[SimpleNamespace(function=function)])
-            return SimpleNamespace(choices=[SimpleNamespace(message=message)])
-        return _text_response("我想保留这些记忆。")
-
-    runtime, _ = _runtime(tmp_path, dispatch=dispatch)
-    assert runtime._consolidation_due() == (False, "")
-    tail = await runtime.after_step(tick=60, t=_T0, step_count=1, sleep_boundary=True,
-                                    finish_memories=[_memory("喜欢清淡口味", importance=0.2)])
-    assert requests == [] and tail.consolidated is False
-    woke = await runtime.wake_reflection(tick=60, t=_T0, step_count=2)
-    assert woke.consolidated is True and len(requests) == 2
-    assert json.loads(requests[0]["messages"][1]["content"])["reason"] == "daily reflection"
-    assert [item["source"] for item in woke.created_episodes] == ["reflection"]
-
-
-
-def test_single_preference_does_not_trigger_consolidation(tmp_path: Path) -> None:
-    store = _trigger_store(tmp_path)
-    store.append_episodes(
-        [_memory("喜欢清淡口味", type_="preference", importance=0.95)],
-        tick=60,
-        t=_T0,
-        step_count=1,
-    )
-    runtime, _ = _runtime(tmp_path)
-    should, reason = runtime._consolidation_due()
-
-    assert should is False
-    assert reason == ""
-
-
-
-
 def test_host_rejects_objective_event_and_observation_memories(tmp_path: Path) -> None:
     runtime, _ = _runtime(tmp_path)
     for kind in ("event", "observation"):
         with pytest.raises(ValueError, match="subjective"):
             runtime._validate_subjective_memories([_memory("普通的一天", type_=kind)])
-
-
-
-# ----------------------------------------------------------------------
-# 巩固提示
-# ----------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_consolidation_prompt_carries_persona_card_without_example_identity(tmp_path) -> None:
-    requests = []
-    async def dispatch(**request):
-        requests.append(request)
-        return _text_response("我想多读一些书。")
-
-    runtime, store = _runtime(tmp_path, dispatch=dispatch,
-                              profile={"name": "陈晓", "occupation": "图书管理员", "language": "zh-CN"})
-    store.append_episodes([_memory("我想在搬家后继续去图书馆")], tick=60, t=_T0, step_count=1)
-    assert await runtime._consolidate_subjective(60, _T0, 1, "sleep boundary")
-    messages = requests[0]["messages"]
-    payload = json.loads(messages[1]["content"])
-    card = json.loads(payload["persona_card"])
-    assert card == {"name": "陈晓", "occupation": "图书管理员", "language": "zh-CN"}
-    assert payload["new_subjective_episodes"][0]["type"] == "goal"
-    assert "current_memory_md" not in payload
-    assert "verified" not in messages[1]["content"]
-    for residue in ("marketing analyst", "AOI", "500038964", "500021584"):
-        assert residue not in messages[0]["content"]
-        assert residue not in messages[1]["content"]
-
 
 
 # ----------------------------------------------------------------------
@@ -694,86 +547,12 @@ def test_similar_memory_outside_window_or_type_is_kept(tmp_path: Path) -> None:
 
 
 # ----------------------------------------------------------------------
-# 就寝反思
+# 步尾的读取与模型入口
 # ----------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_reflection_persists_cited_insights(tmp_path: Path) -> None:
-    store = _trigger_store(tmp_path)
-    written = store.append_episodes(
-        [_memory("和张伟聊了很久，心情好了很多")],
-        tick=60,
-        t=_T0,
-        step_count=1,
-    )
-    episode_id = written[0]["id"]
-    payload = json.dumps(
-        [
-            {
-                "insight": "和张伟聊天能让我的心情变好。",
-                "refs": [episode_id],
-            }
-        ],
-        ensure_ascii=False,
-    )
-
-    async def dispatch(**request: Any) -> Any:
-        return _response(("submit_reflection", json.dumps({"insights": json.loads(payload)}, ensure_ascii=False)))
-
-    runtime, _ = _runtime(tmp_path, dispatch=dispatch)
-
-    insights = await runtime._run_reflection(tick=60, t=_T0 + timedelta(hours=8), step_count=2)
-
-    assert len(insights) == 1
-    assert insights[0]["source"] == "reflection"
-    assert insights[0]["refs"] == [episode_id]
-    records = runtime._store.iter_episodes()
-    assert len(records) == 2
-
-
-@pytest.mark.asyncio
-async def test_reflection_rejects_unknown_reference(tmp_path: Path) -> None:
-    store = _trigger_store(tmp_path)
-    store.append_episodes([_memory("普通的一天")], tick=60, t=_T0, step_count=1)
-    payload = json.dumps([{"insight": "无效引用。", "refs": ["m_missing"]}], ensure_ascii=False)
-
-    async def dispatch(**request: Any) -> Any:
-        return _response(("submit_reflection", json.dumps({"insights": json.loads(payload)}, ensure_ascii=False)))
-
-    runtime, _ = _runtime(tmp_path, dispatch=dispatch)
-
-    with pytest.raises(RuntimeError, match="not among the supplied episodes"):
-        await runtime._run_reflection(tick=60, t=_T0, step_count=2)
-
-
-@pytest.mark.asyncio
-async def test_reflection_rejects_more_than_five_insights(tmp_path: Path) -> None:
-    store = _trigger_store(tmp_path)
-    written = store.append_episodes(
-        [_memory("普通的一天")], tick=60, t=_T0, step_count=1
-    )
-    episode_id = written[0]["id"]
-    payload = json.dumps(
-        [
-            {"insight": f"洞见{index}。", "refs": [episode_id]}
-            for index in range(6)
-        ],
-        ensure_ascii=False,
-    )
-
-    async def dispatch(**request: Any) -> Any:
-        return _response(("submit_reflection", json.dumps({"insights": json.loads(payload)}, ensure_ascii=False)))
-
-    runtime, _ = _runtime(tmp_path, dispatch=dispatch)
-
-    with pytest.raises(RuntimeError, match="one to five insights"):
-        await runtime._run_reflection(tick=60, t=_T0, step_count=2)
-
-
-
-@pytest.mark.asyncio
-async def test_step_end_below_the_threshold_reads_memory_without_copying_it(tmp_path, monkeypatch):
+async def test_step_end_reads_memory_without_copying_it(tmp_path, monkeypatch):
     runtime, store = _runtime(tmp_path)
 
     def boom(*args, **kwargs):
@@ -786,3 +565,28 @@ async def test_step_end_below_the_threshold_reads_memory_without_copying_it(tmp_
     assert {item["id"] for item in outcome.created_episodes} == store.episode_ids()
     assert len(outcome.created_episodes) == 2
     assert outcome.consolidated is False
+
+
+@pytest.mark.asyncio
+async def test_step_end_past_the_retired_thresholds_calls_no_model(tmp_path) -> None:
+    """两次步尾各写入 6 条互不相似、重要度 0.7 的收尾记忆（合计 12 条、重要度 8.4，超过已退役的十条与重要度三两道
+    阈值）：步尾不巩固、不调用模型（模型入口一旦被调用就会抛错），主观摘要始终为空。"""
+    runtime, store = _runtime(tmp_path)
+    texts = ("早上跑了五公里", "给妈妈回了电话", "把书架整理好了", "午饭吃了一碗面", "下午读完一章小说", "晚上去超市买菜",
+             "周末想去爬山", "答应同事周五交初稿", "楼下新开了花店", "学会了做蛋饼", "阳台的花开了", "地铁上听了播客")
+    for step, chunk in enumerate((texts[:6], texts[6:]), start=1):
+        outcome = await runtime.after_step(tick=60 * step, t=_T0 + timedelta(minutes=step), step_count=step,
+                                           finish_memories=[_memory(text, importance=0.7) for text in chunk])
+        assert outcome.consolidated is False and len(outcome.created_episodes) == 6
+    assert len(store.iter_episodes()) == 12
+    assert store.read_subjective_summary() == ""
+
+
+@pytest.mark.asyncio
+async def test_memory_runtime_refuses_every_model_call(tmp_path, caplog) -> None:
+    """记忆运行时的模型入口只会失败：先记一条英文错误日志，再抛 RuntimeError。"""
+    runtime, _ = _runtime(tmp_path)
+    with caplog.at_level("ERROR"), pytest.raises(RuntimeError, match="^WorldMock memory runtime does not call the model$"):
+        await runtime._dispatch_llm(model="m", messages=[])
+    assert [record.getMessage() for record in caplog.records if record.levelname == "ERROR"] == [
+        "WorldMock memory runtime does not call the model"]

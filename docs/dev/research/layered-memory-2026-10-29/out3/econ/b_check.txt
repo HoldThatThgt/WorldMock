@@ -1,0 +1,7 @@
+B S0 sim $0.3075/day vs actual $0.3068/day; fresh hit sim/act 2029952/2029184; MAE 106
+  S1s cur order new mem: $0.2714/day (delta -0.0361) fresh hit% 0.405
+  S2s proposal: $0.1895/day (delta -0.1180) fresh hit% 0.683
+  S4s per-second: $0.1889/day (delta -0.1186) fresh hit% 0.683
+  S5 per-segment full progress: $0.2366/day (delta -0.0709) fresh hit% 0.588
+  S5t per-segment equal content: $0.1911/day (delta -0.1164) fresh hit% 0.676
+  S3x todo-first, orders in tail: $0.1898/day (delta -0.1177) fresh hit% 0.682

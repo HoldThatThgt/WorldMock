@@ -1,0 +1,33 @@
+S0 actual V
+   $0.3287/day (delta +0.0000); fresh: prompt 19783 hit 6647 miss 13136 hit% 0.336 $0.00465/turn; history hit% 0.800 $0.00214/turn
+   per day: 10-08 $0.2790 10-09 $0.3155 10-10 $0.3387 10-11 $0.3025 10-12 $0.4080
+S1s current order + new memory, per-decision, slim progress
+   $0.2739/day (delta -0.0548); fresh: prompt 16769 hit 6636 miss 10134 hit% 0.396 $0.00375/turn; history hit% 0.765 $0.00215/turn
+   per day: 10-08 $0.2839 10-09 $0.2825 10-10 $0.2752 10-11 $0.2236 10-12 $0.3042
+S2s proposal order, per-decision, slim progress
+   $0.1979/day (delta -0.1309); fresh: prompt 16769 hit 10875 miss 5895 hit% 0.648 $0.00250/turn; history hit% 0.765 $0.00215/turn
+   per day: 10-08 $0.1971 10-09 $0.2021 10-10 $0.1958 10-11 $0.1746 10-12 $0.2197
+S3s todo-first, per-decision, slim progress
+   $0.1966/day (delta -0.1321); fresh: prompt 16769 hit 10945 miss 5824 hit% 0.653 $0.00248/turn; history hit% 0.765 $0.00215/turn
+   per day: 10-08 $0.1976 10-09 $0.2034 10-10 $0.1923 10-11 $0.1730 10-12 $0.2167
+S4s proposal order, per-second, slim progress
+   $0.1972/day (delta -0.1315); fresh: prompt 16769 hit 10877 miss 5892 hit% 0.649 $0.00250/turn; history hit% 0.769 $0.00212/turn
+   per day: 10-08 $0.1967 10-09 $0.2013 10-10 $0.1951 10-11 $0.1741 10-12 $0.2190
+S5 proposal order, per-segment, full-session progress (P1 shape)
+   $0.2597/day (delta -0.0690); fresh: prompt 20005 hit 10723 miss 9283 hit% 0.536 $0.00352/turn; history hit% 0.801 $0.00214/turn
+   per day: 10-08 $0.2385 10-09 $0.2535 10-10 $0.2571 10-11 $0.2586 10-12 $0.2908
+S5s proposal order, per-segment, slim progress (lower bound, facts would be missing)
+   $0.1735/day (delta -0.1552); fresh: prompt 15330 hit 10723 miss 4607 hit% 0.699 $0.00212/turn; history hit% 0.752 $0.00211/turn
+   per day: 10-08 $0.1741 10-09 $0.1773 10-10 $0.1705 10-11 $0.1527 10-12 $0.1929
+S5t proposal order, per-segment, slim progress + current segment's entries in 进度层 tail (equal content)
+   $0.2001/day (delta -0.1286); fresh: prompt 16776 hit 10723 miss 6053 hit% 0.639 $0.00255/turn; history hit% 0.769 $0.00212/turn
+   per day: 10-08 $0.2014 10-09 $0.2042 10-10 $0.1989 10-11 $0.1708 10-12 $0.2252
+S1 current order + new memory, per-decision, actual progress
+   $0.3601/day (delta +0.0314); fresh: prompt 21445 hit 6636 miss 14809 hit% 0.309 $0.00515/turn; history hit% 0.809 $0.00218/turn
+   per day: 10-08 $0.3483 10-09 $0.3587 10-10 $0.3618 10-11 $0.3295 10-12 $0.4021
+S2 proposal order, per-decision, actual progress
+   $0.2841/day (delta -0.0447); fresh: prompt 21445 hit 10875 miss 10570 hit% 0.507 $0.00391/turn; history hit% 0.809 $0.00218/turn
+   per day: 10-08 $0.2615 10-09 $0.2783 10-10 $0.2824 10-11 $0.2805 10-12 $0.3176
+S2s 记忆层 chars med/p90/max (7882, 12700, 14744) 今天 entries (40, 73, 87) 进度层(slim) (1798, 5675, 7788) 待办层+orders (877, 954, 1007)
+entry chars mean 145 tokens/entry 86.7
+近三天 chars 1948 tok 1348 可查 57

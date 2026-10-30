@@ -1,19 +1,48 @@
-"""系统层恰二十条，逐字、按序钉住；旧文字不再出现；工具用途句恰十一个键；唤醒表每一行都有系统层的措辞说出；提示指纹随文字改变。"""
+"""系统层恰二十二条，逐字、按序钉住；新五条与提案原文逐字节相同，保留的十七条与基线逐字相同；只读系统层四条；旧文字与已删除的机制不再出现；用途句恰九个键；唤醒表每一行都有系统层的措辞说出；规则引用的记忆层键都在 Schema 里；提示指纹随文字改变。"""
 
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
+import re
 
 from worldmock.agents.prompt import life_prompt
-from worldmock.agents.prompt.life_prompt import LIFE_SYSTEM_LAYER, TOOL_DESCRIPTIONS, life_prompt_sha256
-from worldmock.agents.prompt.prompt_schemas import validate_layer
+from worldmock.agents.prompt.life_prompt import (
+    LIFE_SYSTEM_LAYER,
+    READONLY_SYSTEM_LAYER,
+    TOOL_DESCRIPTIONS,
+    life_prompt_sha256,
+)
+from worldmock.agents.prompt.prompt_schemas import MEMORY_LAYER_SCHEMA, validate_layer
+from worldmock.state.interaction.requests import QUERY_MODELS
 from worldmock.state.planning.schedule import WAKE_TRIGGERS
 
-#: 系统层二十条的逐字定稿，次序即下标；下标 0、1、3、4、5、7、8、9、10、11、12、14、19 十三条与改动之前逐字相同。
+#: 系统层二十二条的逐字定稿，次序即下标；下标 3–14、16–20 十七条与改动之前（原下标 1–12、14–18）逐字相同。
 _RULES = (
-    ("工具层写此刻的对象、动作、条件与代价；人设层写你的作息与习惯；记忆层写此前经历；"
-     "待办层写暂停活动、个人事务和今日计划；环境层写身体感觉、位置、天气和工作安排；"
-     "进度层写这段停留或路程中已经发生的事。"),
+    ("人设层写你的身份、作息与习惯；记忆层写已经过去的事；待办层写暂停活动、个人事务、在途订单和今日计划；"
+     "工具层写此刻的对象、动作、条件与代价；环境层写身体感觉、位置、天气和工作安排；"
+     "进度层写此刻还没了结的事：进行中或待收尾的活动、上次决策之后新到的结果与消息、这段停留或路程里查到的答案，"
+     "以及今天被拒绝的请求。"),
+    ("记忆层按饮食、工作、生活三类记已经过去的事。「今天」按时刻列出今天的每次决策，一次决策一条，写明类别；"
+     "一次决策提交后，下一次决策就能看到它的条目，同一时刻接着的决策也一样。「核验」是环境确认的经过；"
+     "「自述」是你当时写下的话：「名称：」开头的是收尾或暂停时写的总结，「进展·名称：」是 report_status 写的进展，"
+     "「看法·对象：」是看法，「记住：」是想记住的事，「正文：」是回复正文。每条至多 120 字，写不下的地方以「…」结尾；"
+     "当天条目太多时，较早的条目会只留核验，或按小时合成一行，写明「条数」；全文用 search_memory 查「今天」。"
+     "过了零点，每一类当天的条目会整理成一段「回顾」，写那天这类事的经过，以及你的感受、看法和打算；"
+     "「近三天」每类列最近三天的回顾，饮食和生活取最近三天，工作取最近三个有工作的日子。"
+     "回顾里的名称、时刻和价钱都在当时的记录里出现过，但搭配和经过可能有误，它是整理出来的回忆，不是核验事实；"
+     "某一格写着「未整理」，是那天这一类的回顾没有整理出来，不代表那天没有这类事。"
+     "日子以零点为界：一件事在哪天结束就记在哪天，跨过零点还没结束的事，前一天只记它开始。"
+     "更早的事不在请求里，「可查」写出能查到的最早日期；要用时调用 search_memory，写类别和时间："
+     "时间写某一天（年-月-日）、一段日子（年-月-日~年-月-日，至多 31 天）、某个月（年-月）、某一年（年）、"
+     "「今天」或今天的一段时刻（今天 时:分~时:分）；查到的往日是那一天、那个月或那一年的回顾，"
+     "某天某一类「未整理」时给那天的原始条目；可以加关键词，多个关键词用空格隔开，都出现才算查到；"
+     "时间写「全部」时必须写关键词，比如查上次吃某样东西是哪天、以前对某样东西怎么看。"
+     "按名称回看一项任务或活动的进展用 recall_task_summary。一次决策至多查三次记忆。"),
+    ("拿不准时可以先看记忆再定：选吃什么，看看最近几顿吃了什么、当时觉得怎样；接着做工作，看看前几个工作日做到哪里；"
+     "想照以前的某个看法或习惯做，先看看它是哪天的回顾写到的、后来有没有变，近三天以外的用 search_memory 查。"
+     "记忆只说明过去发生了什么、你当时怎么想，不替你决定；照旧、重复还是换一换都可以，照人设层的习惯和你现在的想法选。"),
     "天气只以环境层给出的事实为准，不用记忆、常识或外部服务猜测天气。",
     ("每次决策以世界请求结束：要么提交一个控制请求（report_status、pause_activity、conclude_activity、"
      "revise_day_plan 之一），要么开始活动。开始活动时 start_main_activity 与 start_side_activity 各至多调用一次；"
@@ -61,10 +90,9 @@ _RULES = (
      "在地点做的事用 conclude_activity 结束就算做完，下次点名从头做起，只是先放下、回头接着做用 pause_activity；"
      "内容 app 里没看完的内容，结束后仍留着进度。恢复暂停的活动不用开始工具：report_status 点名暂停活动时恢复它，"
      "它回到原来的槽位；恢复须回到实际开始地点且该槽位空着，读取最新共享进度；暂停活动在别处也可以结束。"),
-    ("世界请求登记后由环境结算。进度层结果和记忆层 settled 是核验事实；"
-     "自己写的 summary、self_note、self_notes 与看法（人设层 preferences 和关系里的看法也是）只是自己的想法，"
-     "不能改变身体、资金、内容进度或订单结果，环境也不按它们限制你此刻能做什么；想法变了，就照现在的想法选，"
-     "收尾时写下新的看法。"),
+    ("世界请求登记后由环境结算。进度层的结果和记忆层「今天」里的「核验」是核验事实；"
+     "自己写的 summary、正文，记忆层的「自述」和「回顾」，都只是你的想法和回忆，不能改变身体、资金、内容进度或订单结果，"
+     "环境也不按它们限制你此刻能做什么；想法变了，就照现在的想法选，收尾时写下新的看法。"),
     ("商品实际收到时自动吃掉或用掉，不保存库存。到店商品在购买完成付款时收到，外卖等实际送达，快递先到驿站；"
      "本人到站后在驿站开始一件事（start_main_activity 的 interact）时领取本站全部到站包裹。"
      "购买过程结束时统一付款，付不起时整次取消。"),
@@ -82,33 +110,86 @@ _RULES = (
     ("个人事务在三个活动控制工具的 errands 中维护，提醒到点只提醒一次且不会叫醒睡眠。"
      "办成由真实结算确认，自己说办完不算。"
      "个人事务只记要买到或取到的商品，item 写商品名；打电话、做家务这类没有商品的打算不记成个人事务。"),
-    ("正文可以留空；写了只作为本次调用的自述留到这段停留或路程结束。"
+    ("正文可以留空；写了就作为这次决策的自述，从下一次决策起记在记忆层「今天」里。"
      "思考只在同一时刻连续决策之间保留，时间推进后丢弃。"),
+)
+
+#: 新五条（下标 0、1、2、15、21）各自的 len 与 UTF-8 编码的 SHA-256，由提案「系统层规则原文」的终稿直接算出。
+_NEW_RULE_DIGESTS = {
+    0: (153, "d57aa60d0239073aa22189ba89b75416a8ea57f84560c230a51cf0c7d70e6b51"),
+    1: (788, "ebb774b3f2d69c66360f579a08ff29bc079c3ea8ffd89891835d92cea88b16e5"),
+    2: (170, "c1b35ffa989aca497c9b1083f0d008a1386dd1b9220bf3fcb846e973ca813023"),
+    15: (141, "c9536d64fe6dc081e4a33d4ff9844c88c0914d23b70cd39faf79c305b316e923"),
+    21: (63, "73ec4117944341fff516e75765cce52c4a5cbc8781833c2599d72d030d00c928"),
+}
+
+#: 只读系统层四条的逐字定稿，次序即下标。
+_READONLY_RULES = (
+    "请求由人设层、记忆层与外部问题组成。",
+    "记忆层的「核验」是环境核验的事实；「自述」和「回顾」是你自己写下或整理的，未经核验。",
+    "只依据人设层与记忆层回答，不能改变世界，也不写入记忆。",
+    "回答完成后单独调用 finish。",
 )
 
 #: 唤醒表每一行由系统层哪一条（下标）的哪段措辞说出；唤醒表增删行或改名时，这里与措辞一起改。
 _WAKE_PHRASES = {
-    "planned_end": (2, "手上的事做完"),
-    "felt_band_change": (2, "身体感觉变了"),
-    "delivery_arrival": (2, "下单的东西送到或到站可取"),
-    "reconsideration_interval": (2, "中途隔一阵也会请一次"),
-    "rejection_feedback": (2, "同一时刻会接着请你决策"),
-    "session_open": (10, "睡着后到你写的时长才会再请你决策"),
-    "progress_report_due": (2, "中途隔一阵也会请一次"),
-    "no_active_activity": (2, "没有进行中的活动时时间不会往前走"),
-    "reminder_due": (2, "提醒到点"),
-    "duty_boundary": (2, "到了上下班时刻或写明的休息时段开始或结束"),
-    "app_push": (2, "app 推送"),
+    "planned_end": (4, "手上的事做完"),
+    "felt_band_change": (4, "身体感觉变了"),
+    "delivery_arrival": (4, "下单的东西送到或到站可取"),
+    "reconsideration_interval": (4, "中途隔一阵也会请一次"),
+    "rejection_feedback": (4, "同一时刻会接着请你决策"),
+    "session_open": (12, "睡着后到你写的时长才会再请你决策"),
+    "progress_report_due": (4, "中途隔一阵也会请一次"),
+    "no_active_activity": (4, "没有进行中的活动时时间不会往前走"),
+    "reminder_due": (4, "提醒到点"),
+    "duty_boundary": (4, "到了上下班时刻或写明的休息时段开始或结束"),
+    "app_push": (4, "app 推送"),
 }
 
+#: 「规则里没有已删除的机制」：三个旧记忆工具名、旧记忆层与人设层的键、反思与巩固、基线的旧说法，以及旧只读规则。
+_RETIRED_MECHANISMS = (
+    "memory_recent", "memory_search", "memory_time_range", "settled", "self_note", "self_notes", "earlier_days",
+    "earlier_today", "preferences", "noted_on", "反思", "巩固", "就寝", "此前经历", "这段停留或路程中已经发生的事",
+    "本次调用的自述", "只能查询自己的记忆")
 
-def test_system_layer_is_the_twenty_rules_verbatim_in_order():
-    """二十条整表相等、互不相同；layer 与 role 不变；整层通过系统层 Schema。"""
+
+def _digest(value) -> str:
+    """紧凑 JSON 的 UTF-8 编码求 SHA-256。"""
+    return hashlib.sha256(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()
+
+
+def _property_keys(node) -> set[str]:
+    """Schema 里各层 properties 的全部键（递归收集）。"""
+    if isinstance(node, list):
+        return {key for item in node for key in _property_keys(item)}
+    if not isinstance(node, dict):
+        return set()
+    keys = set(node.get("properties", {})) if isinstance(node.get("properties"), dict) else set()
+    return keys | {key for value in node.values() for key in _property_keys(value)}
+
+
+def test_system_layer_is_the_twenty_two_rules_verbatim_in_order():
+    """二十二条整表相等、互不相同；layer 与 role 不变；整层通过系统层 Schema。"""
     assert LIFE_SYSTEM_LAYER["rules"] == list(_RULES)
-    assert len(_RULES) == 20 and len(set(_RULES)) == 20
+    assert len(_RULES) == 22 and len(set(_RULES)) == 22
     assert LIFE_SYSTEM_LAYER["layer"] == "系统层"
     assert LIFE_SYSTEM_LAYER["role"] == "你是模拟世界中的一个人物，依据人设层选择下一步行动；世界的时间、状态与结算由环境负责。"
     validate_layer(LIFE_SYSTEM_LAYER)
+
+
+def test_new_rules_are_the_proposal_text_byte_for_byte():
+    """新五条（各层写什么、记忆层怎样组织怎样查、拿不准时怎样看记忆、核验与回忆、正文）的长度与摘要等于提案终稿。"""
+    rules = LIFE_SYSTEM_LAYER["rules"]
+    for index, (length, digest) in _NEW_RULE_DIGESTS.items():
+        assert len(rules[index]) == length, index
+        assert hashlib.sha256(rules[index].encode()).hexdigest() == digest, index
+
+
+def test_kept_rules_and_the_whole_list_match_their_digests():
+    """保留的十七条与改动之前同一摘要（只是下标顺移），整份二十二条的摘要也钉住。"""
+    rules = LIFE_SYSTEM_LAYER["rules"]
+    assert _digest([*rules[3:15], *rules[16:21]]) == "f4e25c9f0fdce4b05da6b5fe0d20605734ebcd854715c0a621d448875b2fccc9"
+    assert _digest(rules) == "f4749eeaefea3cf0d66b8575b7fc38d72a5d3a540d69e4d951b516c3210c2bae"
 
 
 def test_wake_sentence_names_every_wake_trigger():
@@ -119,25 +200,49 @@ def test_wake_sentence_names_every_wake_trigger():
         assert phrase in LIFE_SYSTEM_LAYER["rules"][index], name
 
 
-def test_retired_wording_is_gone_from_the_system_layer_and_tool_descriptions():
-    """旧工具名、四个旧出行动作、名额的说法和两句旧睡眠文字都不再出现；用途句恰为十个原生工具加 finish。"""
-    text = "".join(LIFE_SYSTEM_LAYER["rules"]) + "".join(TOOL_DESCRIPTIONS.values())
+def test_readonly_system_layer_is_the_four_rules_verbatim():
+    """只读问答系统层：role 不变，规则恰为四条终稿，摘要钉住，整层通过系统层 Schema。"""
+    assert READONLY_SYSTEM_LAYER["role"] == "你是模拟世界中的一个人物，依据人设层与记忆层回答外部问题。"
+    assert READONLY_SYSTEM_LAYER["rules"] == list(_READONLY_RULES)
+    assert _digest(READONLY_SYSTEM_LAYER["rules"]) == "824b1da806e387c3f1e3726c6a431e828e715f9cf9a46b6c1df4b292bc557a3f"
+    validate_layer(READONLY_SYSTEM_LAYER)
+
+
+def test_retired_wording_is_gone_from_the_system_layers_and_tool_descriptions():
+    """旧工具名、四个旧出行动作、名额的说法、两句旧睡眠文字都不再出现；两份系统层与用途句也不提已删除的机制。"""
+    text = "".join(LIFE_SYSTEM_LAYER["rules"]) + "".join(READONLY_SYSTEM_LAYER["rules"]) + "".join(
+        TOOL_DESCRIPTIONS.values())
     for retired in ("start_activity", "walk", "drive", "take_taxi", "take_bus", "名额",
                     "sleep 以本人家为目标且须在家", "睡眠期间只有睡够了才会请你决策", "睡眠要求没有其他活动",
-                    "内容由环境选择，标题不是动作目标"):
-        assert retired not in text
-    assert set(TOOL_DESCRIPTIONS) == {
-        "start_main_activity", "start_side_activity", "recall_task_summary", "report_status",
-        "pause_activity", "conclude_activity", "revise_day_plan", "memory_recent", "memory_search",
-        "memory_time_range", "finish"}
+                    "内容由环境选择，标题不是动作目标", *_RETIRED_MECHANISMS):
+        assert retired not in text, retired
+
+
+def test_tool_descriptions_are_the_nine_purpose_sentences():
+    """用途句恰为八个原生工具加 finish，次序固定；search_memory 的用途句与它的参数模型说明逐字相同。"""
+    assert list(TOOL_DESCRIPTIONS) == [
+        "start_main_activity", "start_side_activity", "recall_task_summary", "report_status", "pause_activity",
+        "conclude_activity", "revise_day_plan", "search_memory", "finish"]
+    assert TOOL_DESCRIPTIONS["search_memory"] == "按类别和时间查自己过去的记忆，可以加关键词，不改变世界。"
+    assert QUERY_MODELS["search_memory"].__doc__.strip() == "@brief " + TOOL_DESCRIPTIONS["search_memory"]
+
+
+def test_memory_rules_quote_existing_memory_layer_keys():
+    """讲记忆的规则（生活系统层下标 0、1、2、15、21 与只读系统层四条）在「」里引用的词，去掉以「：」结尾的前缀写法与
+    「…」「全部」之后恰为八个，都是记忆层 Schema 里的键。"""
+    rules = [LIFE_SYSTEM_LAYER["rules"][index] for index in (0, 1, 2, 15, 21)] + READONLY_SYSTEM_LAYER["rules"]
+    quoted = {word for rule in rules for word in re.findall(r"「([^」]*)」", rule)}
+    keys = {word for word in quoted if not word.endswith("：") and word not in {"…", "全部"}}
+    assert keys == {"今天", "核验", "自述", "条数", "回顾", "近三天", "未整理", "可查"}
+    assert keys <= _property_keys(MEMORY_LAYER_SCHEMA)
 
 
 def test_prompt_fingerprint_is_recomputable_and_follows_the_sleep_rule(monkeypatch):
-    """提示指纹可重算；改动讲睡眠的那一条（rules[10]），指纹随之改变。"""
+    """提示指纹可重算；改动讲睡眠的那一条（rules[12]），指纹随之改变。"""
     current = life_prompt_sha256()
     assert current == life_prompt_sha256() and len(current) == 64
     changed = copy.deepcopy(LIFE_SYSTEM_LAYER)
-    changed["rules"][10] = changed["rules"][10].replace("10 到 720", "10 到 600")
-    assert changed["rules"][10] != LIFE_SYSTEM_LAYER["rules"][10]
+    changed["rules"][12] = changed["rules"][12].replace("10 到 720", "10 到 600")
+    assert changed["rules"][12] != LIFE_SYSTEM_LAYER["rules"][12]
     monkeypatch.setattr(life_prompt, "LIFE_SYSTEM_LAYER", changed)
     assert life_prompt_sha256() != current

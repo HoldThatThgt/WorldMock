@@ -1,0 +1,50 @@
+{
+ "bootstrap_first_diff": {
+  "new_layer_whole": {
+   "median": 0.6383,
+   "p2.5": 0.63,
+   "p97.5": 0.6454
+  },
+  "今天_rendered": {
+   "median": 0.6439,
+   "p2.5": 0.6331,
+   "p97.5": 0.6512
+  },
+  "今天_content": {
+   "median": 0.6562,
+   "p2.5": 0.6424,
+   "p97.5": 0.6682
+  },
+  "回顾_prose": {
+   "median": 0.656,
+   "p2.5": 0.6424,
+   "p97.5": 0.6714
+  },
+  "entry_shell": {
+   "median": 0.6028,
+   "p2.5": 0.5653,
+   "p97.5": 0.6372
+  }
+ },
+ "level_V": {
+  "new_layer_whole": 0.6411,
+  "今天_rendered": 0.6428,
+  "今天_content": 0.6498,
+  "回顾_prose": 0.6699,
+  "entry_shell": 0.6198
+ },
+ "level_B": {
+  "new_layer_whole": 0.6553,
+  "今天_rendered": 0.6682,
+  "今天_content": 0.6895,
+  "回顾_prose": 0.6625,
+  "entry_shell": 0.5935
+ },
+ "chars": {
+  "new_layer_whole": 3083,
+  "今天_rendered": 2262,
+  "今天_content": 1753,
+  "回顾_prose": 393,
+  "entry_shell": 45
+ }
+}

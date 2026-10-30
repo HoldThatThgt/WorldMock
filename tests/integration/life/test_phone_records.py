@@ -392,20 +392,25 @@ def user_prompt(engine, label):
 def test_phone_records_never_reach_any_prompt_layer(engine_factory, tmp_path):
     engine, bought, order_id = coffee(engine_factory, tmp_path, "alipay")
     reach(engine, PAID)
+    # 下单 app 的名称作为购买结果的事实（channel）出现在收尾之前那条带入的购买记录里。
+    paid = engine.observe(context(engine, "before-conclusion"))
+    purchases = [row for record in paid["progress_layer"]["events"] if record.get("tool") == "start_side_activity"
+                 for row in record["result"]["details"]["purchases"]]
+    assert [(row["product"], row["channel"]) for row in purchases] == [("冰美式", "瑞幸咖啡")]
     conclude(engine, bought.activity_id, "coffee-done")
     reach(engine, DELIVERED)
     assert len(phone_events(engine, "app_foreground")) == 2 and len(notices(engine)) == 4
     system, before, observed = user_prompt(engine, "before-records")
-    # 进度层和记忆层讲的是人物自己做的事和真实收货；支付 app、通知标题和记录种类都不出现。下单 app 的名称作为购买结果
-    # 的事实（channel）出现在进度层。
+    # 进度层和记忆层讲的是人物自己做的事和真实收货；支付 app、通知标题和记录种类都不出现。收尾之后进度层没有那条购买
+    # 记录，「冰美式」只在送达记录里。
     for layer in ("progress_layer", "memory_layer", "todo_layer", "environment_layer"):
         text = str(observed[layer])
         assert not [word for word in ("支付宝", "高德地图", "订单已下单", "支付成功", "订单已发货", "订单已送达",
                                       "app_foreground", "order_notification", "location_entered") if word in text]
-    assert "冰美式" in str(observed["progress_layer"])
-    purchases = [row for record in observed["progress_layer"]["events"] if record.get("tool") == "start_side_activity"
-                 for row in record["result"]["details"]["purchases"]]
-    assert [(row["product"], row["channel"]) for row in purchases] == [("冰美式", "瑞幸咖啡")]
+    assert not [record for record in observed["progress_layer"]["events"] if record["type"] == "tool_call"
+                and record["tool"] == "start_side_activity"]
+    assert [record["type"] for record in observed["progress_layer"]["events"] if "冰美式" in str(record)] == [
+        "delivery"]
     # 同一世界再写入四种记录各一条：人物的各层提示逐字节不变。
     state, now = engine.context.state, engine.context.state.current_time
     cause = phone_events(engine, "purchase_payment")[0].event_id

@@ -105,9 +105,9 @@ def _row(content_id: str, finished: bool) -> dict:
 
 def _interact(status: str, played: tuple[str, ...], current: str, positions: tuple[float, float],
               app_id: str | None = "bilibili") -> dict:
-    """一项 interact 活动的手工快照：已做到头的各条、当前这条、（开始或恢复时的位置，当前位置）。"""
+    """一项 interact 活动的手工快照：活动身份、已做到头的各条、当前这条、（开始或恢复时的位置，当前位置）。"""
     start, media = positions
-    return {"kind": "interact", "status": status, "media_position_seconds": media,
+    return {"activity_id": "activity-a", "kind": "interact", "status": status, "media_position_seconds": media,
             "data": {"app_id": app_id, "content_id": current, "start_position_seconds": start,
                      "played": [{"content_id": key, "from_position": 0.0, "to_position": 1800} for key in played]}}
 
@@ -157,7 +157,7 @@ def test_public_result_contents_follow_the_snapshot(frozen_inputs, result, expec
     一行、finished 为假。全部行不多于三行时照列、不写 contents_omitted；多于三行时只写按先后的前三行，紧跟着写
     contents_omitted「还有 N 条没列」，N 是没写出的行数。一行都没有、不是 interact 活动或是控制结果时两个键都不写；
     每行恰为四个键、按次序写出。"""
-    details = public_result(result, frozen_inputs.record(ENVIRONMENT_ROOT)["inputs"])["details"]
+    details = public_result(result, frozen_inputs.record(ENVIRONMENT_ROOT)["inputs"], {})["details"]
     if expected is None:
         assert "contents" not in details and "contents_omitted" not in details
     else:

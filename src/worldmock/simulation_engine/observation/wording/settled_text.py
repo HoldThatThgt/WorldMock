@@ -19,7 +19,14 @@ from worldmock.simulation_engine.activities.lifecycle import activity_control
 from worldmock.recording_engine.projections.commerce.action_orders import placed_orders
 from worldmock.state.world.kinds import ActivityKind
 from worldmock.state.world.activity import ActivityState
-from worldmock.foundation.time.readable import clock_phrase, duration_phrase, iso_time, money_phrase, portion_phrase
+from worldmock.foundation.time.readable import (
+    clock_phrase,
+    duration_phrase,
+    iso_time,
+    money_phrase,
+    month_day_phrase,
+    portion_phrase,
+)
 from worldmock.simulation_engine.observation.targets.tool_layer import LayerContext
 from worldmock.resource_engine.catalog.travel_methods import travel_method
 
@@ -32,27 +39,49 @@ _ENDED_STATUSES = frozenset({"completed", "cancelled", "failed", "truncated"})
 
 
 @dataclass(frozen=True, slots=True)
+class KitUse:
+    """@brief 一项凭食材包状态的活动开始时所用的食材包：state 是被减 1 的状态；goods_id 与 received_at 是此前同一
+    状态最近一次被商品重置的商品与时刻，从未重置时同为 None（家里原有的食材）。"""
+
+    state: str
+    goods_id: str | None
+    received_at: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class KitTrack:
+    """@brief 食材包的增量推导结果：latest 是各食材包状态最近一次被商品重置，uses 是活动身份 → 所用食材包。"""
+
+    latest: Mapping[str, KitUse]
+    uses: Mapping[str, KitUse]
+
+
+#: 还没有读过任何事件时的食材包推导结果。
+EMPTY_KIT_TRACK = KitTrack({}, {})
+
+
+@dataclass(frozen=True, slots=True)
 class ActivityFacts:
-    """@brief 结束活动的句子所需的事实：已恢复的暂停区间与各活动的结束事件（带其终态快照的最早事件）。"""
+    """@brief 结束活动的句子所需的事实：已恢复的暂停区间、各活动的结束事件（带其终态快照的最早事件）、内容 app 的
+    部分消费与各活动所用的食材包。"""
 
     pauses: PauseIntervals
     endings: Mapping[str, Event]
     #: 本活动当前尚未看完但确有正向消费的内容，完全由活动进度事件派生。
     app_progress: Mapping[str, str]
+    #: 活动身份 → 所用食材包；只含开始时用掉食材包状态的活动。
+    kits: Mapping[str, KitUse]
 
 
-def record_lines(context: LayerContext, record: dict, sources: list[Event],
-                 facts: ActivityFacts | None = None) -> list[str]:
-    """@brief 一条进度层记录的 settled 句（没有可写的事实时为 []）。
+def record_lines(context: LayerContext, record: dict, sources: list[Event]) -> list[str]:
+    """@brief 一条进度层记录的 settled 句（没有可写的事实时为 []）；结束活动的句子按结束提交另写（ending_lines）。
 
     :param record: 进度层记录（occurred_at 为带时区 ISO）。
     :param sources: 记录的来源事件（tool_call 为 action_requested 与 action_result；派生记录为空）。
-    :param facts: 进度层浓缩用：conclude_activity 写它所结束的、结束事件在 facts.endings 中的活动（本 session 内结束的）；
-        为 None 时结束活动的调用不写句子（活动句按结束提交另写，见 ending_lines）。
     """
     kind = record["type"]
     if kind == "tool_call":
-        return _tool_lines(context, record, sources, facts)
+        return _tool_lines(context, sources)
     if kind == "delivery":
         return [f"{_clock(context, record['occurred_at'])} {record['order']}：{record['message']}"]
     if kind == "errand_completed":
@@ -60,11 +89,15 @@ def record_lines(context: LayerContext, record: dict, sources: list[Event],
     return []
 
 
-def activity_sentence(context: LayerContext, activity: ActivityState,
-                      pauses: Sequence[tuple[int, int]] = (), app_progress: Mapping[str, str] | None = None) -> str:
-    """@brief 一项已结束活动的句子：名称、起止（含暂停区间）、终局，终局与收尾结果 details.outcome 同一结算事实。
+def activity_sentence(context: LayerContext, activity: ActivityState, pauses: Sequence[tuple[int, int]] = (),
+                      app_progress: Mapping[str, str] | None = None, kits: Mapping[str, KitUse] | None = None) -> str:
+    """@brief 一项已结束活动的句子：名称、起止（含暂停区间）、终局，终局与收尾结果 details.outcome 同一结算事实；
+    开始时用掉食材包状态的 interact 活动末尾接完整式食材包句。
 
     例：「工作：会议纪要（1月5日 09:10 起）：09:10–11:50（暂停 10:43–11:16），提前结束」。
+
+    :param app_progress: interact 活动必填：内容 app 的部分消费（app_progress 的结果）。
+    :param kits: interact 活动必填：活动身份 → 所用食材包（ActivityFacts.kits）；非 interact 活动不读。
     """
     now, zone = context.state.current_time, context.config.timezone
     name = context.names["activities"].get(activity.activity_id, activity.name)
@@ -76,8 +109,13 @@ def activity_sentence(context: LayerContext, activity: ActivityState,
         if app_progress is None:
             logging.error("Action activity sentence has no authenticated progress evidence")
             raise IntegrityError("Action activity sentence has no authenticated progress evidence")
+        if kits is None:
+            logging.error("Action activity sentence has no grocery kit evidence")
+            raise IntegrityError("Action activity sentence has no grocery kit evidence")
         content = _content_sentence(context, activity, app_progress.get(activity.activity_id))
         sentence += f"，{content}" if content else ""
+        if activity.activity_id in kits:
+            sentence += "，" + kit_phrase(kits[activity.activity_id], context.catalog, zone, False)
     return sentence
 
 
@@ -92,6 +130,44 @@ def _content_sentence(context: LayerContext, activity: ActivityState, advanced_c
     current = context.catalog.contents[activity.data["content_id"]]
     partial = activity.data["app_id"] is not None and advanced_content_id == current.content_id
     return titles + (f"（《{current.title}》未完）" if partial else "")
+
+
+def track_kits(effects: Iterable[Event], results: Iterable[Event], previous: KitTrack,
+               states: frozenset[str]) -> KitTrack:
+    """@brief 按事件序号读本人 callback_effect，推导食材包状态最近一次重置与各活动所用食材包；results 是同一批读到的
+    本人 action_result，consume_on_start 的唯一起因必须在其中。
+
+    推导是事件的纯函数：分批增量推导与一次读完全部事件相同（docs/design/04-simulation-engine.md「出行、内容与查询」）。
+
+    :param effects: 本人 environment_event，按事件序号升序；只看 data.state 属于 states 的 callback_effect。
+    :param results: 同一批读到的本人 action_result，按事件序号升序。
+    :param previous: 上一批的推导结果（第一批为 EMPTY_KIT_TRACK）。
+    :param states: 冻结目录的食材包状态（Catalog.kit_states()）。
+    """
+    starts = {event.event_id: event.activity_id for event in results if event.activity_id is not None}
+    latest, uses = dict(previous.latest), dict(previous.uses)
+    for event in effects:
+        data = event.data
+        if data.get("kind") != "callback_effect" or data.get("state") not in states:
+            continue
+        if data.get("type") == "reset_to_cap":
+            latest[data["state"]] = KitUse(data["state"], data["goods_id"], event.occurred_at)
+        elif data.get("type") == "consume_on_start":
+            activity_id = starts.get(event.caused_by[0]) if len(event.caused_by) == 1 else None
+            if activity_id is None:
+                logging.error("Grocery kit use has no start result: %s", event.event_id)
+                raise IntegrityError("Grocery kit use has no start result")
+            uses[activity_id] = latest.get(data["state"], KitUse(data["state"], None, None))
+    return KitTrack(latest, uses)
+
+
+def kit_phrase(kit: KitUse, catalog: Any, timezone: str, short: bool) -> str:
+    """@brief 所用食材包的短语（不带前导逗号与句末标点）：完整式「用的是M月D日收到的〈商品名〉」「用的是家里原有的食材」；
+    short 为真时为短式「用M月D日收到的〈商品名〉」「用家里原有的食材」。"""
+    verb = "用" if short else "用的是"
+    if kit.goods_id is None:
+        return f"{verb}家里原有的食材"
+    return f"{verb}{month_day_phrase(kit.received_at, timezone)}收到的{catalog.goods[kit.goods_id].name}"
 
 
 def app_progress(events: Iterable[Event], previous: Mapping[str, str]) -> dict[str, str]:
@@ -171,9 +247,10 @@ def activity_endings(events: Iterable[Event]) -> dict[str, Event]:
 
 def ending_lines(context: LayerContext, facts: ActivityFacts,
                  keep: Callable[[Event], bool]) -> list[tuple[Event, str]]:
-    """@brief 结束事件满足 keep 的本人活动各一句（activity_sentence，起止含已恢复的暂停区间），按结束事件的序号排列。"""
+    """@brief 结束事件满足 keep 的本人活动各一句（activity_sentence，起止含已恢复的暂停区间，带所用食材包），按结束事件的
+    序号排列。"""
     rows = [(event, activity_sentence(context, context.state.activities[activity_id],
-                                      facts.pauses.get(activity_id, ()), facts.app_progress))
+                                      facts.pauses.get(activity_id, ()), facts.app_progress, facts.kits))
             for activity_id, event in facts.endings.items() if keep(event)]
     return sorted(rows, key=lambda row: row[0].event_seq)
 
@@ -197,23 +274,13 @@ def tool_record(context: LayerContext, request: Event) -> dict:
             "tool": request.data["tool_name"], "arguments": request.data["request"]}
 
 
-def _tool_lines(context: LayerContext, record: dict, sources: list[Event], facts: ActivityFacts | None) -> list[str]:
-    """@brief 实际付款后写购买事实；控制收尾只引用真实终态，被拒请求不写事实句。"""
+def _tool_lines(context: LayerContext, sources: list[Event]) -> list[str]:
+    """@brief 实际付款后写购买事实；其余结果（收尾、被拒的请求）不写事实句。"""
     result = next((event.data for event in reversed(sources) if event.event_type == "action_result"), None)
-    if result is None:
-        return []
-    status, tool = result["status"], record["tool"]
-    if status not in SETTLED_STATUSES:
+    if result is None or result["status"] not in SETTLED_STATUSES:
         return []
     payload = result.get("data") or {}
-    if tool == "conclude_activity":
-        return [] if facts is None else [
-            activity_sentence(context, context.state.activities[activity_id], facts.pauses.get(activity_id, ()),
-                              facts.app_progress)
-            for activity_id in payload.get("activity_ids", []) if activity_id in facts.endings]
-    lines = [purchase_sentence(context, order) for order in placed_orders(payload)
-             if order.get("paid_at") is not None]
-    return lines
+    return [purchase_sentence(context, order) for order in placed_orders(payload) if order.get("paid_at") is not None]
 
 
 def _clock(context: LayerContext, moment: str) -> str:

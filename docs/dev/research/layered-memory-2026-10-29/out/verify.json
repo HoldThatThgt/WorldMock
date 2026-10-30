@@ -1,0 +1,658 @@
+[
+ {
+  "lens": "code",
+  "checks": [
+   {
+    "id": "T1",
+    "status": "corrected",
+    "correction": "Most of this is right. SessionState is a stay or a transit that the system opens and closes (agent.py:57-95). Call sites: world_setup.py:48 open_stay at run start; start_group.py:212 begin_transit on departure; dispatcher.py:129 and time_advance.py:268 end_transit; time_advance.py:130 end_all. Nothing splits a session at midnight or at sleep. Variety run: 21 sessions, 11 stays and 10 transits; session-1-0013 (10-10 18:15→10-11 14:30) holds 23 activity_ids. Three corrections. (1) 进度层 is not purely session-scoped. `rejected_today` is keyed to the local day and read from local midnight (progress_layer.py:316-347, emitted at :86). Interact activities started in an earlier session are carried in (progress_layer.py:143-166). (2) The persona does trigger switches indirectly: opened_by_action_id records the departure or end-travel action (agent.py:63-65; sessions.py:72-86). (3) A travel's conclude note is filed under the session where the conclude request happened, which is the arrival stay (memory_layer.py:283-296). In the final snapshot the 08:33 transit entry has 0 self_notes, while the office entry holds the '驾车前往…' notes.",
+    "evidence_checked": [
+     "src/worldmock/state/world/agent.py:57-95",
+     "src/worldmock/simulation_engine/activities/lifecycle/sessions.py:52-134",
+     "grep call sites begin_transit/end_transit/end_all/open_stay",
+     "src/worldmock/simulation_engine/observation/layers/progress_layer.py:62-88,143-166,316-347",
+     "variety world_state sessions (v1.py)",
+     "variety life_prompt_snapshot.json earlier_today"
+    ]
+   },
+   {
+    "id": "T2",
+    "status": "corrected",
+    "correction": "`_WORLD_TOOL_MODELS` is at custom/agents/life_agent.py:183, not 179-180. Lines 177-180 are `_TOOL_MODELS` (10 tools) and :182 is `_QUERY_TOOL_MODELS`. The counts are confirmed. 406 decisions: conclude 137, report_status 136, start_side alone 62, start_main alone 51, start pair 20; pause 0 and revise_day_plan 0. 103 observations fall in the same second as the previous one. Two additions. (1) A world request ends the decision even when the environment rejects it: life_agent.py:578-583 appends it to `registered` regardless of result.ok, and the run has 6 action_rejected. (2) 'round' is also overloaded by same-second counters (agent.py:82 same_moment_rounds; same_moment.py:124-135) and by AS2 round_id inside decision_id.",
+    "evidence_checked": [
+     "custom/agents/life_agent.py:169-183,563-583",
+     "src/worldmock/agents/prompt/life_prompt.py:29-37",
+     "src/worldmock/simulation_engine/decisions/same_moment.py:124-135",
+     "variety action_requested per decision (v2.py)",
+     "variety same-second observations (v4.py)"
+    ]
+   },
+   {
+    "id": "T3",
+    "status": "confirmed",
+    "correction": "Confirmed. Decision call ids are `{decision_id}:model:NNNN:attempt:N` (agent_runtime.py:965-975). `_remaining_turns` = `_max_react_turns - _model_call_sequence` (life_agent.py:388-395). The counter is reset per loop in prepare_react_loop (agent_runtime.py:646). Reflection ids are `{decision_id}:reflection:NNNN:attempt:1` with a separate counter (life_agent.py:339-346). Step-tail memory calls use `_next_model_call_id(1)` after the loop has ended. Protocol-correction turns also count as turns.",
+    "evidence_checked": [
+     "custom/agents/life_agent.py:339-346,388-395",
+     "vendor/agentsociety2/.../agent_runtime.py:536-540,640-650,965-975",
+     "variety model_request call_ids (v2.py/v3.py)"
+    ]
+   },
+   {
+    "id": "T4",
+    "status": "confirmed",
+    "correction": "Confirmed. models.py:223 Field(default=16, ge=1, le=64); the variety config.toml:30 sets 16; it is frozen in stage_model_identity (setup.py:92-104), and resume checks it at runner.py:418-421. Variety: 402 of 406 decisions used 1 action turn and 4 used 2. Only 1 decision used a memory tool: two memory_search calls, both returning []. One precision: on the last turn and on a truncation retry, every query tool is dropped, recall_task_summary included, not just the memory tools (life_agent.py:397-404). Running out raises RuntimeError (agent_runtime.py:540; life_agent.py:391-394). Each fresh turn costs about $0.00465 (quality.json: 1.418/305).",
+    "evidence_checked": [
+     "src/worldmock/configuration/inputs/models.py:223",
+     "src/worldmock/runtime/framework/setup.py:81-104",
+     "src/worldmock/runtime/lifecycle/runner.py:418-421",
+     "custom/agents/life_agent.py:388-404",
+     "variety input/config.toml:30",
+     "variety turns (v3.py)",
+     "variety export/quality.json by_call_class"
+    ]
+   },
+   {
+    "id": "T5",
+    "status": "confirmed",
+    "correction": "Confirmed. The overrides are build_react_messages :453, prepare_react_loop :460, _run_react_turn :563 and _execute_react_tool :585, plus _model_request :357 and build_react_tool_schemas :348. AS2 builds messages only when `_react_messages` is empty (agent_runtime.py:832-834); turns only append. docs/design/10-runtime.md:87-91 limits the channel to read_query and due_reflection. SPEC-as2-integration.md:1 carries the historical banner.",
+    "evidence_checked": [
+     "custom/agents/life_agent.py:348-404,453-492,563-593",
+     "vendor/.../agent_runtime.py:505-540,832-834",
+     "docs/design/10-runtime.md:87-91",
+     "docs/dev/SPEC-as2-integration.md:1-2",
+     "custom/envs/life_env.py:143-201"
+    ]
+   },
+   {
+    "id": "M1",
+    "status": "corrected",
+    "correction": "Confirmed parts. Counts: decision_started 406, observation 406, action_requested 426. A today entry is one ended session (memory_layer.py:105-107,216-222), and self_notes come only from successful pause or conclude summaries plus plain memories (memory_layer.py:283-296). Corrections. (1) The AS2 store is not written only by conclude. Per decision, only conclude writes (life_agent.py:750-762; memory_updated trigger activity_conclusion = 110+27 = 137 events), but bedtime reflection also appends (20 of 255 episodes, source=reflection). (2) Conclude writes only `memories` plus `views` to the store, never the `summary` (control_items.py:33-44,111-119; life_agent.py:760-762). Pause summaries reach 记忆层 self_notes but never the store. (3) The two layers are not strictly disjoint. Carried interact start records appear in later sessions' 进度层 (progress_layer.py:143-166), and `rejected_today` spans the whole day (progress_layer.py:316-347).",
+    "evidence_checked": [
+     "src/worldmock/simulation_engine/observation/layers/memory_layer.py:99-113,216-222,283-296",
+     "custom/agents/life_agent.py:750-762",
+     "src/worldmock/state/interaction/control_items.py:33-44,111-119",
+     "variety episodes.jsonl source counts (v5.py)",
+     "variety memory_updated op/trigger counts"
+    ]
+   },
+   {
+    "id": "M2",
+    "status": "corrected",
+    "correction": "(a) Corrections. The reflection trigger is the first completed sleep whose ended_at equals now and is the only sleep ended today, with no decision yet in this second (evidence/memory.py:23-34). The input is iter_episodes()[-30:] (life_memory.py:264-267), which can include earlier reflections. The actual input windows started at 09:37 (10-08), 10:46 (10-09), 13:55 (10-10) and 13:45 (10-11), and ended at the last record before sleep (22:08–23:45). The morning was always missed; on 2 of 4 days the early afternoon was missed too. 'About 13:45–23:45' holds only for 10-10 and 10-11. Each wake first runs a consolidation with reason 'daily reflection' regardless of thresholds (life_memory.py:139). 1–5 insights (life_reflection.py:14-18,76-84) are filed to wake-date−1 and shown only if date < today (memory_layer.py:233-236). (b) Confirmed, with additions. The window is local 00:00 to now (day_plan_inputs.py:109-115), and conclusion records cover conclude only, not pause or report summaries (:217-247). (c) The summary is replaced, not accumulated (mark_subjective_consolidated(content[:4000]), life_memory.py:248-261). The final state.json subjective_summary is 272 chars and covers only the last evening.",
+    "evidence_checked": [
+     "src/worldmock/simulation_engine/evidence/memory.py:13-34",
+     "src/worldmock/agents/memory/life_memory.py:79-143,162-173,240-267",
+     "src/worldmock/agents/memory/life_reflection.py:14-18,76-84",
+     "src/worldmock/simulation_engine/scheduling/plans/day_plan_inputs.py:83-115,217-247",
+     "variety reflection/consolidation request inputs (v7.py)",
+     "variety memory/state.json"
+    ]
+   },
+   {
+    "id": "M3",
+    "status": "confirmed",
+    "correction": "Confirmed. The schema is at prompt_schemas.py:152-162. earlier_days.settled is built with open_only=True (memory_layer.py:225-257, 264-269), so it holds only purchase lines and delivery lines whose order is still pending or ready_for_pickup. It was empty in all 498 earlier_days entries across 406 variety observations, and in all 729 baseline entries; the table cites 503/753, likely counted over model requests. Reflections are the only earlier_days self_notes. 进度层 is not stored in observations: the observation data has tool, memory, todo and environment layer parts plus progress_event_ids, but no progress_layer. Memory is never condensed (prompt_capacity.py:1-8).",
+    "evidence_checked": [
+     "src/worldmock/agents/prompt/prompt_schemas.py:152-183",
+     "src/worldmock/simulation_engine/observation/layers/memory_layer.py:225-269",
+     "src/worldmock/agents/prompt/life_prompt.py:75-78",
+     "src/worldmock/agents/prompt/prompt_capacity.py:1-12",
+     "variety+baseline observation memory_layer parts (v8.py)",
+     "observation data keys (v4.py)"
+    ]
+   },
+   {
+    "id": "C1",
+    "status": "corrected",
+    "correction": "A category taxonomy does exist, but not on memory. INTENT_KINDS is a closed 11-value set: 睡眠, 晨间例程, 通勤, 工作, 用餐, 休息, 娱乐, 社交, 家务, 运动, 外出 (state/planning/schedule.py:58-86). It is required on every day-plan goal in 待办层 (prompt_schemas.py:164-181), and plan_day assigns it. ActivityState.plan_goal_intent_kind (state/world/activity.py:53) is validated (:80) but has no writer anywhere in src/ or custom/, so it is structurally null (147/147 activities). The model-assigned tags are already noisy: on 10-08 the goal '午饭后在办公室小睡一小时…' is tagged 用餐 (day_plan_generated event). The rest is confirmed. ConclusionMemory.type is one of 7 psychological types (requests.py:456) and views are relationship or preference (:481). Variety episodes: routine 138, preference 68, reflection 33, commitment 9, relationship 7; 13 of the 33 reflection-type episodes come from conclude memories, not bedtime reflection. Usable signals: catalog location `kind`, goods `category` and content `completion_effects` (input/catalog/*.jsonl).",
+    "evidence_checked": [
+     "src/worldmock/state/planning/schedule.py:58-86",
+     "src/worldmock/agents/prompt/prompt_schemas.py:164-181",
+     "src/worldmock/state/world/activity.py:51-56,80",
+     "grep plan_goal_intent_kind (no writer)",
+     "src/worldmock/state/interaction/requests.py:451-516",
+     "variety world_state activities",
+     "variety day_plan_generated events",
+     "variety catalog field census"
+    ]
+   },
+   {
+    "id": "C2",
+    "status": "confirmed",
+    "correction": "Confirmed. The merge rule is: same type, age within [0, 24h] of the target's `time`, and bigram Jaccard ≥ 0.6 (life_memory_store.py:13-16,123-150). A merge bumps merge_count and overwrites time, and the new text is dropped (:75-79). Because `time` is rewritten, the 24h window rolls forward. Reflection insights and stripped-subject views go through the same merge, so two preferences about different subjects can merge on similar text. Consolidation uses episodes[-30:] of unconsolidated_view plus the current summary (life_memory.py:245-252). Memory upkeep cost $0.0238 of $1.6826 (1.41%).",
+    "evidence_checked": [
+     "src/worldmock/agents/memory/life_memory_store.py:1-161",
+     "src/worldmock/agents/memory/life_memory.py:240-262",
+     "variety export/quality.json"
+    ]
+   },
+   {
+    "id": "G1",
+    "status": "confirmed",
+    "correction": "The mechanism is confirmed: `recent` is ended sessions whose local ended_at date equals today (memory_layer.py:105-107), and the entry head is recorded_at=ended_at (:220). Direct evidence: at 10-11 09:00, earlier_today was [] because session-1-0013 (opened 10-10 18:15) was still open. The 35–37% figure was not re-measured.",
+    "evidence_checked": [
+     "src/worldmock/simulation_engine/observation/layers/memory_layer.py:99-113,216-222",
+     "variety observation memory_layer parts at 09:00 each day (v9.py)"
+    ]
+   },
+   {
+    "id": "G2",
+    "status": "corrected",
+    "correction": "The mechanism is confirmed: one entry per date, no cap, oldest reflections deleted first (memory_layer.py:36,225-237,320-336). The quoted counts are over model requests; per observation they are 110/139 before noon, 70/99 at 12–17h and 21/168 after 17h. Day 1 (10-08, 81 observations) cannot have earlier_days, because no reflection exists before the 10-09 wake. Excluding 10-08: 110/110 before noon, 70/81 at 12–17h, 21/134 after 17h. earlier_days first disappears at 17:30, 17:46, 14:50 and 18:00 on 10-09 to 10-12, and never comes back that day. In the final snapshot earlier_days is [].",
+    "evidence_checked": [
+     "src/worldmock/simulation_engine/observation/layers/memory_layer.py:36,225-237,320-343",
+     "variety observations (v8.py, v9.py, v11.py)",
+     "variety life_prompt_snapshot.json"
+    ]
+   },
+   {
+    "id": "G3",
+    "status": "confirmed",
+    "correction": "Confirmed. WorldMock-Dataset environment/0001-white-collar-lianqiu/package/config.toml:4-5 runs 2026-09-28 → 2026-10-28. The evidence runs cover 10-08 → 10-13 (input/config.toml:4-5). No month or year tier exists in memory_layer.py.",
+    "evidence_checked": [
+     "/Users/atishoo/Project/WorldMock-Dataset/environment/0001-white-collar-lianqiu/package/config.toml:1-6",
+     "variety input/config.toml:1-6"
+    ]
+   },
+   {
+    "id": "S1",
+    "status": "corrected",
+    "correction": "The rebuild-and-freeze mechanism and the layer order are confirmed (memory_layer.py:99-113; life_prompt.py:144-156). Correction: 工具层 does not change on every request. Across 405 consecutive variety observation pairs it is byte-identical in 6, so it changes in 399 of 405. 记忆层 is identical in 384 of 405, which makes it the most stable large user layer. It sits after the volatile 工具层, so it gets no cache benefit. Fresh turns hit cache for 2.03M of 6.03M input tokens (quality.json). Note that per-round memory entries would remove this stability.",
+    "evidence_checked": [
+     "src/worldmock/agents/prompt/life_prompt.py:128-161",
+     "src/worldmock/simulation_engine/observation/layers/memory_layer.py:99-113",
+     "variety observation tool_layer/memory_layer part hashes (v10.py)",
+     "variety export/quality.json"
+    ]
+   },
+   {
+    "id": "S2",
+    "status": "confirmed",
+    "correction": "Confirmed. The parameters are memory_recent(limit 1-50), memory_search(query ≤200, limit 1-50) and memory_time_range(start, end, limit 1-100) (life_agent.py:95-140). They map to AS2 memory_recent, memory_search and memory_range (memory_runtime.py:282-296). Search is one lowercase substring over json.dumps(record), newest first (memory.py:636-657). Range returns the first N records in file order filtered by `time` (memory.py:673-722). Results are projected to {type, text, time, epistemic_status} with epistemic_status=subjective (life_agent.py:665-683). The 2 variety searches ('盒马 食材包 土豆烧牛肉' and '晚饭 到家 做饭') returned [], although 15 records contain 食材包. Conclude summaries are not in the store, so they cannot be searched either.",
+    "evidence_checked": [
+     "custom/agents/life_agent.py:95-140,169-192,665-683",
+     "vendor/.../agent/memory_runtime.py:263-302",
+     "vendor/.../agent/memory.py:624-722",
+     "variety model_response tool_calls + tool messages (v3.py, v6.py)",
+     "variety episodes.jsonl (v5.py)"
+    ]
+   },
+   {
+    "id": "P1",
+    "status": "confirmed",
+    "correction": "Confirmed: 20 rules (life_prompt.py:24-98), pinned by tests/unit/start_interfaces/test_system_layer_text.py:105-111. One more fragment: rule 2 (:28) mentions memory only to forbid guessing the weather from it. Ten tools are pinned in several tests (test_batch_shapes.py:48; test_activity_schema.py:260; test_seven_layer_request.py:41; test_current_runtime_contract.py:90; test_interaction_menu_roundtrip.py:29).",
+    "evidence_checked": [
+     "src/worldmock/agents/prompt/life_prompt.py:21-126",
+     "tests/unit/start_interfaces/test_system_layer_text.py:105-111",
+     "grep len(...)==10 in tests",
+     "docs/design/06-agent.md:74"
+    ]
+   },
+   {
+    "id": "X1",
+    "status": "confirmed",
+    "correction": "Confirmed (memory_layer.py:320-336). Addition: an entry trimmed to nothing disappears from the layer entirely (memory_layer.py:339-343). In the final variety snapshot the 10-12 08:03 home-stay entry is gone, and earlier_today keeps only the 08:33 transit, the office stay (24 settled lines, 37 self_notes) and the 18:09 transit. Layer sizes peaked at 7825 (variety) and 7878 (baseline) chars.",
+    "evidence_checked": [
+     "src/worldmock/simulation_engine/observation/layers/memory_layer.py:320-353",
+     "variety life_prompt_snapshot.json",
+     "v8.py size stats"
+    ]
+   },
+   {
+    "id": "X2",
+    "status": "corrected",
+    "correction": "The 14-member EventType set is confirmed (recording_engine/events/models.py:110-114), as are the write points (activity_conclusion, reflection; memory_evidence.py:14) and the operations append_episodes and refresh_summary (memory_evidence.py:58). Correction: memory_updated records episode snapshots {id, type, text, epistemic_status} but only SHA-256 hashes of MEMORY.md, episodes.jsonl and state.json (memory_evidence.py:49-80). The consolidated summary text is in no event; it lives only in workspace state.json. A paragraph stored the way the summary is stored today would therefore be hash-only in the log. Also, quality._call_class labels any tool-less model call 'consolidation' and any other purpose 'unrecognized' (reports/quality.py:795-812). A new compaction call would either merge silently into 'consolidation' or show up as unrecognized. The LabelKit pin was not checked (external).",
+    "evidence_checked": [
+     "src/worldmock/recording_engine/events/models.py:110-114",
+     "src/worldmock/recording_engine/events/memory_evidence.py:1-80",
+     "src/worldmock/agents/memory/life_memory.py:329-348",
+     "src/worldmock/recording_engine/reports/quality.py:795-812",
+     "variety memory_updated counts"
+    ]
+   },
+   {
+    "id": "H1",
+    "status": "corrected",
+    "correction": "The mechanism is confirmed: it scans every successful conclude_activity with bounds (0, None), keeps the last view per exact subject, and overwrites noted_on (memory_layer.py:127-144). There is no cap (life_persona.py:29-54). Correction: the final life_prompt_snapshot.json holds 40 preferences, not 39, plus 2 relationships. Near-duplicates include 美式咖啡/冰美式咖啡, 自己做的晚饭/自己做晚饭, 午休小睡/午睡五十分钟左右, 彩虹桥/彩虹桥往返步行 and 微信读书/睡前微信读书. Relationships carry no date. The static card tastes.food_preferences is a separate long-term food slot in the same layer (life_persona.py:103-104).",
+    "evidence_checked": [
+     "src/worldmock/simulation_engine/observation/layers/memory_layer.py:127-144",
+     "src/worldmock/agents/prompt/life_persona.py:29-54,88-109",
+     "variety life_prompt_snapshot.json"
+    ]
+   },
+   {
+    "id": "H2",
+    "status": "corrected",
+    "correction": "Sections do not each keep source ids. Experiences carry one id per sentence. Results, conclusions and goals feed one flat `sources` tuple. Persona, duty arrangement, errands and pending orders carry none (day_plan_inputs.py:94-106). Pending orders are status=='pending' only; ready_for_pickup is excluded (:259-270). Conclusion records cover conclude only, with summary and memories+views, but no pause or report summaries (:217-247). The planner reads only activity_progress, environment_event, action_result and action_requested, never memory_updated (:77-80), so it never sees the reflections, which arrive about 8h later. It also runs at startup, resume and branch with the window local 00:00 → now (:109-115). The full-history read is confirmed.",
+    "evidence_checked": [
+     "src/worldmock/simulation_engine/scheduling/plans/day_plan_inputs.py:28-115,217-296"
+    ]
+   },
+   {
+    "id": "H3",
+    "status": "corrected",
+    "correction": "It is not 'before the first observation of a local day'. It fires at the second when a completed sleep ends at now, that sleep is the only sleep ended today, and last_decision_time != now (evidence/memory.py:23-34). A persona awake past midnight would observe many times first. The check runs inside _observe_environment before that second's observation (life_agent.py:311-337). The wake phase first runs a consolidation ('daily reflection', life_memory.py:139) and then the reflection. Input windows began 09:37–13:55 (M2). There is no model call when the store is empty (life_memory.py:169-171), so 10-08 had none. No reflection follows the last night (run ends at 10-13 00:00), so there are 4 reflections in 5 days.",
+    "evidence_checked": [
+     "src/worldmock/simulation_engine/evidence/memory.py:13-34",
+     "custom/agents/life_agent.py:311-346",
+     "src/worldmock/agents/memory/life_memory.py:127-143,162-173",
+     "variety reflection request inputs (v7.py)"
+    ]
+   },
+   {
+    "id": "H4",
+    "status": "corrected",
+    "correction": "There are 31 consolidation calls, but only 27 are step-tail threshold firings (summed importance ≥3.0 or ≥10 pending non-reflection entries, life_memory.py:29-31,202-212). The other 4 are unconditional wake-phase consolidations (life_memory.py:139). memory_updated: append_episodes+activity_conclusion 110 unconsolidated + 27 consolidated, reflection 4, refresh_summary with empty trigger 153. MEMORY.md is three sections: persona card, a ≤5-item verified-experience window from the current observation, and the quoted subjective summary (life_memory.py:278-287). The refresh_summary events come from that fact window changing. The summary is replaced on each consolidation; final 272 chars. The no-reader claim is confirmed: build_context omits it (:79-92), and the only other readers are tools/run-viewer and tools/analysis/behavior/metrics.py:110 (memory_md_identity_residue).",
+    "evidence_checked": [
+     "src/worldmock/agents/memory/life_memory.py:29-31,79-143,202-262,278-311",
+     "variety memory_updated op/trigger/consolidated counts",
+     "variety quality.json consolidation 31",
+     "grep MEMORY.md/subjective_summary readers"
+    ]
+   },
+   {
+    "id": "H5",
+    "status": "confirmed",
+    "correction": "Confirmed (memory.py:636-722; life_memory_store.py:75-79 overwrites time on merge).",
+    "evidence_checked": [
+     "vendor/.../agent/memory.py:624-722",
+     "src/worldmock/agents/memory/life_memory_store.py:66-92"
+    ]
+   },
+   {
+    "id": "H6",
+    "status": "confirmed",
+    "correction": "Confirmed (life_agent.py:486-487; life_persona.py:72-85; life_prompt.py:102-111,164-169). A grep of src/ and custom/ finds no caller that passes a read-only question.",
+    "evidence_checked": [
+     "custom/agents/life_agent.py:453-492",
+     "src/worldmock/agents/prompt/life_persona.py:72-85",
+     "src/worldmock/agents/prompt/life_prompt.py:102-111,164-169",
+     "grep readonly callers"
+    ]
+   },
+   {
+    "id": "H7",
+    "status": "confirmed",
+    "correction": "Confirmed (memory_layer.py:36,320-336). The latest ended session is exempt (:108-109), and fully-trimmed entries vanish (:342-343).",
+    "evidence_checked": [
+     "src/worldmock/simulation_engine/observation/layers/memory_layer.py:36,105-113,320-343",
+     "v11.py"
+    ]
+   },
+   {
+    "id": "H8",
+    "status": "corrected",
+    "correction": "The filing behaviour is confirmed (memory_layer.py:105-111,225-232; open lines are re-dated by request occurred_at). At 10-11 09:00 earlier_today was [] while session-1-0013 was open. Correction: plan_date is plain local calendar date (day_planning.py:67-69), the same boundary as the planner window (day_plan_inputs.py:109-115) and rejected_today (progress_layer.py:321-322). There are three distinct day rules, not four: session end date (memory layer), local calendar day (planner, plan_date, rejected_today), and wake date − 1 (reflection).",
+    "evidence_checked": [
+     "src/worldmock/simulation_engine/observation/layers/memory_layer.py:99-113,225-237",
+     "src/worldmock/simulation_engine/scheduling/plans/day_planning.py:67-78",
+     "src/worldmock/simulation_engine/scheduling/plans/day_plan_inputs.py:109-115",
+     "src/worldmock/simulation_engine/observation/layers/progress_layer.py:316-327",
+     "src/worldmock/simulation_engine/evidence/memory.py:31-34"
+    ]
+   },
+   {
+    "id": "H9",
+    "status": "confirmed",
+    "correction": "Confirmed (life_continuation.py:1-11; continuation.py:74-96: chains break on a different second, a session change or a counterfactual). The memory-layer hash was unchanged across 384 of 405 consecutive observations.",
+    "evidence_checked": [
+     "src/worldmock/agents/protocol/life_continuation.py:1-11",
+     "src/worldmock/simulation_engine/decisions/continuation.py:60-96",
+     "v10.py"
+    ]
+   },
+   {
+    "id": "H10",
+    "status": "confirmed",
+    "correction": "Confirmed. self_note is attached to tool_call records (progress_layer.py:136-138). Summaries go to ActivityState.progress_note and note_history (activity_control.py:210-213), which recall_task_summary returns (dispatcher.py:336-349). Query answers leave when the stay ends (06-agent.md:265). Note: pause_activity summaries do reach 记忆层 self_notes once the session ends (memory_layer.py:286-293); report_status summaries never do.",
+    "evidence_checked": [
+     "src/worldmock/simulation_engine/observation/layers/progress_layer.py:127-140",
+     "src/worldmock/simulation_engine/activities/lifecycle/activity_control.py:205-215",
+     "src/worldmock/simulation_engine/actions/dispatcher.py:330-349,505-518",
+     "docs/design/06-agent.md:265"
+    ]
+   },
+   {
+    "id": "H11",
+    "status": "confirmed",
+    "correction": "Confirmed. The prompt SHA covers the life and readonly system layers plus LAYER_SCHEMAS (life_prompt.py:172-177). The tool SHA covers the ten life tools in _TOOL_MODELS, not finish (life_agent.py:953-959). Both are in _model_identity (setup.py:81-89), and resume compares the identity (runner.py:414-421). Call classes: quality.py:795-812.",
+    "evidence_checked": [
+     "src/worldmock/agents/prompt/life_prompt.py:172-177",
+     "custom/agents/life_agent.py:953-959",
+     "src/worldmock/runtime/framework/setup.py:81-104",
+     "src/worldmock/runtime/lifecycle/runner.py:405-421",
+     "src/worldmock/recording_engine/reports/quality.py:795-812"
+    ]
+   }
+  ],
+  "missed_gaps": [
+   "Midnight wipe: at local 00:00 every session that ended yesterday moves to earlier_days and keeps only open-order lines. All of yesterday's settled facts and self_notes leave the prompt until the reflection arrives at wake (memory_layer.py:110-111,225-237, 248-257 open_only). The owner's 'memory of last day' is effectively absent between midnight and wake, and again from about 15:00–18:00.",
+   "Conclude and pause `summary` text is never written to the AS2 store; only conclude memories and views are (control_items.py:33-44; life_agent.py:750-762). After it leaves 记忆层 it is unreachable by any memory tool, and only recall_task_summary note_history keeps it. That tool was used 0 times (dispatcher.py:336-349).",
+   "An existing closed category taxonomy, INTENT_KINDS (schedule.py:58-86: 睡眠/晨间例程/通勤/工作/用餐/休息/娱乐/社交/家务/运动/外出), already tags day-plan goals in 待办层 (prompt_schemas.py:164-181). It is model-assigned and visibly mislabels: the 10-08 nap goal is tagged 用餐. ActivityState.plan_goal_intent_kind (activity.py:53) has no writer. Any food/life/work split should reuse or map this set rather than invent a parallel one.",
+   "进度层 already has a day-scoped 'progress-today' piece: rejected_today, read from local midnight with cross-session dedup (progress_layer.py:316-347). The owner's progress-today could extend this mechanism instead of widening the session bound.",
+   "The midnight planner is the de facto daily consumer of yesterday's memory (收尾记录 includes 想记住的), but it never reads memory_updated or reflections (day_plan_inputs.py:77-80). The reflection for day D is written about 8h after plan_day for D+1, so a compaction design must fix whether plan_day reads the compacted paragraph or keeps re-reading the full raw history every midnight.",
+   "The rolling subjective summary is overwritten, not accumulated. The final value is 272 chars describing only the last evening (state.json; life_memory.py:248-261). Today's only 'compaction' therefore destroys history. The owner's per-day paragraph needs an append-only dated record, which also needs an event payload, since memory_updated stores only hashes of the summary (memory_evidence.py:49-80).",
+   "Notes are filed by the session where the conclude request happened, not where the activity took place. Travel conclusions land in the arrival stay's entry (memory_layer.py:283-296; the final snapshot's transit entries have 0 self_notes). Per-round or per-category keying must use the activity's own time and session, not the request's.",
+   "Cold start and branches: the first run day has no earlier days, and reflection is skipped when the store is empty (life_memory.py:169-171). No reflection follows the final night. A 3-day tier will be empty or partial for the first 3 days of every run and counterfactual branch.",
+   "The verified-experience window (≤5 facts per observation, life_agent.py:494-507; life_memory.py:145-160) feeds only MEMORY.md and causes the 153 refresh_summary events. It is a second fact channel the redesign should either drop or reuse.",
+   "Category signals in catalog data are uneven. Goods `category` covers only 零食/食品/饮料/商品 (see the SUPPLY_NOT_FOUND messages), location `kind` covers 14 locations, and completion_effects appears on only 2 of 1368 content rows (input/catalog census). Deterministic category derivation will need a new catalog field, not existing data alone."
+  ]
+ },
+ {
+  "lens": "runs",
+  "checks": [
+   {
+    "id": "T1",
+    "status": "confirmed",
+    "correction": "Verified against the variety run: 21 sessions, 11 stays and 10 transits. The home stay session-1-0013 ran 10-10 18:15 → 10-11 14:30 and held 23 activities. Every home-night stay crosses midnight (sessions 5, 9, 13, 17). One wording fix: the persona does not open sessions, but its travel action triggers the switch (SessionState has `opened_by_action_id`), so 'never' should read 'only indirectly, via travel'. Quantified overnight effect: on 10-11, every one of the 33 first-turn prompts before 14:30 had earlier_today=[] and 进度层 since 10-10T18:15. That 进度层 grew from 23k to 45.6k chars (33→75 events).",
+    "evidence_checked": [
+     "world_state.sessions in variety run/footprints.sqlite (scratchpad/memgap/v_sess.py)",
+     "10-11 07:30–14:30 prompts (scratchpad/memgap/v_morning.py)",
+     "src/worldmock/simulation_engine/observation/layers/progress_layer.py:68,71,85",
+     "docs/design/06-agent.md:267"
+    ]
+   },
+   {
+    "id": "T2",
+    "status": "confirmed",
+    "correction": "Variety counts are confirmed: conclude 137, report_status 136, start_main 71, start_side 82 (426 requests over 406 decisions, so 20 pairs), pause 0. 103 decisions share their second with the previous decision. Baseline: 409 decisions, 103 same-second, pause_activity 1, revise_day_plan 1. `round_id` is the society round ('…:round:<t>:<n>'); `decision_id` = round_id + ':agent:1:order:0'.",
+    "evidence_checked": [
+     "action_requested and decision_started events in both runs (scratchpad/memgap/gapcheck.py, v_sess.py)",
+     "custom/agents/life_agent.py:563-583",
+     "src/worldmock/agents/prompt/life_prompt.py:29-37"
+    ]
+   },
+   {
+    "id": "T3",
+    "status": "confirmed",
+    "correction": "Run ids confirm this. Decision turns are '…:model:0001'. Step-tail consolidation reuses the decision numbering as ':model:0002' (27 such calls in variety). Note that the reflection id family also carries the reflection-phase consolidation: ':reflection:0001' is the consolidation ('Summarize only…' prompt) and ':reflection:0002' is the reflection (submit_reflection) whenever consolidation ran first.",
+    "evidence_checked": [
+     "model_request call_id families and system prompts (scratchpad/memgap/v_kind.py)",
+     "custom/agents/life_agent.py:339-346,388-395",
+     "docs/design/06-agent.md:339-345"
+    ]
+   },
+   {
+    "id": "T4",
+    "status": "corrected",
+    "correction": "Variety matches the claim: 402 decisions used 1 ReAct turn, 4 used 2, 1 used a memory tool. Baseline does not: 396 used 1 turn, 12 used 2, 1 used 3, so the observed max is 3, not 2. The cost estimate is wrong. A search follow-up turn is a cached history turn, not a fresh-sized call. The real search follow-up hit 16,128 of 16,373 cached prompt tokens, and turn_with_history averages ≈$0.0021 vs $0.0046 for fresh_decision_turn. The citation runner.py:418-421 is the resume-equality check. The exhaustion failure is the RuntimeError in life_agent.py:388-395, re-raised by step (life_agent.py:302-309). Default 16, range 1–64, and config.toml:30 = 16 are confirmed (docs/design/08-configuration.md:134 agrees).",
+    "evidence_checked": [
+     "scratchpad/memgap/v_kind.py ReAct turns per decision, both runs",
+     "usage of call round:1791799200:1253 model:0001/0002",
+     "export/quality.json model_usage.by_call_class, both runs",
+     "src/worldmock/configuration/inputs/models.py:223",
+     "src/worldmock/runtime/lifecycle/runner.py:418-421"
+    ]
+   },
+   {
+    "id": "T5",
+    "status": "confirmed",
+    "correction": "Confirmed. The overrides are at life_agent.py:453 (build_react_messages), 460 (prepare_react_loop), 563 (_run_react_turn) and 585 (_execute_react_tool). docs/design/10-runtime.md:87-91 limits the Life channel to read_query and due_reflection. The read-only Q&A path is part of the same override and has no production caller (grep).",
+    "evidence_checked": [
+     "custom/agents/life_agent.py:453-492,563-590",
+     "docs/design/10-runtime.md:87-91"
+    ]
+   },
+   {
+    "id": "M1",
+    "status": "corrected",
+    "correction": "'The subjective store is written only by conclude_activity' is wrong. The wake-reflection phase also appends to episodes.jsonl: 4 memory_updated events with trigger ['reflection'], 20 records in variety. The rest is confirmed: memory_updated splits into append_episodes/activity_conclusion 137, reflection 4, refresh_summary with empty trigger 153. pause_activity summaries do reach 记忆层 self_notes, derived from events with no store write (none occurred in variety). The conclude `summary` text never enters episodes.jsonl: _conclusion_memories writes only memories and views, and grep finds 0 summary strings. Memory and progress were disjoint in the sampled case: a 网易云音乐 start made in transit appears only in the next stay's 进度层 as a carried record.",
+    "evidence_checked": [
+     "memory_updated operation/trigger counts (scratchpad/memgap/v_mem.py)",
+     "custom/agents/life_agent.py:750-762",
+     "src/worldmock/agents/memory/life_memory.py:127-143",
+     "episodes.jsonl grep for a summary vs memory text",
+     "src/worldmock/simulation_engine/observation/layers/memory_layer.py:104-109,283-296"
+    ]
+   },
+   {
+    "id": "M2",
+    "status": "corrected",
+    "correction": "There is indeed no daily paragraph. (a) Reflection input windows in variety start much earlier than '13:45': 09:37–23:45, 10:46–22:58, 13:55–23:30, 13:45–22:08. Of the 30 records, 8–12 are preference/relationship views, not narrative notes. (b) plan_day is confirmed: its review is yesterday 00:00 → 00:00, with 32–34 result sentences and 27–29 conclusion records per day. (c) Consolidation is not a rolling ≤4000-char accumulation in practice. Its 31 outputs are 108–548 chars each, and the final state.json summary is 272 chars covering one evening, although the payload includes current_subjective_summary. It also fires about 6 times a day, and 4 of the 31 calls run in the reflection phase, not the step tail.",
+    "evidence_checked": [
+     "reflection:0002 request payload times and types (scratchpad/memgap/v_mem.py)",
+     "plan-day request payloads (scratchpad/memgap/v_plan.py)",
+     "consolidation response content lengths; run/as2/agents/agent_0001/memory/state.json",
+     "src/worldmock/agents/memory/life_memory.py:240-267",
+     "src/worldmock/simulation_engine/scheduling/plans/day_plan_inputs.py:83-115"
+    ]
+   },
+   {
+    "id": "M3",
+    "status": "corrected",
+    "correction": "Layer shape and settled content are confirmed: all earlier_days entries have empty settled. '503/753' is two counts, 503 entries in variety and 753 in baseline, not a fraction. Two implication details are overstated. The 进度层 is not inlined in observation events (05-recording-engine.md:146), but the observation stores `progress_event_ids`, so it can be rebuilt from referenced events and no evidence is lost. Condensation never fired in either run (0 condensed records), even though 进度层 reached 45.6k chars (variety) and exceeded 20k in 144 of 406 decisions. Its size, not condensation risk, is the real cost of widening it to a whole day.",
+    "evidence_checked": [
+     "scratchpad/memgap/v_prompts.py earlier_days settled counts",
+     "scratchpad/memgap/v_prog.py progress sizes and condensed",
+     "observation data keys incl. progress_event_ids (v_calls.py)",
+     "src/worldmock/agents/prompt/prompt_capacity.py:1-10",
+     "docs/design/05-recording-engine.md:136-146"
+    ]
+   },
+   {
+    "id": "C1",
+    "status": "confirmed",
+    "correction": "Confirmed: there is no category field, and the episode type counts are routine 138, preference 68, reflection 33, commitment 9, relationship 7. office-eat-lunch has no food effect, 22 of 25 'goods' are 一人份食材包, and plan_goal_intent_kind is null on 147/147 activities. Missed: every ConclusionMemory and ConclusionView carries model-written `keywords` and `importance` (requests.py:458-460,486-487), and 235 of 255 episodes have keywords. That is an existing free-text signal. 'Every stay mixes 4–7 categories' and the 79.6% figure come from MAP and were not re-derived.",
+    "evidence_checked": [
+     "episodes.jsonl type and keyword counts",
+     "input/catalog/content-catalog.jsonl office-eat-lunch",
+     "input/catalog/merchant-catalog.jsonl category=goods",
+     "world_state activities plan_goal_intent_kind",
+     "src/worldmock/state/interaction/requests.py:451-490"
+    ]
+   },
+   {
+    "id": "C2",
+    "status": "corrected",
+    "correction": "The merge rule is confirmed: same type, ≤24h, bigram Jaccard ≥0.6, old text kept, time overwritten. The cost baseline is wrong. Consolidation runs about 6 times a day today (31 calls over 5 days), not once, so per-category compaction would not raise the call count from 1 to 3–4. Merging is rare: only 1 of 255 variety records has merge_count=2, so text lost on merge has low impact. The memory-upkeep share is confirmed: consolidation 1.11% + reflection 0.30% ≈ 1.4% of $1.68.",
+    "evidence_checked": [
+     "src/worldmock/agents/memory/life_memory_store.py:13-16,70-79,123-150",
+     "episodes.jsonl merge_count",
+     "export/quality.json by_call_class costs"
+    ]
+   },
+   {
+    "id": "G1",
+    "status": "confirmed",
+    "correction": "Confirmed as a per-request mean: 34.8% (variety) and 36.6% (baseline) of earlier_today settled chars belong to activities that started the previous calendar day. Pooled over all chars the share is higher: 44% and 43%.",
+    "evidence_checked": [
+     "scratchpad/memgap/v_g1.py",
+     "src/worldmock/simulation_engine/observation/layers/memory_layer.py:105-111"
+    ]
+   },
+   {
+    "id": "G2",
+    "status": "confirmed",
+    "correction": "Variety counts are confirmed: 112/141, 71/100 and 21/169 across all decision requests. Baseline differs a lot: 151/154, 96/101, 48/168. Concrete eviction case: at 10-11 14:50 the 23-activity home stay became an earlier_today entry, and all three dated reflection days (15 notes) were dropped in one observation, from [10-08, 10-09, 10-10] to []. The memory layer never exceeded 8000 chars (max 7825 / 7878).",
+    "evidence_checked": [
+     "scratchpad/memgap/v_prompts.py",
+     "scratchpad/memgap/v_morning.py",
+     "src/worldmock/simulation_engine/observation/layers/memory_layer.py:320-336"
+    ]
+   },
+   {
+    "id": "G3",
+    "status": "confirmed",
+    "correction": "No month or year tiers exist. The package calendar 2026-09-28 → 2026-10-28 is confirmed in WorldMock-Dataset/environment/0001-white-collar-lianqiu/package/config.toml:4-5. The evidence runs themselves cover only 10-08 → 10-13 (input/config.toml:4-5).",
+    "evidence_checked": [
+     "environment/0001-white-collar-lianqiu/package/config.toml",
+     "execution/…variety/input/config.toml"
+    ]
+   },
+   {
+    "id": "S1",
+    "status": "corrected",
+    "correction": "Layer order (410/410) and the per-observation rebuild are confirmed. The 记忆层 is stored as an observation part. The cache claim is wrong on two counts. First, 工具层 was byte-identical in 102 of 405 consecutive first-turn requests (baseline 100/408), so it does not change on every request. Second, 101 of 406 decisions are same-second continuations whose request replays the chain-head system and user messages, so the earlier 记忆层 is inside the cached prefix: mean 20.8k of 26.1k prompt tokens cached, vs 6.7k of 19.8k on fresh 2-message requests. The 记忆层 in the chain head was identical to the current observation's in 101/101 (variety) and 100/100 (baseline) chains.",
+    "evidence_checked": [
+     "scratchpad/memgap/v_prompts.py tool-layer identity",
+     "scratchpad/memgap/v_cache.py usage by message count",
+     "scratchpad/memgap/v_chain.py chain memory equality",
+     "src/worldmock/agents/prompt/life_prompt.py:144-156"
+    ]
+   },
+   {
+    "id": "S2",
+    "status": "corrected",
+    "correction": "The AS2 semantics are confirmed: search is a single substring over the record JSON, newest first, and range returns the first N records in file order. The two real searches ('盒马 食材包 土豆烧牛肉', '晚饭 到家 做饭') both returned {\"episodes\":[]}. 'Verified facts cannot be searched' is too strong. recall_task_summary gives by-exact-name factual recall (place, phase, objective_progress, note_history) over all of the run's activities: the last observation's activity_bindings held 146 rows from 10-08 00:00 to 10-12 22:40. It was used 0 times. Also, conclude summaries, which are the bulk of self_notes, are absent from episodes.jsonl, so memory_search cannot reach them. 06-agent.md never specifies memory-query semantics or returned fields, even though life_agent.py points there.",
+    "evidence_checked": [
+     "vendor/agentsociety2/packages/agentsociety2/agentsociety2/agent/memory.py:624-722",
+     "tool messages in round:1791799200:1253 model:0002 (v_misc.py)",
+     "src/worldmock/simulation_engine/actions/dispatcher.py:326-389,499-505",
+     "observation activity_bindings parts",
+     "docs/design/06-agent.md:52-59,281"
+    ]
+   },
+   {
+    "id": "P1",
+    "status": "confirmed",
+    "correction": "Confirmed: there is exactly one system-layer variant, with 20 rules, in all 410 requests in both runs. Line refs are 25, 32, 75, 91, 96-97. The 10 tool descriptions are one line each (life_prompt.py:113-124), and memory tools were used in 1 of 815 decisions across both runs.",
+    "evidence_checked": [
+     "src/worldmock/agents/prompt/life_prompt.py:21-124",
+     "tests/unit/start_interfaces/test_system_layer_text.py:105-110",
+     "request system messages (v_prompts.py)"
+    ]
+   },
+   {
+    "id": "X1",
+    "status": "confirmed",
+    "correction": "Confirmed. The warning branch never ran in either run (max 7825 / 7878 chars). A full day of settled facts is 1.8–2.5k chars (plan_day 动作结果). The conclusion summary and memory text alone is 3.4–5.6k chars a day, so 8–12k with JSON, views and pause notes is plausible.",
+    "evidence_checked": [
+     "scratchpad/memgap/v_prompts.py",
+     "plan-day payload sizes (inline script)",
+     "src/worldmock/simulation_engine/observation/layers/memory_layer.py:320-336"
+    ]
+   },
+   {
+    "id": "X2",
+    "status": "confirmed",
+    "correction": "Confirmed: 14 event types (models.py:110-114) are mirrored in LabelKit-DataSet persona/src/labelkit_dataset/datasets/persona/export_source.py:150-152. The runs used only operations append_episodes/refresh_summary and triggers [], ['activity_conclusion'], ['reflection']. 05-recording-engine.md:80-90 fixes two registration paths (reflection and step tail). A new write point must fit one of them or change that contract.",
+    "evidence_checked": [
+     "src/worldmock/recording_engine/events/models.py:110-114",
+     "LabelKit-DataSet export_source.py:150-152",
+     "docs/design/05-recording-engine.md:80-90",
+     "memory_updated counts (v_mem.py)"
+    ]
+   },
+   {
+    "id": "H1",
+    "status": "confirmed",
+    "correction": "Confirmed: 39 preferences at variety end, 4,045 chars, 26 in baseline. There are more near-duplicates than listed: 自己做的晚饭/自己做晚饭, 午休小睡/午睡五十分钟左右, 彩虹桥/彩虹桥往返步行, plus 美式咖啡/冰美式咖啡. The 600-hanzi budget covers only card-derived fields (life_persona.py:48-53), so preferences are uncapped. They sit before 记忆层 and change the 人设层 in 74 of 405 consecutive requests.",
+    "evidence_checked": [
+     "last decision request 人设层 (v_misc.py)",
+     "src/worldmock/simulation_engine/observation/layers/memory_layer.py:127-144",
+     "src/worldmock/agents/prompt/life_persona.py:29-54"
+    ]
+   },
+   {
+    "id": "H2",
+    "status": "confirmed",
+    "correction": "Confirmed by plan-day payloads: 回顾时段 runs from the previous day 00:00 to the current 00:00, with 32–34 results and 27–29 conclusion records per day. The first plan (10-08) has an empty window.",
+    "evidence_checked": [
+     "scratchpad/memgap/v_plan.py",
+     "src/worldmock/simulation_engine/scheduling/plans/day_plan_inputs.py:77-115,217-247"
+    ]
+   },
+   {
+    "id": "H3",
+    "status": "corrected",
+    "correction": "Reflection runs before the first decision after the local day's first completed sleep, not before the first observation of the local day. Baseline had decisions at 10-10 00:08 and 10-11 00:15 before that day's wake reflection (bedtime is 0:00–0:20). Input spans vary (see M2), and 8–12 of the 30 inputs are preference/relationship views. Boundary defect seen in baseline: the 10-08 08:00 reflection was filed under 2026-10-07, but its only input was a record from 10-08 00:10.",
+    "evidence_checked": [
+     "first decision per local day and reflection dates (v_mem.py)",
+     "src/worldmock/simulation_engine/evidence/memory.py:13-34",
+     "docs/design/06-agent.md:285-302"
+    ]
+   },
+   {
+    "id": "H4",
+    "status": "corrected",
+    "correction": "The trigger (importance ≥3 or ≥10 pending) and the absence of any prompt reader are confirmed: build_context omits the summary, and only tools/analysis/behavior/metrics.py and the viewer read MEMORY.md. Two corrections. Consolidation also runs in the wake-reflection phase with reason 'daily reflection' (4 of 31 calls; 06-agent.md:339, life_memory.py:139). Its outputs are short replacements (108–548 chars), not an accumulating summary. The 153/294 empty-trigger refresh_summary count is confirmed.",
+    "evidence_checked": [
+     "src/worldmock/agents/memory/life_memory.py:79-143,202-262",
+     "consolidation responses (inline script)",
+     "grep for subjective_summary/MEMORY.md readers"
+    ]
+   },
+   {
+    "id": "H5",
+    "status": "confirmed",
+    "correction": "Confirmed. Merges rewrite `time` but not file position, so time_range results can be out of order after a merge. Only one merge happened in variety.",
+    "evidence_checked": [
+     "vendor/agentsociety2/packages/agentsociety2/agentsociety2/agent/memory.py:636-722",
+     "src/worldmock/agents/memory/life_memory_store.py:75-79"
+    ]
+   },
+   {
+    "id": "H6",
+    "status": "confirmed",
+    "correction": "Confirmed: the snapshot holds the keys persona and memory, and my grep also found no production caller of the read-only path.",
+    "evidence_checked": [
+     "run/as2/agents/agent_0001/life_prompt_snapshot.json keys",
+     "custom/agents/life_agent.py:453-487",
+     "src/worldmock/agents/prompt/life_persona.py:26"
+    ]
+   },
+   {
+    "id": "H7",
+    "status": "confirmed",
+    "correction": "Confirmed. Each trim step clears all notes of the oldest date that still has notes, so a whole day's reflections go at once. The 10-11 14:50 case cleared all three days in one observation.",
+    "evidence_checked": [
+     "src/worldmock/simulation_engine/observation/layers/memory_layer.py:320-336",
+     "scratchpad/memgap/v_morning.py"
+    ]
+   },
+   {
+    "id": "H8",
+    "status": "corrected",
+    "correction": "The session-end filing rule is confirmed. 'Four day boundaries' is overstated: plan_date is the calendar date of the generation time (day_planning.py:67-69), which is the same as the planner's 00:00 window. There are three conventions in effect: calendar midnight (planner, plan_date, and the memory layer's 'today'), session-end attribution (the memory layer), and wake-date−1 (reflection).",
+    "evidence_checked": [
+     "src/worldmock/simulation_engine/scheduling/plans/day_planning.py:67-69",
+     "src/worldmock/simulation_engine/observation/layers/memory_layer.py:105-111",
+     "src/worldmock/simulation_engine/evidence/memory.py:31-34"
+    ]
+   },
+   {
+    "id": "H9",
+    "status": "confirmed",
+    "correction": "Confirmed empirically: the chain-head 记忆层 equals the current observation's in every chain (101/101 variety, 100/100 baseline). Nuance: chain `changes` never diff 记忆层 (life_continuation.py:111-122), and chains break only on time, session or counterfactual changes (continuation.py:85-88). So per-round memory entries would not break chains by themselves. They would leave a stale 记忆层 in the chain unless _view gains a memory delta or a new break rule.",
+    "evidence_checked": [
+     "scratchpad/memgap/v_chain.py",
+     "src/worldmock/agents/protocol/life_continuation.py:1-11,111-122",
+     "src/worldmock/simulation_engine/decisions/continuation.py:74-95"
+    ]
+   },
+   {
+    "id": "H10",
+    "status": "confirmed",
+    "correction": "Confirmed. report_status summaries become the activity's progress_note/note_history (activity_control.py:208-215) and are reachable only through recall_task_summary, which was used 0 times in both runs. self_note reply bodies and query answers are not reachable at all once the stay ends.",
+    "evidence_checked": [
+     "src/worldmock/simulation_engine/observation/layers/progress_layer.py:127-138",
+     "src/worldmock/simulation_engine/activities/lifecycle/activity_control.py:208-215",
+     "docs/design/06-agent.md:265",
+     "tool-call counts (v_calls.py)"
+    ]
+   },
+   {
+    "id": "H11",
+    "status": "confirmed",
+    "correction": "The prompt fingerprint is confirmed at life_prompt.py:172-177, and the resume equality checks at runner.py:412-421. The setup.py, export_source and quality line numbers come from MAP and were checked only for export_source:150-152.",
+    "evidence_checked": [
+     "src/worldmock/agents/prompt/life_prompt.py:172-177",
+     "src/worldmock/runtime/lifecycle/runner.py:412-421",
+     "LabelKit-DataSet export_source.py:150-152"
+    ]
+   }
+  ],
+  "missed_gaps": [
+   "Yesterday's verified facts vanish from the prompt at midnight. earlier_days keeps only open orders, and in all 503 and 753 entries that settled list was empty. memory_search cannot reach facts. So 'memory of the last days' is today only bedtime reflections, plus whatever an open overnight session leaves in 进度层 (memory_layer.py:225-237).",
+   "The open overnight stay makes 进度层 the real 'yesterday evening + this morning' store, and it is huge. On 10-11, 33 prompts before 14:30 carried 23k–45.6k chars of 进度层 with earlier_today=[]. 144 of 406 variety decisions had 进度层 >20k chars, and it was never condensed. Any 'progress-today for the whole day' needs its own budget (scratchpad/memgap/v_prog.py, v_morning.py).",
+   "Long-term memory that grows without bound already lives in 人设层: 39 preferences, 4,045 chars after 5 days, with near-duplicate subjects, placed before 记忆层. Over a 30-day run it would grow past the whole 记忆层 window. The redesign must budget and dedupe it.",
+   "self_notes duplicate content. Each conclude writes a summary plus 1–3 paraphrasing memories, and both go into self_notes (seen in the 10-09 20:01 prompt). The 24h Jaccard merge applies only to the AS2 store, never to the event-derived 记忆层.",
+   "The searchable store lacks the main narrative text. Conclude `summary` and pause/report summaries are not in episodes.jsonl. Episodes do have model-written keywords and importance, which a search_memory(category, time) could use. The two real searches failed because the queries were multi-word (life_agent.py:750-762; requests.py:458-460).",
+   "recall_task_summary already offers by-name factual recall over all 146 run activities (dispatcher.py:326-389). The proposal should extend this or merge it into search_memory rather than build a parallel path; the current system prompt never teaches it.",
+   "Day-attribution defect in reflection: with bedtime at 0:00–0:20, post-midnight activity is filed under the previous day. In baseline, the 10-08 reflection was filed under 2026-10-07 from a single 10-08 00:10 record. A per-day compaction must decide where 00:00–sleep activity belongs.",
+   "Docs gap: 06-agent.md lists the memory tools (line 57) but never defines their store, matching or returned fields. life_agent.py:183 cites 06-agent.md「提示与工具」 for _MEMORY_RESULT_FIELDS, and that section does not contain them. The historical docs/dev/SPEC-life-realism.md:235 (reflection filed at sleep-start−6h) contradicts the code (memory.py:31-34) and 06-agent.md:299. It is marked historical but still readable.",
+   "The baseline run differs materially from variety on several cited numbers: max 3 turns, earlier_days in 48/168 evening prompts, 0 memory-tool uses, 1 pause, 3 revise_day_plan calls. The table's numbers are variety-only and should say so.",
+   "Ambiguity table detail: 'only 35–38 settled lines per day' should be 29–34 (plan_day 动作结果 per day, both runs)."
+  ]
+ }
+]

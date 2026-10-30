@@ -11,6 +11,7 @@
 归入 code_sha256_unreported 组并注明，不猜测代码身份。
 工作负荷 workload 与作息偏离 routine_deviation 需要事件之外的输入（一个可选的打包对象，见 workload_metrics），
 没有它时两项为 null 并写说明；它们只报告，报告结构标识不变（docs/design/07-evaluation.md）。
+两项回顾报告 memory_digest_repetition 与 memory_digest_identity_residue 只读事件，只报告，报告结构标识不变。
 """
 
 from __future__ import annotations
@@ -20,11 +21,11 @@ from worldmock.foundation.time.intervals import valid_interval, body_settlements
 from worldmock.recording_engine.projections.commerce.purchases import project_purchase_facts
 from worldmock.recording_engine.projections.presentation.timeline_labels import local_day_bounds, window_days
 from worldmock.state.interaction.actions import START_TOOLS
-from worldmock.state.model.memory import valid_subjective_snapshot
+from worldmock.state.model.memory import MEMORY_DIGEST_KEYS, MEMORY_DIGEST_KIND, valid_subjective_snapshot
 import math
 import statistics
 from collections import Counter
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from typing import Any, Mapping
 from zoneinfo import ZoneInfo
 
@@ -123,6 +124,8 @@ def _group_report(
         "meal_diversity": _meal_diversity(events),
         "workload": workload["workload"],
         "routine_deviation": workload["routine_deviation"],
+        "memory_digest_repetition": digest_repetition(events),
+        "memory_digest_identity_residue": digest_identity_residue(events),
     }
     return {"schema_version": "behavior-metrics-4", "gates": gates, "reports": reports, "notes": notes}
 
@@ -142,9 +145,9 @@ def _gate(value: Any, comparison: str, threshold: Any, note: str | None = None) 
 
 
 def _decision_model_requests(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """@brief 取人物决策的模型请求事件：排除任一带 purpose 的系统请求（工作验收、零点计划 plan_day）；带工具的请求
-    只在工具中有 start_main_activity 时计入，所以只带 submit_reflection 的就寝反思及其校验重试不计，不带工具的记忆巩固
-    照计（docs/design/07-evaluation.md）。"""
+    """@brief 取人物决策的模型请求事件：排除任一带 purpose 的系统请求（工作验收、零点计划 plan_day、日月年回顾
+    memory_digest）；带工具的请求只在工具中有 start_main_activity 时计入，所以只带 submit_reflection 的就寝反思及其
+    校验重试不计，不带工具的记忆巩固照计（docs/design/07-evaluation.md）。"""
     selected = []
     for event in events:
         data = event.get("data", {})
@@ -596,6 +599,58 @@ def _bigram_jaccard(left: str, right: str) -> float:
     if not union:
         return 1.0 if left == right else 0.0
     return len(left_set & right_set) / len(union)
+
+
+def digest_repetition(events: list[dict[str, Any]]) -> dict[str, Any]:
+    """@brief 回顾正文的相邻日重复率：同一人物、同一类别键相邻两个日历日都有非空日回顾时成一对，字符 bigram Jaccard
+    ≥ 0.6 的为相似；只报告，不进门禁。
+
+    :param events: 冻结足迹事件 dict 列表，只读其中的 memory_digest_generated 环境事件。
+    :returns: {pairs, similar_pairs, ratio}；没有对时 ratio 为 null。
+    """
+    texts: dict[tuple[Any, str], dict[date, str]] = {}
+    for event, data in _digest_events(events):
+        if data.get("tier") != "day":
+            continue
+        for key, text in _digest_texts(data):
+            texts.setdefault((event.get("agent_id"), key), {})[date.fromisoformat(data["period"])] = text
+    pairs = similar = 0
+    for days in texts.values():
+        for day, text in days.items():
+            following = days.get(day + timedelta(days=1))
+            if following is not None:
+                pairs += 1
+                similar += _bigram_jaccard(text, following) >= 0.6
+    return {"pairs": pairs, "similar_pairs": similar, "ratio": round(similar / pairs, 6) if pairs else None}
+
+
+def digest_identity_residue(events: list[dict[str, Any]]) -> dict[str, Any]:
+    """@brief 各级回顾每类正文小写后命中的示例身份标记（MEMORY_IDENTITY_MARKERS）；只报告，不进门禁。
+
+    :param events: 冻结足迹事件 dict 列表，只读其中的 memory_digest_generated 环境事件。
+    :returns: {hits, matches}：hits 是命中的「类·期」数，matches 每项带人物、级别、期次、类别键与按字典序的标记。
+    """
+    matches = []
+    for event, data in _digest_events(events):
+        for key, text in _digest_texts(data):
+            markers = sorted(marker for marker in MEMORY_IDENTITY_MARKERS if marker in text.lower())
+            if markers:
+                matches.append({"agent_id": event.get("agent_id"), "tier": data.get("tier"),
+                                "period": data.get("period"), "category": key, "markers": markers})
+    return {"hits": len(matches), "matches": matches}
+
+
+def _digest_events(events: list[dict[str, Any]]) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+    """@brief 按事件次序取回顾登记事件及其正文（environment_event 且 data.kind 为 memory_digest_generated）。"""
+    return [(event, event["data"]) for event in events if event.get("event_type") == "environment_event"
+            and isinstance(event.get("data"), Mapping) and event["data"].get("kind") == MEMORY_DIGEST_KIND]
+
+
+def _digest_texts(data: Mapping[str, Any]) -> list[tuple[str, str]]:
+    """@brief 一条回顾事件里有正文的类别，按 food、work、life 的次序给出（类别键，正文）。"""
+    digests = data.get("digests") if isinstance(data.get("digests"), Mapping) else {}
+    return [(key, digests[key]["text"]) for key in MEMORY_DIGEST_KEYS
+            if isinstance(digests.get(key), Mapping) and isinstance(digests[key].get("text"), str)]
 
 
 def _memory_repetition_gate(events: list[dict[str, Any]], notes: list[str]) -> dict[str, Any]:

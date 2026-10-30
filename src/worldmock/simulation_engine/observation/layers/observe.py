@@ -55,7 +55,7 @@ class ObservationBuilder:
         layer = with_bindings(layer, annotated_bindings(layer))
         body = self._body(agent)
         memory = memory_layer.memory_view(layer, self.context.store)
-        view = progress_layer.progress_view(layer, self.context.store, memory.facts)
+        view = progress_layer.progress_view(layer, self.context.store, memory.published, memory.facts.kits)
         return {"agent_id": agent.agent_id, "current_time": self.context.state.current_time,
                 "location_id": agent.location_id, "home_location_id": self.context.inputs.home_location_id,
                 "body": body, "balance_fen": self.context.state.accounts[agent.balance_account_id],
