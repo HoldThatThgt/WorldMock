@@ -59,7 +59,8 @@ def validate_environment_event(event) -> None:
 
 
 def _memory_digest_generated(event) -> None:
-    """@brief 回顾登记事件只核对形状：回顾正文是模型写的主观回忆，不是核验事实；生成时的守卫依赖目录与输入，这里不重跑。
+    """@brief 回顾登记事件只核对形状：回顾正文是模型写的主观回忆，不是核验事实；生成时的「依据归属」依赖这一期的输入行，
+    这里不重跑。
 
     信封是来源 model、可见性 system、无资金变化、属于一个人物、起因恰一项；级与期对应；三类各为 null 或带正文与两种身份
     列表的对象，至少一类非 null 或 fallback 非空；fallback 里的类按 food、work、life 的相对次序、不重复且都为 null。

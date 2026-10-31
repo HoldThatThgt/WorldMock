@@ -303,28 +303,20 @@ null 的类命中率为 null（`fresh_decision_turn` 的两个 token 数同为 n
     `the only tool call must be submit_memory_digest`、`submit_memory_digest arguments must be a JSON string` 之一时计入 `response`；
     等于 `memory digest output was truncated at max_tokens` 时计入 `truncated`；这两项按响应计一次。
   - 否则 `data.error` 不以 `digests.` 开头时是参数结构错误（`schema_feedback(error, "arguments")` 给出），计入 `schema`，按响应计一次。
-  - 否则用 `re.split(r"; (?=digests\.)", error)` 切成逐条问题（守卫文字里的「; the {tier} digest limit」「; missing:」后面不接
+  - 否则用 `re.split(r"; (?=digests\.)", error)` 切成逐条问题（守卫文字里的「; the {tier} digest limit」「; shorten it」后面不接
     `digests.`，不会被切开）。每条问题按下一项的次序逐个模板 `re.fullmatch`，第一个匹配的模板就是它的守卫；类别键取
     `re.match(r"digests\.(food|work|life)", 问题)` 的组。模板由问题文字转成：`{key}` 换成 `(food|work|life)`，`{tier}` 换成
     `(day|month|year)`，其余 `{…}` 占位换成 `(.+)`，其余字符经 `re.escape` 按字面。
   - 模板次序、守卫名与问题文字（回顾输出校验写进 `error` 的原文）：先是两条空值检查 `text_without_input`
     （`digests.{key} must be null: the input has no {key} records`）、`null_with_input`
-    （`digests.{key} must not be null: the input has {key} records`），然后是回顾输出校验的十三个守卫（各守卫的含义见
-    [人物](06-agent.md)「日、月、年回顾」），依次 `text_empty`（`digests.{key}.text must not be empty`）、`text_length`
-    （`digests.{key}.text has {len(text)} characters; the {tier} digest limit is {limit}`）、`chinese`
-    （`digests.{key}.text must contain Chinese`）、`hex_identity`（`digests.{key}.text contains a hexadecimal identifier`）、
+    （`digests.{key} must not be null: the input has {key} records`），然后是回顾输出校验的四个守卫（各守卫的含义见
+    [人物](06-agent.md)「日、月、年回顾」），依次 `text_empty`（`digests.{key}.text must not be empty`）、`text_length`（`n` 是
+    `len(text)`：`digests.{key}.text has {n} characters counting punctuation; the {tier} digest limit is {limit}; shorten it by at least {n - limit}`）、
     `refs_empty`（`digests.{key}.refs must cite at least one record number`）、`refs_category`
-    （`digests.{key}.refs: {ref} is not a {key} record number`）、`names`
-    （`digests.{key}: the name {name} does not appear in the {key} input`）、`food_verified_names`
-    （`digests.food: the goods name {name} does not appear in the food verified lines`）、`food_coverage`
-    （`digests.food must name every food received and every meal kit cooked that day; missing: {names}`）、`cooking_sentence`
-    （`digests.food: the sentence about 做饭 names {kit}, but the meal kit cooked that day was {used}`）、`numbers`
-    （`digests.{key}: {token} does not appear in the {key} input`）、`numbers_same_record`
-    （`digests.{key}: {token} does not appear in the same input record as a name in its sentence`）、`count_lines`
-    （`digests.{key}: the count {token} must be copied with its whole count line`）。`names` 排在 `numbers` 之前，
-    所以「the name …」的问题不会被 `numbers` 的 `(.+)` 收走。
+    （`digests.{key}.refs: {ref} is not a {key} record number`）。这六个之后再试一个旧写法：此前的运行记下的正文长度问题是
+    `digests.{key}.text has {len(text)} characters; the {tier} digest limit is {limit}`，同样计入 `text_length`。
   - 没有任何模板匹配的问题计入 `unrecognized`，按问题条数计，并写英文错误日志 `Memory digest error {call_id} matches no guard`。
-  - 输出是守卫名到次数，十九个键按 `response`、`truncated`、`schema`、上面十五个模板、`unrecognized` 的次序全部列出，没有的为 0。
+  - 输出是守卫名到次数，十个键按 `response`、`truncated`、`schema`、上面六个守卫、`unrecognized` 的次序全部列出，没有的为 0。
 - `cited`：非空的日回顾格中被引用的比例；月、年回顾的段落不是日回顾格。被引用指：某次决策的观察「近三天」里有这一格（同类、同日期），
   或它的 `search_memory` 成功结果的检索结果项里有这一格（同「类别」、同「日期」），并且这段回顾正文有一个 8 字窗口出现在该决策的
   `T_d` 里。
@@ -383,6 +375,9 @@ null 的类命中率为 null（`fresh_decision_turn` 的两个 token 数同为 n
 分层记忆提案对最终形态写出的数值；其中 `progress_layer_median`、`progress_layer_p90` 两项在提案 P1 验收里标为「估计值，P0 校准」，
 本工具不在旧运行上校准（旧运行不能作为输入），两项照表中数值判定。`days_outside_band`、`restarted` 两项的 `value` 写列表长度；
 `rejections`、`month_digests` 两项的 `threshold` 写报告里对应的数。比较浮点数时按报告里已经舍入的值比较。
+回顾按日记写，不要求照抄次数，也不要求写全当天每样吃的，也不要求做饭那一句只写当天做饭用的那一份，所以 M10 的
+`statistics_copy_violations`、M11 ① 的 `coverage`、`coverage_plus_fallback` 与 ② 的 `cooking_mismatches` 照常计算，只报告，不进检查项；
+② 按「做饭」所在的整句计数，会把写对的日记也算成错配。回顾写得准不准由 M11 ①–④ 报告，在试点报告里由模型核对抽查来判。
 
 | name | path | 比较 | 阈值 | 提案出处 |
 | --- | --- | --- | --- | --- |
@@ -410,9 +405,6 @@ null 的类命中率为 null（`fresh_decision_turn` 的两个 token 数同为 n
 | `one_day_digest_per_day` | `M10.day_digest_problems` | `==` | 0 | P1 验收 |
 | `retired_calls` | `M10.retired_calls` | `==` | 0 | P1 验收 |
 | `month_digests` | `M10.periods.month` | `==` | `M10.expected.month` | P3 验收 |
-| `statistics_copied` | `M10.statistics_copy_violations` | `==` | 0 | P3 验收 |
-| `food_coverage_partition` | `M11.coverage_plus_fallback.value` | `==` | 1.0 | M11 ① |
-| `cooking_mismatch` | `M11.cooking_mismatches` | `==` | 0 | M11 ② |
 
 `digest_review` 是试点报告附的「每天的回顾和当天核验的对照表」：每条日回顾事件按 `period` 升序，每个类别按饮食、工作、生活一行
 `{date, category, digest, status, verified}`。`status` 取 `written`（正文非空）、`unsorted`（null 且在 `fallback` 里）、`no_records`

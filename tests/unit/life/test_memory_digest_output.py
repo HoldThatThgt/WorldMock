@@ -1,18 +1,20 @@
 """日、月、年回顾的请求、提示与输出守卫：都是纯函数，DigestInputs 由测试手工构造（docs/design/06-agent.md「日、月、年回顾」）。
 
-目录名称、商品名称照「守卫用到的概念」从夹具环境目录 tests/fixtures/dataset-environment 写出；夹具没有食材包状态，
-用到食材包的用例另给食材包名称。
+第四批裁定之后回顾是日记式的回忆，输出只查格式与长度：守卫表只有正文非空、正文长度、依据非空、依据归属四行，正文写的名称、
+时刻、价钱、日期、次数、十六进制串与有没有中文都不影响接受。
 """
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 
 import pytest
 
-from tests.life.conftest import memory_digest_response
+from tests.life.conftest import fixture_goods, memory_digest_response
 from worldmock.configuration.inputs.models import ModelMetadata
+from worldmock.simulation_engine.evidence import memory_digest
 from worldmock.simulation_engine.evidence.memory_digest import (
     DAY_DIGEST_PROMPT,
     DIGEST_PROMPTS,
@@ -34,37 +36,27 @@ from worldmock.simulation_engine.evidence.memory_digest import (
 from worldmock.state.interaction.requests import contains_hex_identity, validate_memory_text
 from worldmock.state.interaction.schema import deepseek_strict_schema
 
-#: 夹具目录的目录名称（len ≥ 3，升序）与其中的商品名称。
-NAMES = ("Keep", "一心面馆", "三杯咖啡", "二味小炒", "五里公园", "哔哩哔哩", "四季便利", "季度销售数据整理", "平台笔记本",
-         "快递驿站", "扑克牌", "支付宝", "柠檬茶", "测试休息", "测试剧集", "测试剧集第一集", "测试剧集第三集", "测试剧集第二集",
-         "测试图文", "测试实况", "测试慢跑", "测试文章", "测试短视频", "测试短视频二", "测试课程", "测试长视频", "测试闲聊",
-         "牛肉面", "饿了么", "驿站取件", "高德地图")
-GOODS = frozenset({"牛肉面", "平台笔记本", "扑克牌", "柠檬茶"})
-#: 本章「提示原文」的日回顾模板（逐字写死）。
+#: 本章「提示原文」的日回顾模板（日记式，逐字写死）。
 _DAY_PROMPT = (
-    "你替模拟世界里的一个人物把他昨天的记录整理成回顾。输入按饮食、工作、生活三类给出他昨天的记录：「核验」是环境确认的经过，「当时查到」是他当时查询看到的结果，「自述」是他当时写下的话（「名称：」是收尾或"
-    "暂停的总结，「进展·」是中途写的进展，「看法·」是看法，「记住：」是想记住的事，「正文：」是回复正文），每条带编号。每类写一段不超过 200 字的话，用他的第一人称：先写那天这类事经过了什么，以核验为"
-    "准；再写他对具体的东西、地方、人和做法的看法、习惯和打算，以自述里的「看法」「记住」和总结为准：每条看法用一句短话写出对象的名字和态度（喜不喜欢、还想不想再来、打算保持还是改掉）；写不下时先写说了以后"
-    "要照做、要换掉或不再做的，再写当天写过不止一次的；只写自述里有的看法，不从经过推测感受。在 refs 里写所依据的记录编号，至少一个。提到的东西只用输入里出现过的名字；饮食类写到的商品名只能取自核验，"
-    "「当时查到」和自述里提到、核验里没有的商品不写名字，写看法时也一样；时刻、价钱和数量只写输入里出现过的，一律用阿拉伯数字；时长和次数用输入里的起止时刻表达，不要自己换算；写某个时刻时，同一句里提到的名"
-    "字要和这个时刻出自同一条记录；饮食类要写出核验里当天收到的每样吃的、喝的，以及做饭用的那份食材包，写做饭的那一句里只写当天做饭用的那一份；不要补造输入里没有的经过、看法或别人说的话，也不要拿别的日子作"
-    "比较。某一类没有记录时写 null。只调用一次 submit_memory_digest。"
+    "你替模拟世界里的一个人物写他昨天的日记。输入按饮食、工作、生活三类给出他昨天的记录：「核验」是环境确认的经过，「当时查到」是他当时查询看到的结果，「自述」是他当时写下的话（「名称：」是收尾或暂停的总结，「进展·」是中途写的进展，"
+    "「看法·」是看法，「记住：」是想记住的事，「正文：」是回复正文），每条带编号。每类写一段日记，150 到 220 字为宜，连标点在内不能超过 250 字，用他的第一人称，像人回想昨天那样只记要紧的事和当时的感受，不记流水账："
+    "经过以核验为准，挑要紧的写，吃了什么、做了什么、去了哪里、和谁打了交道，这些东西写出名字；时间只说早上、中午、下午、晚上，不写钟点，「八点十一」「九点一刻」这样的说法也不写；价钱、数量和花了多久只在对他要紧时顺口带一句，"
+    "比如「有点贵」「等了挺久」，不逐项列出；感受和看法以自述为准，写他喜不喜欢、累不累、还想不想再来、打算保持还是改掉，不替他编没写过的感受；字数紧时先省经过的细节，感受和看法留着。只凭昨天的记录写，不补造没发生的事或别人说的话，"
+    "不拿别的日子作比较，不写编号、订单号或其他内部标识。在 refs 里写所依据的记录编号，至少一个。某一类没有记录时写 null。只调用一次 submit_memory_digest。"
 )
 #: 本章「提示原文」的月回顾模板（逐字写死）。
 _MONTH_PROMPT = (
-    "你替模拟世界里的一个人物把他上个月的日回顾整理成月回顾。输入按饮食、工作、生活三类给出那个月每一天的日回顾，每段带日期和编号，没整理出来的日子写着「未整理」；"
-    "另附代码从事件算出的次数统计。每类写一段不超过 800 字的话，用他的第一人称，写这个月这类事的规律、习惯和变化，以及值得记住的事；把日回顾里反复出现、或说了以后要照"
-    "做或要换掉的看法、习惯和打算，各用一句短话写出对象和态度，写明最早、最近是哪天的回顾写到的（日期照抄输入）、后来有没有变。在 refs 里写所依据的日回顾编号，至少一"
-    "个。提到的东西只用输入里出现过的名字；时刻、价钱、数量和日期只写输入里出现过的，一律用阿拉伯数字；写到次数时照抄统计里的那一行，不要自己数；不要补造输入里没有的"
-    "经过、看法或别人说的话。某一类没有输入时写 null。只调用一次 submit_memory_digest。"
+    "你替模拟世界里的一个人物把他上个月的日记整理成这个月的回忆。输入按饮食、工作、生活三类给出那个月每一天的日回顾，每段带日期和编号，没整理出来的日子写着「未整理」；另附代码从事件算出的次数统计，让你知道哪些事常有。"
+    "每类写一段不超过 800 字（标点也算）的话，用他的第一人称，像人回想上个月那样写：这类事有什么规律和习惯，常吃什么、常做什么、常去哪里，有什么变化，哪些事值得记住；他对具体的东西、地方、人和做法的看法和打算，喜欢的、不喜欢的、"
+    "说了要保持或要改掉的，后来有没有变。时间说月初、月中、月底、某个周末这样的说法，次数说几乎每天、常常、偶尔一两次这样的说法，不照抄日期和统计行。只凭输入写，不补造输入里没有的经过、看法或别人说的话，不写编号或其他内部标识。"
+    "在 refs 里写所依据的日回顾编号，至少一个。某一类没有输入时写 null。只调用一次 submit_memory_digest。"
 )
 #: 本章「提示原文」的年回顾模板（逐字写死）。
 _YEAR_PROMPT = (
-    "你替模拟世界里的一个人物把他上一年的月回顾整理成年回顾。输入按饮食、工作、生活三类给出那一年每个月的月回顾，每段带月份和编号，没整理出来的月份写着「未整理」；"
-    "另附代码从事件算出的全年次数统计。每类写一段不超过 2000 字的话，用他的第一人称，写这一年这类事固定下来的习惯、口味和做法，哪些看法在哪个月变了；到年底仍成立的"
-    "看法各用一句短话写出对象和态度，注明出自哪个月的回顾（月份照抄输入）。在 refs 里写所依据的月回顾编号，至少一个。提到的东西只用输入里出现过的名字；时刻、价钱、"
-    "数量、日期和月份只写输入里出现过的，一律用阿拉伯数字；写到次数时照抄统计里的那一行，不要自己数；不要补造输入里没有的经过、看法或别人说的话。某一类没有输入时写 "
-    "null。只调用一次 submit_memory_digest。"
+    "你替模拟世界里的一个人物把他上一年的月回顾整理成这一年的回忆。输入按饮食、工作、生活三类给出那一年每个月的月回顾，每段带月份和编号，没整理出来的月份写着「未整理」；另附代码从事件算出的全年次数统计，让你知道哪些事常有。"
+    "每类写一段不超过 2000 字（标点也算）的话，用他的第一人称，像人回想过去一年那样写：这一年这类事固定下来的习惯、口味和做法，哪些看法后来变了、大约什么时候变的，到年底还成立的看法和打算，哪些事值得记住。时间说年初、春天、"
+    "几月份、年底这样的说法，次数说几乎每天、常常、偶尔这样的说法，不照抄统计行。只凭输入写，不补造输入里没有的经过、看法或别人说的话，不写编号或其他内部标识。在 refs 里写所依据的月回顾编号，至少一个。"
+    "某一类没有输入时写 null。只调用一次 submit_memory_digest。"
 )
 #: 本章「请求」的参数 Schema（逐值写死）。
 _SCHEMA = json.loads(
@@ -81,25 +73,20 @@ _KEYS = (("food", "饮食"), ("work", "工作"), ("life", "生活"))
 
 
 def _row(number: str, sources: tuple[str, ...] | None = None, **fields) -> DigestRow:
-    """一行输入：编号与给定的键（列表值逐项是字符串值），背后的事件缺省是 event-{编号}。"""
-    payload = {"编号": number, **fields}
-    values = [item for value in fields.values() for item in (value if isinstance(value, list) else [value])
-              if isinstance(item, str)]
-    return DigestRow(number, payload, sources or (f"event-{number}",), "\n".join(values),
-                     "\n".join(fields.get("核验", [])))
+    """一行输入：编号与给定的键，背后的事件缺省是 event-{编号}。"""
+    return DigestRow(number, {"编号": number, **fields}, sources or (f"event-{number}",))
 
 
-def _inputs(food=(), work=(), life=(), tier="day", counts=None, required=(), cooked=(), kits=frozenset()):
-    """手工构造的一期输入：日回顾带人物卡片，月、年回顾的类别值带下一级回顾与次数统计。"""
+def _inputs(food=(), work=(), life=(), tier="day", counts=None) -> DigestInputs:
+    """手工构造的一期输入：日回顾带人物卡片，月、年回顾的类别值带下一级回顾与次数统计（统计行只在用户消息里）。"""
     rows = {"food": tuple(food), "work": tuple(work), "life": tuple(life)}
-    counts = {key: tuple((counts or {}).get(key, ())) for key, _ in _KEYS}
     lower = {"month": "日回顾", "year": "月回顾"}.get(tier)
     payload = {"人物卡片": "产品经理，32岁，周末常去五里公园。"} if tier == "day" else {}
     for key, name in _KEYS:
         lines = [row.payload for row in rows[key]]
-        payload[name] = lines if tier == "day" else {lower: lines, "次数统计": list(counts[key])}
+        payload[name] = lines if tier == "day" else {lower: lines, "次数统计": list((counts or {}).get(key, ()))}
     period = DigestPeriod(tier, {"day": "2026-01-05", "month": "2026-01", "year": "2026"}[tier])
-    return DigestInputs(period, payload, rows, counts, tuple(required), tuple(cooked), NAMES, GOODS, kits)
+    return DigestInputs(period, payload, rows)
 
 
 def _answer(**categories) -> dict:
@@ -243,20 +230,26 @@ def test_null_rules_follow_category_input():
 
 
 @pytest.mark.parametrize("tier,text,message", [
-    ("day", "我" * 200, None),
-    ("day", "我" * 201, "digests.life.text has 201 characters; the day digest limit is 200"),
+    ("day", "我" * 201, None),
+    ("day", "我" * 250, None),
+    ("day", "我" * 251, "digests.life.text has 251 characters counting punctuation; the day digest limit is 250; "
+                       "shorten it by at least 1"),
+    ("day", "我" * 230 + "，。" * 13, "digests.life.text has 256 characters counting punctuation; the day digest limit "
+                                     "is 250; shorten it by at least 6"),
     ("month", "我" * 800, None),
-    ("month", "我" * 801, "digests.life.text has 801 characters; the month digest limit is 800"),
+    ("month", "我" * 801, "digests.life.text has 801 characters counting punctuation; the month digest limit is 800; "
+                         "shorten it by at least 1"),
     ("year", "我" * 2000, None),
-    ("year", "我" * 2001, "digests.life.text has 2001 characters; the year digest limit is 2000"),
-    ("day", "", "digests.life.text must not be empty; digests.life.text must contain Chinese"),
-    ("day", " \n ", "digests.life.text must not be empty; digests.life.text must contain Chinese"),
-    ("day", "slept well.", "digests.life.text must contain Chinese"),
-    ("day", "我记得deadbeefcafe。", "digests.life.text contains a hexadecimal identifier"),
-], ids=["day-200", "day-201", "month-800", "month-801", "year-2000", "year-2001", "empty", "blank", "no-chinese",
-        "hex"])
+    ("year", "我" * 2001, "digests.life.text has 2001 characters counting punctuation; the year digest limit is 2000; "
+                          "shorten it by at least 1"),
+    ("day", "", "digests.life.text must not be empty"),
+    ("day", " \n ", "digests.life.text must not be empty"),
+], ids=["day-201", "day-250", "day-251", "day-punctuation", "month-800", "month-801", "year-2000", "year-2001", "empty",
+        "blank"])
 def test_text_guards(tier, text, message):
-    """正文非空、长度不超过这一级的上限、含中文、不含八位以上十六进制串。"""
+    """正文非空、正文 len（标点也算）不超过这一级的上限（日 250、月 800、年 2000）：日回顾 201 字与恰在上限时通过，多一字时
+    报正文长度，问题文字写明连标点的字数、上限和至少要删去的字数；230 个汉字加 26 个标点共 256 字也报；空串与全空白只报
+    正文非空。"""
     number = {"day": "n1", "month": "d1", "year": "m1"}[tier]
     row = _row(number, 时刻="20:00", 核验=["开始睡觉"]) if tier == "day" else _row(number, 日期="2026-01-05", 回顾="睡觉。")
     assert _problems(_inputs(life=[row], tier=tier), life=(text, [number])) == message
@@ -273,135 +266,57 @@ def test_refs_must_cite_this_categorys_numbers():
     assert _problems(inputs, done, life=("睡了一觉。", ["n3"])) is None
 
 
-def test_name_guard_reads_only_this_categorys_input():
-    """正文写到的目录名称必须出自这一类的输入：只在别的类或人物卡片里时报名称问题；短于 3 字的名称不查。"""
-    inputs = _inputs(food=[_row("n1", 核验=["送达柠檬茶"])], life=[_row("n2", 核验=["开始测试闲聊"])])
-    done = {"food": DigestParagraph(text="收到了柠檬茶。", refs=["n1"])}
-    assert _problems(inputs, done, life=("五里公园没去，喝了柠檬茶。", ["n2"])) == (
-        "digests.life: the name 五里公园 does not appear in the life input; "
-        "digests.life: the name 柠檬茶 does not appear in the life input")
-    assert _problems(inputs, done, life=("测试闲聊挺好，吃了饭团。", ["n2"])) is None
+#: 日回顾饮食类的一行输入：只有柠檬茶，时刻 08:28，价钱 17 元。
+_FOOD = _row("n1", 时刻="08:28", 核验=["买柠檬茶1份，17元", "08:28 送达柠檬茶"], 自述=["看法·柠檬茶：好喝。"])
+#: 月回顾饮食类的一行输入与次数统计。
+_MONTH_FOOD = _row("d1", 日期="2026-01-05", 回顾="早上喝了柠檬茶，挺好喝。")
 
 
-def test_food_goods_names_must_come_from_verified_lines():
-    """饮食类正文的商品名必须出自饮食核验，只在「当时查到」或自述里的不算；工作类不跑这一守卫。"""
-    food = _row("n1", 核验=["查完饿了么·柠檬茶：有可买"], 当时查到=["在饿了么查柠檬茶", "牛肉面 便宜"], 自述=["正文：想吃牛肉面。"])
-    inputs = _inputs(food=[food], work=[_row("n2", 自述=["正文：午饭的牛肉面还行。"])])
-    done = {"work": DigestParagraph(text="说起牛肉面。", refs=["n2"])}
-    assert _problems(inputs, done, food=("想吃牛肉面。", ["n1"])) == (
-        "digests.food: the goods name 牛肉面 does not appear in the food verified lines")
-    assert _problems(inputs, done, food=("查了柠檬茶。", ["n1"])) is None
-    assert _problems(inputs, {}, food=("查了柠檬茶。", ["n1"]), work=("牛肉面还行。", ["n2"])) is None
+@pytest.mark.parametrize("tier,text", [
+    ("day", "早上8:09喝了柠檬茶，挺解渴。"),
+    ("day", "柠檬茶35元，有点贵，不过好喝。"),
+    ("day", "10月9日早上喝了柠檬茶。"),
+    ("month", "这个月柠檬茶喝了5 次，几乎每天都想喝。"),
+    ("day", "中午吃了牛肉面，味道一般。"),
+    ("day", "订单a1b2c3d4e5的柠檬茶到了。"),
+    ("day", "ok"),
+], ids=["clock-time", "price", "date", "count", "absent-name", "hex", "no-chinese"])
+def test_text_within_the_limit_is_accepted_whatever_it_mentions(tier, text):
+    """不超过字数上限、refs 都是这一类编号的一段，正文写了输入里没有的时刻、价钱、日期、次数、商品名、十六进制串，或全文
+    没有中文：这一类照样被接受，错误为 None，登记的正文逐字是原文（守卫表只有四行）。"""
+    inputs = (_inputs(food=[_FOOD]) if tier == "day"
+              else _inputs(food=[_MONTH_FOOD], tier="month", counts={"food": ["柠檬茶 1 次"]}))
+    number = inputs.rows["food"][0].number
+    message = json.dumps(inputs.payload, ensure_ascii=False)
+    assert not any(mention in message for mention in ("8:09", "35元", "10月9日", "5 次", "牛肉面", "a1b2c3d4e5"))
+    assert "牛肉面" in fixture_goods() and contains_hex_identity("a1b2c3d4e5")
+    kept, error = check_attempt(inputs, _answer(food=(text, [number])), {})
+    assert error is None and kept["food"].text == text
+    assert digest_outcome(inputs, kept).digests["food"]["text"] == text
 
 
-def test_food_coverage_requires_every_received_food_and_cooked_kit():
-    """饮食覆盖：漏写收到的饮料、漏写做饭用的食材包各报；漏写的必写名称在一条问题里按必写名称的次序列出、用「、」连接。"""
-    food = [_row("n1", 核验=["送达柠檬茶"]), _row("n2", 核验=["做饭，用收到的扑克牌"])]
-    inputs = _inputs(food=food, required=("柠檬茶", "扑克牌"), cooked=("扑克牌",), kits=frozenset({"扑克牌"}))
-    message = "digests.food must name every food received and every meal kit cooked that day; missing: "
-    assert _problems(inputs, food=("这一天吃喝照常。", ["n1"])) == message + "柠檬茶、扑克牌"
-    assert _problems(inputs, food=("收到了柠檬茶。", ["n1"])) == message + "扑克牌"
-    assert _problems(inputs, food=("做饭用了扑克牌。", ["n2"])) == message + "柠檬茶"
-    assert _problems(inputs, food=("收到了柠檬茶，做饭用了扑克牌。", ["n1", "n2"])) is None
-
-
-def test_cooking_sentence_names_only_the_kit_cooked_that_day():
-    """含「做饭」的句子写了当天收到却没做的食材包时报问题，写明当天做饭用的那份；分在两句时不报；当天没做饭时写 none。"""
-    food = [_row("n1", 核验=["送达平台笔记本"]), _row("n2", 核验=["做饭，用收到的扑克牌"])]
-    kits = frozenset({"扑克牌", "平台笔记本"})
-    inputs = _inputs(food=food, cooked=("扑克牌",), kits=kits)
-    assert _problems(inputs, food=("做饭用了扑克牌和平台笔记本。", ["n2"])) == (
-        "digests.food: the sentence about 做饭 names 平台笔记本, but the meal kit cooked that day was 扑克牌")
-    assert _problems(inputs, food=("收到了平台笔记本。做饭用了扑克牌。", ["n1", "n2"])) is None
-    idle = _inputs(food=food, kits=kits)
-    assert _problems(idle, food=("做饭用了平台笔记本。", ["n1"])) == (
-        "digests.food: the sentence about 做饭 names 平台笔记本, but the meal kit cooked that day was none")
-
-
-def test_sentences_end_at_full_width_terminators():
-    """句以。！？结束，末尾没有标点的剩余也算一句；半角的 ! 与 ? 不切句。"""
-    food = [_row("n1", 核验=["送达平台笔记本"]), _row("n2", 核验=["做饭，用收到的扑克牌"])]
-    inputs = _inputs(food=food, cooked=("扑克牌",), kits=frozenset({"扑克牌", "平台笔记本"}))
-    problem = "digests.food: the sentence about 做饭 names 平台笔记本, but the meal kit cooked that day was 扑克牌"
-    for text in ("做饭用了扑克牌。收到了平台笔记本", "做饭用了扑克牌！收到了平台笔记本", "做饭用了扑克牌？收到了平台笔记本",
-                 "收到了平台笔记本。做饭用了扑克牌"):
-        assert _problems(inputs, food=(text, ["n1", "n2"])) is None, text
-    for text in ("做饭用了扑克牌!收到了平台笔记本", "做饭用了扑克牌?收到了平台笔记本"):
-        assert _problems(inputs, food=(text, ["n1", "n2"])) == problem, text
-
-
-def _life_tokens(text: str, *rows: DigestRow, food=()) -> str | None:
-    """生活类只有给定行时这段正文的错误文字。"""
-    return _problems(_inputs(food=food, life=rows), {"food": DigestParagraph(text="嗯。", refs=["n0"])} if food else {},
-                     life=(text, [rows[0].number]))
-
-
-def test_number_tokens_match_complete_forms():
-    """数字记号按完整写法整段比较、不规范化；记号对每个字符串值分别提取；其余阿拉伯数字串各成一个记号。"""
-    row = _row("n1", 时刻="08:30", 核验=["花了18.3元", "买了1份"])
-    assert _life_tokens("08:30出门，花了18.3元，买了1份。", row) is None
-    assert _life_tokens("8:30出门。", row) == "digests.life: 8:30 does not appear in the life input"
-    assert _life_tokens("花了18.3 元。", row) == "digests.life: 18.3 元 does not appear in the life input"
-    assert _life_tokens("买了2份。", row) == "digests.life: 2份 does not appear in the life input"
-    other = (_row("n0", 时刻="12:00", 核验=["送达柠檬茶"]),)
-    assert _life_tokens("12:00吃饭。", row, food=other) == "digests.life: 12:00 does not appear in the life input"
-    split = _row("n1", 核验=["等了10", "份量很足"])
-    assert _life_tokens("吃了10份。", split) == "digests.life: 10份 does not appear in the life input"
-    line = _row("n1", 自述=["正文：坐3号线回家。"])
-    assert _life_tokens("坐了3号线。", line) is None
-    month = _inputs(life=[_row("d1", 日期="2026-10-09", 回顾="睡觉。"), _row("d2", 日期="2026-10-10", 未整理=True)],
-                    tier="month")
-    assert _problems(month, life=("2026-10-09那天睡得早。", ["d1"])) is None
-    assert _problems(month, life=("2026-10-10那天没整理出来。", ["d2"])) is None
-    assert _problems(month, life=("10月9日那天睡得早。", ["d1"])) == (
-        "digests.life: 10月9日 does not appear in the life input")
-    year = _inputs(life=[_row("m1", 月份="2026-03", 回顾="睡觉。")], tier="year")
-    assert _problems(year, life=("2026-03那个月睡得早。", ["m1"])) is None
-    food = _inputs(food=[_row("n1", 时刻="10:30", 核验=["送达柠檬茶"])])
-    head = "digests.food: "
-    assert _problems(food, food=("吃了2顿。", ["n1"])) == head + "2 does not appear in the food input"
-    assert _problems(food, food=("10点出门。", ["n1"])) == head + "10 does not appear in the food input"
-    assert _problems(food, food=("10-12点出门。", ["n1"])) == (
-        head + "10 does not appear in the food input; " + head + "12 does not appear in the food input")
-
-
-def test_numbers_must_share_an_input_record_with_a_named_object():
-    """写到目录名称的句子里，每个记号都要与这句的某个名称出自同一行；句中没有名称时只查记号存在。"""
-    food = [_row("n1", 时刻="08:36", 核验=["买柠檬茶1份，17元"]), _row("n2", 时刻="12:10", 核验=["送达牛肉面"])]
-    inputs = _inputs(food=food)
-    assert _problems(inputs, food=("08:36买了柠檬茶，12:10收到牛肉面。", ["n1", "n2"])) is None
-    assert _problems(inputs, food=("12:10喝了柠檬茶，后来收到牛肉面。", ["n1", "n2"])) is None
-    assert _problems(inputs, food=("12:10喝了柠檬茶。收到牛肉面。", ["n1", "n2"])) == (
-        "digests.food: 12:10 does not appear in the same input record as a name in its sentence")
-    assert _problems(inputs, food=("12:10到了。收到柠檬茶和牛肉面。", ["n1", "n2"])) is None
-
-
-@pytest.mark.parametrize("tier", ["month", "year"])
-def test_count_lines_must_be_copied_whole(tier):
-    """月、年回顾里「N 次」只能出现在照抄整行的次数统计里：单写「3 次」报次数照抄问题（它本身在统计行里，数字守卫
-    不报），照抄整行通过；日回顾不跑这一守卫，同样的「3 次」只按数字守卫报。"""
-    number, key = {"month": ("d1", "日期"), "year": ("m1", "月份")}[tier]
-    row = _row(number, **{key: "2026-01-05" if tier == "month" else "2026-01"}, 回顾="在家吃面。")
-    inputs = _inputs(food=[row], tier=tier, counts={"food": ["牛肉面 3 次", "柠檬茶 1 次"]})
-    copied = "digests.food: the count 3 次 must be copied with its whole count line"
-    assert _problems(inputs, food=("这段时间吃了 3 次。", [number])) == copied
-    assert _problems(inputs, food=("吃得最多的是牛肉面 3 次。", [number])) is None
-    assert _problems(inputs, food=("牛肉面 3 次，柠檬茶 1 次。", [number])) is None
-    assert _problems(inputs, food=("牛肉面 3 次，后来又吃了 3 次。", [number])) == copied
-    day = _inputs(food=[_row("n1", 时刻="12:00", 核验=["送达牛肉面"])])
-    assert _problems(day, food=("这一天吃了 3 次。", ["n1"])) == "digests.food: 3 次 does not appear in the food input"
+def test_removed_guard_names_no_longer_exist():
+    """已撤销守卫的数字记号与数量单位不在模块里；输入只剩期次、用户消息与行，行只剩编号、那一行与来源。"""
+    assert not hasattr(memory_digest, "NUMBER_TOKEN") and not hasattr(memory_digest, "QUANTITY_UNITS")
+    assert [item.name for item in dataclasses.fields(DigestInputs)] == ["period", "payload", "rows"]
+    assert [item.name for item in dataclasses.fields(DigestRow)] == ["number", "payload", "sources"]
+    removed = {"names", "goods_names", "kit_names", "food_required", "kits_cooked", "counts", "text", "verified"}
+    assert removed.isdisjoint(item.name for kind in (DigestInputs, DigestRow) for item in dataclasses.fields(kind))
 
 
 def test_problems_are_joined_in_category_and_guard_order():
-    """多类多守卫同时不合：按类别次序、再按守卫表次序，用 "; " 连接。"""
-    inputs = _inputs(food=[_row("n1", 核验=["送达柠檬茶"])], work=[_row("n2", 核验=["到公司"])])
-    assert _problems(inputs, food=("8:30去五里公园。", []), life=("嗯。", ["n1"])) == "; ".join((
-        "digests.food.refs must cite at least one record number",
-        "digests.food: the name 五里公园 does not appear in the food input",
-        "digests.food: 8:30 does not appear in the food input",
-        "digests.food: 8:30 does not appear in the same input record as a name in its sentence",
-        "digests.work must not be null: the input has work records",
-        "digests.life must be null: the input has no life records"))
+    """日回顾三类同时不合：按类别次序、再按守卫表次序，用 "; " 连接；正文里输入没有的时刻、价钱与商品名不报问题。"""
+    inputs = _inputs(food=[_row("n1", 核验=["送达柠檬茶"])], work=[_row("n2", 核验=["到公司"])],
+                     life=[_row("n3", 核验=["开始睡觉"])])
+    food = "早上8:09买了牛肉面，35元。"
+    food += "我" * (251 - len(food))
+    assert _problems(inputs, food=(food, ["n1", "n2"]), work=(" \n ", [])) == "; ".join((
+        "digests.food.text has 251 characters counting punctuation; the day digest limit is 250; "
+        "shorten it by at least 1",
+        "digests.food.refs: n2 is not a food record number",
+        "digests.work.text must not be empty",
+        "digests.work.refs must cite at least one record number",
+        "digests.life must not be null: the input has life records"))
 
 
 def test_accepted_categories_survive_later_attempts():
@@ -441,7 +356,7 @@ def test_outcome_sources_and_citations_follow_rows():
 
 
 def test_contains_hex_identity_is_shared_with_memory_text():
-    """回顾正文与主观记忆文字对十六进制身份串的判定是同一条规则。"""
+    """contains_hex_identity 与主观记忆文字的校验对同一组字符串判定一致；回顾的守卫不用它（见上面的 [hex]）。"""
     for text in ("今天吃了饭", "deadbeef", "订单 0123456789abcdef", "DEADBEE", "7654321", "a1b2c3d4e"):
         try:
             validate_memory_text(text)

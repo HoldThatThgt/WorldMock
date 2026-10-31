@@ -23,7 +23,7 @@ from worldmock.state.world.kinds import ActionStatus
 from worldmock.state.planning.schedule import INTENT_KINDS
 from worldmock.configuration.persona.persona_text import INTIMACY_LEVELS
 from worldmock.configuration.persona.work_schedule import DUTY_DAYS, DUTY_STATUSES, WEEKDAY_NAMES
-from worldmock.state.model.memory import MEMORY_CATEGORIES
+from worldmock.state.model.memory import MEMORY_CATEGORIES, MEMORY_DIGEST_TEXT_LIMITS
 
 #: 带时区的 ISO 8601 时刻（秒精度）。
 _TIME = {"type": "string", "pattern": r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$"}
@@ -171,11 +171,12 @@ _COUNT_LINE = _object({"时刻": {"enum": _HOUR_SPANS}, "类别": _CATEGORY_TEXT
 
 
 def _recent_cells(work: bool) -> dict[str, Any]:
-    """@brief 一类「近三天」的格子数组 Schema：至多三格；每格有日期、星期，工作格另有安排；回顾是 1–200 字的段落，
-    没整理出来时回顾为 null 并带「未整理」。"""
+    """@brief 一类「近三天」的格子数组 Schema：至多三格；每格有日期、星期，工作格另有安排；回顾是 1 到日回顾上限
+    （MEMORY_DIGEST_TEXT_LIMITS["day"]，250）字的段落，没整理出来时回顾为 null 并带「未整理」。"""
     head = {"日期": _DATE, "星期": {"enum": list(WEEKDAY_NAMES)}, **({"安排": {"enum": list(DUTY_DAYS)}} if work else {})}
+    text = {"type": "string", "minLength": 1, "maxLength": MEMORY_DIGEST_TEXT_LIMITS["day"]}
     return {"type": "array", "maxItems": 3, "items": {"oneOf": [
-        _object({**head, "回顾": {"type": "string", "minLength": 1, "maxLength": 200}}),
+        _object({**head, "回顾": text}),
         _object({**head, "回顾": {"type": "null"}, "未整理": {"const": True}})]}}
 
 

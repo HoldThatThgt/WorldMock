@@ -452,7 +452,7 @@ _MEMORY_HEX_IDENTITY = re.compile(r"[0-9a-fA-F]{8,}")
 
 
 def contains_hex_identity(text: str) -> bool:
-    """@brief 文字是否含八位以上十六进制串；主观记忆文字与日、月、年回顾正文共用这一条规则。"""
+    """@brief 文字是否含八位以上十六进制串；只由主观记忆文字的校验 validate_memory_text 使用，日、月、年回顾不查这一条。"""
     return _MEMORY_HEX_IDENTITY.search(text) is not None
 
 
@@ -460,8 +460,8 @@ def contains_hex_identity(text: str) -> bool:
 def validate_memory_text(text: str) -> str:
     """@brief 进入主观记忆的文字的共用校验：不超过 1000 字符且不含八位以上十六进制身份。
 
-    收尾记忆与看法两处共用这一个函数（docs/design/06-agent.md），不区分条目来源；其中的十六进制身份检查
-    contains_hex_identity 另与日、月、年回顾正文共用。
+    收尾记忆与看法两处共用这一个函数（docs/design/06-agent.md），不区分条目来源；十六进制身份检查是
+    contains_hex_identity，日、月、年回顾正文不经这一检查。
 
     :param text: 模型写下的一条记忆文字。
     :returns: 通过校验的原文。

@@ -95,30 +95,26 @@ _RESPONSE_ERRORS = frozenset({
     "response must contain exactly one choice", "response must contain exactly one submit_memory_digest tool call",
     "the only tool call must be submit_memory_digest", "submit_memory_digest arguments must be a JSON string"})
 _TRUNCATED = "memory digest output was truncated at max_tokens"
-#: 两条空值检查与十三个回顾守卫的问题文字（原文列在 docs/design/07-evaluation.md 的 M10），次序即逐条匹配的次序。
+#: 两条空值检查与守卫表四行（正文非空、正文长度、依据非空、依据归属）的问题文字（原文列在
+#: docs/design/07-evaluation.md 的 M10），次序即逐条匹配的次序。第四批裁定撤销的守卫没有模板，它们的文字计入 unrecognized。
 _GUARD_TEMPLATES = (
     ("text_without_input", "digests.{key} must be null: the input has no {key} records"),
     ("null_with_input", "digests.{key} must not be null: the input has {key} records"),
     ("text_empty", "digests.{key}.text must not be empty"),
-    ("text_length", "digests.{key}.text has {len(text)} characters; the {tier} digest limit is {limit}"),
-    ("chinese", "digests.{key}.text must contain Chinese"),
-    ("hex_identity", "digests.{key}.text contains a hexadecimal identifier"),
+    ("text_length", "digests.{key}.text has {n} characters counting punctuation; the {tier} digest limit is {limit}; "
+                    "shorten it by at least {n - limit}"),
     ("refs_empty", "digests.{key}.refs must cite at least one record number"),
     ("refs_category", "digests.{key}.refs: {ref} is not a {key} record number"),
-    ("names", "digests.{key}: the name {name} does not appear in the {key} input"),
-    ("food_verified_names", "digests.food: the goods name {name} does not appear in the food verified lines"),
-    ("food_coverage", "digests.food must name every food received and every meal kit cooked that day; "
-                      "missing: {names}"),
-    ("cooking_sentence", "digests.food: the sentence about 做饭 names {kit}, but the meal kit cooked that day was "
-                         "{used}"),
-    ("numbers", "digests.{key}: {token} does not appear in the {key} input"),
-    ("numbers_same_record", "digests.{key}: {token} does not appear in the same input record as a name in its "
-                            "sentence"),
-    ("count_lines", "digests.{key}: the count {token} must be copied with its whole count line"),
+)
+#: 第五批裁定（2026-10-31）之前记下的正文长度问题文字：此前的试点导出里仍是这一写法，照旧计入 text_length；
+#: 排在全部现行模板之后匹配，不新增守卫名。
+_EARLIER_GUARD_TEMPLATES = (
+    ("text_length", "digests.{key}.text has {len(text)} characters; the {tier} digest limit is {limit}"),
 )
 #: token/字比拟合的六类字符。
 _CHARACTER_CLASSES = ("han", "ascii_letter", "ascii_digit", "space", "ascii_other", "other")
-#: 检查项：名称、报告路径、比较与阈值（字符串阈值是报告里的另一条路径）。
+#: 检查项：名称、报告路径、比较与阈值（字符串阈值是报告里的另一条路径）。M10 统计行照抄、M11 ① 的覆盖与 ② 的做饭错配只报告，
+#: 不在这里（② 按「做饭」所在的整句计数，会把写对的日记也算成错配）。
 _CHECKS = (
     ("cooking_lines_name_the_kit", "M2.named.value", "==", 1.0),
     ("yesterday_food_cell_visible", "M3.periods.all.value", "==", 1.0),
@@ -144,9 +140,6 @@ _CHECKS = (
     ("one_day_digest_per_day", "M10.day_digest_problems", "==", 0),
     ("retired_calls", "M10.retired_calls", "==", 0),
     ("month_digests", "M10.periods.month", "==", "M10.expected.month"),
-    ("statistics_copied", "M10.statistics_copy_violations", "==", 0),
-    ("food_coverage_partition", "M11.coverage_plus_fallback.value", "==", 1.0),
-    ("cooking_mismatch", "M11.cooking_mismatches", "==", 0),
 )
 #: 检查值取列表长度的两条路径。
 _LENGTH_PATHS = frozenset({"M9.days_outside_band", "M9.restarted"})
@@ -1452,12 +1445,13 @@ def _guard_pattern(template: str) -> re.Pattern[str]:
                               for part in parts if part))
 
 
-#: 各守卫的整句模板，次序同 _GUARD_TEMPLATES。
-_GUARD_PATTERNS = tuple((name, _guard_pattern(template)) for name, template in _GUARD_TEMPLATES)
+#: 各守卫的整句模板，次序同 _GUARD_TEMPLATES，其后接 _EARLIER_GUARD_TEMPLATES。
+_GUARD_PATTERNS = tuple((name, _guard_pattern(template))
+                        for name, template in (*_GUARD_TEMPLATES, *_EARLIER_GUARD_TEMPLATES))
 
 
 def _guard_discards(export: PilotExport) -> dict:
-    """@brief 各守卫的丢弃次数：只读回顾的 response 证据里非空的 error，按「一次响应里的一类」计，十九个键全部列出。"""
+    """@brief 各守卫的丢弃次数：只读回顾的 response 证据里非空的 error，按「一次响应里的一类」计，十个键全部列出。"""
     counts = {name: 0 for name in ("response", "truncated", "schema", *(item[0] for item in _GUARD_TEMPLATES),
                                    "unrecognized")}
     for event in export.events:
@@ -1564,7 +1558,7 @@ def _view_subjects(rows: Sequence[Any]) -> list[str]:
 
 
 def _statistics_copies(export: PilotExport, requests: Mapping[str, dict], events: Sequence[dict]) -> int:
-    """@brief 月、年回顾正文里「N 次」不是这一类某条次数统计行在正文里出现时的结尾的次数。"""
+    """@brief 月、年回顾正文里「N 次」不是这一类某条次数统计行在正文里出现时的结尾的次数（只报告，不是检查项）。"""
     violations = 0
     for event in events:
         data = event["data"]

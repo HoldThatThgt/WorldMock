@@ -64,14 +64,14 @@ callback_effect、callback_reminder、time_trigger、weather 使用闭合字段�
 模型自报的依据，不作来源证明。`fallback` 是校验重试用尽、没能整理的类别键，按 `food`、`work`、`life` 次序：某类为 null 且在
 `fallback` 里表示没能整理，为 null 而不在里面表示这一期没有这一类的输入；三类都没有输入的期次不写事件。登记事件与这一期的
 模型请求、响应证据在版本加一的同一次提交里写入，世界除版本外不变。回顾正文是整理出来的主观回忆，不是核验事实，环境从不据它
-结算或核验请求；同一人物同一级同一期至多一条，读到第二条是完整性故障。写入与读取时只核对形状（不重跑生成时依赖目录与输入的
-守卫），任一条不成立都先写同文错误日志再拒绝：
+结算或核验请求；同一人物同一级同一期至多一条，读到第二条是完整性故障。写入与读取时只核对形状（不重跑生成时依赖输入的
+依据归属守卫），任一条不成立都先写同文错误日志再拒绝：
 
 | 检查 | 拒绝消息 |
 | --- | --- |
 | `data` 的键集恰为五个；来源 `model`、可见性 `system`、没有资金变化、属于一个人物、起因恰一项 | `Memory digest event fields or source are invalid` |
 | `tier` 是三级之一；`period` 是字符串且与 `tier` 对应：日期往返为同一个 ISO 日期，月份为 ASCII 数字的 `YYYY-MM`（01–12），年份为四位 ASCII 数字 | `Memory digest event tier or period is invalid` |
-| `digests` 恰有三个键；每项为 null 或恰有三个键，`text` 去掉首尾空白后非空、不超过该级上限（日 200、月 800、年 2000 字），两种身份列表非空、元素是非空白字符串且不重复，`cited_event_ids` 是 `source_event_ids` 的子集；至少一类非 null 或 `fallback` 非空 | `Memory digest event digests are invalid` |
+| `digests` 恰有三个键；每项为 null 或恰有三个键，`text` 去掉首尾空白后非空、不超过该级上限（日 250、月 800、年 2000 字，按 `len` 计，标点也算），两种身份列表非空、元素是非空白字符串且不重复，`cited_event_ids` 是 `source_event_ids` 的子集；至少一类非 null 或 `fallback` 非空 | `Memory digest event digests are invalid` |
 | `fallback` 是列表，元素属于三个键、不重复、按 `food`、`work`、`life` 的相对次序，其中每一类在 `digests` 里为 null | `Memory digest event fallback is invalid` |
 
 生成规则见[人物](06-agent.md#agent-日月年回顾)「日、月、年回顾」。

@@ -3,12 +3,13 @@
 回顾是运行时在零点为每个人物做的独立后台任务（worldmock.runtime.lifecycle.runner.settle_pending_memory_digests），不经人物、
 不是决策：本模块给出哪些期次要生成、每期的输入（日回顾是那天全部条目的全文按饮食、工作、生活切分并连续编号；月回顾是那个月
 的日回顾、年回顾是那一年的月回顾，各加代码算出的次数统计）、中文固定模板（模块常量，由 code_sha256 覆盖）、唯一严格工具
-submit_memory_digest、逐类的输出守卫与重试时附回的英文问题、带 purpose="memory_digest" 的 model_request/model_response
-证据，以及经引擎系统登记入口与证据一次提交的 environment_event（data.kind="memory_digest_generated"）。一期有没有回顾只看
-这条事件，不新增 AgentState 字段。
+submit_memory_digest、逐类的格式与长度守卫（正文非空、正文长度、依据非空、依据归属）与重试时附回的英文问题、带
+purpose="memory_digest" 的 model_request/model_response 证据，以及经引擎系统登记入口与证据一次提交的 environment_event
+（data.kind="memory_digest_generated"）。一期有没有回顾只看这条事件，不新增 AgentState 字段。
 
-函数都是纯函数或只读足迹库，模块不保存世界状态、不写事件；只有两处进程内缓存：按足迹库对象与人物记下的「不需要」期次与
-各已结束日子有输入的类别，以及按足迹库对象记下的目录名称。回顾正文是整理出来的回忆，不是核验事实，环境从不据它结算。
+函数都是纯函数或只读足迹库，模块不保存世界状态、不写事件；只有一处进程内缓存：按足迹库对象与人物记下的「不需要」期次与
+各已结束日子有输入的类别。回顾是日记式的回忆，记要紧的事和当时的感受，不是核验事实：正文写的名称、时刻、价钱、数量、日期
+和次数都不检查，环境从不据它结算。
 """
 
 from __future__ import annotations
@@ -17,8 +18,7 @@ import calendar
 import copy
 import json
 import logging
-import re
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Annotated, Any
@@ -35,12 +35,9 @@ from worldmock.foundation.model_feedback import correction_message, schema_feedb
 from worldmock.foundation.time.readable import local_date
 from worldmock.recording_engine.events.models import Event, EventDraft
 from worldmock.recording_engine.storage.store import FootprintStore
-from worldmock.resource_engine.catalog.models import Catalog
 from worldmock.simulation_engine.observation.memory import days
-from worldmock.simulation_engine.observation.memory.categories import FOOD_GOODS_CATEGORIES
 from worldmock.simulation_engine.observation.memory.digests import registered_digests
-from worldmock.simulation_engine.observation.memory.entries import TodayEntry, activity_facts, agent_events, entry_full
-from worldmock.state.interaction.requests import contains_hex_identity
+from worldmock.simulation_engine.observation.memory.entries import TodayEntry, entry_full
 from worldmock.state.interaction.schema import ToolRequestModel, deepseek_strict_schema
 from worldmock.state.model.exchange import MEMORY_DIGEST_PURPOSE
 from worldmock.state.model.memory import (
@@ -59,49 +56,31 @@ if TYPE_CHECKING:
 MEMORY_DIGEST_MAX_TOKENS = 8000
 #: 提交各类回顾段落的唯一工具名。
 MEMORY_DIGEST_TOOL = "submit_memory_digest"
-#: 日回顾的中文模板（docs/design/06-agent.md「日、月、年回顾」）；逐字原文只在这里。
+#: 日回顾的中文模板：写成昨天的日记，记要紧的事和当时的感受（docs/design/06-agent.md「日、月、年回顾」）；逐字原文只在这里。
 DAY_DIGEST_PROMPT = (
-    "你替模拟世界里的一个人物把他昨天的记录整理成回顾。输入按饮食、工作、生活三类给出他昨天的记录：「核验」是环境确认的经过，「当时查到」是他当时查询看到的结果，「自述」是他当时写下的话（「名称：」是收尾或"
-    "暂停的总结，「进展·」是中途写的进展，「看法·」是看法，「记住：」是想记住的事，「正文：」是回复正文），每条带编号。每类写一段不超过 200 字的话，用他的第一人称：先写那天这类事经过了什么，以核验为"
-    "准；再写他对具体的东西、地方、人和做法的看法、习惯和打算，以自述里的「看法」「记住」和总结为准：每条看法用一句短话写出对象的名字和态度（喜不喜欢、还想不想再来、打算保持还是改掉）；写不下时先写说了以后"
-    "要照做、要换掉或不再做的，再写当天写过不止一次的；只写自述里有的看法，不从经过推测感受。在 refs 里写所依据的记录编号，至少一个。提到的东西只用输入里出现过的名字；饮食类写到的商品名只能取自核验，"
-    "「当时查到」和自述里提到、核验里没有的商品不写名字，写看法时也一样；时刻、价钱和数量只写输入里出现过的，一律用阿拉伯数字；时长和次数用输入里的起止时刻表达，不要自己换算；写某个时刻时，同一句里提到的名"
-    "字要和这个时刻出自同一条记录；饮食类要写出核验里当天收到的每样吃的、喝的，以及做饭用的那份食材包，写做饭的那一句里只写当天做饭用的那一份；不要补造输入里没有的经过、看法或别人说的话，也不要拿别的日子作"
-    "比较。某一类没有记录时写 null。只调用一次 submit_memory_digest。"
+    "你替模拟世界里的一个人物写他昨天的日记。输入按饮食、工作、生活三类给出他昨天的记录：「核验」是环境确认的经过，「当时查到」是他当时查询看到的结果，「自述」是他当时写下的话（「名称：」是收尾或暂停的总结，「进展·」是中途写的进展，"
+    "「看法·」是看法，「记住：」是想记住的事，「正文：」是回复正文），每条带编号。每类写一段日记，150 到 220 字为宜，连标点在内不能超过 250 字，用他的第一人称，像人回想昨天那样只记要紧的事和当时的感受，不记流水账："
+    "经过以核验为准，挑要紧的写，吃了什么、做了什么、去了哪里、和谁打了交道，这些东西写出名字；时间只说早上、中午、下午、晚上，不写钟点，「八点十一」「九点一刻」这样的说法也不写；价钱、数量和花了多久只在对他要紧时顺口带一句，"
+    "比如「有点贵」「等了挺久」，不逐项列出；感受和看法以自述为准，写他喜不喜欢、累不累、还想不想再来、打算保持还是改掉，不替他编没写过的感受；字数紧时先省经过的细节，感受和看法留着。只凭昨天的记录写，不补造没发生的事或别人说的话，"
+    "不拿别的日子作比较，不写编号、订单号或其他内部标识。在 refs 里写所依据的记录编号，至少一个。某一类没有记录时写 null。只调用一次 submit_memory_digest。"
 )
-#: 月回顾的中文模板；逐字原文只在这里。
+#: 月回顾的中文模板：把上个月的日记整理成这个月的回忆；逐字原文只在这里。
 MONTH_DIGEST_PROMPT = (
-    "你替模拟世界里的一个人物把他上个月的日回顾整理成月回顾。输入按饮食、工作、生活三类给出那个月每一天的日回顾，每段带日期和编号，"
-    "没整理出来的日子写着「未整理」；另附代码从事件算出的次数统计。每类写一段不超过 800 字的话，用他的第一人称，写这个月这类事的规律、"
-    "习惯和变化，以及值得记住的事；把日回顾里反复出现、或说了以后要照做或要换掉的看法、习惯和打算，各用一句短话写出对象和态度，写明最早、"
-    "最近是哪天的回顾写到的（日期照抄输入）、后来有没有变。在 refs 里写所依据的日回顾编号，至少一个。提到的东西只用输入里出现过的名字；"
-    "时刻、价钱、数量和日期只写输入里出现过的，一律用阿拉伯数字；写到次数时照抄统计里的那一行，不要自己数；不要补造输入里没有的经过、"
-    "看法或别人说的话。某一类没有输入时写 null。只调用一次 submit_memory_digest。"
+    "你替模拟世界里的一个人物把他上个月的日记整理成这个月的回忆。输入按饮食、工作、生活三类给出那个月每一天的日回顾，每段带日期和编号，没整理出来的日子写着「未整理」；另附代码从事件算出的次数统计，让你知道哪些事常有。"
+    "每类写一段不超过 800 字（标点也算）的话，用他的第一人称，像人回想上个月那样写：这类事有什么规律和习惯，常吃什么、常做什么、常去哪里，有什么变化，哪些事值得记住；他对具体的东西、地方、人和做法的看法和打算，喜欢的、不喜欢的、"
+    "说了要保持或要改掉的，后来有没有变。时间说月初、月中、月底、某个周末这样的说法，次数说几乎每天、常常、偶尔一两次这样的说法，不照抄日期和统计行。只凭输入写，不补造输入里没有的经过、看法或别人说的话，不写编号或其他内部标识。"
+    "在 refs 里写所依据的日回顾编号，至少一个。某一类没有输入时写 null。只调用一次 submit_memory_digest。"
 )
-#: 年回顾的中文模板；逐字原文只在这里。
+#: 年回顾的中文模板：把上一年的月回顾整理成这一年的回忆；逐字原文只在这里。
 YEAR_DIGEST_PROMPT = (
-    "你替模拟世界里的一个人物把他上一年的月回顾整理成年回顾。输入按饮食、工作、生活三类给出那一年每个月的月回顾，每段带月份和编号，"
-    "没整理出来的月份写着「未整理」；另附代码从事件算出的全年次数统计。每类写一段不超过 2000 字的话，用他的第一人称，写这一年这类事"
-    "固定下来的习惯、口味和做法，哪些看法在哪个月变了；到年底仍成立的看法各用一句短话写出对象和态度，注明出自哪个月的回顾（月份照抄"
-    "输入）。在 refs 里写所依据的月回顾编号，至少一个。提到的东西只用输入里出现过的名字；时刻、价钱、数量、日期和月份只写输入里出现过的，"
-    "一律用阿拉伯数字；写到次数时照抄统计里的那一行，不要自己数；不要补造输入里没有的经过、看法或别人说的话。某一类没有输入时写 null。"
-    "只调用一次 submit_memory_digest。"
+    "你替模拟世界里的一个人物把他上一年的月回顾整理成这一年的回忆。输入按饮食、工作、生活三类给出那一年每个月的月回顾，每段带月份和编号，没整理出来的月份写着「未整理」；另附代码从事件算出的全年次数统计，让你知道哪些事常有。"
+    "每类写一段不超过 2000 字（标点也算）的话，用他的第一人称，像人回想过去一年那样写：这一年这类事固定下来的习惯、口味和做法，哪些看法后来变了、大约什么时候变的，到年底还成立的看法和打算，哪些事值得记住。时间说年初、春天、"
+    "几月份、年底这样的说法，次数说几乎每天、常常、偶尔这样的说法，不照抄统计行。只凭输入写，不补造输入里没有的经过、看法或别人说的话，不写编号或其他内部标识。在 refs 里写所依据的月回顾编号，至少一个。"
+    "某一类没有输入时写 null。只调用一次 submit_memory_digest。"
 )
 #: 各级回顾的系统消息，按级取用。
 DIGEST_PROMPTS = MappingProxyType({"day": DAY_DIGEST_PROMPT, "month": MONTH_DIGEST_PROMPT,
                                    "year": YEAR_DIGEST_PROMPT})
-#: 数字守卫里「数量」写法认的单位。
-QUANTITY_UNITS = ("分钟", "小时", "公里", "份", "个", "件", "杯", "瓶", "盒", "包", "袋", "碗", "串", "块", "片",
-                  "条", "项", "次", "遍", "集", "页", "本", "天", "步")
-#: 数字记号：六种完整写法，其余阿拉伯数字串由最后一项取成单独的记号；记号整段比较、不规范化。
-NUMBER_TOKEN = re.compile(
-    r"(?<![\d.:\-])(?:\d{4}-\d{2}-\d{2}(?![\d\-])"   # 日期 YYYY-MM-DD
-    r"|\d{4}-\d{2}(?![\d\-])"                         # 月份 YYYY-MM
-    r"|\d{1,2}月\d{1,2}日"                            # 日期 M月D日
-    r"|\d{1,2}:\d{2}(?![\d:])"                        # 时刻 HH:MM
-    r"|\d+(?:\.\d+)?\s?元"                            # 金额
-    r"|\d+(?:\.\d+)?\s?(?:" + "|".join(QUANTITY_UNITS) + r"))"   # 数量
-    r"|\d+(?:\.\d+)?")                                          # 其余阿拉伯数字
 #: 工具的英文用途句。
 _TOOL_DESCRIPTION = ("Submit one digest paragraph with its record references for each category, "
                      "or null for a category without records.")
@@ -111,14 +90,6 @@ _CORRECTION_INSTRUCTION = "Return a complete new submit_memory_digest tool call 
 _CATEGORY_NAMES = MappingProxyType(dict(zip(MEMORY_DIGEST_KEYS, MEMORY_CATEGORIES, strict=True)))
 #: 工作类的类别键。
 _WORK_KEY = MEMORY_DIGEST_KEYS[1]
-#: 句：以。！？结尾的一段文字，末尾没有这三个标点的剩余部分也算一句。
-_SENTENCE = re.compile(r"[^。！？]+[。！？]?")
-#: 中文字符（U+4E00–U+9FFF）。
-_CHINESE = re.compile(r"[一-鿿]")
-#: 「做饭那一句」认的词。
-_COOKING = "做饭"
-#: 「次数照抄」守卫认的数量单位。
-_COUNT_UNIT = "次"
 #: 月、年回顾的输入：级 → (下一级, 行里期次的键, 类别值里下一级回顾的键, 编号前缀)。
 _SUMMARIES = MappingProxyType({"month": ("day", "日期", "日回顾", "d"), "year": ("month", "月份", "月回顾", "m")})
 
@@ -163,7 +134,7 @@ class DigestPeriod:
 
 @dataclass(frozen=True, slots=True)
 class DigestRow:
-    """@brief 交给模型的一行输入：编号、那一行、背后的事件身份、除编号以外的全部字符串值（\\n 相接）与核验字符串。"""
+    """@brief 交给模型的一行输入：编号、那一行与这一行背后的事件身份。"""
 
     #: n3、d2、m1。
     number: str
@@ -171,32 +142,16 @@ class DigestRow:
     payload: dict
     #: 这一行背后的事件身份。
     sources: tuple[str, ...]
-    #: 这一行除「编号」以外的全部字符串值用 \n 接起来；只用于名称查找。
-    text: str
-    #: 日回顾这一行的核验字符串用 \n 接起来，月、年回顾为空串。
-    verified: str
 
 
 @dataclass(frozen=True, slots=True)
 class DigestInputs:
-    """@brief 一期回顾的输入：期次、用户消息、各类的行与次数统计行、饮食守卫的两份名单与三份目录名称。"""
+    """@brief 一期回顾的输入：期次、用户消息（月、年回顾的次数统计行只在这里）与各类的行。"""
 
     period: DigestPeriod
     payload: dict
     #: 类别键 → 行。
     rows: Mapping[str, tuple[DigestRow, ...]]
-    #: 类别键 → 次数统计行，日回顾为空。
-    counts: Mapping[str, tuple[str, ...]]
-    #: 必写名称，只在日回顾非空。
-    food_required: tuple[str, ...]
-    #: 当天做饭用的食材包，只在日回顾非空。
-    kits_cooked: tuple[str, ...]
-    #: 目录名称（len ≥ 3，升序）。
-    names: tuple[str, ...]
-    #: 商品名称。
-    goods_names: frozenset[str]
-    #: 食材包名称。
-    kit_names: frozenset[str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -229,9 +184,6 @@ class _Scope:
 
 #: 存储对象 → 人物 → 「不需要」的期次与各日有输入的类别；恢复和分支换成新的存储对象，从头建立。
 _PENDING: WeakKeyDictionary[FootprintStore, dict[int, _Pending]] = WeakKeyDictionary()
-#: 存储对象 → (目录, 目录名称, 商品名称, 食材包名称)；目录是同一对象时复用（Catalog 不能作散列键）。
-_NAMES: WeakKeyDictionary[FootprintStore, tuple[Catalog, tuple[str, ...], frozenset[str], frozenset[str]]] = (
-    WeakKeyDictionary())
 
 
 def _call_prefix(period: DigestPeriod, agent_id: int) -> str:
@@ -310,10 +262,7 @@ def _day_inputs(scope: _Scope, period: DigestPeriod) -> DigestInputs | None:
     rows = _day_rows(entries)
     payload = {"人物卡片": render_card(persona_card(scope.layer.persona)),
                **{name: [row.payload for row in rows[key]] for key, name in _CATEGORY_NAMES.items()}}
-    required, cooked = _food_names(scope, period.period, rows[MEMORY_DIGEST_KEYS[0]])
-    names, goods, kits = _catalog_names(scope.layer.engine.store, scope.layer.catalog)
-    counts = MappingProxyType({key: () for key in MEMORY_DIGEST_KEYS})
-    return DigestInputs(period, payload, MappingProxyType(rows), counts, required, cooked, names, goods, kits)
+    return DigestInputs(period, payload, MappingProxyType(rows))
 
 
 def _day_rows(entries: Sequence[TodayEntry]) -> dict[str, tuple[DigestRow, ...]]:
@@ -328,67 +277,9 @@ def _day_rows(entries: Sequence[TodayEntry]) -> dict[str, tuple[DigestRow, ...]]
                 continue
             number += 1
             payload = {"编号": f"n{number}", **{item: value for item, value in part.items() if item != "类别"}}
-            found.append(DigestRow(payload["编号"], payload, entry.event_ids, "\n".join(_strings(payload)),
-                                   "\n".join(payload.get("核验", ()))))
+            found.append(DigestRow(payload["编号"], payload, entry.event_ids))
         rows[key] = tuple(found)
     return rows
-
-
-def _strings(payload: Mapping[str, Any]) -> tuple[str, ...]:
-    """@brief 一行除「编号」以外的全部字符串值，按键序；列表逐项展开，「未整理」的布尔值不是字符串值。"""
-    values: list[str] = []
-    for key, value in payload.items():
-        if key == "编号":
-            continue
-        if isinstance(value, str):
-            values.append(value)
-        elif isinstance(value, list):
-            values.extend(item for item in value if isinstance(item, str))
-    return tuple(values)
-
-
-def _food_names(scope: _Scope, day: str, rows: Sequence[DigestRow]) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """@brief 必写名称与当天做饭用的食材包。
-
-    先是 D 当天本人收到的 meal、snack、drink 商品名称（按收货事件序号去重），再是 D 当天结束、用了收到的食材包的活动所用的
-    食材包商品名称（按结束事件序号去重）；必写名称只留作子串出现在饮食各行核验里的，两组接起来再去重；做饭用的食材包是
-    第二组不经核验过滤的完整名单。
-    """
-    layer = scope.layer
-    catalog, window = layer.catalog, days.day_window(day, layer.config.timezone)
-    cached = agent_events(layer.engine.store, layer.agent_id, catalog.kit_states())
-    received = [catalog.goods[event.data["goods_id"]].name for event in cached.events["environment_event"]
-                if event.data.get("kind") == "goods_received" and window.contains(event.occurred_at)
-                and event.data["category"] in FOOD_GOODS_CATEGORIES]
-    uses = activity_facts(cached).kits
-    ended = sorted((ending.event_seq, uses[activity_id].goods_id) for activity_id, ending in cached.endings.items()
-                   if window.contains(ending.occurred_at) and activity_id in uses
-                   and uses[activity_id].goods_id is not None)
-    cooked = tuple(dict.fromkeys(catalog.goods[goods_id].name for _, goods_id in ended))
-    verified = [row.verified for row in rows]
-    required = tuple(name for name in dict.fromkeys((*dict.fromkeys(received), *cooked))
-                     if any(name in text for text in verified))
-    return required, cooked
-
-
-def _catalog_names(store: FootprintStore, catalog: Catalog) -> tuple[tuple[str, ...], frozenset[str], frozenset[str]]:
-    """@brief 目录名称（商品名、内容标题、系列标题、app 名、地点名与显示名，去重后只留 len ≥ 3 的，升序）、其中的商品
-    名称与食材包名称；按足迹库对象缓存，目录与缓存的是同一对象时直接取用，否则重算并替换。"""
-    cached = _NAMES.get(store)
-    if cached is not None and cached[0] is catalog:
-        return cached[1], cached[2], cached[3]
-    goods = {item.name for item in catalog.goods.values()}
-    kits = {catalog.goods[goods_id].name for state in catalog.kit_states()
-            for goods_id in catalog.callback_states[state].reset_on_goods}
-    every = {*goods, *(item.title for item in catalog.contents.values()),
-             *(item.series.title for item in catalog.contents.values() if item.series is not None),
-             *(item.name for item in catalog.apps.values()),
-             *(name for item in catalog.locations.values() for name in (item.name, item.display_name))}
-    names = tuple(sorted(name for name in every if len(name) >= 3))
-    found = (names, frozenset(name for name in names if name in goods),
-             frozenset(name for name in names if name in goods and name in kits))
-    _NAMES[store] = (catalog, *found)
-    return found
 
 
 def _month_periods(scope: _Scope) -> list[DigestPeriod]:
@@ -403,7 +294,8 @@ def _year_periods(scope: _Scope) -> list[DigestPeriod]:
 
 def _summary_inputs(scope: _Scope, period: DigestPeriod) -> DigestInputs | None:
     """@brief 月、年回顾的输入：那个月每条已登记的日回顾（年回顾为那一年每条已登记的月回顾）按期次先后，三类之间连续
-    编号，各类另附这一期的次数统计；三类都没有行时为 None（「不需要」）。行为空的类不给次数统计，也不给人物卡片与期次键。"""
+    编号，各类另附这一期的次数统计（只让模型知道哪些事常有，正文不照抄、也不检查）；三类都没有行时为 None（「不需要」）。
+    行为空的类不给次数统计，也不给人物卡片与期次键。"""
     lower, key_name, block, prefix = _SUMMARIES[period.tier]
     layer = scope.layer
     events = sorted((key[1], event) for key, event in registered_digests(layer.engine.store, layer.agent_id).items()
@@ -412,11 +304,9 @@ def _summary_inputs(scope: _Scope, period: DigestPeriod) -> DigestInputs | None:
     if not any(rows.values()):
         return None
     lines = days.count_lines(layer, *_period_days(period))
-    counts = {key: lines[name] if rows[key] else () for key, name in _CATEGORY_NAMES.items()}
-    payload = {name: {block: [row.payload for row in rows[key]], "次数统计": list(counts[key])}
+    payload = {name: {block: [row.payload for row in rows[key]], "次数统计": list(lines[name] if rows[key] else ())}
                for key, name in _CATEGORY_NAMES.items()}
-    names, goods, kits = _catalog_names(layer.engine.store, layer.catalog)
-    return DigestInputs(period, payload, MappingProxyType(rows), MappingProxyType(counts), (), (), names, goods, kits)
+    return DigestInputs(period, payload, MappingProxyType(rows))
 
 
 def _summary_rows(events: Sequence[tuple[str, Event]], key_name: str,
@@ -433,7 +323,7 @@ def _summary_rows(events: Sequence[tuple[str, Event]], key_name: str,
             number += 1
             payload = {"编号": f"{prefix}{number}", key_name: period,
                        **({"回顾": digest["text"]} if digest is not None else {"未整理": True})}
-            found.append(DigestRow(payload["编号"], payload, (event.event_id,), "\n".join(_strings(payload)), ""))
+            found.append(DigestRow(payload["编号"], payload, (event.event_id,)))
         rows[key] = tuple(found)
     return rows
 
@@ -482,7 +372,7 @@ def check_attempt(inputs: DigestInputs, raw: dict[str, Any],
                                                                     MemoryDigestOutputError | None]:
     """@brief 一次尝试的校验与接受：响应级第一处不合即为错误、不接受任何类；之后按 food、work、life 逐类校验。
 
-    没有输入的类必须是 null；此前已接受的类跳过；其余类为 null 时要求重写，否则跑全部守卫，一条问题都没有才接受。
+    没有输入的类必须是 null；此前已接受的类跳过；其余类为 null 时要求重写，否则跑守卫表的四道守卫，一条问题都没有才接受。
     @return (新的已接受类, 这次尝试的错误；全部通过时为 None)
     """
     kept = dict(accepted)
@@ -524,25 +414,18 @@ def _parse(raw: dict[str, Any]) -> MemoryDigestRequest:
 
 
 def _guards(inputs: DigestInputs, key: str, paragraph: DigestParagraph) -> list[str]:
-    """@brief 一类段落按守卫表次序的全部问题：正文、依据、名称、日回顾饮食类的三道名称守卫、数字、数字同条与月、年回顾的
-    次数照抄。"""
+    """@brief 一类段落按守卫表次序的全部问题：正文非空、正文长度、依据非空、依据归属。
+
+    回顾是日记式的回忆，只查格式与长度：正文写的名称、时刻、价钱、数量、日期与次数都不检查。正文长度按 len 计，标点也算；
+    超出时问题文字写明连标点的字数、这一级的上限和至少要删去的字数。
+    """
     text, tier = paragraph.text, inputs.period.tier
-    limit = MEMORY_DIGEST_TEXT_LIMITS[tier]
+    size, limit = len(text), MEMORY_DIGEST_TEXT_LIMITS[tier]
     checks = ((not text.strip(), f"digests.{key}.text must not be empty"),
-              (len(text) > limit, f"digests.{key}.text has {len(text)} characters; the {tier} digest limit is {limit}"),
-              (_CHINESE.search(text) is None, f"digests.{key}.text must contain Chinese"),
-              (contains_hex_identity(text), f"digests.{key}.text contains a hexadecimal identifier"))
+              (size > limit, f"digests.{key}.text has {size} characters counting punctuation; the {tier} digest limit "
+                             f"is {limit}; shorten it by at least {size - limit}"))
     problems = [message for failed, message in checks if failed]
     problems.extend(_ref_problems(inputs, key, paragraph.refs))
-    records = _records(inputs, key)
-    problems.extend(f"digests.{key}: the name {name} does not appear in the {key} input"
-                    for name in _written(text, inputs.names)
-                    if not any(name in lookup for lookup, _ in records))
-    if tier == "day" and key == MEMORY_DIGEST_KEYS[0]:
-        problems.extend(_food_problems(inputs, text))
-    problems.extend(_number_problems(inputs, key, text, records))
-    if tier != "day":
-        problems.extend(_count_problems(inputs, key, text))
     return problems
 
 
@@ -553,88 +436,6 @@ def _ref_problems(inputs: DigestInputs, key: str, refs: Sequence[str]) -> list[s
     numbers = {row.number for row in inputs.rows[key]}
     return [f"digests.{key}.refs: {ref} is not a {key} record number" for ref in dict.fromkeys(refs)
             if ref not in numbers]
-
-
-def _records(inputs: DigestInputs, key: str) -> list[tuple[str, frozenset[str]]]:
-    """@brief 这一类的各条输入：每行与每条次数统计行各一条，带名称查找用的文字（行的 DigestRow.text、统计行本身；名称
-    不含换行，在上面查子串即逐个字符串值查子串）与数字记号集合；记号对每个字符串值分别提取后取并集，从不在接起来的文字上
-    提取。"""
-    found = [(row.text, _strings(row.payload)) for row in inputs.rows[key]]
-    found.extend((line, (line,)) for line in inputs.counts[key])
-    return [(text, frozenset(token for value in strings for token in _tokens(value))) for text, strings in found]
-
-
-def _written(text: str, names: Iterable[str]) -> list[str]:
-    """@brief 正文写到的名称（作子串出现），按在正文里首次出现的位置排，位置相同按名称字符串排。"""
-    return sorted((name for name in names if name in text), key=lambda name: (text.find(name), name))
-
-
-def _tokens(text: str) -> list[str]:
-    """@brief 一段文字的数字记号，按出现次序。"""
-    return [match.group(0) for match in NUMBER_TOKEN.finditer(text)]
-
-
-def _sentences(text: str) -> list[str]:
-    """@brief 正文按。！？切出的各句；只由这三个标点组成的片段不是句。"""
-    return _SENTENCE.findall(text)
-
-
-def _food_problems(inputs: DigestInputs, text: str) -> list[str]:
-    """@brief 日回顾饮食类的三道守卫：饮食核验名称、饮食覆盖与做饭那一句。"""
-    food = inputs.rows[MEMORY_DIGEST_KEYS[0]]
-    problems = [f"digests.food: the goods name {name} does not appear in the food verified lines"
-                for name in _written(text, inputs.goods_names) if not any(name in row.verified for row in food)]
-    missing = [name for name in inputs.food_required if name not in text]
-    if missing:
-        problems.append("digests.food must name every food received and every meal kit cooked that day; "
-                        f"missing: {'、'.join(missing)}")
-    used = "、".join(inputs.kits_cooked) or "none"
-    for sentence in _sentences(text):
-        if _COOKING in sentence:
-            problems.extend(f"digests.food: the sentence about 做饭 names {kit}, but the meal kit cooked that day "
-                            f"was {used}" for kit in _written(sentence, inputs.kit_names)
-                            if kit not in inputs.kits_cooked)
-    return problems
-
-
-def _number_problems(inputs: DigestInputs, key: str, text: str,
-                     records: Sequence[tuple[str, frozenset[str]]]) -> list[str]:
-    """@brief 数字与数字同条：正文的每个记号都在这一类输入的记号集合里；写到目录名称的句子里，每个记号都要有一条输入
-    同时含这个记号与这句写到的某个名称。每个不合的记号按出现次序、同一守卫里只报一次。"""
-    known = frozenset(token for _, tokens in records for token in tokens)
-    problems = [f"digests.{key}: {token} does not appear in the {key} input"
-                for token in dict.fromkeys(_tokens(text)) if token not in known]
-    apart: dict[str, None] = {}
-    for sentence in _sentences(text):
-        named = _written(sentence, inputs.names)
-        for token in _tokens(sentence) if named else ():
-            if token not in apart and not any(token in tokens and any(name in lookup for name in named)
-                                              for lookup, tokens in records):
-                apart[token] = None
-    problems.extend(f"digests.{key}: {token} does not appear in the same input record as a name in its sentence"
-                    for token in apart)
-    return problems
-
-
-def _count_problems(inputs: DigestInputs, key: str, text: str) -> list[str]:
-    """@brief 次数照抄（月、年回顾）：单位为「次」的每个数字记号都落在正文里这一类某条次数统计行逐字出现的那一段之内；
-    每个不合的记号按出现次序、只报一次。"""
-    copied = [(start, start + len(line)) for line in inputs.counts[key] for start in _occurrences(text, line)]
-    loose: dict[str, None] = {}
-    for match in NUMBER_TOKEN.finditer(text):
-        if match.group(0).endswith(_COUNT_UNIT) and not any(
-                start <= match.start() and match.end() <= end for start, end in copied):
-            loose.setdefault(match.group(0))
-    return [f"digests.{key}: the count {token} must be copied with its whole count line" for token in loose]
-
-
-def _occurrences(text: str, line: str) -> list[int]:
-    """@brief 一行文字在正文里逐字出现的各个起点（可以重叠）。"""
-    found, start = [], text.find(line)
-    while start != -1:
-        found.append(start)
-        start = text.find(line, start + 1)
-    return found
 
 
 def digest_outcome(inputs: DigestInputs, accepted: Mapping[str, DigestParagraph]) -> DigestOutcome:

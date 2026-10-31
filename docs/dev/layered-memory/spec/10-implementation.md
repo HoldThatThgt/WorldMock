@@ -1,6 +1,6 @@
 # 10 实施：版本、文件、设计文档、测试与门禁
 
-> 属于[分层记忆开发规格](../SPEC-layered-memory.md)。代码基线 f67c25e5。
+> 属于[分层记忆开发规格](../SPEC-layered-memory.md)。代码基线 f67c25e5。第四批裁定（2026-10-30）修订。第五批裁定（2026-10-31）修订。
 
 ## 目标与依据
 
@@ -12,7 +12,7 @@
 | --- | --- |
 | 第三章「代码」表 | 「接口与文件」的完整文件表，每个文件写明所属章 |
 | 第三章「设计文档」表（「文档、实现和行为测试同一次提交」） | 「设计文档」的完整清单，每处写明改后要陈述什么、所属章 |
-| 第三章「测试与门禁」 | 「测试」的完整清单、「行为」四「门禁」与「行为」五「重冻与重录」：两份完整日基线在全部生产改动之后重冻一次（一次交付，提案的「每期」合为一期）、用真实宿主重录查看器样例、分支覆盖率 ≥85% 与公开接口零未覆盖、风格门禁 |
+| 第三章「测试与门禁」 | 「测试」的完整清单、「行为」四「门禁」与「行为」五「重冻与重录」：两份完整日基线在全部生产改动之后重冻一次（一次交付，提案的「每期」合为一期；第四批、第五批裁定的代码定稿之后各按同一规程再做一次）、用真实宿主重录查看器样例、分支覆盖率 ≥85% 与公开接口零未覆盖、风格门禁 |
 | 第三章「事件、版本与下游」 | 「行为」一「版本与身份」，「行为」六「对外」 |
 | 第四章各期 | 「行为」三「实施次序」：P0、P1、P2、P3 一次交付，分期只作实施次序；P4 不做 |
 
@@ -76,7 +76,7 @@
 | `count_lines` 对 categories.py 的函数内导入与 `DELAYED_IMPORTS` 新键，理由是「03 禁止 days.py 导入 categories.py」 | 03、04 | 03 只禁止 days.py 导入 progress_layer.py、memory_layer.py、day_plan_inputs.py；02 的 `published_today` 已在模块级用 `memory_book`。categories.py 在 days.py 模块级导入，`DELAYED_IMPORTS` 不加键 | 04「days.py」一节、test_import_graph.py 一行、决定行 |
 | `month_day_phrase` 没有归属：02 说由 08 新增，08 说由 02 新增 | 02、08 | 02 在 readable.py 新增，函数体在 02；08 的 `kit_phrase` 与改写后的 `clock_phrase` 调用它；测试 `test_month_day_phrase_does_not_pad` 仍在 08 | 02「readable.py」一节与决定行 |
 | 「食品状态」写了两份：03 第 2 节自己定义，08 定为 `Catalog.food_states()` 唯一判定 | 03、08、04 | 只由 08 的 `Catalog.food_states()` 判定，03 调用它；04 引用时指向 08 | 03 第 2 节、04「依赖其他章节」与「不在本章」 |
-| 第 09 章 memory_pilot.py 另写「食品状态」 | 08、09 | 保留：提案 M11 要求「独立于运行时守卫重新实现」，09 的导入白名单不含目录模型；这是唯一允许的重算，09 的口径表注明与 08 同义 | 09「共用的口径」表 |
+| 第 09 章 memory_pilot.py 另写「食品状态」 | 08、09 | 保留：提案 M11 要求「独立于运行时校验实现」，09 的导入白名单不含目录模型；这是唯一允许的重算，09 的口径表注明与 08 同义 | 09「共用的口径」表 |
 | 目录格式 6 写了两份：03 第 9 节与 08 都规定 `Literal[6]`、拒绝次序、样例清单、同一批测试与同一个变异改名，03-resource-engine.md :31、:40 与 docs/manual/resources.md :9、:169 两章各写一种文字 | 03、08 | 格式号、拒绝次序、样例清单、`test_manifest_version.py`、`test_loader.py:84`、`test_identity.py:115`、变异 `catalog_format_version_still_five`、03-resource-engine.md :31 与 :40、resources.md :9 与 :169 都归 08；`memory_category` 字段与文档里写它的各处归 03。08 的拒绝次序照 03 原来的写法：清单原始对象的 `rules_version` 是严格整数且不等于 6 时先报 `RULES_VERSION_MISMATCH`，然后严格清单模型拒绝 `format_version` 不是 6 的清单，报 `ENVIRONMENT_KIND_INVALID`；:40 用 03 原来的整句 | 03 第 9 节、models.py 一节、设计文档两处、测试改动表；08「引擎」一段与 03-resource-engine.md 一行 |
 | `_day_entries`（memory_layer.py:225-237）没有一章删除：02 说归 01、08，08 只删其中读反思的循环，01 没写 | 01、02、08 | 02 删除整个函数；08 只删 `_reflections`；`MEMORY_WINDOW_CHARS`、`_fit`、`_layer`、`_render`、`_size` 归 01，08 不重复 | 02 删除清单；08「memory_layer.py」一节与「8000 字窗口与反思读者」一段 |
 | `_visible_names` 的文档字符串：02 与 07 各写一种改法 | 01、02、07 | 归 02；07 不改这个函数 | 07 life_agent.py 一节与决定行；01 life_agent.py 一节 |
@@ -98,6 +98,10 @@
 | 提案「设计文档」表把「目录行字段」「回顾事件正文」列在 09-io-formats.md，而 f67c25e5 的 09-io-formats.md 不定义目录行字段（在 03-resource-engine.md「环境目录文件」），事件字段归记录引擎「事件与来源」（09-io-formats.md:88 只作指引） | 03、04 | `memory_category` 只写进 03-resource-engine.md（03）；回顾事件正文只写进 05-recording-engine.md「事件与来源」，09-io-formats.md 只在 :88 的闭合模型清单里加上它（04）；09-io-formats.md 新增的只有「提示层的机器形状」 | 无需改章：03、04 已按此写 |
 
 查过、不算冲突的：01 与 06 对 prompt_capacity.py 模块说明的改写分在不同的行（01 改 :7-8，06 改步骤列表）；04 与 08 对 05-recording-engine.md 调用类表分在不同的行（04 加 `memory_digest` 行与「七类」，08 改 `consolidation`、`reflection` 两行）；04、05、08 对 `test_committed_world_guard.py:118-122` 的公开方法表各加或各删不同的名字；01、05、07 对 test_decision_context_protocol.py 各改不同的行。提案第三章列为要改的 tests/unit/agents/test_life_memory.py 只直接调用 `render_memory_view`，它的渲染机制不变（08），照旧通过、不改；tests/unit/footprints/test_observation_parts.py 与 test_post_run_view.py 只读 `persona_views` 与整层分件的存储，照旧通过、不改（07）。
+
+第四批裁定（2026-10-30，提案第五章）把三级回顾的提示改写成日记，输出只查格式与字数：04 的守卫表只剩正文非空、正文长度、依据非空、依据归属四行，其余九道守卫和只为它们存在的概念与数据（句、目录名称、数字记号、必写名称、当天做饭用的食材包，以及 `DigestRow.text`、`DigestRow.verified`、`DigestInputs.counts`）一并删除；07 的 rules[1] 讲回顾可信度的一句改成日记的说法（「回顾像日记，只记要紧的事和当时的感受，可能记错或漏记」），它的 `len`、SHA-256 与整份 22 条的摘要随之重算，保留 17 条的摘要不变；09 的检查项去掉 `statistics_copied`、`food_coverage_partition`、`cooking_mismatch`，M11 ② 照算、只报告，M10 的守卫分类只认剩下的问题文字，查看器的回顾说明随之改写；本章的测试清单、决定汇总与「五」的再次重冻随之修订。`contains_hex_identity` 仍由 requests.py 公开、名字不变，只有 `validate_memory_text` 使用，回顾不再用它；05 的只读保证随之把「结果里没有十六进制串」限定为检索不加入，回顾正文原样给出。其余各章的行为不变。
+
+第五批裁定（2026-10-31，提案第五章）把日回顾每类的上限由 200 字提到 250 字：上限仍只在 `MEMORY_DIGEST_TEXT_LIMITS`（04），回顾输出校验、`memory_digest_generated` 的闭集校验（04）和「近三天」格子 Schema 的 `maxLength`（03，改为读这个常量）都跟着取 250；04 的日回顾提示改三处，月、年回顾提示在字数后加「（标点也算）」，正文长度的问题文字改为写明连标点的字数、上限和至少要删去的字数；09 的 M10 守卫分类把新旧两种正文长度写法都计入 `text_length`，查看器的回顾说明改成 250 字；01、05 里据每格 200 字推算的体量与检索举例按 250 字重算。重试的写法、`reflection_validation_max_retries`、响应级规则、守卫的数目和其余全部上限不变。
 
 ### 三　实施次序
 
@@ -192,6 +196,10 @@ flowchart LR
 4. 跑 tests/system/lifecycle/test_complete_day_baseline.py，两种都通过；提交说明写明只有代码身份相关的字段和随行为变化的摘要改变。
 
 **查看器样例** tests/fixtures/viewer-context.json，按 09「八　查看器」的「录制样例」：在 `.work/layered-memory/viewer/` 写一个不入库的测试文件，导入 `tests.engine_fixture.engine_factory` 与 `tests.system.lifecycle.test_run_viewer_recording._recorded_viewer_requests`，在测试里跑这个流程，把 `{"action": …, "continuation": …}` 按 `json.dumps(value, ensure_ascii=False, indent=2) + "\n"` 写进 tests/fixtures/viewer-context.json；用 `.venv/bin/python -m pytest .work/layered-memory/viewer/ -q` 跑它。之后 test_run_viewer_recording.py 与 tests/system/viewer/ 的测试都通过；录出的 `action` 首个 user 按最终层序，工具八个，`continuation` 最后一条 tool 消息的 `changes.memory.added` 恰为修订计划那次决策的条目。
+
+**第四批裁定之后再做一次。** 第四批裁定（2026-10-30）改写了 memory_digest.py 的三个提示常量并删去九道守卫，提示常量计入 `code_sha256`，所以此前重冻的两份完整日基线不再成立；查看器样例不含代码指纹，也不含回顾正文，不因提示常量失效；但它逐字含系统层，rules[1] 的一句改写以后样例随之失效，重录后按录出的内容更新。这次修订的生产代码与测试定稿之后、终检之前，按本节同一规程再重冻两份完整日基线、再重录查看器样例一次，同样单独一个提交、不改任何生产文件；提交说明写明只有代码身份相关的字段和随行为变化的摘要改变。之后跑「四」的终检。
+
+**第五批裁定之后再做一次。** 第五批裁定（2026-10-31）又改了三个提示常量与 `MEMORY_DIGEST_TEXT_LIMITS`，「近三天」格子 Schema 的 `maxLength` 随之变化，提示常量计入 `code_sha256`，所以两份完整日基线再次失效；查看器样例逐字含的系统层没有变，是否需要重录以重录后的比对为准。这次修订的生产代码与测试定稿之后，按本节同一规程再重冻两份完整日基线、核对或重录查看器样例一次，单独一个提交，不改任何生产文件。
 
 ### 六　对外
 
@@ -401,7 +409,7 @@ flowchart LR
 | :305 | — | 保留，接在 :283 之后 |
 | :305 之后新增 `### 记忆的类别`（锚点 `agent-记忆的类别`） | 03 | 03「设计文档」所列：闭集、冻结输入与定义、规则 0–7 与边界表、商品查询事务与被拒请求的类别、行与项的类别表、主请求与类别串、工作类的启用、`memory_category` 链到资源引擎 |
 | 其后新增 `### 近三天`（锚点 `agent-近三天`） | 03 | 取哪几天、「有工作记录的日子」、三种情形与两种格子、键序、星期与安排、整块的键、同一天逐字节不变、头三天 |
-| 其后新增 `### 日、月、年回顾`（锚点 `agent-日月年回顾`） | 04 | 04「设计文档」该行所列：时机与次序、哪些期次、输入表、请求、守卫、重试与降级、传输失败、结果事件、回顾不是事实 |
+| 其后新增 `### 日、月、年回顾`（锚点 `agent-日月年回顾`） | 04 | 04「设计文档」该行所列：时机与次序、哪些期次、输入表、请求与日记式的提示、只查格式与字数的守卫、重试与降级、传输失败、结果事件、回顾不是事实 |
 | 其后新增 `### 检索记忆`，本节最后一个小节 | 05 | 05「设计文档」第 2 条所列：参数、时间写法、语义表与日月年单元、匹配、6,400 字上限与次序、标签与提示、结果形状、三个错误码、每次决策三次、只读保证 |
 | 「宿主模型协议」:311 | 08 | 输出上限：16,000 与服务上限中较小的一个；只读问答与截断重试同一个数；零点计划与回顾各用自己的 8,000 |
 | 同节 :322-347 | 08 | 一步是观察、决策、步尾三段；三个节点的流程图；步尾保存收尾记忆、重写 `MEMORY.md`、登记 `memory_updated`；人物一侧不调用模型；模型入口只会失败；`sleep_boundary` 没有读者；往日整理由零点的回顾承担；删去反思阶段的全部说法 |
@@ -489,15 +497,15 @@ docs/INDEX.md 不改。docs/dev/ 下已冻结的旧规格不回写。
 
 ### 第 03 章
 
-- 新增 tests/unit/memory/test_categories.py（29 个测试，名字见 03「测试」，含 `test_line_and_item_categories_follow_the_two_tables`）、tests/unit/catalog/test_memory_category_declarations.py（`test_contents_and_apps_may_declare_a_memory_category`、`test_memory_category_shape_is_refused_by_the_row_model`、`test_series_episodes_must_declare_the_same_memory_category`）、tests/unit/memory/test_days.py（`test_day_window_is_left_closed_right_open_at_local_midnight`、`test_shift_date_and_recent_dates`、`test_day_bound_is_the_last_event_before_local_midnight`、`test_day_bound_refuses_a_day_that_has_not_started`、`test_day_digests_read_day_events_up_to_the_cutoff`、`test_local_midnight_is_computed_only_by_day_window`）、tests/unit/memory/test_recent_days.py（`test_food_and_life_take_the_three_calendar_days_before_today`、`test_work_takes_the_last_three_days_with_work_records_across_a_holiday`、`test_an_unsettled_work_day_counts_as_a_work_record_day`、`test_an_omitted_cell_and_an_unsettled_cell_differ`、`test_cells_have_the_fixed_keys_in_order`、`test_the_work_key_is_absent_when_work_is_disabled`、`test_the_first_day_has_empty_lists`、`test_a_day_digest_cannot_be_written_and_unsettled`、`test_recent_cell_schema_accepts_only_the_two_cell_shapes`）、tests/unit/life/test_day_plan_window.py（`test_review_window_is_yesterday_at_midnight_and_today_so_far_at_startup`、`test_conclusion_records_follow_the_half_open_day`、`test_previous_goals_still_match_the_plan_ending_at_this_midnight`、`test_day_plan_inputs_keeps_one_window_predicate`）、tests/integration/life/test_day_attribution.py（`test_a_sleep_ending_exactly_at_midnight_is_left_out_of_that_midnights_plan`、`test_an_overnight_sleep_ends_on_the_wake_day`、`test_no_commit_spans_a_local_midnight`、`test_recent_days_and_searchable_stay_byte_identical_through_a_day`）。
+- 新增 tests/unit/memory/test_categories.py（29 个测试，名字见 03「测试」，含 `test_line_and_item_categories_follow_the_two_tables`）、tests/unit/catalog/test_memory_category_declarations.py（`test_contents_and_apps_may_declare_a_memory_category`、`test_memory_category_shape_is_refused_by_the_row_model`、`test_series_episodes_must_declare_the_same_memory_category`）、tests/unit/memory/test_days.py（`test_day_window_is_left_closed_right_open_at_local_midnight`、`test_shift_date_and_recent_dates`、`test_day_bound_is_the_last_event_before_local_midnight`、`test_day_bound_refuses_a_day_that_has_not_started`、`test_day_digests_read_day_events_up_to_the_cutoff`、`test_local_midnight_is_computed_only_by_day_window`）、tests/unit/memory/test_recent_days.py（`test_food_and_life_take_the_three_calendar_days_before_today`、`test_work_takes_the_last_three_days_with_work_records_across_a_holiday`、`test_an_unsettled_work_day_counts_as_a_work_record_day`、`test_an_omitted_cell_and_an_unsettled_cell_differ`、`test_cells_have_the_fixed_keys_in_order`、`test_the_work_key_is_absent_when_work_is_disabled`、`test_the_first_day_has_empty_lists`、`test_a_day_digest_cannot_be_written_and_unsettled`、`test_recent_cell_schema_accepts_only_the_two_cell_shapes`、`test_recent_cell_text_limit_is_the_day_digest_limit`）、tests/unit/life/test_day_plan_window.py（`test_review_window_is_yesterday_at_midnight_and_today_so_far_at_startup`、`test_conclusion_records_follow_the_half_open_day`、`test_previous_goals_still_match_the_plan_ending_at_this_midnight`、`test_day_plan_inputs_keeps_one_window_predicate`）、tests/integration/life/test_day_attribution.py（`test_a_sleep_ending_exactly_at_midnight_is_left_out_of_that_midnights_plan`、`test_an_overnight_sleep_ends_on_the_wake_day`、`test_no_commit_spans_a_local_midnight`、`test_recent_days_and_searchable_stay_byte_identical_through_a_day`）。
 - WorldMock-Dataset 新增 tests/test_white_collar_package.py::`test_memory_categories_of_every_row_match_the_pinned_table`、`test_office_lunch_override_and_the_rows_the_proposal_names` 与夹具 tests/fixtures/memory-categories-0001.json。
 - 改：test_memory_progress_contract.py（删 :23 的导入与 :260-265 的测试）；test_history_reads.py:109-125 不改并照旧通过。
 
 ### 第 04 章
 
-- 新增 tests/unit/life/test_memory_digest_output.py（`test_digest_prompts_match_the_frozen_texts`、`test_submit_memory_digest_tool_and_schema_are_pinned`、`test_request_caps_output_and_disables_thinking`、`test_request_over_capacity_fails_before_any_call`、`test_call_ids_name_agent_tier_period_and_attempt`、`test_correction_appends_one_message_to_the_original_request`、`test_response_level_errors`、`test_truncated_output_is_a_validation_failure`、`test_null_rules_follow_category_input`、`test_text_guards`、`test_refs_must_cite_this_categorys_numbers`、`test_name_guard_reads_only_this_categorys_input`、`test_food_goods_names_must_come_from_verified_lines`、`test_food_coverage_requires_every_received_food_and_cooked_kit`、`test_cooking_sentence_names_only_the_kit_cooked_that_day`、`test_sentences_end_at_full_width_terminators`、`test_number_tokens_match_complete_forms`、`test_numbers_must_share_an_input_record_with_a_named_object`、`test_count_lines_must_be_copied_whole`、`test_problems_are_joined_in_category_and_guard_order`、`test_accepted_categories_survive_later_attempts`、`test_outcome_marks_unaccepted_categories_as_fallback`、`test_outcome_sources_and_citations_follow_rows`、`test_contains_hex_identity_is_shared_with_memory_text`）。
-- 新增 tests/integration/life/test_memory_digest_runtime.py（`test_day_digest_payload_numbers_category_parts_of_full_entries`、`test_day_without_entries_calls_no_model_and_is_remembered`、`test_category_without_entries_is_null_and_not_fallback`、`test_disabled_work_category_is_always_null`、`test_registration_commits_evidence_and_event_in_one_version`、`test_registering_the_same_period_twice_is_a_protocol_error`、`test_registry_rejects_a_period_registered_twice`、`test_validation_exhaustion_records_fallback_and_the_run_continues`、`test_retry_budget_is_reflection_validation_max_retries`、`test_transport_failure_commits_evidence_before_raising`、`test_month_digest_reads_day_digests_and_count_lines`、`test_year_digest_reads_month_digests_and_year_counts`、`test_month_and_year_digests_are_not_regenerated_on_resume_or_branch`、`test_count_lines_count_food_receipts_cooked_kits_and_ended_activities`、`test_run_end_generates_no_digest`、`test_resume_fills_only_missing_recent_days`、`test_checkpoint_after_registration_builds_no_entries`、`test_branch_inherits_digests_and_regenerates_after_its_checkpoint`、`test_midnight_crash_resume_generates_once`、`test_digest_ops_records_and_transport_waits`、`test_digest_does_not_change_the_world`、`test_cooked_kit_judged_to_life_is_cooked_but_not_required`）。
-- 新增于现有文件：test_environment_events.py（`test_valid_digest_events_are_accepted`、`test_digest_event_rejects_invalid_shapes`）、test_env_lifecycle_coverage.py（`test_midnight_step_runs_digests_then_plans_then_rhythm`、`test_checkpoint_runs_digests_before_day_plans`、`test_resume_init_runs_digests_before_day_plans_and_records_failures`）、test_quality.py（`test_memory_digest_requests_form_their_own_call_class`）、test_model_exchange_attempts.py（`test_memory_digest_evidence_carries_attempts`）。
+- 新增 tests/unit/life/test_memory_digest_output.py（`test_digest_prompts_match_the_frozen_texts`、`test_submit_memory_digest_tool_and_schema_are_pinned`、`test_request_caps_output_and_disables_thinking`、`test_request_over_capacity_fails_before_any_call`、`test_call_ids_name_agent_tier_period_and_attempt`、`test_correction_appends_one_message_to_the_original_request`、`test_response_level_errors`、`test_truncated_output_is_a_validation_failure`、`test_null_rules_follow_category_input`、`test_text_guards`、`test_refs_must_cite_this_categorys_numbers`、`test_text_within_the_limit_is_accepted_whatever_it_mentions`、`test_removed_guard_names_no_longer_exist`、`test_problems_are_joined_in_category_and_guard_order`、`test_accepted_categories_survive_later_attempts`、`test_outcome_marks_unaccepted_categories_as_fallback`、`test_outcome_sources_and_citations_follow_rows`、`test_contains_hex_identity_is_shared_with_memory_text`）。
+- 新增 tests/integration/life/test_memory_digest_runtime.py（`test_day_digest_payload_numbers_category_parts_of_full_entries`、`test_day_without_entries_calls_no_model_and_is_remembered`、`test_category_without_entries_is_null_and_not_fallback`、`test_disabled_work_category_is_always_null`、`test_registration_commits_evidence_and_event_in_one_version`、`test_registering_the_same_period_twice_is_a_protocol_error`、`test_registry_rejects_a_period_registered_twice`、`test_validation_exhaustion_records_fallback_and_the_run_continues`、`test_retry_budget_is_reflection_validation_max_retries`、`test_transport_failure_commits_evidence_before_raising`、`test_month_digest_reads_day_digests_and_count_lines`、`test_year_digest_reads_month_digests_and_year_counts`、`test_month_and_year_digests_are_not_regenerated_on_resume_or_branch`、`test_count_lines_count_food_receipts_cooked_kits_and_ended_activities`、`test_run_end_generates_no_digest`、`test_resume_fills_only_missing_recent_days`、`test_checkpoint_after_registration_builds_no_entries`、`test_branch_inherits_digests_and_regenerates_after_its_checkpoint`、`test_midnight_crash_resume_generates_once`、`test_digest_ops_records_and_transport_waits`、`test_digest_does_not_change_the_world`）。
+- 新增于现有文件：test_environment_events.py（`test_valid_digest_events_are_accepted`、`test_digest_event_rejects_invalid_shapes`、`test_digest_event_text_may_reach_the_tier_limit`）、test_env_lifecycle_coverage.py（`test_midnight_step_runs_digests_then_plans_then_rhythm`、`test_checkpoint_runs_digests_before_day_plans`、`test_resume_init_runs_digests_before_day_plans_and_records_failures`）、test_quality.py（`test_memory_digest_requests_form_their_own_call_class`）、test_model_exchange_attempts.py（`test_memory_digest_evidence_carries_attempts`）。
 - 改：tests/life/conftest.py、native_runtime_fixtures.py:130、test_public_runtime_boundaries.py:149 与 :204、test_shared_model_clients.py:20、test_import_graph.py:71-79 与 :105、test_network_ops_records.py、tests/dataset_acceptance.py 新变异 `memory_digest_response_attempts_dropped`（:1214-1223 的零点计划两个变异不变）、test_quality.py:601、:632、:1047-1071、test_export.py:47、test_acs_export.py:118、test_query_export.py:191、test_phone_record_export.py:175、test_output_truncation.py:388、test_committed_world_guard.py:118-122、test_day_plan_arrangement.py:38、test_planning_and_errand_evidence.py:215；test_run_manifest.py:11、test_model_identity.py:39、test_strict_endpoint.py:16 不改并照旧通过。
 
 ### 第 05 章
@@ -568,7 +576,7 @@ docs/INDEX.md 不改。docs/dev/ 下已冻结的旧规格不回写。
 | 要不要加一个列出交付模块与名称的测试 | 不加 | AGENTS.md:32「不将历史文件清单、内部实现快照或开发阶段当作产品合同」；覆盖门禁与各章行为测试已拦下缺失与占位 |
 | 风格门禁的历史台账 | 没有，零违规 | tests/unit/engineering/test_style_gate.py:7「全部生产源码按同一规则检查，不保留历史违规豁免」 |
 | 覆盖门禁的写法 | 与 CI 相同：三层各自采集，合并后交给 coverage_gate.py | .github/workflows/tests.yml:69-128；coverage_gate.py 的 `--from-json`、`--junit` 都是必填（:289-290） |
-| 重冻与重录的时机 | 全部生产改动之后一次，单独一个提交 | 01-architecture.md「工程验证」；中间步不把它们当门禁，用 `--deselect` 去掉 |
+| 重冻与重录的时机 | 全部生产改动之后一次，单独一个提交；第四批、第五批裁定的代码定稿之后各按同一规程再做一次 | 01-architecture.md「工程验证」；中间步不把它们当门禁，用 `--deselect` 去掉；第四批裁定改了计入 `code_sha256` 的提示常量 |
 | 重冻候选怎样录 | 不入库的脚本在两个独立进程里调 `record_complete_day`，再交给 `freeze_rrs_baseline.py` | `record_complete_day` 返回的键恰是冻结脚本要求的五个（tests/life/day_baseline_runtime.py:132-134；scripts/freeze_rrs_baseline.py:28-46）；`create_complete_day_engine` 要求案例目录不存在（:103） |
 | 查看器样例怎样重录 | 不入库的测试文件跑录制测试的同一流程写文件 | 09「录制样例」；`engine_factory` 是 pytest 夹具 |
 | 环境包何时重建 | 「工具与查看器」一步之后，用分支头的 WorldMock | 08「五个包全部用实现本规格的 WorldMock 重建」；数据集测试要用 memory_categories.py |
@@ -601,7 +609,7 @@ docs/INDEX.md 不改。docs/dev/ 下已冻结的旧规格不回写。
 | 01 | 「类别」串与计数行「时刻」的 Schema | `_CATEGORY_TEXT` 是 `MEMORY_CATEGORIES` 里互不相同的一到三项按任意次序以「、」相连的枚举（15 个值），计数行与第 07 章的今天条目片段共用；计数行「时刻」是 `_HOUR_SPANS` 的 24 个值之一 | 第 01 章同一行 |
 | 01 | 记忆层 Schema 与空记忆层归哪一章 | `MEMORY_LAYER_SCHEMA` 及 `_CATEGORY_TEXT`、`_AVAILABLE`、`_HOUR_SPANS`、`_COUNT_LINE` 与 `empty_memory_layer()` 只由本章定义：空记忆层恰为 `{"layer":"记忆层","可查":{},"近三天":{},"今天":[]}`，「可查」必有、其中「最早日期」可省；今天条目片段 `_ENTRY_LINES`、`_TODAY_ENTRY` 由第 07 章写，「近三天」的 `_recent_cells`、`_RECENT_CELLS` 由第 03 章写，本章引用 | 第 01 章同一行 |
 | 01 | 按位置取层的三处归哪一章 | 本章：`last_progress_layer`、`_visible_names(data)`、`user_layer(layers, "记忆层")` 三行；第 07 章只改人设层与已知人物两行，它的整函数代码块照抄这三行；`_progress_meta` 不核对层名 | 第 01 章同一行 |
-| 01 | 「近三天」≤2,400 字 | 只当体量预估，不新增运行时上限；每格 200 字与每类至多三格由第 03、04 章执行，合计受本章 14,000 字上限约束 | 第 01 章同一行 |
+| 01 | 「近三天」≤2,900 字 | 只当体量预估，不新增运行时上限；每格 250 字与每类至多三格由第 03、04 章执行，合计受本章 14,000 字上限约束；按每格 250 字推算，未实测 | 第 01 章同一行 |
 | 02 | 「与短名相同的单个标题去掉」怎样读 | 只在标题恰好一个且等于这项活动的短名时去掉（条目里同名活动改用冻结全名作标注时也按短名比较）；多个标题时照列 | 第 02 章同一行 |
 | 02 | 完整行的标题怎样写 | 在地点做的事列出全部剩下的标题（同一去法，不截）；app 列出全部放完的标题再接「（《X》未完）」 | 第 02 章同一行 |
 | 02 | 「等N条」的 N 与空格 | N 是总条数，数字两边不留空格（「等15条」） | 第 02 章同一行 |
@@ -678,7 +686,7 @@ docs/INDEX.md 不改。docs/dev/ 下已冻结的旧规格不回写。
 | 03 | 恢复时补齐哪些日回顾 | 由 04 规定（日历上的 T−1…T−3 与最近三个工作类有条目的日子取并集）；本章的 `recent_dates`、`recent_work_dates` 只用于渲染 | 第 03 章同一行 |
 | 03 | 功能 app 行写 `memory_category` | 不另加登记检查 | 第 03 章同一行 |
 | 03 | 「近三天」格子的 Schema | `_RECENT_CELLS` 按类别给数组 Schema，工作格必有「安排」；`MEMORY_LAYER_SCHEMA` 的「近三天」写成 `_object(_RECENT_CELLS, optional=MEMORY_CATEGORIES)` | 第 03 章同一行 |
-| 03 | 「近三天」回顾正文的 200 字在 Schema 里 | `maxLength: 200` | 第 03 章同一行 |
+| 03 | 「近三天」回顾正文的字数上限在 Schema 里 | `maxLength` 取 `MEMORY_DIGEST_TEXT_LIMITS["day"]`（250） | 第 03 章同一行 |
 | 04 | 「恢复时还包括此前缺回顾、且仍在近三天里的日子」怎样算 | 候选日是日历上的 T−1…T−3 与最近三个工作类有输入的日子的并集；未登记的日子按条目判定有无输入，已登记的按事件 | 第 04 章同一行 |
 | 04 | 月、年回顾的候选 | 每次调用只看上一个日历月和上一个日历年，检查点和恢复同样 | 第 04 章同一行 |
 | 04 | 编号在类间是否重新开始 | 三类连续编号，先饮食、再工作、后生活 | 第 04 章同一行 |
@@ -692,24 +700,18 @@ docs/INDEX.md 不改。docs/dev/ 下已冻结的旧规格不回写。
 | 04 | 工作、生活类计哪些活动 | 区间内结束、终态是 `completed` 或 `cancelled`、判给这一类的活动；`failed` 与运行截止的 `truncated` 不计 | 第 04 章同一行 |
 | 04 | 次数统计行的写法 | `f"{名称} {次数} 次"`，两个半角空格 | 第 04 章同一行 |
 | 04 | 行为空的类的次数统计 | 写空列表 | 第 04 章同一行 |
-| 04 | 数字守卫的「完整写法」 | 本章的正则：六种完整写法加兜底的数字串，每个阿拉伯数字都落在某个记号里（兜底一项在零宽断言之外，`-`、`.`、`:` 之后的数字串也成为记号）；记号整段比较、不规范化 | 第 04 章同一行 |
-| 04 | 「次数照抄」的判定 | 单位为「次」的记号必须落在正文里逐字出现的统计行之内 | 第 04 章同一行 |
-| 04 | 「句」的切法 | 按。！？切，末尾没有标点的剩余也算一句；半角标点不切 | 第 04 章同一行 |
-| 04 | 名称守卫用哪些目录名称 | 商品名、内容标题、系列标题、app 名、地点名与显示名，`len ≥ 3`；人物卡片不算任何一类的输入；「饮食核验名称」「做饭那一句」用的商品名称、食材包名称是其中的子集，同样 `len ≥ 3`；必写名称不按长度过滤 | 第 04 章同一行 |
-| 04 | 饮食覆盖的必写名单 | 当天 `goods_received` 的 meal、snack、drink 商品中出现在饮食核验里的，加当天做饭用的食材包中出现在饮食核验里的；「做饭那一句」用不经核验过滤的 `kits_cooked` | 第 04 章同一行 |
 | 04 | 证据草稿与调用记录的归属 | 回顾的三个证据草稿在 memory_digest.py，runner 新增 `_call_memory_digest`、`_log_memory_digest_call`，零点计划一侧不改；运维码 MEMORY_DIGEST_CALL | 第 04 章同一行 |
 | 04 | 容量预检 | 第一次请求不得超过窗口的 85%，超过即运行故障，不裁剪 | 第 04 章同一行 |
 | 04 | 回顾事件的读取 | 只有 `observation/memory/digests.py` 的 `registered_digests` 一处，同期两条即完整性错误 | 第 04 章同一行 |
 | 04 | 「不需要回顾」怎样记 | 只在进程内缓存，不写事件 | 第 04 章同一行 |
-| 04 | 事件闭集校验的范围 | 只核对形状（键、取值、长度、身份列表、fallback 与 null 的对应），不重跑生成时的守卫 | 第 04 章同一行 |
-| 04 | 十六进制身份串检查 | requests.py 公开 `contains_hex_identity`，`validate_memory_text` 与回顾共用 | 第 04 章同一行 |
+| 04 | 事件闭集校验的范围 | 只核对形状（键、取值、长度、身份列表、fallback 与 null 的对应）：正文非空与正文长度随形状一并核对，依据非空对应 `cited_event_ids` 非空；不按这一期的输入行重跑「依据归属」 | 第 04 章同一行 |
+| 04 | 十六进制身份串检查 | requests.py 公开 `contains_hex_identity`，只由 `validate_memory_text` 使用；回顾不查十六进制串 | 第 04 章同一行 |
+| 04 | 只供已撤销守卫用的数据 | `DigestRow.text`、`DigestRow.verified` 与 `DigestInputs.counts` 随 `names`、`goods_names`、`kit_names`、`food_required`、`kits_cooked` 一并删除；次数统计行只留在 `payload` 里 | 第 04 章同一行 |
 | 04 | 工具与参数对象的说明 | 工具 description 用英文；参数对象不带 description | 第 04 章同一行 |
 | 04 | 正文是否修剪 | 原样保存，非空按 `strip()` 判定 | 第 04 章同一行 |
 | 04 | 用尽时的日志 | 写 Python 错误日志，不新增运维码 | 第 04 章同一行 |
 | 04 | 恢复辅助函数的名称 | `_settle_day_plans_on_resume` 改名为 `_settle_midnight_tasks_on_resume` | 第 04 章同一行 |
 | 04 | 测试辅助函数的名称 | `settle_day_plans` 改名为 `settle_midnight_tasks` | 第 04 章同一行 |
-| 04 | 守卫怎样拿到目录名称 | `DigestInputs` 带 `names`、`goods_names`、`kit_names`，由 `pending_inputs` 从 `context.catalog` 算出并按足迹库对象缓存（目录同一对象时复用）；`check_attempt` 不读目录 | 第 04 章同一行 |
-| 04 | 数字记号在哪段文字上提取 | 对每个字符串值分别提取后取并集；名称按字符串值查子串 | 第 04 章同一行 |
 | 04 | 工作类不启用时的回顾 | 三个类别键照常出现，工作类为空列表或空行，模型必须给 null，`work` 不进 `fallback` | 第 04 章同一行 |
 | 04 | 次数统计放在哪里、怎样取类别与食材包 | `days.count_lines`；categories.py 与 entries.py 都在 days.py 模块级导入；活动类别按第 02 章【E11】的快照与开始结果读法；「活动 → 所用食材包」取 `entries.activity_facts(cached).kits`（10 章跨章裁定：此前写的函数内导入与 `activity_category(book, context.state, activity)` 不合第 03 章的导入边界与签名） | 第 04 章同一行 |
 | 04 | 「已登记」检查放在哪里 | 只在 `registration_draft` 做一次并写日志；证据为空的检查在 `TimeAdvanceCoordinator.register_memory_digest` | 第 04 章同一行 |
@@ -833,7 +835,7 @@ docs/INDEX.md 不改。docs/dev/ 下已冻结的旧规格不回写。
 | 09 | M1 的 V、B 基线 | 不计算，试点报告写「无 V、B 基线」，M1 只在 `lm-variety-*` 与 `lm-baseline-*` 之间比较 | 第 09 章同一行 |
 | 09 | 输入怎样认证 | `load_export` 先调 `validate_export`，事件行数、逐行校验、素材摘要与质量报告都交给它；本工具只另查单人和四个目录文件在不在 `environment_assets` 里 | 第 09 章同一行 |
 | 09 | 提案 P0 写「只读 footprints.sqlite」，而 M7、M8 要的 `model_usage` 只在导出的 `quality.json` | 改读同一运行的认证导出：`events.jsonl` 是生产解码器写出的事件，`purchases.jsonl` 和 `quality.json` 是记录引擎的投影 | 第 09 章同一行 |
-| 09 | M11 要「独立于运行时守卫重新实现」 | 模块只导入标准库、`tools.analysis` 两个模块、`validate_export`、`WorldMockError` 和 `worldmock.state` 的共享取值；测试在子进程里导入模块，断言没有加载 `worldmock.simulation_engine`、`worldmock.agents`、`worldmock.runtime`、`custom` 下的任何模块；回顾类别键 `food`、`work`、`life` 到中文类别的三项对照在本模块另写 | 第 09 章同一行 |
+| 09 | M11 要「独立于运行时校验实现」 | 模块只导入标准库、`tools.analysis` 两个模块、`validate_export`、`WorldMockError` 和 `worldmock.state` 的共享取值；测试在子进程里导入模块，断言没有加载 `worldmock.simulation_engine`、`worldmock.agents`、`worldmock.runtime`、`custom` 下的任何模块；回顾类别键 `food`、`work`、`life` 到中文类别的三项对照在本模块另写 | 第 09 章同一行 |
 | 09 | 「早饭、午饭、晚饭」的时段没有给出 | 固定为本地 [04:00,10:30)、[10:30,14:30)、[16:30,22:00) | 第 09 章同一行 |
 | 09 | M1「饮食决策」「提示里往日出现过的」「reasoning 或总结」的口径 | 查询、下单限午饭和晚饭时段，做饭开始不限；往日文字为「近三天」回顾与检索里的往日项；名称按菜名词表、日期按三种写法；只看思考和收尾、暂停、播报的总结 | 第 09 章同一行 |
 | 09 | 「词表取目录内容摘要和自述里的菜名」不能从自由文字确定性抽取 | 词表取食品商品名、食材包名及其按「配」切出的菜名、食品内容摘要里「比如／例如」后的列举；自述只作为认菜名的对象 | 第 09 章同一行 |
@@ -847,14 +849,14 @@ docs/INDEX.md 不改。docs/dev/ 下已冻结的旧规格不回写。
 | 09 | 「拒绝不超过基线 6 次的 2 倍」用于长短不同的试点 | 上限按运行日数折算：2×6×日数/5 | 第 09 章同一行 |
 | 09 | M9「容量压缩」与「刚了结的活动被重复开始」的认法 | 前者认进度层里的 `condensed` 记录；后者认上一次与本次观察之间结束、本次又受理同一目标的活动，按事件身份认目标，不解析活动名，并作为检查项 `no_restarted_activities`（`==` 0） | 第 09 章同一行 |
 | 09 | 容量处理第 0 步「提前结束本秒续接」 | 不计入 `capacity_compressions`；另报 `chain.fresh_followups`（同秒决策数减续接数），只报告 | 第 09 章同一行 |
-| 09 | M10「各道守卫的丢弃次数」要按守卫分 | 按第 04 章「输出校验」分类：响应级四句与截断按全文相等，参数结构错误按「不以 `digests.` 开头」，其余在 `; ` 后接 `digests.` 处切成逐条问题，按两条空值检查加守卫表十三行的模板逐条 `fullmatch`，第一个匹配的为准；计数单位是「一次响应里的一类」 | 第 09 章同一行 |
+| 09 | M10「各道校验各自的丢弃次数」要按守卫分 | 按第 04 章「输出校验」分类：响应级四句与截断按全文相等，参数结构错误按「不以 `digests.` 开头」，其余在 `; ` 后接 `digests.` 处切成逐条问题，按两条空值检查加守卫表四行的模板逐条 `fullmatch`，第一个匹配的为准；计数单位是「一次响应里的一类」 | 第 09 章同一行 |
 | 09 | M10 的 fallback 比例 | 只数日回顾的「类·日」；月、年回顾的 fallback 格只列在 `cells` | 第 09 章同一行 |
 | 09 | M11 ① 的分母「有饮食核验的类·日」 | `F(D)` 非空的回顾日，并上日回顾事件表明饮食类有记录（非空或在 fallback 里）的回顾日 | 第 09 章同一行 |
 | 09 | M11 ① 与饮食 fallback 之和 | 写成比例，分子相加、分母共用 | 第 09 章同一行 |
 | 09 | M10「回顾被引用」「看法对象覆盖率」的口径 | 引用：回顾在提示里可见时，模型文字与它有八字回声；覆盖率：对象取自回顾输入里的「看法·」项 | 第 09 章同一行 |
 | 09 | M12「能匹配 2 件以上目录商品的对象不算」 | 读作多于 2 件才不算；「至少 4 字」对两个方向的包含都适用；对象不足 3 字不点名 | 第 09 章同一行 |
 | 09 | 措辞回声的判定 | 看法正文的某个 8 字窗口出现在模型文字里、不在请求文字里；或看法对象出现在模型文字、不在请求文字里 | 第 09 章同一行 |
-| 09 | 检查项的范围 | 只放提案对最终形态写明的绝对阈值；「续接成功率与现状相同」等对比项只报告 | 第 09 章同一行 |
+| 09 | 检查项的范围 | 只放提案对最终形态写明的绝对阈值；「续接成功率与现状相同」等对比项只报告；第四批裁定之后统计行照抄（`statistics_copied`）、饮食覆盖（`food_coverage_partition`）与做饭错配（`cooking_mismatch`）不再是检查项，M10 `statistics_copy_violations` 与 M11 ①② 照算、只报告 | 第 09 章同一行 |
 | 09 | 进度层两项估计阈值 | 照提案数值（中位 ≤3000、p90 ≤7000）判定，不校准 | 第 09 章同一行 |
 | 09 | P1、P2、P3 的试点在一次交付里怎么跑 | 合并成一组：V 卡片两次、B 卡片两次（10-08→10-13），V 卡片 10 天，V 卡片跨月（09-28→10-03），共 35 个模拟日、约 $7.2 | 第 09 章同一行 |
 | 09 | 只接收单人运行 | 导出不是一个人物时拒绝 | 第 09 章同一行 |

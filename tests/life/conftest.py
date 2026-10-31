@@ -203,7 +203,7 @@ def memory_digest_response(arguments: dict | str, finish_reason: str = "tool_cal
 _DIGEST_KEYS = (("饮食", "food"), ("工作", "work"), ("生活", "life"))
 
 
-def _fixture_goods_names() -> tuple[str, ...]:
+def fixture_goods() -> tuple[str, ...]:
     """测试环境 tests/fixtures/dataset-environment 目录里全部商品的名称（不按长度过滤），按目录行序。"""
     from tests.data_paths import CATALOG_ROOT
 
@@ -215,20 +215,21 @@ class StubMemoryDigestClient:
     """确定性回顾客户端桩（经后台任务的 client 参数注入）：按脚本依次返回响应并记录请求。
 
     脚本用尽后按请求的用户消息写一份能通过全部守卫的回答：有「人物卡片」键是日回顾，否则是月、年回顾；每个有输入的类写一段，
-    refs 是这一类全部编号，无输入的类为 null。日回顾的饮食类列出作子串出现在饮食核验里的商品名称（按首次出现的位置、去重），
-    没有时写「这一天吃喝照常。」，工作类、生活类写「这一天这一类的事照常。」；月、年回顾写「这段时间的回顾已经整理。」。
-    raises 非空时下一次调用抛出该异常（模拟传输失败）。
+    refs 是这一类全部编号，无输入的类为 null。日回顾的饮食类列出夹具目录商品名称中作子串出现在饮食核验里的（按首次出现的
+    位置、去重），没有时写「这一天吃喝照常。」，工作类、生活类写「这一天这一类的事照常。」；月、年回顾写「这段时间的回顾已经
+    整理。」。这样写出的段落非空、refs 都是这一类的编号，在夹具的条目量下不超过字数上限。raises 非空时下一次调用抛出该异常
+    （模拟传输失败）。
     """
 
     model_name = "test-model"
 
     def __init__(self, model_identity: dict | None = None, responses: list[dict] | None = None,
-                 raises: BaseException | None = None, goods_names: tuple[str, ...] | None = None):
+                 raises: BaseException | None = None):
         self.model_name = (model_identity or {}).get("requested_model", "test-model")
         self.calls: list[dict] = []
         self.responses = list(responses or [])
         self.raises = raises
-        self.goods_names = tuple(goods_names) if goods_names is not None else _fixture_goods_names()
+        self.goods = fixture_goods()
 
     async def call(self, request: dict) -> dict:
         self.calls.append(request)
@@ -256,7 +257,7 @@ class StubMemoryDigestClient:
     def _food_text(self, rows: list[dict]) -> str:
         """日回顾饮食类的一段：饮食核验里出现的商品名称按首次出现的位置排列。"""
         verified = "\n".join(line for row in rows for line in row.get("核验", ()))
-        named = sorted((name for name in dict.fromkeys(self.goods_names) if name in verified), key=verified.find)
+        named = sorted((name for name in dict.fromkeys(self.goods) if name in verified), key=verified.find)
         return "收到和用到了" + "、".join(named) + "。" if named else "这一天吃喝照常。"
 
 

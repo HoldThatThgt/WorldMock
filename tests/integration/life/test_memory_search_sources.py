@@ -74,7 +74,7 @@ def _until_midnight(engine) -> None:
 
 
 def _unsorted_life_day(engine_factory):
-    """01-05 23:00 做测试休息并收尾，再睡 480 分钟跨过零点；零点的日回顾里生活类四次都不合格，记为「未整理」；
+    """01-05 23:00 做测试休息并收尾，再睡 480 分钟跨过零点；零点的日回顾里生活类四次都超过字数上限，记为「未整理」；
     推进到人物在 01-06 睡醒、能再决策。"""
     engine = engine_factory(mutate=_late)
     stage_day_plan(engine, submitted=True)
@@ -85,7 +85,7 @@ def _unsorted_life_day(engine_factory):
     _until_midnight(engine)
     [inputs] = memory_digest.pending_inputs(engine.context, engine.observations, 1, "day")
     arguments = StubMemoryDigestClient().answer(inputs.payload)
-    arguments["life"] = {**arguments["life"], "text": "睡了9觉。"}
+    arguments["life"] = {**arguments["life"], "text": "睡了一觉。" + "我" * 250}
     client = StubMemoryDigestClient(responses=[memory_digest_response(arguments)] * 4)
     settle_midnight_tasks(engine, digest_client=client)
     assert advance_until_ready(engine)

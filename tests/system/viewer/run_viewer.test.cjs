@@ -204,13 +204,17 @@ test('context navigation, stage filter and all rule paths are available through 
       ['memory', '兜底', '追加一条后超过 14,000 字时一次回落到 12,000 字以内：先把只交了播报的条目的自述换成「…」，' +
         '再让其余条目只留核验，最后按小时合成计数行。'],
       ['progress', '已发布界', '下界是上一次决策的提交，且不早于本地零点；在它之前已经了结的事在记忆层「今天」里。'],
-      ['digest', '校验重试', '输出被截断、参数不合格式，或正文、依据、名称、饮食核验名称、饮食覆盖、做饭那一句、数字与次数照抄' +
-        '各守卫不通过时附英文错误重试，至多 reflection_validation_max_retries 次；用尽时没通过的类记为 null 并写进 fallback，' +
-        '运行不失败。']]) {
+      ['digest', '校验重试', '输出被截断、参数不合格式，或正文为空、超过字数上限、依据为空或不属于这一类时附英文错误重试，' +
+        '至多 reflection_validation_max_retries 次；用尽时没通过的类记为 null 并写进 fallback，运行不失败。']]) {
       await app.get('#ctx-rule').onchange({target: {value: rule}});
       const html = app.get('#ctx-body').innerHTML;
       assert.ok(html.includes(`<span>${label}</span>`) && html.includes(`<span>${sentence}</span>`), `${rule} · ${label}`);
     }
+    // 回顾的「填入」逐字等于「行为」八的表：日记式的日回顾，字数上限是 250、800、2000（第五批裁定把日回顾提到 250）。
+    assert.equal(app.run('ViewerContext.rules.digest.fill'),
+      '零点由模型把前一天每类的今天条目写成一段日记式的日回顾（要紧的事和当时的感受，时间只说早上、中午、下午、晚上），' +
+      '每类至多 250 字；每月第一个零点把上个月的日回顾写成月回顾，每类至多 800 字；' +
+      '每年第一个零点把上一年的月回顾写成年回顾，每类至多 2000 字。');
     assert.equal(app.get('#ctx-prev').disabled, true);
     assert.equal(app.get('#ctx-next').disabled, true);
     await app.get('#ctx-stage').onchange({target:{value:'other'}});

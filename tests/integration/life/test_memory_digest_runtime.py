@@ -36,10 +36,9 @@ from tests.life.conftest import (
     travel,
 )
 from tests.integration.life.test_grocery_cooking import cook, grocery_engine, receive
-from tests.life.environment_inputs import GROCERIES, catalog_rows, set_content, write_catalog_rows
-from tests.life.environment_runtime import act, act_group, events, reach, settle_decision, until_ended
+from tests.life.environment_inputs import catalog_rows, write_catalog_rows
+from tests.life.environment_runtime import act, act_group, events, settle_decision, until_ended
 from tests.unit.as2.test_llm_dispatcher_transport import _client, _error
-from tests.unit.life.test_memory_digest_output import GOODS, NAMES
 from worldmock.configuration.persona.persona_card import persona_card
 from worldmock.configuration.persona.persona_text import render_card
 from worldmock.configuration.persona.work_schedule import shift_on
@@ -320,11 +319,15 @@ def test_registry_rejects_a_period_registered_twice(engine_factory):
         registered_digests(engine.context.store, 1)
 
 
+#: 超过日回顾字数上限（250）的饮食段落（260 字，连标点）。
+_LONG_FOOD = "收到和用到了柠檬茶。" + "我" * 250
+
+
 def _bad_food(engine) -> dict:
-    """饮食类写了输入里没有的数字、其余类合格的一次回答。"""
+    """饮食类正文超过日回顾字数上限、其余类合格的一次回答。"""
     [inputs] = memory_digest.pending_inputs(engine.context, engine.observations, 1, "day")
     arguments = StubMemoryDigestClient().answer(inputs.payload)
-    arguments["food"] = {**arguments["food"], "text": "收到和用到了柠檬茶。吃了2顿。"}
+    arguments["food"] = {**arguments["food"], "text": _LONG_FOOD}
     return memory_digest_response(arguments)
 
 
@@ -340,7 +343,9 @@ def test_validation_exhaustion_records_fallback_and_the_run_continues(engine_fac
         f"memory-digest:1:day:2026-01-05:attempt:{number}" for number in (1, 2, 3, 4)]
     responses = _digest_rows(engine, "response")
     assert len(responses) == 4 and all(row.data["error"] for row in responses)
-    assert responses[-1].data["error"] == "digests.food: 2 does not appear in the food input"
+    assert responses[-1].data["error"] == (
+        "digests.food.text has 260 characters counting punctuation; the day digest limit is 250; "
+        "shorten it by at least 10")
     assert responses[0].data["error"] == responses[-1].data["error"]
     [event] = _digest_events(engine)
     assert event.data["fallback"] == ["food"] and event.data["digests"]["food"] is None
@@ -444,14 +449,14 @@ def _periods(engine) -> list[tuple[str, str]]:
 
 
 def test_month_digest_reads_day_digests_and_count_lines(engine_factory):
-    """10-31 20:00 → 11-01 08:00：11-01 零点先登记 10-31 的日回顾（生活类四次都不合格、记为未整理），再登记 2026-10 的月回顾；
+    """10-31 20:00 → 11-01 08:00：11-01 零点先登记 10-31 的日回顾（生活类四次都超过字数上限、记为未整理），再登记 2026-10 的月回顾；
     月回顾的用户消息是 d 编号的日回顾行（饮食一行回顾、生活一行「未整理」）与按次数统计的行，没有人物卡片与月份；事件序号上
     日回顾 < 月回顾 < 11-01 的零点计划。"""
     engine = engine_factory(mutate=_month_end)
     _evening(engine)
     [day] = memory_digest.pending_inputs(engine.context, engine.observations, 1, "day")
     arguments = StubMemoryDigestClient().answer(day.payload)
-    arguments["life"] = {**arguments["life"], "text": "这一天这一类的事照常。我数了97遍。"}
+    arguments["life"] = {**arguments["life"], "text": "这一天这一类的事照常。" + "我" * 250}
     client = StubMemoryDigestClient(responses=[memory_digest_response(arguments)] * 4)
     settle_midnight_tasks(engine, digest_client=client)
     assert _periods(engine) == [("day", "2026-10-31"), ("month", "2026-10")]
@@ -783,46 +788,3 @@ def test_digest_does_not_change_the_world(engine_factory):
     after = engine.context.state.model_dump(mode="json")
     assert after.pop("version") == before.pop("version") + 1
     assert json.dumps(after, ensure_ascii=False, sort_keys=True) == json.dumps(before, ensure_ascii=False, sort_keys=True)
-
-
-def _cook_as_life(root: Path) -> None:
-    """做饭这一行写「生活」覆盖。"""
-    set_content(root, "cook", memory_category="生活")
-
-
-def _cooking(engine, label) -> None:
-    """01-06 第一次在家没事做时用收到的食材包做饭，其余照 settle_decision。"""
-    state = engine.context.state
-    busy = [item for item in state.activities.values()
-            if item.status in {"active", "paused"} or item.concluded_at is None]
-    cooked = any("做饭" in item.name for item in state.activities.values())
-    at_home = state.agents[1].location_id == engine.context.inputs.home_location_id
-    if local_date(state.current_time, ZONE) == "2026-01-06" and not busy and not cooked and at_home:
-        _, started = act(engine, label, do_at("家", "做饭"))
-        assert started.status == "in_progress", started.error_code
-    else:
-        settle_decision(engine, label)
-
-
-def test_cooked_kit_judged_to_life_is_cooked_but_not_required(engine_factory, tmp_path):
-    """环境副本由 grocery_environment（initial=0，食材包是缺省的扑克牌）建立，做饭写「生活」覆盖：01-05 收到扑克牌，
-    01-06 用它做饭做完；01-06 的必写名称不含扑克牌，当天做饭用的食材包是它；目录名称、商品名称与食材包名称从冻结目录
-    算出，短于 3 字的名称（如「做饭」「薯片」）不在其中。"""
-    engine = grocery_engine(engine_factory, tmp_path, mutate=_stop("2026-01-08T08:00:00"), change=_cook_as_life,
-                            initial=0)
-    stage_day_plan(engine, submitted=True)
-    receive(engine, "扑克牌")
-    assert engine.context.state.agents[1].callback_states[GROCERIES] == 1
-    _live(engine, decide=_cooking)
-    settle_midnight_tasks(engine)
-    _live(engine, decide=_cooking)
-    assert local_date(engine.context.state.current_time, ZONE) == "2026-01-07"
-    cook = next(item for item in engine.context.state.activities.values() if "做饭" in item.name)
-    assert cook.status == "completed" and local_date(cook.ended_at, ZONE) == "2026-01-06"
-    found = {item.period.period: item for item in
-             memory_digest.pending_inputs(engine.context, engine.observations, 1, "day")}
-    cooked = found["2026-01-06"]
-    assert "扑克牌" not in cooked.food_required and cooked.kits_cooked == ("扑克牌",)
-    assert (cooked.names, cooked.goods_names, cooked.kit_names) == (NAMES, GOODS, frozenset({"扑克牌"}))
-    assert all("做饭" not in row.text for row in cooked.rows["food"])
-    assert any("扑克牌" in row.verified for row in cooked.rows["life"])

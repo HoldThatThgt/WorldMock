@@ -145,6 +145,9 @@ def test_pilot_report_reads_a_real_two_day_export(two_day_export):
     assert metrics["M9"]["chain"]["append_violations"] == 0
     assert {check["name"] for check in report["checks"]} == set(CHECK_NAMES)
     assert len(report["checks"]) == len(CHECK_NAMES)
+    # M11 ② 照算、只报告，不是检查项。
+    assert "cooking_mismatch" not in {check["name"] for check in report["checks"]}
+    assert isinstance(metrics["M11"]["cooking_mismatches"], int)
     assert [(row["date"], row["category"]) for row in report["digest_review"]] == [
         ("2026-01-05", "饮食"), ("2026-01-05", "工作"), ("2026-01-05", "生活")]
 
