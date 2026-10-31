@@ -101,9 +101,15 @@ _GUARD_TEMPLATES = (
     ("text_without_input", "digests.{key} must be null: the input has no {key} records"),
     ("null_with_input", "digests.{key} must not be null: the input has {key} records"),
     ("text_empty", "digests.{key}.text must not be empty"),
-    ("text_length", "digests.{key}.text has {len(text)} characters; the {tier} digest limit is {limit}"),
+    ("text_length", "digests.{key}.text has {n} characters counting punctuation; the {tier} digest limit is {limit}; "
+                    "shorten it by at least {n - limit}"),
     ("refs_empty", "digests.{key}.refs must cite at least one record number"),
     ("refs_category", "digests.{key}.refs: {ref} is not a {key} record number"),
+)
+#: 第五批裁定（2026-10-31）之前记下的正文长度问题文字：此前的试点导出里仍是这一写法，照旧计入 text_length；
+#: 排在全部现行模板之后匹配，不新增守卫名。
+_EARLIER_GUARD_TEMPLATES = (
+    ("text_length", "digests.{key}.text has {len(text)} characters; the {tier} digest limit is {limit}"),
 )
 #: token/字比拟合的六类字符。
 _CHARACTER_CLASSES = ("han", "ascii_letter", "ascii_digit", "space", "ascii_other", "other")
@@ -1439,8 +1445,9 @@ def _guard_pattern(template: str) -> re.Pattern[str]:
                               for part in parts if part))
 
 
-#: 各守卫的整句模板，次序同 _GUARD_TEMPLATES。
-_GUARD_PATTERNS = tuple((name, _guard_pattern(template)) for name, template in _GUARD_TEMPLATES)
+#: 各守卫的整句模板，次序同 _GUARD_TEMPLATES，其后接 _EARLIER_GUARD_TEMPLATES。
+_GUARD_PATTERNS = tuple((name, _guard_pattern(template))
+                        for name, template in (*_GUARD_TEMPLATES, *_EARLIER_GUARD_TEMPLATES))
 
 
 def _guard_discards(export: PilotExport) -> dict:

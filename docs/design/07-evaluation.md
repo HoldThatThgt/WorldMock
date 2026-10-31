@@ -303,19 +303,20 @@ null 的类命中率为 null（`fresh_decision_turn` 的两个 token 数同为 n
     `the only tool call must be submit_memory_digest`、`submit_memory_digest arguments must be a JSON string` 之一时计入 `response`；
     等于 `memory digest output was truncated at max_tokens` 时计入 `truncated`；这两项按响应计一次。
   - 否则 `data.error` 不以 `digests.` 开头时是参数结构错误（`schema_feedback(error, "arguments")` 给出），计入 `schema`，按响应计一次。
-  - 否则用 `re.split(r"; (?=digests\.)", error)` 切成逐条问题（守卫文字里的「; the {tier} digest limit」后面不接
+  - 否则用 `re.split(r"; (?=digests\.)", error)` 切成逐条问题（守卫文字里的「; the {tier} digest limit」「; shorten it」后面不接
     `digests.`，不会被切开）。每条问题按下一项的次序逐个模板 `re.fullmatch`，第一个匹配的模板就是它的守卫；类别键取
     `re.match(r"digests\.(food|work|life)", 问题)` 的组。模板由问题文字转成：`{key}` 换成 `(food|work|life)`，`{tier}` 换成
     `(day|month|year)`，其余 `{…}` 占位换成 `(.+)`，其余字符经 `re.escape` 按字面。
   - 模板次序、守卫名与问题文字（回顾输出校验写进 `error` 的原文）：先是两条空值检查 `text_without_input`
     （`digests.{key} must be null: the input has no {key} records`）、`null_with_input`
     （`digests.{key} must not be null: the input has {key} records`），然后是回顾输出校验的四个守卫（各守卫的含义见
-    [人物](06-agent.md)「日、月、年回顾」），依次 `text_empty`（`digests.{key}.text must not be empty`）、`text_length`
-    （`digests.{key}.text has {len(text)} characters; the {tier} digest limit is {limit}`）、`refs_empty`
-    （`digests.{key}.refs must cite at least one record number`）、`refs_category`
-    （`digests.{key}.refs: {ref} is not a {key} record number`）。
+    [人物](06-agent.md)「日、月、年回顾」），依次 `text_empty`（`digests.{key}.text must not be empty`）、`text_length`（`n` 是
+    `len(text)`：`digests.{key}.text has {n} characters counting punctuation; the {tier} digest limit is {limit}; shorten it by at least {n - limit}`）、
+    `refs_empty`（`digests.{key}.refs must cite at least one record number`）、`refs_category`
+    （`digests.{key}.refs: {ref} is not a {key} record number`）。这六个之后再试一个旧写法：此前的运行记下的正文长度问题是
+    `digests.{key}.text has {len(text)} characters; the {tier} digest limit is {limit}`，同样计入 `text_length`。
   - 没有任何模板匹配的问题计入 `unrecognized`，按问题条数计，并写英文错误日志 `Memory digest error {call_id} matches no guard`。
-  - 输出是守卫名到次数，十个键按 `response`、`truncated`、`schema`、上面六个模板、`unrecognized` 的次序全部列出，没有的为 0。
+  - 输出是守卫名到次数，十个键按 `response`、`truncated`、`schema`、上面六个守卫、`unrecognized` 的次序全部列出，没有的为 0。
 - `cited`：非空的日回顾格中被引用的比例；月、年回顾的段落不是日回顾格。被引用指：某次决策的观察「近三天」里有这一格（同类、同日期），
   或它的 `search_memory` 成功结果的检索结果项里有这一格（同「类别」、同「日期」），并且这段回顾正文有一个 8 字窗口出现在该决策的
   `T_d` 里。

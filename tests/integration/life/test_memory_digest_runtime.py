@@ -319,8 +319,8 @@ def test_registry_rejects_a_period_registered_twice(engine_factory):
         registered_digests(engine.context.store, 1)
 
 
-#: 超过日回顾字数上限的饮食段落（210 字）。
-_LONG_FOOD = "收到和用到了柠檬茶。" + "我" * 200
+#: 超过日回顾字数上限（250）的饮食段落（260 字，连标点）。
+_LONG_FOOD = "收到和用到了柠檬茶。" + "我" * 250
 
 
 def _bad_food(engine) -> dict:
@@ -343,7 +343,9 @@ def test_validation_exhaustion_records_fallback_and_the_run_continues(engine_fac
         f"memory-digest:1:day:2026-01-05:attempt:{number}" for number in (1, 2, 3, 4)]
     responses = _digest_rows(engine, "response")
     assert len(responses) == 4 and all(row.data["error"] for row in responses)
-    assert responses[-1].data["error"] == "digests.food.text has 210 characters; the day digest limit is 200"
+    assert responses[-1].data["error"] == (
+        "digests.food.text has 260 characters counting punctuation; the day digest limit is 250; "
+        "shorten it by at least 10")
     assert responses[0].data["error"] == responses[-1].data["error"]
     [event] = _digest_events(engine)
     assert event.data["fallback"] == ["food"] and event.data["digests"]["food"] is None
@@ -454,7 +456,7 @@ def test_month_digest_reads_day_digests_and_count_lines(engine_factory):
     _evening(engine)
     [day] = memory_digest.pending_inputs(engine.context, engine.observations, 1, "day")
     arguments = StubMemoryDigestClient().answer(day.payload)
-    arguments["life"] = {**arguments["life"], "text": "这一天这一类的事照常。" + "我" * 200}
+    arguments["life"] = {**arguments["life"], "text": "这一天这一类的事照常。" + "我" * 250}
     client = StubMemoryDigestClient(responses=[memory_digest_response(arguments)] * 4)
     settle_midnight_tasks(engine, digest_client=client)
     assert _periods(engine) == [("day", "2026-10-31"), ("month", "2026-10")]

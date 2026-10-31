@@ -130,7 +130,7 @@ const ViewerContext = {};
       source: 'src/worldmock/simulation_engine/evidence/memory_digest.py；'
         + 'src/worldmock/runtime/lifecycle/runner.py · settle_pending_memory_digests',
       fill: '零点由模型把前一天每类的今天条目写成一段日记式的日回顾（要紧的事和当时的感受，时间只说早上、中午、下午、晚上），'
-        + '每类至多 200 字；每月第一个零点把上个月的日回顾写成月回顾，每类至多 800 字；'
+        + '每类至多 250 字；每月第一个零点把上个月的日回顾写成月回顾，每类至多 800 字；'
         + '每年第一个零点把上一年的月回顾写成年回顾，每类至多 2000 字。',
       steps: [
         ['顺序', '零点推进之后依次生成日回顾、月回顾、年回顾，然后才做零点计划；运行到终点时不生成。'],

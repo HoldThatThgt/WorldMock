@@ -1028,13 +1028,16 @@ def test_m10_counts_calls_retries_and_day_fallback_share(tmp_path, skip_authenti
 def test_m10_guard_discards_follow_the_digest_problem_texts(tmp_path, skip_authentication, caplog):
     builder = PilotExportBuilder(tmp_path)
     errors = [
-        # 「; the day digest limit」后面不接 digests.，不被切开；同一响应同一类的两条依据归属问题计一次。
+        # 「; the day digest limit」「; shorten it」后面不接 digests.，不被切开；同一响应同一类的两条依据归属问题计一次。
         ("day", "2026-10-08", "; ".join([
-            "digests.food.text has 230 characters; the day digest limit is 200",
+            "digests.food.text has 251 characters counting punctuation; the day digest limit is 250; "
+            "shorten it by at least 1",
             "digests.food.refs: n9 is not a food record number",
             "digests.food.refs: n7 is not a food record number",
             "digests.work must be null: the input has no work records",
             "digests.life.refs must cite at least one record number"])),
+        # 第五批裁定之前记下的正文长度写法（此前两次试点的导出里就是它）照旧计入 text_length，不算 unrecognized。
+        ("day", "2026-10-08", "digests.food.text has 230 characters; the day digest limit is 200"),
         ("day", "2026-10-08", "response must contain exactly one choice"),
         ("day", "2026-10-08", "response must contain exactly one submit_memory_digest tool call"),
         ("day", "2026-10-08", "the only tool call must be submit_memory_digest"),
@@ -1059,7 +1062,8 @@ def test_m10_guard_discards_follow_the_digest_problem_texts(tmp_path, skip_authe
         ("month", "2026-10", "; ".join([
             "digests.food must not be null: the input has food records",
             "digests.work.text must not be empty",
-            "digests.life.text has 801 characters; the month digest limit is 800",
+            "digests.life.text has 801 characters counting punctuation; the month digest limit is 800; "
+            "shorten it by at least 1",
             "digests.food.refs: d3 is not a food record number",
             "digests.life.refs: d4 is not a life record number"])),
     ]
@@ -1078,7 +1082,7 @@ def test_m10_guard_discards_follow_the_digest_problem_texts(tmp_path, skip_authe
     caplog.set_level(logging.ERROR)
     discards = m10_digests(*_load(builder))["guard_discards"]
     assert discards == {"response": 4, "truncated": 1, "schema": 1, "text_without_input": 1, "null_with_input": 1,
-                        "text_empty": 1, "text_length": 2, "refs_empty": 1, "refs_category": 4, "unrecognized": 10}
+                        "text_empty": 1, "text_length": 3, "refs_empty": 1, "refs_category": 4, "unrecognized": 10}
     assert list(discards) == GUARDS
     assert [message for message in caplog.messages if message.endswith("matches no guard")] == [
         "Memory digest error memory-digest:1:day:2026-10-09:attempt:1 matches no guard"] * 9 + [

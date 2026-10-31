@@ -210,10 +210,10 @@ test('context navigation, stage filter and all rule paths are available through 
       const html = app.get('#ctx-body').innerHTML;
       assert.ok(html.includes(`<span>${label}</span>`) && html.includes(`<span>${sentence}</span>`), `${rule} · ${label}`);
     }
-    // 回顾的「填入」逐字等于「行为」八的表：日记式的日回顾，字数上限仍是 200、800、2000。
+    // 回顾的「填入」逐字等于「行为」八的表：日记式的日回顾，字数上限是 250、800、2000（第五批裁定把日回顾提到 250）。
     assert.equal(app.run('ViewerContext.rules.digest.fill'),
       '零点由模型把前一天每类的今天条目写成一段日记式的日回顾（要紧的事和当时的感受，时间只说早上、中午、下午、晚上），' +
-      '每类至多 200 字；每月第一个零点把上个月的日回顾写成月回顾，每类至多 800 字；' +
+      '每类至多 250 字；每月第一个零点把上个月的日回顾写成月回顾，每类至多 800 字；' +
       '每年第一个零点把上一年的月回顾写成年回顾，每类至多 2000 字。');
     assert.equal(app.get('#ctx-prev').disabled, true);
     assert.equal(app.get('#ctx-next').disabled, true);

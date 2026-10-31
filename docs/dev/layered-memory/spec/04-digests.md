@@ -1,6 +1,6 @@
 # 04 日、月、年回顾
 
-> 属于[分层记忆开发规格](../SPEC-layered-memory.md)。代码基线 f67c25e5。第四批裁定（2026-10-30）修订。
+> 属于[分层记忆开发规格](../SPEC-layered-memory.md)。代码基线 f67c25e5。第四批裁定（2026-10-30）修订。第五批裁定（2026-10-31）修订。
 
 ## 目标与依据
 
@@ -23,10 +23,11 @@
 | 8（描述那段时间的经过和感受；子问题的选项 A 由第四批裁定取代） | 回顾是日记式的回忆：写要紧的经过和当时的感受，吃的、做的、去的地方和打交道的人写出名字；时间说早上、中午、下午、晚上（月回顾说月初、月中、月底、某个周末，年回顾说年初、春天、几月份、年底），价钱、数量和时长只在要紧时顺口带一句，次数说几乎每天、常常、偶尔；时刻、价钱、数量、日期、月份和次数既不要求出自输入，也不检查 |
 | 9（模型写段落，月 800、年 2000 字；子问题选项 A） | 月回顾、年回顾与日回顾同期交付；本章的验收是确定性测试，跨月短试点的步骤与指标归第 09 章 |
 | 13（每天由模型压成一段） | 日回顾不设门槛，每个有条目的日子都生成 |
-| 第二批「各级字数上限」（原话见裁定 18） | 每类正文 `len(text)` 不超过日 200、月 800、年 2000 |
+| 第二批「各级字数上限」（原话见裁定 18；日回顾一级由第五批裁定改） | 每类正文 `len(text)`（标点也算）不超过日 250、月 800、年 2000 |
 | 23（选项 A，回顾一侧） | 重试用尽的类记 null 并列入 `fallback`；「近三天」与检索据此认出「未整理」 |
 | 「字」按 `len` | 本章所有字数都是 Python `len()` 的结果 |
-| 第四批（2026-10-30）「Memory is a diary, not a device log, it records feelings, and some essential facts.」「length should still be capped at what we have desigend」（原话全文见提案第五章） | 三份提示改写成日记（见「提示原文」）；输出只做格式与长度检查：响应级四项、逐类的 null 规则和守卫表的四行（正文非空、正文长度、依据非空、依据归属）。裁定 8 子问题选项 A 的数字规则、日期和月份照抄、次数照抄作废；提案第二章「校验」原列、随第三批选项 A 带入的含中文、不含身份串、名称、饮食核验名称、饮食覆盖、做饭那一句、数字、数字同条、次数照抄九道守卫撤销。回顾与记录是否相符由试点衡量（第 09 章 M11 与模型核对），运行时不查；字数上限照第二批不变 |
+| 第四批（2026-10-30）「Memory is a diary, not a device log, it records feelings, and some essential facts.」「length should still be capped at what we have desigend」（原话全文见提案第五章） | 三份提示改写成日记（见「提示原文」）；输出只做格式与长度检查：响应级四项、逐类的 null 规则和守卫表的四行（正文非空、正文长度、依据非空、依据归属）。裁定 8 子问题选项 A 的数字规则、日期和月份照抄、次数照抄作废；提案第二章「校验」原列、随第三批选项 A 带入的含中文、不含身份串、名称、饮食核验名称、饮食覆盖、做饭那一句、数字、数字同条、次数照抄九道守卫撤销。回顾与记录是否相符由试点衡量（第 09 章 M11 与模型核对），运行时不查；字数上限照第二批不变（日回顾一级随后由第五批裁定改为 250） |
+| 第五批（2026-10-31）「pop length cap to 250 and fix prompt; do a 2day runs to check」（原话与改动清单见提案第五章） | `MEMORY_DIGEST_TEXT_LIMITS` 的日回顾由 200 改为 250，仍按 `len` 计、标点也算，月 800、年 2000 不变；日回顾提示改三处：「150 到 220 字为宜，连标点在内不能超过 250 字」、时间只说早上、中午、下午、晚上而不写钟点（「八点十一」「九点一刻」这样的说法也不写）、字数紧时先省经过的细节而留下感受和看法；月、年回顾提示在字数后加「（标点也算）」（见「提示原文」）；正文长度的问题文字写明连标点的字数、上限和至少要删去的字数（见守卫表）。不变的：重试时不说哪几类已通过，`reflection_validation_max_retries` 仍为 3，响应级不合格时整次尝试不接受任何类，不加任何守卫（钟点只写进提示，运行时不查）。两天的真实试点核对另跑，结果另写试点记录（提案第五章第五批） |
 
 依赖其他章节的事实（本章只消费，不重述）：
 
@@ -38,15 +39,15 @@
 
 ### 费用（参考，不是验收门槛）
 
-数字取自提案「压缩」一节与研究目录 out3/reports/econ.md，按冻结的峰时价（命中 $0.006/M、未命中 $0.30/M、输出 $1.20/M，recording_engine/reports/quality.py:55-66）。
+数字取自提案「压缩」一节与研究目录 out3/reports/econ.md，按冻结的峰时价（命中 $0.006/M、未命中 $0.30/M、输出 $1.20/M，recording_engine/reports/quality.py:55-66）。第五批裁定之后，日回顾输出与月回顾输入随每类 250 字的上限变化，用同一费用模型（研究目录 out3/econ/digest_cost.py，只把日回顾每类的字数改成 250）重算；日回顾提示比原来多约 40 token。
 
 | 级别 | 输入 | 输出 | 首次调用 | 3 次重试用尽 |
 | --- | --- | --- | --- | --- |
-| 日回顾 | 10.8k–16.3k token，平均 13.5k（自述 5.9–8.6k，查询答案 0–3.1k，键名 1.8–2.4k，核验约 1.1k，卡片 535，提示约 570） | ≤600 字，约 515 token | $0.0037–0.0054，平均 $0.0045 | $0.0082 |
-| 月回顾 | 约 17.3k token（93 段日回顾 15.2k，统计约 1.1k） | 2,400 字，约 1,960 token | $0.0074 | $0.0167 |
+| 日回顾 | 10.8k–16.3k token，平均 13.4k（自述 5.9–8.6k，查询答案 0–3.1k，键名 1.8–2.4k，核验约 1.1k，卡片 535，提示约 530） | ≤750 字，约 620 token | $0.0038–0.0055，平均 $0.0046 | $0.0087 |
+| 月回顾 | 约 20.7k token（93 段日回顾 18.6k，统计约 1.1k） | 2,400 字，约 1,960 token | $0.0084 | $0.0178 |
 | 年回顾 | 约 25.7k token（36 段月回顾 21.5k，统计约 3.3k） | 6,000 字，约 4,390 token | $0.0129 | $0.0333 |
 
-三级摊到每一天约 $0.0048（日 $0.0045，月 $0.00024，年 $0.00004），重试全部用尽约 $0.008；退役的巩固和睡醒反思每天约 $0.0048，净值约为零。8,000 的输出上限下每次发送的整次期限是 180 秒（docs/design/08-configuration.md:151 的同一规则）。
+三级摊到每一天约 $0.0049（日 $0.0046，月 $0.00028，年 $0.00004），重试全部用尽约 $0.009；退役的巩固和睡醒反思每天约 $0.0048，净值约为零。8,000 的输出上限下每次发送的整次期限是 180 秒（docs/design/08-configuration.md:151 的同一规则）。
 
 ## 行为
 
@@ -199,24 +200,24 @@ self.t = t
 
 ### 提示原文
 
-三份提示按第四批裁定写成日记：记要紧的事和当时的感受，时间、次数用粗略的说法，不记流水账。它们是 `simulation_engine/evidence/memory_digest.py` 的模块常量，计入 `code_sha256`，与 `PLAN_DAY_PROMPT` 同样处理。各为一行，没有首尾空白和换行；`DIGEST_PROMPTS = MappingProxyType({"day": DAY_DIGEST_PROMPT, "month": MONTH_DIGEST_PROMPT, "year": YEAR_DIGEST_PROMPT})`。
+三份提示按第四批裁定写成日记：记要紧的事和当时的感受，时间、次数用粗略的说法，不记流水账。第五批裁定再改日回顾的三处（字数写成「150 到 220 字为宜，连标点在内不能超过 250 字」；时间只说早上、中午、下午、晚上，不写钟点，连「八点十一」「九点一刻」这样的说法也不写；字数紧时先省经过的细节，感受和看法留着），月、年回顾只在字数后加「（标点也算）」。它们是 `simulation_engine/evidence/memory_digest.py` 的模块常量，计入 `code_sha256`，与 `PLAN_DAY_PROMPT` 同样处理。各为一行，没有首尾空白和换行；`DIGEST_PROMPTS = MappingProxyType({"day": DAY_DIGEST_PROMPT, "month": MONTH_DIGEST_PROMPT, "year": YEAR_DIGEST_PROMPT})`。
 
 `DAY_DIGEST_PROMPT`：
 
 ```text
-你替模拟世界里的一个人物写他昨天的日记。输入按饮食、工作、生活三类给出他昨天的记录：「核验」是环境确认的经过，「当时查到」是他当时查询看到的结果，「自述」是他当时写下的话（「名称：」是收尾或暂停的总结，「进展·」是中途写的进展，「看法·」是看法，「记住：」是想记住的事，「正文：」是回复正文），每条带编号。每类写一段不超过 200 字的日记，用他的第一人称，像人回想昨天那样只记要紧的事和当时的感受，不记流水账：经过以核验为准，挑要紧的写，吃了什么、做了什么、去了哪里、和谁打了交道，这些东西写出名字；时间说早上、中午、下午、晚上，不写几点几分；价钱、数量和花了多久只在对他要紧时顺口带一句，比如「有点贵」「等了挺久」，不逐项列出；感受和看法以自述为准，写他喜不喜欢、累不累、还想不想再来、打算保持还是改掉，不替他编没写过的感受。只凭昨天的记录写，不补造没发生的事或别人说的话，不拿别的日子作比较，不写编号、订单号或其他内部标识。在 refs 里写所依据的记录编号，至少一个。某一类没有记录时写 null。只调用一次 submit_memory_digest。
+你替模拟世界里的一个人物写他昨天的日记。输入按饮食、工作、生活三类给出他昨天的记录：「核验」是环境确认的经过，「当时查到」是他当时查询看到的结果，「自述」是他当时写下的话（「名称：」是收尾或暂停的总结，「进展·」是中途写的进展，「看法·」是看法，「记住：」是想记住的事，「正文：」是回复正文），每条带编号。每类写一段日记，150 到 220 字为宜，连标点在内不能超过 250 字，用他的第一人称，像人回想昨天那样只记要紧的事和当时的感受，不记流水账：经过以核验为准，挑要紧的写，吃了什么、做了什么、去了哪里、和谁打了交道，这些东西写出名字；时间只说早上、中午、下午、晚上，不写钟点，「八点十一」「九点一刻」这样的说法也不写；价钱、数量和花了多久只在对他要紧时顺口带一句，比如「有点贵」「等了挺久」，不逐项列出；感受和看法以自述为准，写他喜不喜欢、累不累、还想不想再来、打算保持还是改掉，不替他编没写过的感受；字数紧时先省经过的细节，感受和看法留着。只凭昨天的记录写，不补造没发生的事或别人说的话，不拿别的日子作比较，不写编号、订单号或其他内部标识。在 refs 里写所依据的记录编号，至少一个。某一类没有记录时写 null。只调用一次 submit_memory_digest。
 ```
 
 `MONTH_DIGEST_PROMPT`：
 
 ```text
-你替模拟世界里的一个人物把他上个月的日记整理成这个月的回忆。输入按饮食、工作、生活三类给出那个月每一天的日回顾，每段带日期和编号，没整理出来的日子写着「未整理」；另附代码从事件算出的次数统计，让你知道哪些事常有。每类写一段不超过 800 字的话，用他的第一人称，像人回想上个月那样写：这类事有什么规律和习惯，常吃什么、常做什么、常去哪里，有什么变化，哪些事值得记住；他对具体的东西、地方、人和做法的看法和打算，喜欢的、不喜欢的、说了要保持或要改掉的，后来有没有变。时间说月初、月中、月底、某个周末这样的说法，次数说几乎每天、常常、偶尔一两次这样的说法，不照抄日期和统计行。只凭输入写，不补造输入里没有的经过、看法或别人说的话，不写编号或其他内部标识。在 refs 里写所依据的日回顾编号，至少一个。某一类没有输入时写 null。只调用一次 submit_memory_digest。
+你替模拟世界里的一个人物把他上个月的日记整理成这个月的回忆。输入按饮食、工作、生活三类给出那个月每一天的日回顾，每段带日期和编号，没整理出来的日子写着「未整理」；另附代码从事件算出的次数统计，让你知道哪些事常有。每类写一段不超过 800 字（标点也算）的话，用他的第一人称，像人回想上个月那样写：这类事有什么规律和习惯，常吃什么、常做什么、常去哪里，有什么变化，哪些事值得记住；他对具体的东西、地方、人和做法的看法和打算，喜欢的、不喜欢的、说了要保持或要改掉的，后来有没有变。时间说月初、月中、月底、某个周末这样的说法，次数说几乎每天、常常、偶尔一两次这样的说法，不照抄日期和统计行。只凭输入写，不补造输入里没有的经过、看法或别人说的话，不写编号或其他内部标识。在 refs 里写所依据的日回顾编号，至少一个。某一类没有输入时写 null。只调用一次 submit_memory_digest。
 ```
 
 `YEAR_DIGEST_PROMPT`：
 
 ```text
-你替模拟世界里的一个人物把他上一年的月回顾整理成这一年的回忆。输入按饮食、工作、生活三类给出那一年每个月的月回顾，每段带月份和编号，没整理出来的月份写着「未整理」；另附代码从事件算出的全年次数统计，让你知道哪些事常有。每类写一段不超过 2000 字的话，用他的第一人称，像人回想过去一年那样写：这一年这类事固定下来的习惯、口味和做法，哪些看法后来变了、大约什么时候变的，到年底还成立的看法和打算，哪些事值得记住。时间说年初、春天、几月份、年底这样的说法，次数说几乎每天、常常、偶尔这样的说法，不照抄统计行。只凭输入写，不补造输入里没有的经过、看法或别人说的话，不写编号或其他内部标识。在 refs 里写所依据的月回顾编号，至少一个。某一类没有输入时写 null。只调用一次 submit_memory_digest。
+你替模拟世界里的一个人物把他上一年的月回顾整理成这一年的回忆。输入按饮食、工作、生活三类给出那一年每个月的月回顾，每段带月份和编号，没整理出来的月份写着「未整理」；另附代码从事件算出的全年次数统计，让你知道哪些事常有。每类写一段不超过 2000 字（标点也算）的话，用他的第一人称，像人回想过去一年那样写：这一年这类事固定下来的习惯、口味和做法，哪些看法后来变了、大约什么时候变的，到年底还成立的看法和打算，哪些事值得记住。时间说年初、春天、几月份、年底这样的说法，次数说几乎每天、常常、偶尔这样的说法，不照抄统计行。只凭输入写，不补造输入里没有的经过、看法或别人说的话，不写编号或其他内部标识。在 refs 里写所依据的月回顾编号，至少一个。某一类没有输入时写 null。只调用一次 submit_memory_digest。
 ```
 
 ### 输出校验
@@ -241,12 +242,13 @@ self.t = t
 | 守卫 | 适用 | 规则 | 不通过时的问题文字 |
 | --- | --- | --- | --- |
 | 正文非空 | 全部 | `text.strip()` 非空 | `digests.{key}.text must not be empty` |
-| 正文长度 | 全部 | `len(text)` 不超过日 200、月 800、年 2000 | `digests.{key}.text has {len(text)} characters; the {tier} digest limit is {limit}` |
+| 正文长度 | 全部 | `len(text)`（标点也算）不超过日 250、月 800、年 2000 | `digests.{key}.text has {n} characters counting punctuation; the {tier} digest limit is {limit}; shorten it by at least {n - limit}`，其中 `n = len(text)` |
 | 依据非空 | 全部 | `refs` 非空 | `digests.{key}.refs must cite at least one record number` |
 | 依据归属 | 全部 | 每个 ref 都是这一类某一行的编号 | `digests.{key}.refs: {ref} is not a {key} record number` |
 
 - 「依据归属」每个不合的 ref 一条问题，按 refs 的次序，同一个 ref 只报一次。
-- 守卫只有这四道（第四批裁定）。正文写了什么不检查：名称是否出自输入，时刻、价钱、数量、日期、月份和次数是否出自输入或照抄统计行，有没有中文，含不含十六进制串，都不影响接受。守卫只看正文是否空白、正文的 `len`、`refs` 和这一类各行的编号，不读目录，不切句，不提取数字。
+- 「正文长度」的问题文字写明连标点的字数 `n`、这一级的上限和至少要删去的字数 `n - limit`（第五批裁定；此前的写法是 `digests.{key}.text has {len(text)} characters; the {tier} digest limit is {limit}`，第 09 章的试点工具两种都认）。其余问题文字不变。
+- 守卫只有这四道（第四批裁定；第五批裁定也不加守卫，钟点的写法只写进提示）。正文写了什么不检查：名称是否出自输入，时刻、价钱、数量、日期、月份和次数是否出自输入或照抄统计行，有没有中文，含不含十六进制串，都不影响接受。守卫只看正文是否空白、正文的 `len`、`refs` 和这一类各行的编号，不读目录，不切句，不提取数字。
 
 **错误文字。** 一次尝试的全部问题按类别次序、再按守卫表的次序，用 `"; "` 连接，作为 `MemoryDigestOutputError` 的文字；它写进这次响应证据的 `error`，也附回下一次请求。
 
@@ -422,8 +424,8 @@ MEMORY_DIGEST_KIND = "memory_digest_generated"
 MEMORY_DIGEST_TIERS = ("day", "month", "year")
 #: 回顾正文与事件里的类别键，与 MEMORY_CATEGORIES 逐一对应。
 MEMORY_DIGEST_KEYS = ("food", "work", "life")
-#: 各级每类正文的字数上限（len）。
-MEMORY_DIGEST_TEXT_LIMITS = MappingProxyType({"day": 200, "month": 800, "year": 2000})
+#: 各级每类正文的字数上限（len，标点也算）。
+MEMORY_DIGEST_TEXT_LIMITS = MappingProxyType({"day": 250, "month": 800, "year": 2000})
 ```
 
 ### `src/worldmock/state/interaction/requests.py`
@@ -452,7 +454,7 @@ MEMORY_DIGEST_TEXT_LIMITS = MappingProxyType({"day": 200, "month": 800, "year": 
 
 | 文档与位置 | 改完之后写明 |
 | --- | --- |
-| docs/design/06-agent.md「进度、待办与记忆」新增小节「日、月、年回顾」（锚点 `<a name="agent-日月年回顾"></a>`），放在第 03 章的「近三天」小节之后、第 05 章的「检索记忆」小节之前（各小节的次序见第 10 章「设计文档」）；原 :285-304 的就寝反思文字的删除见第 08 章 | 回顾是运行时在零点为每个人物做的独立模型调用，不经人物、不是决策；三级的期次、生成时机与零点次序（日→月→年→零点计划→节律），检查点之后与普通恢复的初始化里同样补做，运行到终点不做；哪些期次要生成（近三天的日子、上个月、上一年），三类都没有输入时不调用；三级的输入表（人物卡片只给日回顾，由环境一侧用 `render_card(persona_card(persona))` 从 persona.toml 构造，与工作区 profile 的 `persona_card` 逐字相同；条目全文按类切分并编号；工作类不启用时工作类没有行、必须为 null；月、年回顾的行与「未整理」行；次数统计的规则与写法）；请求：中文固定模板（逐字原文只在代码里），要求写成日记（要紧的事和当时的感受，时间说早上、中午、下午、晚上，不记流水账）、紧凑 JSON 的用户消息、唯一严格工具 `submit_memory_digest`、思考关闭、底层不重试、输出上限见「宿主模型协议」；输出只做格式与长度检查（响应格式、逐类 null 规则、正文非空、每类字数上限、refs 非空且都是这一类的编号），正文写的名称、数字和时间不检查；重试次数取 `reflection_validation_max_retries`，用尽时没通过的类记 null 并列入 `fallback`、运行继续；传输失败先提交证据再以运行故障停下；结果是 `memory_digest_generated`（链到记录引擎「事件与来源」）；回顾是整理出来的回忆，不是核验事实，环境从不据它结算 |
+| docs/design/06-agent.md「进度、待办与记忆」新增小节「日、月、年回顾」（锚点 `<a name="agent-日月年回顾"></a>`），放在第 03 章的「近三天」小节之后、第 05 章的「检索记忆」小节之前（各小节的次序见第 10 章「设计文档」）；原 :285-304 的就寝反思文字的删除见第 08 章 | 回顾是运行时在零点为每个人物做的独立模型调用，不经人物、不是决策；三级的期次、生成时机与零点次序（日→月→年→零点计划→节律），检查点之后与普通恢复的初始化里同样补做，运行到终点不做；哪些期次要生成（近三天的日子、上个月、上一年），三类都没有输入时不调用；三级的输入表（人物卡片只给日回顾，由环境一侧用 `render_card(persona_card(persona))` 从 persona.toml 构造，与工作区 profile 的 `persona_card` 逐字相同；条目全文按类切分并编号；工作类不启用时工作类没有行、必须为 null；月、年回顾的行与「未整理」行；次数统计的规则与写法）；请求：中文固定模板（逐字原文只在代码里），要求写成日记（要紧的事和当时的感受，时间只说早上、中午、下午、晚上而不写钟点，日回顾 150 到 220 字为宜、连标点不超过 250 字，字数紧时先省经过的细节，不记流水账）、紧凑 JSON 的用户消息、唯一严格工具 `submit_memory_digest`、思考关闭、底层不重试、输出上限见「宿主模型协议」；输出只做格式与长度检查（响应格式、逐类 null 规则、正文非空、每类字数上限（日 250、月 800、年 2000，`len` 计、标点也算；超出时问题文字写明连标点的字数和至少要删去的字数）、refs 非空且都是这一类的编号），正文写的名称、数字和时间不检查；重试次数取 `reflection_validation_max_retries`，用尽时没通过的类记 null 并列入 `fallback`、运行继续；传输失败先提交证据再以运行故障停下；结果是 `memory_digest_generated`（链到记录引擎「事件与来源」）；回顾是整理出来的回忆，不是核验事实，环境从不据它结算 |
 | docs/design/06-agent.md「零点计划」:189-190 | 零点推进之后先做日、月、年回顾（链到新小节），再做零点计划，最后判定这一秒的唤醒；新建运行和反事实分支在开始的检查点之后、普通恢复在初始化时，也先补回顾、再做计划 |
 | docs/design/06-agent.md「人物身份与画像」:33-35 | 本章不改写，:35 的文字照第 08 章；回顾输入里的人物卡片只在新小节「日、月、年回顾」的输入表里写明（见上一行） |
 | docs/design/06-agent.md「宿主模型协议」:311 | 本章不改写，文字照第 08 章（其中「零点计划与回顾各用自己的 8,000」的 8,000 即本章的 `MEMORY_DIGEST_MAX_TOKENS`） |
@@ -489,11 +491,11 @@ MEMORY_DIGEST_TEXT_LIMITS = MappingProxyType({"day": 200, "month": 800, "year": 
 | `test_response_level_errors[no-choice]`、`[two-choices]`、`[no-tool-call]`、`[other-tool]`、`[invalid-json]`、`[missing-key]`、`[extra-key]` | 错误文字逐字；这次尝试不接受任何类（响应级） |
 | `test_truncated_output_is_a_validation_failure` | `finish_reason="length"` 而工具调用合法：错误恰为 `memory digest output was truncated at max_tokens`，不接受任何类（响应级） |
 | `test_null_rules_follow_category_input` | 有输入的类给 null、无输入的类给段落各报对应文字；无输入的类给 null 不报（逐类） |
-| `test_text_guards[day-200]`、`[day-201]`、`[month-800]`、`[month-801]`、`[year-2000]`、`[year-2001]`、`[empty]`、`[blank]` | 恰在上限时通过，多一字时错误逐字为正文长度的问题文字；空串、全空白各报正文非空的问题文字（守卫表：正文非空、正文长度） |
+| `test_text_guards[day-201]`、`[day-250]`、`[day-251]`、`[day-punctuation]`、`[month-800]`、`[month-801]`、`[year-2000]`、`[year-2001]`、`[empty]`、`[blank]` | 日回顾 201 字通过（200 < len ≤ 250 现在都接受）；三级恰在上限时通过，多一字时错误逐字为正文长度的问题文字（连标点的字数、上限、至少删 1 字）；230 个汉字加 26 个标点共 256 字也按 256 字报（至少删 6 字）；空串、全空白各报正文非空的问题文字（守卫表：正文非空、正文长度；`MEMORY_DIGEST_TEXT_LIMITS`） |
 | `test_refs_must_cite_this_categorys_numbers` | 空 refs 恰报依据非空的问题文字；别的类的编号、不存在的编号各报一条依据归属的问题文字，按 refs 次序，重复的错编号只报一次（守卫表：依据非空、依据归属） |
 | `test_text_within_the_limit_is_accepted_whatever_it_mentions[clock-time]`、`[price]`、`[date]`、`[count]`、`[absent-name]`、`[hex]`、`[no-chinese]` | 不超过字数上限、refs 都是这一类编号的一段，正文分别写了输入里没有的时刻（`8:09`）、价钱（`35元`）、日期（`10月9日`）、次数（月回顾里不照抄统计行的 `5 次`）、夹具目录里有而这一类输入里没有的商品名、8 位以上的十六进制串（`a1b2c3d4e5`），或全文没有中文（`ok`）：这一类被接受，这次尝试的错误为 None，`digest_outcome` 的 `text` 逐字是原文；`[count]` 为月回顾，其余为日回顾的饮食类（守卫表只有四行） |
 | `test_removed_guard_names_no_longer_exist` | `memory_digest` 模块没有 `NUMBER_TOKEN`、`QUANTITY_UNITS` 属性；`DigestInputs` 的字段恰为 `period`、`payload`、`rows`，`DigestRow` 的字段恰为 `number`、`payload`、`sources`（`names`、`goods_names`、`kit_names`、`food_required`、`kits_cooked` 与只供已撤销守卫用的 `counts`、`text`、`verified` 都不存在）（接口与文件） |
-| `test_problems_are_joined_in_category_and_guard_order` | 日回顾三类同时不合：food 正文 201 字（另含输入里没有的时刻、价钱和商品名）且 refs 含工作类的编号，work 正文全空白且 refs 为空，life 有输入而为 null：错误文字逐字等于正文长度、依据归属、正文非空、依据非空、null 规则这五条问题按类别、再按守卫表次序用 `"; "` 连接，没有别的问题（错误文字、守卫表只有四行） |
+| `test_problems_are_joined_in_category_and_guard_order` | 日回顾三类同时不合：food 正文 251 字（另含输入里没有的时刻、价钱和商品名）且 refs 含工作类的编号，work 正文全空白且 refs 为空，life 有输入而为 null：错误文字逐字等于正文长度、依据归属、正文非空、依据非空、null 规则这五条问题按类别、再按守卫表次序用 `"; "` 连接，没有别的问题（错误文字、守卫表只有四行） |
 | `test_accepted_categories_survive_later_attempts` | 第一次 food 通过、work 不通过；第二次 food 改成不合格、work 通过：两类都按各自通过的那次接受，第二次的错误为 None（接受） |
 | `test_outcome_marks_unaccepted_categories_as_fallback` | 用尽后有输入未接受的类为 null 且在 `fallback`，次序为 food、work、life；无输入的类为 null 且不在（登记事件） |
 | `test_outcome_sources_and_citations_follow_rows` | `source_event_ids` 按行序去重，`cited_event_ids` 按 refs 次序去重且是前者的子集；月回顾的两者是日回顾事件身份（登记事件） |
@@ -504,7 +506,8 @@ MEMORY_DIGEST_TEXT_LIMITS = MappingProxyType({"day": 200, "month": 800, "year": 
 | 测试 | 断言 |
 | --- | --- |
 | `test_valid_digest_events_are_accepted[day]`、`[month]`、`[year]` | 三级合法草稿可以构造、写入、读回（闭集校验） |
-| `test_digest_event_rejects_invalid_shapes[...]` | 逐一破坏：多键、少键、`source_kind` 为 environment、可见性 agent、带资金变化、`caused_by` 两项、`tier` 为 week、日期非规范（`2026-1-9`）、月份 `2026-13`、年份 `26`、`digests` 少一键、项多一键、正文空白、正文 201 字（day）、月份 `2026-10\n`（末尾换行）、年份 `２０２６`（全角数字）、`period` 不是字符串、身份列表为空、`cited` 不是 `source` 的子集、三类都为 null 且 `fallback` 空、`fallback` 含重复、次序颠倒、含非 null 的类：各报本章表中对应的那条消息 |
+| `test_digest_event_rejects_invalid_shapes[...]` | 逐一破坏：多键、少键、`source_kind` 为 environment、可见性 agent、带资金变化、`caused_by` 两项、`tier` 为 week、日期非规范（`2026-1-9`）、月份 `2026-13`、年份 `26`、`digests` 少一键、项多一键、正文空白、正文 251 字（day）、月份 `2026-10\n`（末尾换行）、年份 `２０２６`（全角数字）、`period` 不是字符串、身份列表为空、`cited` 不是 `source` 的子集、三类都为 null 且 `fallback` 空、`fallback` 含重复、次序颠倒、含非 null 的类：各报本章表中对应的那条消息 |
+| `test_digest_event_text_may_reach_the_tier_limit[day]`、`[month]`、`[year]` | 正文连标点恰为这一级的上限（日 250、月 800、年 2000，末字是「。」）的草稿合法、正文逐字读回；多一个标点就报 `Memory digest event digests are invalid`（闭集校验跟着 `MEMORY_DIGEST_TEXT_LIMITS`） |
 
 **tests/integration/life/test_memory_digest_runtime.py**（真实引擎，`engine_factory`；跨月、跨年的用例经 `engine_factory(mutate=...)` 改 config.toml 的 `start_time`、`stop_time`）
 
@@ -517,7 +520,7 @@ MEMORY_DIGEST_TEXT_LIMITS = MappingProxyType({"day": 200, "month": 800, "year": 
 | `test_registration_commits_evidence_and_event_in_one_version` | 一次登记：世界版本加一、其余字段逐值不变；证据与登记事件序号连续、前后版本相同；信封、`data` 键序、`caused_by` 为最后一次响应（登记） |
 | `test_registering_the_same_period_twice_is_a_protocol_error` | 直接再调 `engine.register_memory_digest`：`ProtocolError("Memory digest was already generated for this period")`，库里没有新事件（登记） |
 | `test_registry_rejects_a_period_registered_twice` | 手工追加第二条同期事件后 `registered_digests` 抛 `IntegrityError("Memory digest period was registered twice")`（读取） |
-| `test_validation_exhaustion_records_fallback_and_the_run_continues` | 桩四次都给不合格的 food：4 次请求、4 次响应证据，最后一次 `error` 非空，事件 `fallback == ["food"]`，`settle_pending_memory_digests` 不抛出；错误日志有 `Memory digest validation retries exhausted for memory-digest:1:day:…`（重试、降级） |
+| `test_validation_exhaustion_records_fallback_and_the_run_continues` | 桩四次都给不合格的 food（260 字）：4 次请求、4 次响应证据，最后一次 `error` 逐字为 `digests.food.text has 260 characters counting punctuation; the day digest limit is 250; shorten it by at least 10`，事件 `fallback == ["food"]`，`settle_pending_memory_digests` 不抛出；错误日志有 `Memory digest validation retries exhausted for memory-digest:1:day:…`（重试、降级） |
 | `test_retry_budget_is_reflection_validation_max_retries[0]`、`[3]` | 上限 0 时一次尝试就降级，3 时四次（重试） |
 | `test_transport_failure_commits_evidence_before_raising` | 桩抛 `ConnectionError`：请求与失败证据已在库里，`memory_digest_generated` 没有写，异常原样抛出（传输失败） |
 | `test_month_digest_reads_day_digests_and_count_lines` | 10-31 20:00 → 11-01 08:00 的运行：11-01 零点先登记 10-31 的日回顾，再登记 2026-10 的月回顾；月回顾的用户消息含 d 编号行（含一条「未整理」行）与次数统计行；事件序号上 10-31 日回顾 < 2026-10 月回顾 < 11-01 的 `day_plan_generated`（输入、零点次序） |
@@ -613,6 +616,6 @@ MEMORY_DIGEST_TEXT_LIMITS = MappingProxyType({"day": 200, "month": 800, "year": 
 | 次数统计放在哪里、怎样取类别与食材包 | `days.count_lines`；categories.py 与 entries.py 都在 days.py 模块级导入；活动类别按第 02 章【E11】的快照与开始结果读法；「活动 → 所用食材包」取 `entries.activity_facts(cached).kits`（10 章跨章裁定：此前写的函数内导入与 `activity_category(book, context.state, activity)` 不合第 03 章的导入边界与签名） | 提案第三章代码表「days.py……P3 加次数统计」；第 03 章只禁止 days.py 导入 progress_layer.py、memory_layer.py、day_plan_inputs.py；`activity_category(book, activity, goods_ids)` 不读世界状态 |
 | 「已登记」检查放在哪里 | 只在 `registration_draft` 做一次并写日志；证据为空的检查在 `TimeAdvanceCoordinator.register_memory_digest` | 每条规则只在一处；`causes` 由协调器从证据取得 |
 | `period` 的格式检查 | `date.fromisoformat` 往返相等；月、年用 `re.fullmatch` 与 ASCII 数字类 | `re.match`/`re.search` 的 `$` 接受末尾换行，`\d` 接受非 ASCII 数字 |
-| 缺省测试桩写什么 | 饮食类只列饮食核验里出现的商品名，其余类与月、年回顾写不含名称和数字的固定句 | 把核验行原样接起来会超过 200 字，使用缺省桩的多日用例的结果取决于夹具当天的字数 |
+| 缺省测试桩写什么 | 饮食类只列饮食核验里出现的商品名，其余类与月、年回顾写不含名称和数字的固定句 | 把核验行原样接起来会超过日回顾的字数上限，使用缺省桩的多日用例的结果取决于夹具当天的字数 |
 | 与第 08 章重叠的设计文档改写 | 06-agent.md :35、:311，05-recording-engine.md :100，10-runtime.md :22，01-architecture.md :63、:73、:172，docs/manual/personas.md :105 都照第 08 章的文字，本章不另写；00-overview.md :138 保留本章的改写句，取代第 08 章「删去」的操作 | 同一行只有一个终稿；提案第三章「设计文档」01-architecture 一行是原位改链；00-overview.md 「引用完整性」需要陈述回顾的 `refs` 规则 |
 | `_require_midnight_decided` 的报错文字（time_advance.py:227-231） | 不改 | 节律仍在零点计划登记之后判定，`Midnight rhythm must be decided after the day plans are registered` 仍然成立 |

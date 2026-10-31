@@ -1,6 +1,6 @@
 # 03 类别、归日与近三天
 
-> 属于[分层记忆开发规格](../SPEC-layered-memory.md)。代码基线 f67c25e5。
+> 属于[分层记忆开发规格](../SPEC-layered-memory.md)。代码基线 f67c25e5。第五批裁定（2026-10-31）修订。
 
 ## 目标与依据
 
@@ -305,7 +305,7 @@ def _review_window(now: int, timezone_name: str, midnight_boundary: bool) -> Day
 - 「日期」是 YYYY-MM-DD；「星期」取 `WEEKDAY_NAMES[date.fromisoformat(日期).weekday()]`（work_schedule.py:24）。
 - 工作格在「星期」与「回顾」之间另有「安排」：那天 `shift_on(schedule, date.fromisoformat(日期))` 不为 None 时写 `DAY_WORK`（「工作日」），否则写 `DAY_REST`（「休息日」，work_schedule.py:19-20）；人物没有工作安排（只因覆盖启用了工作类）时写「休息日」。饮食格和生活格没有「安排」。
 - 键序即上面的书写次序：日期、星期、（安排、）回顾、（未整理）。
-- 回顾正文原样放入，不裁剪（≤200 字由 04 在生成时校验）。
+- 回顾正文原样放入，不裁剪（≤250 字由 04 在生成时校验）。
 
 **整块。** `recent_block(digests, today, categories, schedule)` 返回一个对象：键是 `categories`（第 8 节）按 `MEMORY_CATEGORIES` 的次序，值是这一类的格子列表，没有格子时是 `[]`。工作类不启用时没有「工作」键。01 把它放在记忆层的「近三天」键下（01 的 `memory_view` 里 `recent = ...` 一行即调用本函数）。
 
@@ -529,15 +529,16 @@ class DayDigest:
 
 ### src/worldmock/agents/prompt/prompt_schemas.py（改）
 
-「近三天」格子的机器形状写在 `MEMORY_LAYER_SCHEMA` 之前（基线已导入 `DUTY_DAYS`、`WEEKDAY_NAMES`，:21）：
+「近三天」格子的机器形状写在 `MEMORY_LAYER_SCHEMA` 之前（基线已导入 `DUTY_DAYS`、`WEEKDAY_NAMES`，:21；回顾正文的 `maxLength` 取 04 的 `MEMORY_DIGEST_TEXT_LIMITS["day"]`，与 `MEMORY_CATEGORIES` 从 `worldmock.state.model.memory` 一并导入）：
 
 ```python
 def _recent_cells(work: bool) -> dict[str, Any]:
-    """@brief 一类「近三天」的格子数组 Schema：至多三格；每格有日期、星期，工作格另有安排；回顾是 1–200 字的段落，
-    没整理出来时回顾为 null 并带「未整理」。"""
+    """@brief 一类「近三天」的格子数组 Schema：至多三格；每格有日期、星期，工作格另有安排；回顾是 1 到日回顾上限
+    （MEMORY_DIGEST_TEXT_LIMITS["day"]，250）字的段落，没整理出来时回顾为 null 并带「未整理」。"""
     head = {"日期": _DATE, "星期": {"enum": list(WEEKDAY_NAMES)}, **({"安排": {"enum": list(DUTY_DAYS)}} if work else {})}
+    text = {"type": "string", "minLength": 1, "maxLength": MEMORY_DIGEST_TEXT_LIMITS["day"]}
     return {"type": "array", "maxItems": 3, "items": {"oneOf": [
-        _object({**head, "回顾": {"type": "string", "minLength": 1, "maxLength": 200}}),
+        _object({**head, "回顾": text}),
         _object({**head, "回顾": {"type": "null"}, "未整理": {"const": True}})]}}
 
 
@@ -590,7 +591,7 @@ _RECENT_CELLS = {name: _recent_cells(name == MEMORY_CATEGORIES[1]) for name in M
   - 零点计划的回顾时段按同一个窗口取，左闭右开（第 11 节）。
 
 **docs/design/09-io-formats.md**
-- 「提示层的机器形状」的「记忆层」小节（01 建）里写近三天格子的一行：`近三天` 的键是启用的类别、按饮食、工作、生活的次序（只读空记忆层里为空对象），值是至多三格、按日期升序的数组；饮食格、生活格是封闭对象，键依次为 `日期`（YYYY-MM-DD）、`星期`（`WEEKDAY_NAMES` 之一）、`回顾`（1–200 字）；工作格在 `星期` 与 `回顾` 之间另有必有的 `安排`（工作日或休息日）；未整理的格 `回顾` 为 null，末尾带 `未整理: true`；那天这一类没有记录时不写这一格；Schema 是 `_RECENT_CELLS`。
+- 「提示层的机器形状」的「记忆层」小节（01 建）里写近三天格子的一行：`近三天` 的键是启用的类别、按饮食、工作、生活的次序（只读空记忆层里为空对象），值是至多三格、按日期升序的数组；饮食格、生活格是封闭对象，键依次为 `日期`（YYYY-MM-DD）、`星期`（`WEEKDAY_NAMES` 之一）、`回顾`（1–250 字）；工作格在 `星期` 与 `回顾` 之间另有必有的 `安排`（工作日或休息日）；未整理的格 `回顾` 为 null，末尾带 `未整理: true`；那天这一类没有记录时不写这一格；Schema 是 `_RECENT_CELLS`。
 
 **docs/design/03-resource-engine.md**
 - 「环境目录文件」表：`app-catalog.jsonl` 一行（:32）末尾加「，可选的记忆类别覆盖 `memory_category`」；`content-catalog.jsonl` 一行（:35）末尾加「；任何内容都可以另写记忆类别覆盖 `memory_category`」。`manifest.json` 一行（:31）与 :40 的格式号由第 08 章改写。
@@ -672,7 +673,8 @@ _RECENT_CELLS = {name: _recent_cells(name == MEMORY_CATEGORIES[1]) for name in M
 | `test_the_work_key_is_absent_when_work_is_disabled` | `categories == ("饮食", "生活")` 时整块只有两个键 | 第 8、13 节 |
 | `test_the_first_day_has_empty_lists` | 没有任何 `DayDigest`：`{"饮食": [], "工作": [], "生活": []}` | 第 13 节「头三天」 |
 | `test_a_day_digest_cannot_be_written_and_unsettled` | `DayDigest({"饮食": "…"}, frozenset({"饮食"}))` → `IntegrityError("Day digest marks a category both written and unsettled")` | 第 12 节 |
-| `test_recent_cell_schema_accepts_only_the_two_cell_shapes` | 经 `validate_layer` 校验整个记忆层（`assemble_layer("2026-10-01", 近三天, [])`），在「近三天」里放入所列各格：接受上述各格；拒绝（`ValueError`）：饮食格带「安排」、工作格缺「安排」、「回顾」201 字、「回顾」为 null 而没有「未整理」、「未整理」为 false、四格 | 第 13 节、prompt_schemas.py |
+| `test_recent_cell_schema_accepts_only_the_two_cell_shapes` | 经 `validate_layer` 校验整个记忆层（`assemble_layer("2026-10-01", 近三天, [])`），在「近三天」里放入所列各格：接受上述各格；「回顾」恰为 250 字也接受；拒绝（`ValueError`）：饮食格带「安排」、工作格缺「安排」、「回顾」251 字、「回顾」为 null 而没有「未整理」、「未整理」为 false、四格 | 第 13 节、prompt_schemas.py |
+| `test_recent_cell_text_limit_is_the_day_digest_limit` | `MEMORY_LAYER_SCHEMA` 里三类格子「回顾」的 `maxLength` 都等于 `MEMORY_DIGEST_TEXT_LIMITS["day"]`，即 250 | 第 13 节、prompt_schemas.py、「规格阶段的决定」Schema 上限一行 |
 
 **tests/unit/life/test_day_plan_window.py**
 
@@ -763,4 +765,4 @@ _RECENT_CELLS = {name: _recent_cells(name == MEMORY_CATEGORIES[1]) for name in M
 | 恢复时补齐哪些日回顾 | 由 04 规定（日历上的 T−1…T−3 与最近三个工作类有条目的日子取并集）；本章的 `recent_dates`、`recent_work_dates` 只用于渲染 | `recent_work_dates` 只读已登记的回顾，认不出尚无回顾的日子；04:83-87、04:647 |
 | 功能 app 行写 `memory_category` | 不另加登记检查 | 提案没有限制；被拒请求点了它的名字时照规则 0 读，并与内容 app 行一样计入第 8 节与第 9 节 |
 | 「近三天」格子的 Schema | `_RECENT_CELLS` 按类别给数组 Schema，工作格必有「安排」；`MEMORY_LAYER_SCHEMA` 的「近三天」写成 `_object(_RECENT_CELLS, optional=MEMORY_CATEGORIES)` | 01（:494、:502、:881）与 07（:214、:299、:535）把 `_recent_cells`、`_RECENT_CELLS` 划给本章；提案 :686-688 只有工作格带「安排」 |
-| 「近三天」回顾正文的 200 字在 Schema 里 | `maxLength: 200` | 与 04 的日回顾上限同值；Schema 只做逐串上限（07） |
+| 「近三天」回顾正文的字数上限在 Schema 里 | `maxLength` 取 `MEMORY_DIGEST_TEXT_LIMITS["day"]`（250） | 与 04 的日回顾上限同值，读常量而不另写字面数，上限只在一处；Schema 只做逐串上限（07） |

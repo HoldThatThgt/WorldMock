@@ -39,24 +39,24 @@ from worldmock.state.interaction.schema import deepseek_strict_schema
 #: 本章「提示原文」的日回顾模板（日记式，逐字写死）。
 _DAY_PROMPT = (
     "你替模拟世界里的一个人物写他昨天的日记。输入按饮食、工作、生活三类给出他昨天的记录：「核验」是环境确认的经过，「当时查到」是他当时查询看到的结果，「自述」是他当时写下的话（「名称：」是收尾或暂停的总结，「进展·」是中途写的进展，"
-    "「看法·」是看法，「记住：」是想记住的事，「正文：」是回复正文），每条带编号。每类写一段不超过 200 字的日记，用他的第一人称，像人回想昨天那样只记要紧的事和当时的感受，不记流水账：经过以核验为准，挑要紧的写，吃了什么、"
-    "做了什么、去了哪里、和谁打了交道，这些东西写出名字；时间说早上、中午、下午、晚上，不写几点几分；价钱、数量和花了多久只在对他要紧时顺口带一句，比如「有点贵」「等了挺久」，不逐项列出；感受和看法以自述为准，写他喜不喜欢、累不累、"
-    "还想不想再来、打算保持还是改掉，不替他编没写过的感受。只凭昨天的记录写，不补造没发生的事或别人说的话，不拿别的日子作比较，不写编号、订单号或其他内部标识。在 refs 里写所依据的记录编号，至少一个。"
-    "某一类没有记录时写 null。只调用一次 submit_memory_digest。"
+    "「看法·」是看法，「记住：」是想记住的事，「正文：」是回复正文），每条带编号。每类写一段日记，150 到 220 字为宜，连标点在内不能超过 250 字，用他的第一人称，像人回想昨天那样只记要紧的事和当时的感受，不记流水账："
+    "经过以核验为准，挑要紧的写，吃了什么、做了什么、去了哪里、和谁打了交道，这些东西写出名字；时间只说早上、中午、下午、晚上，不写钟点，「八点十一」「九点一刻」这样的说法也不写；价钱、数量和花了多久只在对他要紧时顺口带一句，"
+    "比如「有点贵」「等了挺久」，不逐项列出；感受和看法以自述为准，写他喜不喜欢、累不累、还想不想再来、打算保持还是改掉，不替他编没写过的感受；字数紧时先省经过的细节，感受和看法留着。只凭昨天的记录写，不补造没发生的事或别人说的话，"
+    "不拿别的日子作比较，不写编号、订单号或其他内部标识。在 refs 里写所依据的记录编号，至少一个。某一类没有记录时写 null。只调用一次 submit_memory_digest。"
 )
 #: 本章「提示原文」的月回顾模板（逐字写死）。
 _MONTH_PROMPT = (
     "你替模拟世界里的一个人物把他上个月的日记整理成这个月的回忆。输入按饮食、工作、生活三类给出那个月每一天的日回顾，每段带日期和编号，没整理出来的日子写着「未整理」；另附代码从事件算出的次数统计，让你知道哪些事常有。"
-    "每类写一段不超过 800 字的话，用他的第一人称，像人回想上个月那样写：这类事有什么规律和习惯，常吃什么、常做什么、常去哪里，有什么变化，哪些事值得记住；他对具体的东西、地方、人和做法的看法和打算，喜欢的、不喜欢的、"
+    "每类写一段不超过 800 字（标点也算）的话，用他的第一人称，像人回想上个月那样写：这类事有什么规律和习惯，常吃什么、常做什么、常去哪里，有什么变化，哪些事值得记住；他对具体的东西、地方、人和做法的看法和打算，喜欢的、不喜欢的、"
     "说了要保持或要改掉的，后来有没有变。时间说月初、月中、月底、某个周末这样的说法，次数说几乎每天、常常、偶尔一两次这样的说法，不照抄日期和统计行。只凭输入写，不补造输入里没有的经过、看法或别人说的话，不写编号或其他内部标识。"
     "在 refs 里写所依据的日回顾编号，至少一个。某一类没有输入时写 null。只调用一次 submit_memory_digest。"
 )
 #: 本章「提示原文」的年回顾模板（逐字写死）。
 _YEAR_PROMPT = (
     "你替模拟世界里的一个人物把他上一年的月回顾整理成这一年的回忆。输入按饮食、工作、生活三类给出那一年每个月的月回顾，每段带月份和编号，没整理出来的月份写着「未整理」；另附代码从事件算出的全年次数统计，让你知道哪些事常有。"
-    "每类写一段不超过 2000 字的话，用他的第一人称，像人回想过去一年那样写：这一年这类事固定下来的习惯、口味和做法，哪些看法后来变了、大约什么时候变的，到年底还成立的看法和打算，哪些事值得记住。时间说年初、春天、几月份、"
-    "年底这样的说法，次数说几乎每天、常常、偶尔这样的说法，不照抄统计行。只凭输入写，不补造输入里没有的经过、看法或别人说的话，不写编号或其他内部标识。在 refs 里写所依据的月回顾编号，至少一个。某一类没有输入时写 null。"
-    "只调用一次 submit_memory_digest。"
+    "每类写一段不超过 2000 字（标点也算）的话，用他的第一人称，像人回想过去一年那样写：这一年这类事固定下来的习惯、口味和做法，哪些看法后来变了、大约什么时候变的，到年底还成立的看法和打算，哪些事值得记住。时间说年初、春天、"
+    "几月份、年底这样的说法，次数说几乎每天、常常、偶尔这样的说法，不照抄统计行。只凭输入写，不补造输入里没有的经过、看法或别人说的话，不写编号或其他内部标识。在 refs 里写所依据的月回顾编号，至少一个。"
+    "某一类没有输入时写 null。只调用一次 submit_memory_digest。"
 )
 #: 本章「请求」的参数 Schema（逐值写死）。
 _SCHEMA = json.loads(
@@ -230,17 +230,26 @@ def test_null_rules_follow_category_input():
 
 
 @pytest.mark.parametrize("tier,text,message", [
-    ("day", "我" * 200, None),
-    ("day", "我" * 201, "digests.life.text has 201 characters; the day digest limit is 200"),
+    ("day", "我" * 201, None),
+    ("day", "我" * 250, None),
+    ("day", "我" * 251, "digests.life.text has 251 characters counting punctuation; the day digest limit is 250; "
+                       "shorten it by at least 1"),
+    ("day", "我" * 230 + "，。" * 13, "digests.life.text has 256 characters counting punctuation; the day digest limit "
+                                     "is 250; shorten it by at least 6"),
     ("month", "我" * 800, None),
-    ("month", "我" * 801, "digests.life.text has 801 characters; the month digest limit is 800"),
+    ("month", "我" * 801, "digests.life.text has 801 characters counting punctuation; the month digest limit is 800; "
+                         "shorten it by at least 1"),
     ("year", "我" * 2000, None),
-    ("year", "我" * 2001, "digests.life.text has 2001 characters; the year digest limit is 2000"),
+    ("year", "我" * 2001, "digests.life.text has 2001 characters counting punctuation; the year digest limit is 2000; "
+                          "shorten it by at least 1"),
     ("day", "", "digests.life.text must not be empty"),
     ("day", " \n ", "digests.life.text must not be empty"),
-], ids=["day-200", "day-201", "month-800", "month-801", "year-2000", "year-2001", "empty", "blank"])
+], ids=["day-201", "day-250", "day-251", "day-punctuation", "month-800", "month-801", "year-2000", "year-2001", "empty",
+        "blank"])
 def test_text_guards(tier, text, message):
-    """正文非空、正文 len 不超过这一级的上限：恰在上限时通过，多一字时报正文长度；空串与全空白只报正文非空。"""
+    """正文非空、正文 len（标点也算）不超过这一级的上限（日 250、月 800、年 2000）：日回顾 201 字与恰在上限时通过，多一字时
+    报正文长度，问题文字写明连标点的字数、上限和至少要删去的字数；230 个汉字加 26 个标点共 256 字也报；空串与全空白只报
+    正文非空。"""
     number = {"day": "n1", "month": "d1", "year": "m1"}[tier]
     row = _row(number, 时刻="20:00", 核验=["开始睡觉"]) if tier == "day" else _row(number, 日期="2026-01-05", 回顾="睡觉。")
     assert _problems(_inputs(life=[row], tier=tier), life=(text, [number])) == message
@@ -300,9 +309,10 @@ def test_problems_are_joined_in_category_and_guard_order():
     inputs = _inputs(food=[_row("n1", 核验=["送达柠檬茶"])], work=[_row("n2", 核验=["到公司"])],
                      life=[_row("n3", 核验=["开始睡觉"])])
     food = "早上8:09买了牛肉面，35元。"
-    food += "我" * (201 - len(food))
+    food += "我" * (251 - len(food))
     assert _problems(inputs, food=(food, ["n1", "n2"]), work=(" \n ", [])) == "; ".join((
-        "digests.food.text has 201 characters; the day digest limit is 200",
+        "digests.food.text has 251 characters counting punctuation; the day digest limit is 250; "
+        "shorten it by at least 1",
         "digests.food.refs: n2 is not a food record number",
         "digests.work.text must not be empty",
         "digests.work.refs must cite at least one record number",

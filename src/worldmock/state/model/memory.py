@@ -30,8 +30,8 @@ MEMORY_DIGEST_KIND = "memory_digest_generated"
 MEMORY_DIGEST_TIERS = ("day", "month", "year")
 #: 回顾正文与事件里的类别键，与 MEMORY_CATEGORIES 逐一对应。
 MEMORY_DIGEST_KEYS = ("food", "work", "life")
-#: 各级每类正文的字数上限（len）。
-MEMORY_DIGEST_TEXT_LIMITS = MappingProxyType({"day": 200, "month": 800, "year": 2000})
+#: 各级每类正文的字数上限（len，标点也算）。
+MEMORY_DIGEST_TEXT_LIMITS = MappingProxyType({"day": 250, "month": 800, "year": 2000})
 
 #: 实际主观记忆的类型闭集，写入和评估共用。
 SUBJECTIVE_TYPES = frozenset({"commitment", "relationship", "preference", "goal", "conflict",

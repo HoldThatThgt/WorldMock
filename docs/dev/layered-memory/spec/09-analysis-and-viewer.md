@@ -1,6 +1,6 @@
 # 09 分析工具、运行比对与查看器
 
-> 属于[分层记忆开发规格](../SPEC-layered-memory.md)。代码基线 f67c25e5。第四批裁定（2026-10-30）修订。
+> 属于[分层记忆开发规格](../SPEC-layered-memory.md)。代码基线 f67c25e5。第四批裁定（2026-10-30）修订。第五批裁定（2026-10-31）修订。
 
 ## 目标与依据
 
@@ -15,7 +15,7 @@
 | 第三章「代码」表（:766） | `compare_runs.py` 只加两条事件身份路径；更新查看器说明 | `scripts/compare_runs.py`；`tools/run-viewer-context.js` 与 `tools/run-viewer-context-view.js` |
 | 第三章「测试与门禁」（:814、:843、:849） | 查看器测试跟着记忆层形状改；用真实宿主重录 `tests/fixtures/viewer-context.json`；`tools/analysis` 下的新脚本同样受风格门禁检查 | 本章「测试」 |
 
-相关裁定：裁定 6（目录格式 6 与 `memory_category`，类别表的输入）、9（月、年回顾的验证方式，跨月试点）、13（日回顾引用率只报告）、17 与 25（看法移出提示，M12 和看法对象覆盖率只报告）、23（「未整理」的退路，M3、M10 分开计数）、24（兜底，M6 计触发次数）、29（看法移出放在 P2，M12 的措辞回声旁证），以及第四批裁定（2026-10-30：回顾写成日记，运行时只查格式与字数，准确性由试点测量；M10 按第 04 章剩下的守卫分类，统计行照抄、M11 ① 的覆盖与 ② 的做饭错配只报告）。
+相关裁定：裁定 6（目录格式 6 与 `memory_category`，类别表的输入）、9（月、年回顾的验证方式，跨月试点）、13（日回顾引用率只报告）、17 与 25（看法移出提示，M12 和看法对象覆盖率只报告）、23（「未整理」的退路，M3、M10 分开计数）、24（兜底，M6 计触发次数）、29（看法移出放在 P2，M12 的措辞回声旁证），以及第四批裁定（2026-10-30：回顾写成日记，运行时只查格式与字数，准确性由试点测量；M10 按第 04 章剩下的守卫分类，统计行照抄、M11 ① 的覆盖与 ② 的做饭错配只报告），以及第五批裁定（2026-10-31：日回顾每类上限 250 字，正文长度的问题文字改写；M10 新旧两种写法都计入 `text_length`，查看器的回顾说明随之改成 250 字）。
 
 按编排方的全局决定，P0–P3 一次交付，提案的分期只是实现次序：本章的工具只读最终形态的运行；P1、P2 两次试点合并成一组最终形态的试点；P4 不在本章。试点要调用真实模型，本次交付不执行，规程与判定写在「试点规程」，由 `memory_pilot.py` 计算。
 
@@ -129,8 +129,8 @@
 - `guard_discards`：读回顾的 `model_response` 中 `data.phase == "response"` 且 `data.error` 非空的（`phase == "failure"` 的传输失败证据不计）。计数单位是「一次响应里的一类」：同一响应、同一类别键被同一守卫报了几条问题都只计一次。分类按第 04 章「输出校验」：
   1. `data.error` 等于 `response must contain exactly one choice`、`response must contain exactly one submit_memory_digest tool call`、`the only tool call must be submit_memory_digest`、`submit_memory_digest arguments must be a JSON string` 之一时计入 `response`；等于 `memory digest output was truncated at max_tokens` 时计入 `truncated`；这两项按响应计一次。
   2. 否则 `data.error` 不以 `digests.` 开头时，是 `schema_feedback(error, "arguments")` 给出的参数结构错误，计入 `schema`，按响应计一次。
-  3. 否则用 `re.split(r"; (?=digests\.)", error)` 切成逐条问题（守卫文字里的「; the {tier} digest limit」后面不接 `digests.`，不会被切开）。每条问题按第 4 项的次序逐个模板 `re.fullmatch`，第一个匹配的模板就是它的守卫；类别键取 `re.match(r"digests\.(food|work|life)", 问题)` 的组。模板由第 04 章的问题文字转成：`{key}` 换成 `(food|work|life)`，`{tier}` 换成 `(day|month|year)`，其余 `{…}` 占位换成 `(.+)`，其余字符经 `re.escape` 按字面。
-  4. 模板次序与守卫名：`text_without_input`（`digests.{key} must be null: the input has no {key} records`）、`null_with_input`（`digests.{key} must not be null: the input has {key} records`），然后是第 04 章守卫表的四行，依次 `text_empty`、`text_length`、`refs_empty`、`refs_category`。第四批裁定删去的守卫（含中文、身份串、名称、饮食核验名称、饮食覆盖、做饭那一句、数字、数字同条、次数照抄）没有模板，它们的文字按第 5 项处理。
+  3. 否则用 `re.split(r"; (?=digests\.)", error)` 切成逐条问题（守卫文字里的「; the {tier} digest limit」「; shorten it」后面不接 `digests.`，不会被切开）。每条问题按第 4 项的次序逐个模板 `re.fullmatch`，第一个匹配的模板就是它的守卫；类别键取 `re.match(r"digests\.(food|work|life)", 问题)` 的组。模板由第 04 章的问题文字转成：`{key}` 换成 `(food|work|life)`，`{tier}` 换成 `(day|month|year)`，其余 `{…}` 占位换成 `(.+)`，其余字符经 `re.escape` 按字面。
+  4. 模板次序与守卫名：`text_without_input`（`digests.{key} must be null: the input has no {key} records`）、`null_with_input`（`digests.{key} must not be null: the input has {key} records`），然后是第 04 章守卫表的四行，依次 `text_empty`、`text_length`、`refs_empty`、`refs_category`；这六个之后再试一个旧写法：第五批裁定之前记下的正文长度问题 `digests.{key}.text has {len(text)} characters; the {tier} digest limit is {limit}` 也计入 `text_length`（`_EARLIER_GUARD_TEMPLATES`，此前两次试点的导出里就是它），不新增守卫名。第四批裁定删去的守卫（含中文、身份串、名称、饮食核验名称、饮食覆盖、做饭那一句、数字、数字同条、次数照抄）没有模板，它们的文字按第 5 项处理。
   5. 没有任何模板匹配的问题计入 `unrecognized`，按问题条数计，并写英文错误日志 `Memory digest error {call_id} matches no guard`。
   6. 输出是守卫名到次数，十个键按 `response`、`truncated`、`schema`、上面第 4 项的六个、`unrecognized` 的次序全部列出，没有的为 0。
 - `cited`：非空的日回顾格中，被引用的比例。被引用指：某次决策的观察「近三天」里有这一格（同类、同日期），或它的 `search_memory` 成功结果的检索结果项里有这一格，并且这段回顾正文有一个 8 字窗口出现在该决策的 `T_d` 里。
@@ -239,7 +239,7 @@
 | `tools` | `fill`：「六个世界请求工具（两个开始工具、三个活动控制工具与计划修订）、一个回看工具（recall_task_summary）与一个记忆检索工具（search_memory），共八个，严格参数结构，整次运行字节相同。」`steps` 的「最后回合」改为「只剩最后一个回合时与输出截断后的那次重试时去掉全部只读工具（回看任务与 search_memory），只留世界请求工具。」，其后插入 `['检索上限', '一次决策至多查三次记忆，第四次返回 MEMORY_SEARCH_LIMIT。']` |
 | `message` | `fill`：「同一决策内的 assistant 调用、search_memory 与回看任务的结果和协议纠错消息按实际发送顺序保留。」第一步换成 `['查询结果', '查询结果作为一条紧凑 JSON 工具消息追加；search_memory 查到的往日是回顾段落，「当时查到」的价格和库存以当时为准。']` |
 | `continuation` | `source`：`'src/worldmock/simulation_engine/decisions/continuation.py · same_second_chain；src/worldmock/agents/protocol/life_continuation.py · continuation_messages'`。`fill` 末尾的「。」前接「；changes.memory.added 是上一决策的今天条目」。`steps` 末尾加 `['记忆追加', '链里记忆层只在「今天」末尾追加；兜底改写了早先的条目时这一次改用新快照。']` |
-| `reflection` | 删除，换成键 `digest`：`label` 「日、月、年回顾」；`source` `'src/worldmock/simulation_engine/evidence/memory_digest.py；src/worldmock/runtime/lifecycle/runner.py · settle_pending_memory_digests'`；`fill` 「零点由模型把前一天每类的今天条目写成一段日记式的日回顾（要紧的事和当时的感受，时间只说早上、中午、下午、晚上），每类至多 200 字；每月第一个零点把上个月的日回顾写成月回顾，每类至多 800 字；每年第一个零点把上一年的月回顾写成年回顾，每类至多 2000 字。」；`steps` 依次 `['顺序', '零点推进之后依次生成日回顾、月回顾、年回顾，然后才做零点计划；运行到终点时不生成。']`、`['调用', '每一级每次一个调用，关闭思考，只给严格工具 submit_memory_digest，三类分开写，refs 写所依据的编号。']`、`['校验重试', '输出被截断、参数不合格式，或正文为空、超过字数上限、依据为空或不属于这一类时附英文错误重试，至多 reflection_validation_max_retries 次；用尽时没通过的类记为 null 并写进 fallback，运行不失败。']`、`['记录', '回顾记成 memory_digest_generated 世界事件；它是整理出来的回忆，环境从不据此结算。']` |
+| `reflection` | 删除，换成键 `digest`：`label` 「日、月、年回顾」；`source` `'src/worldmock/simulation_engine/evidence/memory_digest.py；src/worldmock/runtime/lifecycle/runner.py · settle_pending_memory_digests'`；`fill` 「零点由模型把前一天每类的今天条目写成一段日记式的日回顾（要紧的事和当时的感受，时间只说早上、中午、下午、晚上），每类至多 250 字；每月第一个零点把上个月的日回顾写成月回顾，每类至多 800 字；每年第一个零点把上一年的月回顾写成年回顾，每类至多 2000 字。」；`steps` 依次 `['顺序', '零点推进之后依次生成日回顾、月回顾、年回顾，然后才做零点计划；运行到终点时不生成。']`、`['调用', '每一级每次一个调用，关闭思考，只给严格工具 submit_memory_digest，三类分开写，refs 写所依据的编号。']`、`['校验重试', '输出被截断、参数不合格式，或正文为空、超过字数上限、依据为空或不属于这一类时附英文错误重试，至多 reflection_validation_max_retries 次；用尽时没通过的类记为 null 并写进 fallback，运行不失败。']`、`['记录', '回顾记成 memory_digest_generated 世界事件；它是整理出来的回忆，环境从不据此结算。']` |
 | `memory_view` | 第一步改为 `['每步重写', '根据当前身份与事实窗口重新生成视图；主观归纳不再更新。']` |
 | `capacity` | `source` 改为 `'src/worldmock/agents/prompt/prompt_capacity.py · fit_request'`。「再浓缩进度层」改为「把最旧一段连续的未受保护记录折叠为 condensed，重复到阈值以下。」；「保留当前」改为「受保护记录，以及人设层、记忆层、待办层、工具层与环境层都不被压缩。」 |
 
@@ -267,7 +267,7 @@
 3. **计算。** 在 WorldMock 仓库根执行 `uv run python -m tools.analysis.memory_pilot --export <执行目录>/export --output .work/layered-memory/pilot/<试点>.json`。
 4. **判定。** 每份报告的 `checks` 全部 `pass` 为 true，或 `pass` 为 null（该项在这次试点里没有分母）；`lm-variety-cross-month` 的 `month_digests` 一项（期望值为 1）即提案 P3 的「跨月试点里恰有一条月回顾事件」。任何一项为 false 即判定不通过（提案 M9「有一项回退就不上线」）。M1、M2 的对不上次数、M4、M5 的次数、M9 的 `fresh_followups`、M10 的各守卫丢弃次数（提案 P3「各道校验的丢弃次数要报告」）、统计行照抄次数 `statistics_copy_violations`、引用率、重复率、残留与看法对象覆盖率、M11 ① 的 `coverage`、`food_fallback` 与 `coverage_plus_fallback`、M11 ② 的 `cooking_mismatches`、M11 ③④、M12 及其旁证只报告。统计行照抄、M11 ① 与 M11 ② 原是检查项，第四批裁定之后只报告：回顾的提示不再要求照抄统计行，也不要求写出当天收到的每样食品，也不再要求做饭那一句只写当天做饭用的那一份；② 按「做饭」所在的整句计数，会把写对的日记（先写当天做饭用的那份，再用「；」接上给第二天买的那份）也算成错配。回顾写得准不准由 M11 ①–④ 报告，在试点报告里由模型核对抽查来判。头三天与第 4 天以后的比例分开写；`lm-variety-10day` 只用 `days_4_plus` 下结论。与 V、B 比较时注明两者环境版本不同（裁定 6 带来的 `environment_version` 升号）。
 5. **报告。** 写 `docs/dev/layered-memory/PILOT-<执行日期>.md`；这个文件已存在时，同一执行日期的下一份写 `PILOT-<执行日期>-2.md`，再有依次为 `-3`、`-4`、…，已有的报告不改写。报告写明：各试点的检查结果、只报告各项与「行为」一第 2 条所列 V、B 基线的并列（M1 写「无 V、B 基线」；M2 的对不上次数写明「提案 2 次，按本口径 10-11 那次不计入」）、`digest_review` 对照表；抽查写明抽查人、抽查的「类·日」数和判定标准，由模型核对的写「模型核对」，不写人工抽查。报告 JSON 留在 `.work/`，不入库。
-6. **费用估计。** 共 35 个模拟日，按提案 P2 的全口径每模拟日约 $0.207（已含零点计划 $0.0044 与回顾 $0.0048，研究目录 out3/reports/econ.md「All-in per day」）计，合计约 $7.2。
+6. **费用估计。** 共 35 个模拟日，按提案 P2 的全口径每模拟日约 $0.207（已含零点计划 $0.0044 与回顾 $0.0048，研究目录 out3/reports/econ.md「All-in per day」；日回顾每类 250 字时回顾约 $0.0049，合计不变）计，合计约 $7.2。
 
 ## 接口与文件
 
@@ -413,7 +413,7 @@ def main(argv: list[str] | None = None) -> int: ...
 | `test_m9_chain_must_append_the_previous_entry_and_carry_no_persona_delta` | M9 同秒链 |
 | `test_m9_lists_a_restart_of_a_just_ended_activity` | M9 重新开始与六种目标 |
 | `test_m10_counts_calls_retries_and_day_fallback_share` | M10 `calls_by_day`、`periods`、`expected` 的三键（没有月、年回顾时为 0）、`retries`；`fallback` 比例只数日回顾，月回顾落到 fallback 的格只进 `cells`，`cells` 的次序 |
-| `test_m10_guard_discards_follow_the_digest_problem_texts` | M10 `guard_discards`：两条空值检查与守卫表四行的每条第 04 章问题文字（含 `text_length` 的「; the day digest limit」）计入各自的守卫；同一响应同一类的两条依据归属问题计一次；响应级四句、截断、参数结构错误、`phase == "failure"` 不计；不认识的问题计入 `unrecognized` 并写错误日志，第四批裁定删去的守卫文字（如 `digests.food: the name 拿铁咖啡 does not appear in the food input`、`digests.food: 8:30 does not appear in the food input`）也计入 `unrecognized`；十个键全部列出 |
+| `test_m10_guard_discards_follow_the_digest_problem_texts` | M10 `guard_discards`：两条空值检查与守卫表四行的每条第 04 章问题文字（含 `text_length` 的「; the day digest limit」「; shorten it」）计入各自的守卫，第五批裁定之前的正文长度写法（`digests.food.text has 230 characters; the day digest limit is 200`）也计入 `text_length`、不计入 `unrecognized`；同一响应同一类的两条依据归属问题计一次；响应级四句、截断、参数结构错误、`phase == "failure"` 不计；不认识的问题计入 `unrecognized` 并写错误日志，第四批裁定删去的守卫文字（如 `digests.food: the name 拿铁咖啡 does not appear in the food input`、`digests.food: 8:30 does not appear in the food input`）也计入 `unrecognized`；十个键全部列出 |
 | `test_m10_digest_is_cited_by_an_eight_character_echo_while_visible` | M10 引用 |
 | `test_m10_view_object_coverage_reads_the_digest_input` | M10 看法对象覆盖率 |
 | `test_m10_counts_number_mentions_not_copied_from_statistics` | M10 统计行照抄（只报告） |
@@ -458,7 +458,7 @@ def main(argv: list[str] | None = None) -> int: ...
 
 **`tests/system/viewer/run_viewer.test.cjs`：**
 - `context reads current seven-layer actions and complete other requests`：用户层键序改为最终层序；`self_note 未经核验` 改为 `「自述」与「回顾」未经核验`。
-- `context navigation, stage filter and all rule paths are available through the actual view`：「tools」一句改为新的「最后回合」文字，`progress` 的事务句改为新的「事务记录」文字；另逐条查看 `memory` 的「兜底」、`progress` 的「已发布界」、`digest` 的「校验重试」，三步的说明文字逐字等于「行为」八的表（`digest` 一步即「输出被截断、参数不合格式，或正文为空、超过字数上限、依据为空或不属于这一类时……」整句）；`ViewerContext.rules.digest.fill` 逐字等于「行为」八的表里 `digest` 的 `fill`（日记式的日回顾，每类至多 200、800、2000 字）。
+- `context navigation, stage filter and all rule paths are available through the actual view`：「tools」一句改为新的「最后回合」文字，`progress` 的事务句改为新的「事务记录」文字；另逐条查看 `memory` 的「兜底」、`progress` 的「已发布界」、`digest` 的「校验重试」，三步的说明文字逐字等于「行为」八的表（`digest` 一步即「输出被截断、参数不合格式，或正文为空、超过字数上限、依据为空或不属于这一类时……」整句）；`ViewerContext.rules.digest.fill` 逐字等于「行为」八的表里 `digest` 的 `fill`（日记式的日回顾，每类至多 250、800、2000 字）。
 - `context drills into current tools and real-shaped progress self notes` 改名为 `context drills into current tools and progress records`：进度层记录不带 `self_note`，工具数为 8，`填入` 文字为新的 `tools.fill`。
 - `context drills into an inline current tool layer …`：`inlineContextRequest` 按最终层序排层，`填入` 断言改为新的 `tools.fill`。
 
@@ -502,7 +502,7 @@ def main(argv: list[str] | None = None) -> int: ...
 | 「拒绝不超过基线 6 次的 2 倍」用于长短不同的试点 | 上限按运行日数折算：2×6×日数/5 | 基线 6 次出自 5 天的 V |
 | M9「容量压缩」与「刚了结的活动被重复开始」的认法 | 前者认进度层里的 `condensed` 记录；后者认上一次与本次观察之间结束、本次又受理同一目标的活动，按事件身份认目标，不解析活动名，并作为检查项 `no_restarted_activities`（`==` 0） | 进度层记录不再带 `self_note`（第 06 章），浓缩只剩折叠一步；目标身份来自受理快照，可复现；提案 P1 验收「尤其是刚了结的活动没有被重复开始」与 M9「有一项回退就不上线」 |
 | 容量处理第 0 步「提前结束本秒续接」 | 不计入 `capacity_compressions`；另报 `chain.fresh_followups`（同秒决策数减续接数），只报告 | 第 0 步不留记录，改用的新快照在事件里与非前缀、链中缺思考两种断链一样；prompt_capacity.py 把它与「浓缩进度层」分开写 |
-| M10「各道校验各自的丢弃次数」要按守卫分 | 按第 04 章「输出校验」分类：响应级四句与截断按全文相等，参数结构错误按「不以 `digests.` 开头」，其余在 `; ` 后接 `digests.` 处切成逐条问题，按两条空值检查加守卫表四行的模板逐条 `fullmatch`，第一个匹配的为准；计数单位是「一次响应里的一类」 | 问题文字都以 `digests.{key}` 开头，第一个「:」之前是类别键而不是守卫；一条错误里有多道守卫的问题；「丢弃」的是一次尝试里的一类段落，同一守卫报几个错编号仍是一次丢弃；第四批裁定后守卫表只剩四行 |
+| M10「各道校验各自的丢弃次数」要按守卫分 | 按第 04 章「输出校验」分类：响应级四句与截断按全文相等，参数结构错误按「不以 `digests.` 开头」，其余在 `; ` 后接 `digests.` 处切成逐条问题，按两条空值检查加守卫表四行的模板逐条 `fullmatch`，第一个匹配的为准，最后再试正文长度的旧写法；计数单位是「一次响应里的一类」 | 问题文字都以 `digests.{key}` 开头，第一个「:」之前是类别键而不是守卫；一条错误里有多道守卫的问题；「丢弃」的是一次尝试里的一类段落，同一守卫报几个错编号仍是一次丢弃；第四批裁定后守卫表只剩四行；第五批裁定改了正文长度的问题文字，旧写法留在此前的试点导出里，分析它们时要照旧计入 `text_length` |
 | M10 的 fallback 比例 | 只数日回顾的「类·日」；月、年回顾的 fallback 格只列在 `cells` | 提案 P1 验收「落到 fallback 的「类·日」不超过 10%」 |
 | M11 ① 的分母「有饮食核验的类·日」 | `F(D)` 非空的回顾日，并上日回顾事件表明饮食类有记录（非空或在 fallback 里）的回顾日 | 独立重算只能从事件认出收货与做饭；只有查询、未送达订单或公司午饭的日子由回顾事件表明有饮食记录；`F(D)` 非空的日子不依赖回顾事件，饮食格被错记为 null 时照样计为未覆盖 |
 | M11 ① 与饮食 fallback 之和 | 写成比例，分子相加、分母共用 | 两个各自舍入到四位的值相加，在分母 160 时就会得到 1.0001，报告的和偏离分子分母算出的值 |

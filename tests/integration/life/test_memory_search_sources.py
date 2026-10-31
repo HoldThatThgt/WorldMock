@@ -85,7 +85,7 @@ def _unsorted_life_day(engine_factory):
     _until_midnight(engine)
     [inputs] = memory_digest.pending_inputs(engine.context, engine.observations, 1, "day")
     arguments = StubMemoryDigestClient().answer(inputs.payload)
-    arguments["life"] = {**arguments["life"], "text": "睡了一觉。" + "我" * 200}
+    arguments["life"] = {**arguments["life"], "text": "睡了一觉。" + "我" * 250}
     client = StubMemoryDigestClient(responses=[memory_digest_response(arguments)] * 4)
     settle_midnight_tasks(engine, digest_client=client)
     assert advance_until_ready(engine)

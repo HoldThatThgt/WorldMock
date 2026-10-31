@@ -71,7 +71,7 @@ callback_effect、callback_reminder、time_trigger、weather 使用闭合字段�
 | --- | --- |
 | `data` 的键集恰为五个；来源 `model`、可见性 `system`、没有资金变化、属于一个人物、起因恰一项 | `Memory digest event fields or source are invalid` |
 | `tier` 是三级之一；`period` 是字符串且与 `tier` 对应：日期往返为同一个 ISO 日期，月份为 ASCII 数字的 `YYYY-MM`（01–12），年份为四位 ASCII 数字 | `Memory digest event tier or period is invalid` |
-| `digests` 恰有三个键；每项为 null 或恰有三个键，`text` 去掉首尾空白后非空、不超过该级上限（日 200、月 800、年 2000 字），两种身份列表非空、元素是非空白字符串且不重复，`cited_event_ids` 是 `source_event_ids` 的子集；至少一类非 null 或 `fallback` 非空 | `Memory digest event digests are invalid` |
+| `digests` 恰有三个键；每项为 null 或恰有三个键，`text` 去掉首尾空白后非空、不超过该级上限（日 250、月 800、年 2000 字，按 `len` 计，标点也算），两种身份列表非空、元素是非空白字符串且不重复，`cited_event_ids` 是 `source_event_ids` 的子集；至少一类非 null 或 `fallback` 非空 | `Memory digest event digests are invalid` |
 | `fallback` 是列表，元素属于三个键、不重复、按 `food`、`work`、`life` 的相对次序，其中每一类在 `digests` 里为 null | `Memory digest event fallback is invalid` |
 
 生成规则见[人物](06-agent.md#agent-日月年回顾)「日、月、年回顾」。
