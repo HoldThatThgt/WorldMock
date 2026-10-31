@@ -1,6 +1,6 @@
 # 09 分析工具、运行比对与查看器
 
-> 属于[分层记忆开发规格](../SPEC-layered-memory.md)。代码基线 f67c25e5。
+> 属于[分层记忆开发规格](../SPEC-layered-memory.md)。代码基线 f67c25e5。第四批裁定（2026-10-30）修订。
 
 ## 目标与依据
 
@@ -11,11 +11,11 @@
 | 第四章「P0　测量」（:871-875） | 只读分析脚本，计算 M1–M12，复核记忆层 token/字比 0.638 | `tools/analysis/memory_pilot.py` |
 | 第四章「试点指标」（:945-962）及 P1、P2、P3 的确定性验收与试点各条（:890-906、:917-924、:932-936） | M1–M12 的定义、阈值和试点规程 | `memory_pilot.py` 的指标与检查项；本章「试点规程」 |
 | 第二章「类别」（:369） | 为每个包列出每条内容行和 app 行推导出的类别及理由，包 0001 的推导表由测试钉住 | `tools/analysis/memory_categories.py`（类别与规则取自第 03 章的 `row_categories`，本章只加名称、字段与理由）；包 0001 推导表的钉住由第 03 章的数据集测试负责，本章的数据集测试核对工具输出与 `row_categories` 一致 |
-| 第二章「压缩」（:462、:476） | M10 报告各道守卫的丢弃次数，M11 独立复核；行为工具对回顾正文报告相邻日重复率和示例身份残留 | `memory_pilot.py` 的 M10、M11；`tools/analysis/behavior/metrics.py` 的两项回顾报告 |
+| 第二章「压缩」（:462、:476） | M10 报告各道校验的丢弃次数，M11 独立测量饮食回顾的覆盖和错配；行为工具对回顾正文报告相邻日重复率和示例身份残留 | `memory_pilot.py` 的 M10、M11；`tools/analysis/behavior/metrics.py` 的两项回顾报告 |
 | 第三章「代码」表（:766） | `compare_runs.py` 只加两条事件身份路径；更新查看器说明 | `scripts/compare_runs.py`；`tools/run-viewer-context.js` 与 `tools/run-viewer-context-view.js` |
 | 第三章「测试与门禁」（:814、:843、:849） | 查看器测试跟着记忆层形状改；用真实宿主重录 `tests/fixtures/viewer-context.json`；`tools/analysis` 下的新脚本同样受风格门禁检查 | 本章「测试」 |
 
-相关裁定：裁定 6（目录格式 6 与 `memory_category`，类别表的输入）、9（月、年回顾的验证方式，跨月试点）、13（日回顾引用率只报告）、17 与 25（看法移出提示，M12 和看法对象覆盖率只报告）、23（「未整理」的退路，M3、M10 分开计数）、24（兜底，M6 计触发次数）、29（看法移出放在 P2，M12 的措辞回声旁证）。
+相关裁定：裁定 6（目录格式 6 与 `memory_category`，类别表的输入）、9（月、年回顾的验证方式，跨月试点）、13（日回顾引用率只报告）、17 与 25（看法移出提示，M12 和看法对象覆盖率只报告）、23（「未整理」的退路，M3、M10 分开计数）、24（兜底，M6 计触发次数）、29（看法移出放在 P2，M12 的措辞回声旁证），以及第四批裁定（2026-10-30：回顾写成日记，运行时只查格式与字数，准确性由试点测量；M10 按第 04 章剩下的守卫分类，统计行照抄、M11 ① 的覆盖与 ② 的做饭错配只报告）。
 
 按编排方的全局决定，P0–P3 一次交付，提案的分期只是实现次序：本章的工具只读最终形态的运行；P1、P2 两次试点合并成一组最终形态的试点；P4 不在本章。试点要调用真实模型，本次交付不执行，规程与判定写在「试点规程」，由 `memory_pilot.py` 计算。
 
@@ -129,10 +129,10 @@
 - `guard_discards`：读回顾的 `model_response` 中 `data.phase == "response"` 且 `data.error` 非空的（`phase == "failure"` 的传输失败证据不计）。计数单位是「一次响应里的一类」：同一响应、同一类别键被同一守卫报了几条问题都只计一次。分类按第 04 章「输出校验」：
   1. `data.error` 等于 `response must contain exactly one choice`、`response must contain exactly one submit_memory_digest tool call`、`the only tool call must be submit_memory_digest`、`submit_memory_digest arguments must be a JSON string` 之一时计入 `response`；等于 `memory digest output was truncated at max_tokens` 时计入 `truncated`；这两项按响应计一次。
   2. 否则 `data.error` 不以 `digests.` 开头时，是 `schema_feedback(error, "arguments")` 给出的参数结构错误，计入 `schema`，按响应计一次。
-  3. 否则用 `re.split(r"; (?=digests\.)", error)` 切成逐条问题（守卫文字里的「; the {tier} digest limit」「; missing:」后面不接 `digests.`，不会被切开）。每条问题按第 4 项的次序逐个模板 `re.fullmatch`，第一个匹配的模板就是它的守卫；类别键取 `re.match(r"digests\.(food|work|life)", 问题)` 的组。模板由第 04 章的问题文字转成：`{key}` 换成 `(food|work|life)`，`{tier}` 换成 `(day|month|year)`，其余 `{…}` 占位换成 `(.+)`，其余字符经 `re.escape` 按字面。
-  4. 模板次序与守卫名：`text_without_input`（`digests.{key} must be null: the input has no {key} records`）、`null_with_input`（`digests.{key} must not be null: the input has {key} records`），然后是第 04 章守卫表的十三行，依次 `text_empty`、`text_length`、`chinese`、`hex_identity`、`refs_empty`、`refs_category`、`names`、`food_verified_names`、`food_coverage`、`cooking_sentence`、`numbers`、`numbers_same_record`、`count_lines`。`names` 排在 `numbers` 之前，所以「the name …」的问题不会被 `numbers` 的 `(.+)` 收走。
+  3. 否则用 `re.split(r"; (?=digests\.)", error)` 切成逐条问题（守卫文字里的「; the {tier} digest limit」后面不接 `digests.`，不会被切开）。每条问题按第 4 项的次序逐个模板 `re.fullmatch`，第一个匹配的模板就是它的守卫；类别键取 `re.match(r"digests\.(food|work|life)", 问题)` 的组。模板由第 04 章的问题文字转成：`{key}` 换成 `(food|work|life)`，`{tier}` 换成 `(day|month|year)`，其余 `{…}` 占位换成 `(.+)`，其余字符经 `re.escape` 按字面。
+  4. 模板次序与守卫名：`text_without_input`（`digests.{key} must be null: the input has no {key} records`）、`null_with_input`（`digests.{key} must not be null: the input has {key} records`），然后是第 04 章守卫表的四行，依次 `text_empty`、`text_length`、`refs_empty`、`refs_category`。第四批裁定删去的守卫（含中文、身份串、名称、饮食核验名称、饮食覆盖、做饭那一句、数字、数字同条、次数照抄）没有模板，它们的文字按第 5 项处理。
   5. 没有任何模板匹配的问题计入 `unrecognized`，按问题条数计，并写英文错误日志 `Memory digest error {call_id} matches no guard`。
-  6. 输出是守卫名到次数，十九个键按 `response`、`truncated`、`schema`、上面第 4 项的十五个、`unrecognized` 的次序全部列出，没有的为 0。
+  6. 输出是守卫名到次数，十个键按 `response`、`truncated`、`schema`、上面第 4 项的六个、`unrecognized` 的次序全部列出，没有的为 0。
 - `cited`：非空的日回顾格中，被引用的比例。被引用指：某次决策的观察「近三天」里有这一格（同类、同日期），或它的 `search_memory` 成功结果的检索结果项里有这一格，并且这段回顾正文有一个 8 字窗口出现在该决策的 `T_d` 里。
 - `view_coverage`：读每个日回顾 `attempt:1` 请求里第 04 章规定的、按类别分开的输入条目，各类「自述」里以「看法·」开头的项，「看法·」与第一个「：」之间是对象；每一「类·日」的对象去重，分母是对象数之和，分子是出现在那一格回顾正文里的对象数之和，正文为 null 的格对象都计为未写到。
 - `statistics_copy_violations`：月、年回顾每类正文里每一处匹配 `\d+ ?次` 的文字，若不是该类输入统计行（第 04 章规定的形状）中某一行在正文里出现时的结尾，记一次。
@@ -195,9 +195,6 @@
 | `one_day_digest_per_day` | `M10.day_digest_problems` | `==` | 0 | P1 验收 |
 | `retired_calls` | `M10.retired_calls` | `==` | 0 | P1 验收 |
 | `month_digests` | `M10.periods.month` | `==` | `M10.expected.month` | P3 验收 |
-| `statistics_copied` | `M10.statistics_copy_violations` | `==` | 0 | P3 验收 |
-| `food_coverage_partition` | `M11.coverage_plus_fallback.value` | `==` | 1.0 | M11 ① |
-| `cooking_mismatch` | `M11.cooking_mismatches` | `==` | 0 | M11 ② |
 
 `days_outside_band`、`restarted` 两项的 `value` 写列表长度；`rejections`、`month_digests` 两项的 `threshold` 写报告里对应的数。比较浮点数时按报告里已经舍入的值比较。
 
@@ -242,7 +239,7 @@
 | `tools` | `fill`：「六个世界请求工具（两个开始工具、三个活动控制工具与计划修订）、一个回看工具（recall_task_summary）与一个记忆检索工具（search_memory），共八个，严格参数结构，整次运行字节相同。」`steps` 的「最后回合」改为「只剩最后一个回合时与输出截断后的那次重试时去掉全部只读工具（回看任务与 search_memory），只留世界请求工具。」，其后插入 `['检索上限', '一次决策至多查三次记忆，第四次返回 MEMORY_SEARCH_LIMIT。']` |
 | `message` | `fill`：「同一决策内的 assistant 调用、search_memory 与回看任务的结果和协议纠错消息按实际发送顺序保留。」第一步换成 `['查询结果', '查询结果作为一条紧凑 JSON 工具消息追加；search_memory 查到的往日是回顾段落，「当时查到」的价格和库存以当时为准。']` |
 | `continuation` | `source`：`'src/worldmock/simulation_engine/decisions/continuation.py · same_second_chain；src/worldmock/agents/protocol/life_continuation.py · continuation_messages'`。`fill` 末尾的「。」前接「；changes.memory.added 是上一决策的今天条目」。`steps` 末尾加 `['记忆追加', '链里记忆层只在「今天」末尾追加；兜底改写了早先的条目时这一次改用新快照。']` |
-| `reflection` | 删除，换成键 `digest`：`label` 「日、月、年回顾」；`source` `'src/worldmock/simulation_engine/evidence/memory_digest.py；src/worldmock/runtime/lifecycle/runner.py · settle_pending_memory_digests'`；`fill` 「零点由模型把前一天每类的今天条目整理成日回顾，每类至多 200 字；每月第一个零点把上个月的日回顾整理成月回顾，每类至多 800 字；每年第一个零点把上一年的月回顾整理成年回顾，每类至多 2000 字。」；`steps` 依次 `['顺序', '零点推进之后依次生成日回顾、月回顾、年回顾，然后才做零点计划；运行到终点时不生成。']`、`['调用', '每一级每次一个调用，关闭思考，只给严格工具 submit_memory_digest，三类分开写，refs 写所依据的编号。']`、`['校验重试', '输出被截断、参数不合格式，或正文、依据、名称、饮食核验名称、饮食覆盖、做饭那一句、数字与次数照抄各守卫不通过时附英文错误重试，至多 reflection_validation_max_retries 次；用尽时没通过的类记为 null 并写进 fallback，运行不失败。']`、`['记录', '回顾记成 memory_digest_generated 世界事件；它是整理出来的回忆，环境从不据此结算。']` |
+| `reflection` | 删除，换成键 `digest`：`label` 「日、月、年回顾」；`source` `'src/worldmock/simulation_engine/evidence/memory_digest.py；src/worldmock/runtime/lifecycle/runner.py · settle_pending_memory_digests'`；`fill` 「零点由模型把前一天每类的今天条目写成一段日记式的日回顾（要紧的事和当时的感受，时间只说早上、中午、下午、晚上），每类至多 200 字；每月第一个零点把上个月的日回顾写成月回顾，每类至多 800 字；每年第一个零点把上一年的月回顾写成年回顾，每类至多 2000 字。」；`steps` 依次 `['顺序', '零点推进之后依次生成日回顾、月回顾、年回顾，然后才做零点计划；运行到终点时不生成。']`、`['调用', '每一级每次一个调用，关闭思考，只给严格工具 submit_memory_digest，三类分开写，refs 写所依据的编号。']`、`['校验重试', '输出被截断、参数不合格式，或正文为空、超过字数上限、依据为空或不属于这一类时附英文错误重试，至多 reflection_validation_max_retries 次；用尽时没通过的类记为 null 并写进 fallback，运行不失败。']`、`['记录', '回顾记成 memory_digest_generated 世界事件；它是整理出来的回忆，环境从不据此结算。']` |
 | `memory_view` | 第一步改为 `['每步重写', '根据当前身份与事实窗口重新生成视图；主观归纳不再更新。']` |
 | `capacity` | `source` 改为 `'src/worldmock/agents/prompt/prompt_capacity.py · fit_request'`。「再浓缩进度层」改为「把最旧一段连续的未受保护记录折叠为 condensed，重复到阈值以下。」；「保留当前」改为「受保护记录，以及人设层、记忆层、待办层、工具层与环境层都不被压缩。」 |
 
@@ -268,8 +265,8 @@
    输入目录放在 WorldMock-Dataset 的 `.work/layered-memory/pilot-inputs/<试点>/`。
 2. **运行。** 在 WorldMock-Dataset 仓库根逐个执行 `python -m tools.execute run --environment .work/layered-memory/pilot-inputs/<试点> --output execution/<UTC 时刻>-<试点>`，得到运行、认证导出与检查。
 3. **计算。** 在 WorldMock 仓库根执行 `uv run python -m tools.analysis.memory_pilot --export <执行目录>/export --output .work/layered-memory/pilot/<试点>.json`。
-4. **判定。** 每份报告的 `checks` 全部 `pass` 为 true，或 `pass` 为 null（该项在这次试点里没有分母）；`lm-variety-cross-month` 的 `month_digests` 一项（期望值为 1）即提案 P3 的「跨月试点里恰有一条月回顾事件」。任何一项为 false 即判定不通过（提案 M9「有一项回退就不上线」）。M1、M2 的对不上次数、M4、M5 的次数、M9 的 `fresh_followups`、M10 的各守卫丢弃次数（提案 P3「各道守卫的丢弃次数要报告」）、引用率、重复率、残留与看法对象覆盖率、M11 ③④、M12 及其旁证只报告。头三天与第 4 天以后的比例分开写；`lm-variety-10day` 只用 `days_4_plus` 下结论。与 V、B 比较时注明两者环境版本不同（裁定 6 带来的 `environment_version` 升号）。
-5. **报告。** 写 `docs/dev/layered-memory/PILOT-<执行日期>.md`：各试点的检查结果、只报告各项与「行为」一第 2 条所列 V、B 基线的并列（M1 写「无 V、B 基线」；M2 的对不上次数写明「提案 2 次，按本口径 10-11 那次不计入」）、`digest_review` 对照表；抽查写明抽查人、抽查的「类·日」数和判定标准，由模型核对的写「模型核对」，不写人工抽查。报告 JSON 留在 `.work/`，不入库。
+4. **判定。** 每份报告的 `checks` 全部 `pass` 为 true，或 `pass` 为 null（该项在这次试点里没有分母）；`lm-variety-cross-month` 的 `month_digests` 一项（期望值为 1）即提案 P3 的「跨月试点里恰有一条月回顾事件」。任何一项为 false 即判定不通过（提案 M9「有一项回退就不上线」）。M1、M2 的对不上次数、M4、M5 的次数、M9 的 `fresh_followups`、M10 的各守卫丢弃次数（提案 P3「各道校验的丢弃次数要报告」）、统计行照抄次数 `statistics_copy_violations`、引用率、重复率、残留与看法对象覆盖率、M11 ① 的 `coverage`、`food_fallback` 与 `coverage_plus_fallback`、M11 ② 的 `cooking_mismatches`、M11 ③④、M12 及其旁证只报告。统计行照抄、M11 ① 与 M11 ② 原是检查项，第四批裁定之后只报告：回顾的提示不再要求照抄统计行，也不要求写出当天收到的每样食品，也不再要求做饭那一句只写当天做饭用的那一份；② 按「做饭」所在的整句计数，会把写对的日记（先写当天做饭用的那份，再用「；」接上给第二天买的那份）也算成错配。回顾写得准不准由 M11 ①–④ 报告，在试点报告里由模型核对抽查来判。头三天与第 4 天以后的比例分开写；`lm-variety-10day` 只用 `days_4_plus` 下结论。与 V、B 比较时注明两者环境版本不同（裁定 6 带来的 `environment_version` 升号）。
+5. **报告。** 写 `docs/dev/layered-memory/PILOT-<执行日期>.md`；这个文件已存在时，同一执行日期的下一份写 `PILOT-<执行日期>-2.md`，再有依次为 `-3`、`-4`、…，已有的报告不改写。报告写明：各试点的检查结果、只报告各项与「行为」一第 2 条所列 V、B 基线的并列（M1 写「无 V、B 基线」；M2 的对不上次数写明「提案 2 次，按本口径 10-11 那次不计入」）、`digest_review` 对照表；抽查写明抽查人、抽查的「类·日」数和判定标准，由模型核对的写「模型核对」，不写人工抽查。报告 JSON 留在 `.work/`，不入库。
 6. **费用估计。** 共 35 个模拟日，按提案 P2 的全口径每模拟日约 $0.207（已含零点计划 $0.0044 与回顾 $0.0048，研究目录 out3/reports/econ.md「All-in per day」）计，合计约 $7.2。
 
 ## 接口与文件
@@ -416,19 +413,19 @@ def main(argv: list[str] | None = None) -> int: ...
 | `test_m9_chain_must_append_the_previous_entry_and_carry_no_persona_delta` | M9 同秒链 |
 | `test_m9_lists_a_restart_of_a_just_ended_activity` | M9 重新开始与六种目标 |
 | `test_m10_counts_calls_retries_and_day_fallback_share` | M10 `calls_by_day`、`periods`、`expected` 的三键（没有月、年回顾时为 0）、`retries`；`fallback` 比例只数日回顾，月回顾落到 fallback 的格只进 `cells`，`cells` 的次序 |
-| `test_m10_guard_discards_follow_the_digest_problem_texts` | M10 `guard_discards`：每条第 04 章问题文字（含 `text_length` 的「; the day digest limit」与 `food_coverage` 的「; missing:」）计入各自的守卫；同一响应同一类的两条名称问题计一次；「the name …」计入 `names` 不计入 `numbers`；响应级四句、截断、参数结构错误、`phase == "failure"` 不计；不认识的问题计入 `unrecognized` 并写错误日志；十九个键全部列出 |
+| `test_m10_guard_discards_follow_the_digest_problem_texts` | M10 `guard_discards`：两条空值检查与守卫表四行的每条第 04 章问题文字（含 `text_length` 的「; the day digest limit」）计入各自的守卫；同一响应同一类的两条依据归属问题计一次；响应级四句、截断、参数结构错误、`phase == "failure"` 不计；不认识的问题计入 `unrecognized` 并写错误日志，第四批裁定删去的守卫文字（如 `digests.food: the name 拿铁咖啡 does not appear in the food input`、`digests.food: 8:30 does not appear in the food input`）也计入 `unrecognized`；十个键全部列出 |
 | `test_m10_digest_is_cited_by_an_eight_character_echo_while_visible` | M10 引用 |
 | `test_m10_view_object_coverage_reads_the_digest_input` | M10 看法对象覆盖率 |
-| `test_m10_counts_number_mentions_not_copied_from_statistics` | M10 统计行照抄 |
+| `test_m10_counts_number_mentions_not_copied_from_statistics` | M10 统计行照抄（只报告） |
 | `test_m10_lists_missing_and_duplicate_day_digests_and_expected_months` | M10 期次与 `expected` |
 | `test_m10_repetition_and_residue_come_from_the_behavior_tool` | M10 复用行为工具 |
-| `test_m11_coverage_and_food_fallback_partition_the_food_days` | M11 ①：`F(D)` 为空、日回顾事件的饮食格非空或在 `fallback` 里的日子进分母，两者都不是的不进；`F(D)` 非空、饮食格为 null 且不在 `fallback` 里的日子计为未覆盖；`coverage_plus_fallback` 的分子是两者分子之和；1 天覆盖、159 天 fallback 的 160 天时它的 `value` 为 1.0（两个舍入值相加会是 1.0001） |
-| `test_m11_cooking_meal_and_foreign_dish_mismatches` | M11 ②③④ |
+| `test_m11_coverage_and_food_fallback_partition_the_food_days` | M11 ①（只报告）：`F(D)` 为空、日回顾事件的饮食格非空或在 `fallback` 里的日子进分母，两者都不是的不进；`F(D)` 非空、饮食格为 null 且不在 `fallback` 里的日子计为未覆盖；`coverage_plus_fallback` 的分子是两者分子之和；1 天覆盖、159 天 fallback 的 160 天时它的 `value` 为 1.0（两个舍入值相加会是 1.0001） |
+| `test_m11_cooking_meal_and_foreign_dish_mismatches` | M11 ②③④（只报告） |
 | `test_m12_counts_food_purchases_named_by_an_earlier_preference` | M12 分子 |
 | `test_m12_short_or_ambiguous_subjects_never_name_goods` | M12 点名（「一人份食材包」、两字对象、恰好匹配两件仍算） |
 | `test_m12_splits_by_card_and_view_age` | M12 分开报告 |
 | `test_m12_earlier_view_reliance_by_mention_or_echo_absent_from_the_request` | M12 旁证 |
-| `test_checks_apply_the_final_state_thresholds` | 检查项表：每项通过、失败、null 各一例 |
+| `test_checks_apply_the_final_state_thresholds` | 检查项表：每项通过、失败、null 各一例；`checks` 的名字恰为表中各项，没有 `statistics_copied`、`food_coverage_partition`、`cooking_mismatch`，M10 统计行照抄与 M11 ①② 的值不影响任何一项的 `pass` |
 | `test_digest_review_lists_each_category_with_its_verified_lines` | 对照表 |
 
 **`tests/unit/evaluation/test_memory_categories.py`**（在 `tests/fixtures/dataset-environment` 的副本上加行，样例环境按第 08 章已是格式 6；类别规则本身由第 03 章的 `tests/unit/memory/test_categories.py` 测）：
@@ -442,7 +439,7 @@ def main(argv: list[str] | None = None) -> int: ...
 
 **`tests/unit/evaluation/test_behavior_metrics.py`：** 新增 `test_digest_repetition_pairs_adjacent_days_of_one_category`、`test_digest_identity_residue_counts_example_markers`；:678 所在测试另断言 `reports` 的最后两个键依次为 `memory_digest_repetition`、`memory_digest_identity_residue`，:678 的 `behavior-metrics-4` 断言不变。其他断言结构标识的测试（含第 08 章改名后的 `tests/system/lifecycle/test_sleep_runs.py`）本章不改。
 
-**`tests/integration/evaluation/test_memory_pilot_export.py::test_pilot_report_reads_a_real_two_day_export`：** 用 `tests/engine_fixture` 的引擎与 `tests/integration/runtime/current_contract_fixtures.decide` 驱动真实宿主，第一天做几次决策（修订计划、开始一项在地点做的事、下单一份食品、播报），用 `engine.advance` 推进过零点，以第 04 章的 `settle_pending_memory_digests(engine, StubMemoryDigestClient(...))` 生成日回顾，第二天再决策两次，用 `export_run(store, store.last_event_seq, 目录)` 导出后跑 `pilot_report`。断言：`M10.periods.day == 1`；`M3.periods.all.value == 1.0`；`M6.memory_layer_by_observation.max <= 14000`；`M9.chain.append_violations == 0`；`checks` 的名字集合等于检查项表；`digest_review` 每类一行。这条测试把工具钉在第 01–06 章的真实形状上，也让 `load_export` 走一次真实认证。同一文件另有 `test_pilot_report_refuses_a_tampered_export`：把同样流程导出的 `events.jsonl` 改动一个字节后，`pilot_report` 抛 `validate_export` 的 `IntegrityError`，`main` 返回 1（输入 1）。
+**`tests/integration/evaluation/test_memory_pilot_export.py::test_pilot_report_reads_a_real_two_day_export`：** 用 `tests/engine_fixture` 的引擎与 `tests/integration/runtime/current_contract_fixtures.decide` 驱动真实宿主，第一天做几次决策（修订计划、开始一项在地点做的事、下单一份食品、播报），用 `engine.advance` 推进过零点，以第 04 章的 `settle_pending_memory_digests(engine, StubMemoryDigestClient(...))` 生成日回顾，第二天再决策两次，用 `export_run(store, store.last_event_seq, 目录)` 导出后跑 `pilot_report`。断言：`M10.periods.day == 1`；`M3.periods.all.value == 1.0`；`M6.memory_layer_by_observation.max <= 14000`；`M9.chain.append_violations == 0`；`checks` 的名字集合等于检查项表，其中没有 `cooking_mismatch`；`M11.cooking_mismatches` 仍算出整数（只报告）；`digest_review` 每类一行。这条测试把工具钉在第 01–06 章的真实形状上，也让 `load_export` 走一次真实认证。同一文件另有 `test_pilot_report_refuses_a_tampered_export`：把同样流程导出的 `events.jsonl` 改动一个字节后，`pilot_report` 抛 `validate_export` 的 `IntegrityError`，`main` 返回 1（输入 1）。
 
 **`tests/unit/engineering/test_compare_runs.py`：**
 - 夹具 `Recording._events`（:132-133）的观察改为最终记忆层形状：`{"layer":"记忆层","可查":{"最早日期":"2026-01-05"},"近三天":{"饮食":[],"工作":[],"生活":[]},"今天":[{"时刻":"07:50","类别":"生活","核验":["早饭"]}]}`。
@@ -461,7 +458,7 @@ def main(argv: list[str] | None = None) -> int: ...
 
 **`tests/system/viewer/run_viewer.test.cjs`：**
 - `context reads current seven-layer actions and complete other requests`：用户层键序改为最终层序；`self_note 未经核验` 改为 `「自述」与「回顾」未经核验`。
-- `context navigation, stage filter and all rule paths are available through the actual view`：「tools」一句改为新的「最后回合」文字，`progress` 的事务句改为新的「事务记录」文字；另逐条查看 `memory` 的「兜底」、`progress` 的「已发布界」、`digest` 的「校验重试」，三步的说明文字逐字等于「行为」八的表（`digest` 一步即「输出被截断、参数不合格式，或正文、依据、名称、饮食核验名称、饮食覆盖、做饭那一句、数字与次数照抄各守卫不通过时……」整句）。
+- `context navigation, stage filter and all rule paths are available through the actual view`：「tools」一句改为新的「最后回合」文字，`progress` 的事务句改为新的「事务记录」文字；另逐条查看 `memory` 的「兜底」、`progress` 的「已发布界」、`digest` 的「校验重试」，三步的说明文字逐字等于「行为」八的表（`digest` 一步即「输出被截断、参数不合格式，或正文为空、超过字数上限、依据为空或不属于这一类时……」整句）；`ViewerContext.rules.digest.fill` 逐字等于「行为」八的表里 `digest` 的 `fill`（日记式的日回顾，每类至多 200、800、2000 字）。
 - `context drills into current tools and real-shaped progress self notes` 改名为 `context drills into current tools and progress records`：进度层记录不带 `self_note`，工具数为 8，`填入` 文字为新的 `tools.fill`。
 - `context drills into an inline current tool layer …`：`inlineContextRequest` 按最终层序排层，`填入` 断言改为新的 `tools.fill`。
 
@@ -491,7 +488,7 @@ def main(argv: list[str] | None = None) -> int: ...
 | M1 的 V、B 基线 | 不计算，试点报告写「无 V、B 基线」，M1 只在 `lm-variety-*` 与 `lm-baseline-*` 之间比较 | 提案表里 M1 写「P0 测」，没有冻结数字；旧运行的记忆层是退役形状，读它要写兼容读取，AGENTS.md 禁止 |
 | 输入怎样认证 | `load_export` 先调 `validate_export`，事件行数、逐行校验、素材摘要与质量报告都交给它；本工具只另查单人和四个目录文件在不在 `environment_assets` 里 | docs/design/05-recording-engine.md「评估同样先认证输入」；一条规则一处，认证之后再查同样的事是永不触发的分支 |
 | 提案 P0 写「只读 footprints.sqlite」，而 M7、M8 要的 `model_usage` 只在导出的 `quality.json` | 改读同一运行的认证导出：`events.jsonl` 是生产解码器写出的事件，`purchases.jsonl` 和 `quality.json` 是记录引擎的投影 | 同一份事实；一条规则一处，不在工具里重写调用分类、计价和分件解码；`compare_runs.py` 与查看器都读导出 |
-| M11 要「独立于运行时守卫重新实现」 | 模块只导入标准库、`tools.analysis` 两个模块、`validate_export`、`WorldMockError` 和 `worldmock.state` 的共享取值；测试在子进程里导入模块，断言没有加载 `worldmock.simulation_engine`、`worldmock.agents`、`worldmock.runtime`、`custom` 下的任何模块；回顾类别键 `food`、`work`、`life` 到中文类别的三项对照在本模块另写 | 守卫在 `worldmock.simulation_engine`；`tools.analysis.behavior.metrics` 本身导入记录引擎，按直接导入核对证明不了独立，要核对实际加载的模块；三项对照是回顾事件的形状（第 04 章），不是判定规则 |
+| M11 要「独立于运行时校验实现」 | 模块只导入标准库、`tools.analysis` 两个模块、`validate_export`、`WorldMockError` 和 `worldmock.state` 的共享取值；测试在子进程里导入模块，断言没有加载 `worldmock.simulation_engine`、`worldmock.agents`、`worldmock.runtime`、`custom` 下的任何模块；回顾类别键 `food`、`work`、`life` 到中文类别的三项对照在本模块另写 | 守卫在 `worldmock.simulation_engine`；`tools.analysis.behavior.metrics` 本身导入记录引擎，按直接导入核对证明不了独立，要核对实际加载的模块；三项对照是回顾事件的形状（第 04 章），不是判定规则 |
 | 「早饭、午饭、晚饭」的时段没有给出 | 固定为本地 [04:00,10:30)、[10:30,14:30)、[16:30,22:00) | 人设的 `lunch_window` 是食欲锚点，V 的午饭在 11:33–11:50 下单，早于 11:50 的窗口；固定时段与人物无关、可复现 |
 | M1「饮食决策」「提示里往日出现过的」「reasoning 或总结」的口径 | 查询、下单限午饭和晚饭时段，做饭开始不限；往日文字为「近三天」回顾与检索里的往日项；名称按菜名词表、日期按三种写法；只看思考和收尾、暂停、播报的总结 | 逐词对应提案定义；请求参数里的商品名本来就会写，不能当作引用 |
 | 「词表取目录内容摘要和自述里的菜名」不能从自由文字确定性抽取 | 词表取食品商品名、食材包名及其按「配」切出的菜名、食品内容摘要里「比如／例如」后的列举；自述只作为认菜名的对象 | 唯一可复现的读法；包 0001 的食材包名覆盖了自述里常见的菜名 |
@@ -505,14 +502,14 @@ def main(argv: list[str] | None = None) -> int: ...
 | 「拒绝不超过基线 6 次的 2 倍」用于长短不同的试点 | 上限按运行日数折算：2×6×日数/5 | 基线 6 次出自 5 天的 V |
 | M9「容量压缩」与「刚了结的活动被重复开始」的认法 | 前者认进度层里的 `condensed` 记录；后者认上一次与本次观察之间结束、本次又受理同一目标的活动，按事件身份认目标，不解析活动名，并作为检查项 `no_restarted_activities`（`==` 0） | 进度层记录不再带 `self_note`（第 06 章），浓缩只剩折叠一步；目标身份来自受理快照，可复现；提案 P1 验收「尤其是刚了结的活动没有被重复开始」与 M9「有一项回退就不上线」 |
 | 容量处理第 0 步「提前结束本秒续接」 | 不计入 `capacity_compressions`；另报 `chain.fresh_followups`（同秒决策数减续接数），只报告 | 第 0 步不留记录，改用的新快照在事件里与非前缀、链中缺思考两种断链一样；prompt_capacity.py 把它与「浓缩进度层」分开写 |
-| M10「各道守卫的丢弃次数」要按守卫分 | 按第 04 章「输出校验」分类：响应级四句与截断按全文相等，参数结构错误按「不以 `digests.` 开头」，其余在 `; ` 后接 `digests.` 处切成逐条问题，按两条空值检查加守卫表十三行的模板逐条 `fullmatch`，第一个匹配的为准；计数单位是「一次响应里的一类」 | 问题文字都以 `digests.{key}` 开头，第一个「:」之前是类别键而不是守卫；一条错误里有多道守卫的问题；「丢弃」的是一次尝试里的一类段落，同一守卫报几条名称仍是一次丢弃 |
+| M10「各道校验各自的丢弃次数」要按守卫分 | 按第 04 章「输出校验」分类：响应级四句与截断按全文相等，参数结构错误按「不以 `digests.` 开头」，其余在 `; ` 后接 `digests.` 处切成逐条问题，按两条空值检查加守卫表四行的模板逐条 `fullmatch`，第一个匹配的为准；计数单位是「一次响应里的一类」 | 问题文字都以 `digests.{key}` 开头，第一个「:」之前是类别键而不是守卫；一条错误里有多道守卫的问题；「丢弃」的是一次尝试里的一类段落，同一守卫报几个错编号仍是一次丢弃；第四批裁定后守卫表只剩四行 |
 | M10 的 fallback 比例 | 只数日回顾的「类·日」；月、年回顾的 fallback 格只列在 `cells` | 提案 P1 验收「落到 fallback 的「类·日」不超过 10%」 |
 | M11 ① 的分母「有饮食核验的类·日」 | `F(D)` 非空的回顾日，并上日回顾事件表明饮食类有记录（非空或在 fallback 里）的回顾日 | 独立重算只能从事件认出收货与做饭；只有查询、未送达订单或公司午饭的日子由回顾事件表明有饮食记录；`F(D)` 非空的日子不依赖回顾事件，饮食格被错记为 null 时照样计为未覆盖 |
-| M11 ① 与饮食 fallback 之和 | 写成比例，分子相加、分母共用 | 两个各自舍入到四位的值相加，在分母 160 时就会得到 1.0001，检查项 `== 1.0` 会误判 |
+| M11 ① 与饮食 fallback 之和 | 写成比例，分子相加、分母共用 | 两个各自舍入到四位的值相加，在分母 160 时就会得到 1.0001，报告的和偏离分子分母算出的值 |
 | M10「回顾被引用」「看法对象覆盖率」的口径 | 引用：回顾在提示里可见时，模型文字与它有八字回声；覆盖率：对象取自回顾输入里的「看法·」项 | 与 M12 的回声同一规则；对象按输入的类别切分，不重算类别 |
 | M12「能匹配 2 件以上目录商品的对象不算」 | 读作多于 2 件才不算；「至少 4 字」对两个方向的包含都适用；对象不足 3 字不点名 | 研究目录 out3/views/part5_m12.py 按此算出 5/18 与 0/17，views.md 写作 more than 2 |
 | 措辞回声的判定 | 看法正文的某个 8 字窗口出现在模型文字里、不在请求文字里；或看法对象出现在模型文字、不在请求文字里 | 与研究目录 out3/views/part4b_reliance.py 一致；人设层不再含看法时，请求文字就是全部提示 |
-| 检查项的范围 | 只放提案对最终形态写明的绝对阈值；「续接成功率与现状相同」等对比项只报告 | 与 V、B 的比较要人读；P1 的约 $0.30 被 P2 的 $0.22 取代 |
+| 检查项的范围 | 只放提案对最终形态写明的绝对阈值；「续接成功率与现状相同」等对比项只报告；第四批裁定之后统计行照抄（`statistics_copied`）、饮食覆盖（`food_coverage_partition`）与做饭错配（`cooking_mismatch`）不再是检查项，M10 `statistics_copy_violations` 与 M11 ①② 照算、只报告 | 与 V、B 的比较要人读；P1 的约 $0.30 被 P2 的 $0.22 取代；第四批裁定：回顾是日记，运行时只查格式与字数，准确性由试点测量，提示不再要求照抄统计行、写全当天收到的食品或做饭那一句只写当天的食材包；② 按整句计数会把写对的日记算成错配，准确性由模型核对抽查来判 |
 | 进度层两项估计阈值 | 照提案数值（中位 ≤3000、p90 ≤7000）判定，不校准 | 提案标为「估计值，P0 校准」；本交付的 P0 不读质量版本 9 的运行，没有可校准的输入 |
 | P1、P2、P3 的试点在一次交付里怎么跑 | 合并成一组：V 卡片两次、B 卡片两次（10-08→10-13），V 卡片 10 天，V 卡片跨月（09-28→10-03），共 35 个模拟日、约 $7.2 | 三期代码已是同一份，分期试点会重复跑同一身份；提案 P2 的 $0.207 是全口径，已含零点计划与回顾（out3/reports/econ.md） |
 | 只接收单人运行 | 导出不是一个人物时拒绝 | `RunConfig` 是「一次单人运行」 |

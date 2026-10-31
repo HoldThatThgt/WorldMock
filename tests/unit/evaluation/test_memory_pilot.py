@@ -56,15 +56,13 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 CHESTNUT = "板栗烧鸡配清炒娃娃菜一人份食材包"
 WINGS = "可乐鸡翅配清炒菌菇一人份食材包"
 GUARDS = ["response", "truncated", "schema", "text_without_input", "null_with_input", "text_empty", "text_length",
-          "chinese", "hex_identity", "refs_empty", "refs_category", "names", "food_verified_names", "food_coverage",
-          "cooking_sentence", "numbers", "numbers_same_record", "count_lines", "unrecognized"]
+          "refs_empty", "refs_category", "unrecognized"]
 CHECK_NAMES = ["cooking_lines_name_the_kit", "yesterday_food_cell_visible", "search_validation_errors",
                "search_non_empty", "search_is_read_only", "memory_layer_budget", "progress_layer_median",
                "progress_layer_p90", "user_message_median", "persona_layer_stable", "fresh_turn_cache_hit",
                "cost_per_day", "decisions_per_day_band", "rejections", "turns_exhausted", "run_failures",
                "capacity_compressions", "no_restarted_activities", "chain_append_only", "chain_without_persona_delta",
-               "digest_fallback_share", "one_day_digest_per_day", "retired_calls", "month_digests",
-               "statistics_copied", "food_coverage_partition", "cooking_mismatch"]
+               "digest_fallback_share", "one_day_digest_per_day", "retired_calls", "month_digests"]
 SECTION_KEYS = {
     "M1": ["by_day", "periods", "decisions"],
     "M2": ["named", "mismatches", "activities"],
@@ -1030,35 +1028,40 @@ def test_m10_counts_calls_retries_and_day_fallback_share(tmp_path, skip_authenti
 def test_m10_guard_discards_follow_the_digest_problem_texts(tmp_path, skip_authentication, caplog):
     builder = PilotExportBuilder(tmp_path)
     errors = [
+        # 「; the day digest limit」后面不接 digests.，不被切开；同一响应同一类的两条依据归属问题计一次。
         ("day", "2026-10-08", "; ".join([
-            "digests.food: the name 番茄炒蛋 does not appear in the food input",
-            "digests.food: the name 清炒上海青 does not appear in the food input",
             "digests.food.text has 230 characters; the day digest limit is 200",
+            "digests.food.refs: n9 is not a food record number",
+            "digests.food.refs: n7 is not a food record number",
             "digests.work must be null: the input has no work records",
-            "digests.life: 18 does not appear in the life input",
-            "digests.food must name every food received and every meal kit cooked that day; missing: 美式咖啡、薯片"])),
+            "digests.life.refs must cite at least one record number"])),
         ("day", "2026-10-08", "response must contain exactly one choice"),
         ("day", "2026-10-08", "response must contain exactly one submit_memory_digest tool call"),
         ("day", "2026-10-08", "the only tool call must be submit_memory_digest"),
         ("day", "2026-10-08", "submit_memory_digest arguments must be a JSON string"),
         ("day", "2026-10-08", "memory digest output was truncated at max_tokens"),
         ("day", "2026-10-08", "food.text: Input should be a valid string"),
-        # 不认识的问题按条数计：一次响应里的两条都计入 unrecognized。
-        ("day", "2026-10-09", "digests.life: the weather was odd; digests.food: the sky was odd"),
+        # 第四批裁定撤销的九道守卫没有模板：它们的文字按问题条数计入 unrecognized。
         ("day", "2026-10-09", "; ".join([
-            "digests.food: the name 番茄炒蛋 does not appear in the food input",
-            "digests.work: the name 周报 does not appear in the work input"])),
-        ("day", "2026-10-09", None),
-        ("month", "2026-10", "; ".join([
-            "digests.food must not be null: the input has food records",
-            "digests.work.text must not be empty", "digests.work.text must contain Chinese",
+            "digests.food: the name 拿铁咖啡 does not appear in the food input",
+            "digests.food: 8:30 does not appear in the food input",
+            "digests.work.text must contain Chinese",
             "digests.life.text contains a hexadecimal identifier",
-            "digests.life.refs must cite at least one record number",
-            "digests.food.refs: n9 is not a food record number",
             "digests.food: the goods name 薯片 does not appear in the food verified lines",
+            "digests.food must name every food received and every meal kit cooked that day; missing: 美式咖啡、薯片",
             f"digests.food: the sentence about 做饭 names {WINGS}, but the meal kit cooked that day was none",
             "digests.work: 3 份 does not appear in the same input record as a name in its sentence",
             "digests.life: the count 2 次 must be copied with its whole count line"])),
+        # 不认识的问题与认得的问题在同一响应里：前者计入 unrecognized，后者照常计入它的守卫。
+        ("day", "2026-10-09", "digests.life: the weather was odd; digests.work.refs: n2 is not a work record number"),
+        ("day", "2026-10-09", None),
+        # 同一响应里不同类别的依据归属问题各计一次。
+        ("month", "2026-10", "; ".join([
+            "digests.food must not be null: the input has food records",
+            "digests.work.text must not be empty",
+            "digests.life.text has 801 characters; the month digest limit is 800",
+            "digests.food.refs: d3 is not a food record number",
+            "digests.life.refs: d4 is not a life record number"])),
     ]
     attempts: dict[str, int] = {}
     for tier, period, error in errors:
@@ -1075,13 +1078,11 @@ def test_m10_guard_discards_follow_the_digest_problem_texts(tmp_path, skip_authe
     caplog.set_level(logging.ERROR)
     discards = m10_digests(*_load(builder))["guard_discards"]
     assert discards == {"response": 4, "truncated": 1, "schema": 1, "text_without_input": 1, "null_with_input": 1,
-                        "text_empty": 1, "text_length": 1, "chinese": 1, "hex_identity": 1, "refs_empty": 1,
-                        "refs_category": 1, "names": 3, "food_verified_names": 1, "food_coverage": 1,
-                        "cooking_sentence": 1, "numbers": 1, "numbers_same_record": 1, "count_lines": 1,
-                        "unrecognized": 2}
+                        "text_empty": 1, "text_length": 2, "refs_empty": 1, "refs_category": 4, "unrecognized": 10}
     assert list(discards) == GUARDS
     assert [message for message in caplog.messages if message.endswith("matches no guard")] == [
-        "Memory digest error memory-digest:1:day:2026-10-09:attempt:1 matches no guard"] * 2
+        "Memory digest error memory-digest:1:day:2026-10-09:attempt:1 matches no guard"] * 9 + [
+        "Memory digest error memory-digest:1:day:2026-10-09:attempt:2 matches no guard"]
 
 
 def test_m10_digest_is_cited_by_an_eight_character_echo_while_visible(tmp_path, skip_authentication):
@@ -1132,6 +1133,7 @@ def test_m10_view_object_coverage_reads_the_digest_input(tmp_path, skip_authenti
 
 
 def test_m10_counts_number_mentions_not_copied_from_statistics(tmp_path, skip_authentication):
+    # 统计行照抄只报告（第四批裁定之后不是检查项），口径照旧。
     builder = PilotExportBuilder(tmp_path, days=2, start="2026-10-31")
     month = _period_payload("日回顾", food=([{"编号": "d1", "日期": "2026-10-30", "回顾": "吃了面。"}],
                                           ["番茄牛肉刀削面 3 次", "美式咖啡 2 次"]),
@@ -1189,6 +1191,7 @@ def test_m10_repetition_and_residue_come_from_the_behavior_tool(tmp_path, skip_a
 # ---- M11 ----
 
 def test_m11_coverage_and_food_fallback_partition_the_food_days(tmp_path, skip_authentication):
+    # M11 ① 只报告（第四批裁定之后不是检查项），口径照旧。
     builder = PilotExportBuilder(tmp_path, days=6)
     builder.received("noodle", builder.at(1, "12:00"))
     builder.digest("day", builder.iso(1), builder.at(2, "00:00"), {"food": "中午吃了番茄牛肉刀削面。"})
@@ -1411,8 +1414,7 @@ CHECK_VALUES = [
     ("M9.turns.exhausted", 0, 1), ("M9.run_failures", 0, 1), ("M9.capacity_compressions", 0, 2),
     ("M9.restarted", [], [{"decision_id": "d"}]), ("M9.chain.append_violations", 0, 1),
     ("M9.chain.persona_deltas", 0, 1), ("M10.fallback.value", 0.1, 0.1001), ("M10.day_digest_problems", 0, 1),
-    ("M10.retired_calls", 0, 2), ("M10.periods.month", 1, 0), ("M10.statistics_copy_violations", 0, 1),
-    ("M11.coverage_plus_fallback.value", 1.0, 0.9999), ("M11.cooking_mismatches", 0, 1),
+    ("M10.retired_calls", 0, 2), ("M10.periods.month", 1, 0),
 ]
 
 
@@ -1433,7 +1435,16 @@ def test_checks_apply_the_final_state_thresholds():
     passing.update({"M9.rejection_limit": 4.8, "M10.expected.month": 1})
     checks = pilot_checks(_metrics(passing))
     assert [check["name"] for check in checks] == CHECK_NAMES
+    names = {check["name"] for check in checks}
+    assert not {"statistics_copied", "food_coverage_partition", "cooking_mismatch"} & names
     assert all(check["pass"] is True for check in checks)
+    # 统计行照抄、M11 ① 与 ② 只报告：取什么值都不改变任何一项的结果。
+    for report_only in ({"M10.statistics_copy_violations": 7, "M11.coverage.value": 0.1,
+                         "M11.food_fallback.value": 0.2, "M11.coverage_plus_fallback.value": 0.3,
+                         "M11.cooking_mismatches": 3},
+                        {"M10.statistics_copy_violations": None, "M11.coverage_plus_fallback.value": None,
+                         "M11.cooking_mismatches": None}):
+        assert pilot_checks(_metrics({**passing, **report_only})) == checks
     assert checks[13] == {"name": "rejections", "path": "M9.rejections", "comparison": "<=", "threshold": 4.8,
                           "value": 4, "pass": True}
     assert checks[23] == {"name": "month_digests", "path": "M10.periods.month", "comparison": "==", "threshold": 1,

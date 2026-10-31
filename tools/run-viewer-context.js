@@ -129,13 +129,14 @@ const ViewerContext = {};
       label: '日、月、年回顾',
       source: 'src/worldmock/simulation_engine/evidence/memory_digest.py；'
         + 'src/worldmock/runtime/lifecycle/runner.py · settle_pending_memory_digests',
-      fill: '零点由模型把前一天每类的今天条目整理成日回顾，每类至多 200 字；每月第一个零点把上个月的日回顾整理成月回顾，'
-        + '每类至多 800 字；每年第一个零点把上一年的月回顾整理成年回顾，每类至多 2000 字。',
+      fill: '零点由模型把前一天每类的今天条目写成一段日记式的日回顾（要紧的事和当时的感受，时间只说早上、中午、下午、晚上），'
+        + '每类至多 200 字；每月第一个零点把上个月的日回顾写成月回顾，每类至多 800 字；'
+        + '每年第一个零点把上一年的月回顾写成年回顾，每类至多 2000 字。',
       steps: [
         ['顺序', '零点推进之后依次生成日回顾、月回顾、年回顾，然后才做零点计划；运行到终点时不生成。'],
         ['调用', '每一级每次一个调用，关闭思考，只给严格工具 submit_memory_digest，三类分开写，refs 写所依据的编号。'],
-        ['校验重试', '输出被截断、参数不合格式，或正文、依据、名称、饮食核验名称、饮食覆盖、做饭那一句、数字与次数照抄各守卫不通过时'
-          + '附英文错误重试，至多 reflection_validation_max_retries 次；用尽时没通过的类记为 null 并写进 fallback，运行不失败。'],
+        ['校验重试', '输出被截断、参数不合格式，或正文为空、超过字数上限、依据为空或不属于这一类时附英文错误重试，'
+          + '至多 reflection_validation_max_retries 次；用尽时没通过的类记为 null 并写进 fallback，运行不失败。'],
         ['记录', '回顾记成 memory_digest_generated 世界事件；它是整理出来的回忆，环境从不据此结算。'],
       ],
     },

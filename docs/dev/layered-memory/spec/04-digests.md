@@ -1,6 +1,6 @@
 # 04 日、月、年回顾
 
-> 属于[分层记忆开发规格](../SPEC-layered-memory.md)。代码基线 f67c25e5。
+> 属于[分层记忆开发规格](../SPEC-layered-memory.md)。代码基线 f67c25e5。第四批裁定（2026-10-30）修订。
 
 ## 目标与依据
 
@@ -20,12 +20,13 @@
 | --- | --- |
 | 第一批「压缩一律由模型写成描述性的段落」 | 三级回顾都由一次模型调用写成段落；代码只准备输入和次数统计，不写回顾正文 |
 | 7（选项 A） | 每一级每一期一次调用，三类的输入和输出分开、逐类校验；一类不通过不连累已通过的类 |
-| 8（描述经过和感受；子问题选项 A） | 回顾可以写时刻、价钱、数量、日期和月份，每个都必须按完整写法原样出自这一类的输入；与名称同句时还须与其中一个名称出自同一条输入；其余阿拉伯数字按数字串整段原样出自这一类的输入，正文里每个阿拉伯数字都受检查 |
+| 8（描述那段时间的经过和感受；子问题的选项 A 由第四批裁定取代） | 回顾是日记式的回忆：写要紧的经过和当时的感受，吃的、做的、去的地方和打交道的人写出名字；时间说早上、中午、下午、晚上（月回顾说月初、月中、月底、某个周末，年回顾说年初、春天、几月份、年底），价钱、数量和时长只在要紧时顺口带一句，次数说几乎每天、常常、偶尔；时刻、价钱、数量、日期、月份和次数既不要求出自输入，也不检查 |
 | 9（模型写段落，月 800、年 2000 字；子问题选项 A） | 月回顾、年回顾与日回顾同期交付；本章的验收是确定性测试，跨月短试点的步骤与指标归第 09 章 |
 | 13（每天由模型压成一段） | 日回顾不设门槛，每个有条目的日子都生成 |
 | 第二批「各级字数上限」（原话见裁定 18） | 每类正文 `len(text)` 不超过日 200、月 800、年 2000 |
 | 23（选项 A，回顾一侧） | 重试用尽的类记 null 并列入 `fallback`；「近三天」与检索据此认出「未整理」 |
 | 「字」按 `len` | 本章所有字数都是 Python `len()` 的结果 |
+| 第四批（2026-10-30）「Memory is a diary, not a device log, it records feelings, and some essential facts.」「length should still be capped at what we have desigend」（原话全文见提案第五章） | 三份提示改写成日记（见「提示原文」）；输出只做格式与长度检查：响应级四项、逐类的 null 规则和守卫表的四行（正文非空、正文长度、依据非空、依据归属）。裁定 8 子问题选项 A 的数字规则、日期和月份照抄、次数照抄作废；提案第二章「校验」原列、随第三批选项 A 带入的含中文、不含身份串、名称、饮食核验名称、饮食覆盖、做饭那一句、数字、数字同条、次数照抄九道守卫撤销。回顾与记录是否相符由试点衡量（第 09 章 M11 与模型核对），运行时不查；字数上限照第二批不变 |
 
 依赖其他章节的事实（本章只消费，不重述）：
 
@@ -151,10 +152,11 @@ self.t = t
 - 饮食类：
   - 区间内每条本人 `goods_received`（`environment_event`，simulation_engine/commerce/fulfillment/receipt.py:101-108），商品类别为 `meal`、`snack` 或 `drink` 的，记这件商品的名称一次；
   - 区间内结束（结束事件按 `activity_endings`，simulation_engine/observation/wording/settled_text.py:156-169）、在第 08 章「活动 → 所用食材包」映射里有食材包的每项本人活动，记那份食材包的商品名称一次；
-  - 食材包按做饭使用计，它的收货不另计；吃的、喝的按收货计。饮食覆盖守卫的必写名称用同一种取法（收到的 meal、snack、drink 按收货，食材包按做饭），只是另按当天的饮食核验过滤，统计不做这一过滤。
+  - 食材包按做饭使用计，它的收货不另计；吃的、喝的按收货计。
 - 工作类、生活类：区间内结束、终态是 `completed` 或 `cancelled`（自然结束或人物收尾；`failed` 与运行截止的 `truncated` 都不计）、第 03 章判给这一类的每项本人活动，记它的短名（第 02 章）一次。
 - 一行写成 `f"{名称} {次数} 次"`：名称与数字之间、数字与「次」之间各一个半角空格。按次数从多到少排，次数相同时按首次计入那条事件的序号从小到大；不设门槛。
 - 行为空的类不给次数统计（写空列表）。
+- 次数统计只是输入，让模型知道哪些事常有；正文不照抄统计行，次数也不检查（第四批裁定）。
 
 ### 请求
 
@@ -197,24 +199,24 @@ self.t = t
 
 ### 提示原文
 
-三份提示是 `simulation_engine/evidence/memory_digest.py` 的模块常量，计入 `code_sha256`，与 `PLAN_DAY_PROMPT` 同样处理。各为一行，没有首尾空白和换行；`DIGEST_PROMPTS = MappingProxyType({"day": DAY_DIGEST_PROMPT, "month": MONTH_DIGEST_PROMPT, "year": YEAR_DIGEST_PROMPT})`。
+三份提示按第四批裁定写成日记：记要紧的事和当时的感受，时间、次数用粗略的说法，不记流水账。它们是 `simulation_engine/evidence/memory_digest.py` 的模块常量，计入 `code_sha256`，与 `PLAN_DAY_PROMPT` 同样处理。各为一行，没有首尾空白和换行；`DIGEST_PROMPTS = MappingProxyType({"day": DAY_DIGEST_PROMPT, "month": MONTH_DIGEST_PROMPT, "year": YEAR_DIGEST_PROMPT})`。
 
 `DAY_DIGEST_PROMPT`：
 
 ```text
-你替模拟世界里的一个人物把他昨天的记录整理成回顾。输入按饮食、工作、生活三类给出他昨天的记录：「核验」是环境确认的经过，「当时查到」是他当时查询看到的结果，「自述」是他当时写下的话（「名称：」是收尾或暂停的总结，「进展·」是中途写的进展，「看法·」是看法，「记住：」是想记住的事，「正文：」是回复正文），每条带编号。每类写一段不超过 200 字的话，用他的第一人称：先写那天这类事经过了什么，以核验为准；再写他对具体的东西、地方、人和做法的看法、习惯和打算，以自述里的「看法」「记住」和总结为准：每条看法用一句短话写出对象的名字和态度（喜不喜欢、还想不想再来、打算保持还是改掉）；写不下时先写说了以后要照做、要换掉或不再做的，再写当天写过不止一次的；只写自述里有的看法，不从经过推测感受。在 refs 里写所依据的记录编号，至少一个。提到的东西只用输入里出现过的名字；饮食类写到的商品名只能取自核验，「当时查到」和自述里提到、核验里没有的商品不写名字，写看法时也一样；时刻、价钱和数量只写输入里出现过的，一律用阿拉伯数字；时长和次数用输入里的起止时刻表达，不要自己换算；写某个时刻时，同一句里提到的名字要和这个时刻出自同一条记录；饮食类要写出核验里当天收到的每样吃的、喝的，以及做饭用的那份食材包，写做饭的那一句里只写当天做饭用的那一份；不要补造输入里没有的经过、看法或别人说的话，也不要拿别的日子作比较。某一类没有记录时写 null。只调用一次 submit_memory_digest。
+你替模拟世界里的一个人物写他昨天的日记。输入按饮食、工作、生活三类给出他昨天的记录：「核验」是环境确认的经过，「当时查到」是他当时查询看到的结果，「自述」是他当时写下的话（「名称：」是收尾或暂停的总结，「进展·」是中途写的进展，「看法·」是看法，「记住：」是想记住的事，「正文：」是回复正文），每条带编号。每类写一段不超过 200 字的日记，用他的第一人称，像人回想昨天那样只记要紧的事和当时的感受，不记流水账：经过以核验为准，挑要紧的写，吃了什么、做了什么、去了哪里、和谁打了交道，这些东西写出名字；时间说早上、中午、下午、晚上，不写几点几分；价钱、数量和花了多久只在对他要紧时顺口带一句，比如「有点贵」「等了挺久」，不逐项列出；感受和看法以自述为准，写他喜不喜欢、累不累、还想不想再来、打算保持还是改掉，不替他编没写过的感受。只凭昨天的记录写，不补造没发生的事或别人说的话，不拿别的日子作比较，不写编号、订单号或其他内部标识。在 refs 里写所依据的记录编号，至少一个。某一类没有记录时写 null。只调用一次 submit_memory_digest。
 ```
 
 `MONTH_DIGEST_PROMPT`：
 
 ```text
-你替模拟世界里的一个人物把他上个月的日回顾整理成月回顾。输入按饮食、工作、生活三类给出那个月每一天的日回顾，每段带日期和编号，没整理出来的日子写着「未整理」；另附代码从事件算出的次数统计。每类写一段不超过 800 字的话，用他的第一人称，写这个月这类事的规律、习惯和变化，以及值得记住的事；把日回顾里反复出现、或说了以后要照做或要换掉的看法、习惯和打算，各用一句短话写出对象和态度，写明最早、最近是哪天的回顾写到的（日期照抄输入）、后来有没有变。在 refs 里写所依据的日回顾编号，至少一个。提到的东西只用输入里出现过的名字；时刻、价钱、数量和日期只写输入里出现过的，一律用阿拉伯数字；写到次数时照抄统计里的那一行，不要自己数；不要补造输入里没有的经过、看法或别人说的话。某一类没有输入时写 null。只调用一次 submit_memory_digest。
+你替模拟世界里的一个人物把他上个月的日记整理成这个月的回忆。输入按饮食、工作、生活三类给出那个月每一天的日回顾，每段带日期和编号，没整理出来的日子写着「未整理」；另附代码从事件算出的次数统计，让你知道哪些事常有。每类写一段不超过 800 字的话，用他的第一人称，像人回想上个月那样写：这类事有什么规律和习惯，常吃什么、常做什么、常去哪里，有什么变化，哪些事值得记住；他对具体的东西、地方、人和做法的看法和打算，喜欢的、不喜欢的、说了要保持或要改掉的，后来有没有变。时间说月初、月中、月底、某个周末这样的说法，次数说几乎每天、常常、偶尔一两次这样的说法，不照抄日期和统计行。只凭输入写，不补造输入里没有的经过、看法或别人说的话，不写编号或其他内部标识。在 refs 里写所依据的日回顾编号，至少一个。某一类没有输入时写 null。只调用一次 submit_memory_digest。
 ```
 
 `YEAR_DIGEST_PROMPT`：
 
 ```text
-你替模拟世界里的一个人物把他上一年的月回顾整理成年回顾。输入按饮食、工作、生活三类给出那一年每个月的月回顾，每段带月份和编号，没整理出来的月份写着「未整理」；另附代码从事件算出的全年次数统计。每类写一段不超过 2000 字的话，用他的第一人称，写这一年这类事固定下来的习惯、口味和做法，哪些看法在哪个月变了；到年底仍成立的看法各用一句短话写出对象和态度，注明出自哪个月的回顾（月份照抄输入）。在 refs 里写所依据的月回顾编号，至少一个。提到的东西只用输入里出现过的名字；时刻、价钱、数量、日期和月份只写输入里出现过的，一律用阿拉伯数字；写到次数时照抄统计里的那一行，不要自己数；不要补造输入里没有的经过、看法或别人说的话。某一类没有输入时写 null。只调用一次 submit_memory_digest。
+你替模拟世界里的一个人物把他上一年的月回顾整理成这一年的回忆。输入按饮食、工作、生活三类给出那一年每个月的月回顾，每段带月份和编号，没整理出来的月份写着「未整理」；另附代码从事件算出的全年次数统计，让你知道哪些事常有。每类写一段不超过 2000 字的话，用他的第一人称，像人回想过去一年那样写：这一年这类事固定下来的习惯、口味和做法，哪些看法后来变了、大约什么时候变的，到年底还成立的看法和打算，哪些事值得记住。时间说年初、春天、几月份、年底这样的说法，次数说几乎每天、常常、偶尔这样的说法，不照抄统计行。只凭输入写，不补造输入里没有的经过、看法或别人说的话，不写编号或其他内部标识。在 refs 里写所依据的月回顾编号，至少一个。某一类没有输入时写 null。只调用一次 submit_memory_digest。
 ```
 
 ### 输出校验
@@ -234,58 +236,17 @@ self.t = t
 - 这一类有输入、此前的尝试已接受它：跳过，这次尝试给它的值不看。
 - 这一类有输入、还没接受：值为 null 时错误 `digests.{key} must not be null: the input has {key} records`；否则按下表次序跑全部守卫，一条问题都没有才接受这一段。
 
-**守卫用到的概念：**
-
-- 这一类的输入：日回顾是这一类各行的全部字符串（时刻、核验、当时查到、自述）；月、年回顾是这一类各行的全部字符串（日期或月份、回顾）加这一类的全部次数统计行。人物卡片不属于任何一类的输入。
-- 一条输入：一行；月、年回顾的每条次数统计行各算一条。一条输入的字符串值是这一行除「编号」以外的全部字符串值（日回顾为时刻、各条核验、各条当时查到、各项自述；月、年回顾为日期或月份、回顾），一条次数统计行的字符串值就是它本身；「未整理」的布尔值不是字符串值。
-- 一条输入「含某个名称」，指这个名称是它某个字符串值的子串；「这一类输入含某个名称」，指这一类某条输入含它。一条输入的数字记号，是对它的每个字符串值分别 `NUMBER_TOKEN.finditer` 所得记号的并集；这一类输入的数字记号集合是这一类各条输入的数字记号的并集。数字记号从不在把几个字符串接起来的文字上提取。`DigestRow.text`（各字符串值用 `\n` 接起来）只用于名称查找：名称不含 `\n`，在它上面查子串与逐个字符串值查子串结果相同。
-- 句：正文按 `re.findall(r"[^。！？]+[。！？]?", text)` 切出的各段，即以。！？结尾的一段文字，正文末尾没有这三个标点的剩余部分也算一句；只由这三个标点组成的片段不是句。「同句」指同一个这样的片段。
-- 目录名称（`DigestInputs.names`）：冻结目录里商品的 `name`、内容的 `title`、系列的 `series.title`、app 的 `name`、地点的 `name` 与 `display_name`，去重后只留 `len ≥ 3` 的，按字符串升序。商品名称（`DigestInputs.goods_names`）是 `names` 中等于某件商品 `name` 的那些；食材包名称（`DigestInputs.kit_names`）是 `goods_names` 中等于某件食材包商品 `name` 的那些，食材包商品是 `catalog.kit_states()`（第 08 章）各状态 `catalog.callback_states[state].reset_on_goods` 里的商品。三者都已按 `len ≥ 3` 过滤，`len < 3` 的名称不受「名称」「饮食核验名称」「做饭那一句」三道守卫检查；必写名称不受这一过滤。正文包含某个名称作子串，就算正文写到了它；两个名称互相包含时两个都算写到。
-- 数字记号：`re.finditer` 下面的正则在正文或一个字符串值里匹配到的每段文字：
-
-  ```python
-  QUANTITY_UNITS = ("分钟", "小时", "公里", "份", "个", "件", "杯", "瓶", "盒", "包", "袋", "碗", "串", "块", "片",
-                    "条", "项", "次", "遍", "集", "页", "本", "天", "步")
-  NUMBER_TOKEN = re.compile(
-      r"(?<![\d.:\-])(?:\d{4}-\d{2}-\d{2}(?![\d\-])"   # 日期 YYYY-MM-DD
-      r"|\d{4}-\d{2}(?![\d\-])"                         # 月份 YYYY-MM
-      r"|\d{1,2}月\d{1,2}日"                            # 日期 M月D日
-      r"|\d{1,2}:\d{2}(?![\d:])"                        # 时刻 HH:MM
-      r"|\d+(?:\.\d+)?\s?元"                            # 金额
-      r"|\d+(?:\.\d+)?\s?(?:" + "|".join(QUANTITY_UNITS) + r"))"   # 数量
-      r"|\d+(?:\.\d+)?")                                          # 其余阿拉伯数字
-  ```
-
-  不属于前六种写法的阿拉伯数字串由最后一项取成单独的数字记号（如 `2顿` 里的 `2`、`10点` 里的 `10`、`2026年` 里的 `2026`），同样整段比较。最后一项放在开头的零宽断言之外：紧跟在 `-`、`.`、`:` 之后、前六种写法都不从那里开始的数字串（如 `10-12` 里的 `12`、`8:30:15` 里的 `30` 与 `15`）同样成为记号。每一项都把它起头的那串数字读完，所以正文里的每个阿拉伯数字都落在某个记号里。
-
-  记号按整段文字比较，不做任何规范化：`8:30` 与 `08:30` 不同，`18.3 元` 与 `18.3元` 不同，`2026-10` 不等于 `2026-10-09` 里的一段。
-- 必写名称（`DigestInputs.food_required`，只用于日回顾的饮食类）：先是 D 当天（按归日）本人 `goods_received` 中商品类别为 `meal`、`snack`、`drink` 的商品名称，按事件序号去重，只留作子串出现在饮食各行「核验」字符串里的；再是 D 当天结束、在「活动 → 所用食材包」映射里 `goods_id` 不为 None 的活动所用的食材包商品名称，按结束事件序号去重，同样只留作子串出现在饮食各行「核验」字符串里的；两组接起来再去重。
-- 当天做饭用的食材包（`DigestInputs.kits_cooked`）：上面第二组不经「核验」过滤的完整名单，按结束事件序号去重；只供「做饭那一句」使用。做饭活动被第 03 章规则 0 判给工作或生活时，它的结束行不在饮食类里，它的食材包只在名称另出现在饮食核验里（例如同一天的收货行）时才是必写名称，但总在这份名单里。
-
 **守卫表**（`{key}` 是类别键，`{tier}` 是 `day`、`month` 或 `year`）：
 
 | 守卫 | 适用 | 规则 | 不通过时的问题文字 |
 | --- | --- | --- | --- |
 | 正文非空 | 全部 | `text.strip()` 非空 | `digests.{key}.text must not be empty` |
 | 正文长度 | 全部 | `len(text)` 不超过日 200、月 800、年 2000 | `digests.{key}.text has {len(text)} characters; the {tier} digest limit is {limit}` |
-| 含中文 | 全部 | 至少一个 U+4E00–U+9FFF 的字符 | `digests.{key}.text must contain Chinese` |
-| 不含身份串 | 全部 | `contains_hex_identity(text)` 为假（8 位以上十六进制串） | `digests.{key}.text contains a hexadecimal identifier` |
 | 依据非空 | 全部 | `refs` 非空 | `digests.{key}.refs must cite at least one record number` |
 | 依据归属 | 全部 | 每个 ref 都是这一类某一行的编号 | `digests.{key}.refs: {ref} is not a {key} record number` |
-| 名称 | 全部 | 正文写到的每个目录名称（`names`），这一类输入都含它 | `digests.{key}: the name {name} does not appear in the {key} input` |
-| 饮食核验名称 | 日回顾的 `food` | 正文写到的每个商品名称（`goods_names`）都是饮食某行某条「核验」字符串的子串；只在「当时查到」或自述里出现的不算 | `digests.food: the goods name {name} does not appear in the food verified lines` |
-| 饮食覆盖 | 日回顾的 `food` | 必写名称都是正文的子串 | `digests.food must name every food received and every meal kit cooked that day; missing: {names}` |
-| 做饭那一句 | 日回顾的 `food` | 每个含「做饭」的句子里写到的食材包名称（`kit_names`），都在当天做饭用的食材包（`kits_cooked`）里 | `digests.food: the sentence about 做饭 names {kit}, but the meal kit cooked that day was {used}` |
-| 数字 | 全部 | 正文的每个数字记号都在这一类输入的数字记号集合里 | `digests.{key}: {token} does not appear in the {key} input` |
-| 数字同条 | 全部 | 一句写到了目录名称（`names`）时，这句的每个数字记号都要有这一类的一条输入，它的数字记号含这个记号，并且它含这句写到的某个目录名称 | `digests.{key}: {token} does not appear in the same input record as a name in its sentence` |
-| 次数照抄 | 月回顾、年回顾 | 单位为「次」的每个数字记号，都落在正文中这一类某条次数统计行逐字出现的那一段之内 | `digests.{key}: the count {token} must be copied with its whole count line` |
 
 - 「依据归属」每个不合的 ref 一条问题，按 refs 的次序，同一个 ref 只报一次。
-- 「名称」「饮食核验名称」每个不合的名称一条，按名称在正文里首次出现的位置排，位置相同按名称字符串排；同一名称只报一次。
-- 「饮食覆盖」只报一条，`{names}` 按必写名称的次序列出缺的，用「、」连接。
-- 「做饭那一句」每个（句，食材包名称）一条，按句的次序、再按名称在句中首次出现的位置；`{used}` 是当天做饭用的食材包名称用「、」连接，没有时写 `none`。
-- 「数字」「数字同条」「次数照抄」每个不合的记号一条，按记号在正文里出现的次序；同一守卫里同一记号只报一次。
-- 日回顾不适用「次数照抄」，所以日回顾里的「N 次」只能在它原样出现在这一类输入里时通过「数字」守卫。
+- 守卫只有这四道（第四批裁定）。正文写了什么不检查：名称是否出自输入，时刻、价钱、数量、日期、月份和次数是否出自输入或照抄统计行，有没有中文，含不含十六进制串，都不影响接受。守卫只看正文是否空白、正文的 `len`、`refs` 和这一类各行的编号，不读目录，不切句，不提取数字。
 
 **错误文字。** 一次尝试的全部问题按类别次序、再按守卫表的次序，用 `"; "` 连接，作为 `MemoryDigestOutputError` 的文字；它写进这次响应证据的 `error`，也附回下一次请求。
 
@@ -347,7 +308,8 @@ self.t = t
 ### 回顾不是事实
 
 - 环境从不读回顾来结算、核验或限制任何请求。读回顾事件的只有：记忆层「近三天」（第 03 章）、`search_memory`（第 05 章）、本章的月回顾和年回顾输入、分析工具（第 09 章）。
-- 回顾里的名称和数字出自输入，只由上面的守卫保证；守卫拦不住的错误——不带名称和数字的错误叙述、各自都在输入里但搭配错了的名称、汉字写的数——照样留在正文里。
+- 回顾是日记式的回忆，记要紧的事和当时的感受，不是设备日志（第四批裁定）。运行时只做「输出校验」的格式与长度检查，正文里的名称、时刻、价钱、数量、日期和次数都不查：写了输入里没有的东西、把早饭写成午饭、记错价钱或次数的段落，只要格式与长度合格，照样接受和登记。
+- 回顾与当天记录是否相符只由试点衡量：第 09 章的 M11 不读回顾的输入、不加载运行时代码，从事件独立测量饮食回顾的覆盖与错配；试点报告附每天的回顾与当天核验的对照表（`digest_review`），由模型核对的抽查写「模型核对」，不写人工抽查。
 
 ### 质量报告
 
@@ -375,20 +337,19 @@ self.t = t
 
 ### `src/worldmock/simulation_engine/evidence/memory_digest.py`（新建）
 
-回顾的输入、提示、工具、守卫、结果、证据草稿与登记草稿。函数都是纯函数或只读足迹库；只有两处进程内缓存。
+回顾的输入、提示、工具、守卫、结果、证据草稿与登记草稿。函数都是纯函数或只读足迹库；只有一处进程内缓存（「哪些期次要生成」的「缓存」）。
 
 | 名称 | 签名与说明 |
 | --- | --- |
 | `MEMORY_DIGEST_MAX_TOKENS` | `int = 8000` |
 | `MEMORY_DIGEST_TOOL` | `str = "submit_memory_digest"` |
 | `DAY_DIGEST_PROMPT`、`MONTH_DIGEST_PROMPT`、`YEAR_DIGEST_PROMPT`、`DIGEST_PROMPTS` | 见「提示原文」 |
-| `QUANTITY_UNITS`、`NUMBER_TOKEN` | 见「输出校验」 |
 | `class MemoryDigestOutputError(ValueError)` | 一次尝试不合格；文字是附回模型的英文问题列表 |
 | `class DigestParagraph(ToolRequestModel)` | `text: str`；`refs: list[str]` |
 | `class MemoryDigestRequest(ToolRequestModel)` | `food`、`work`、`life`，类型见「请求」 |
 | `@dataclass(frozen=True, slots=True) class DigestPeriod` | `tier: str`；`period: str`；`def call_id(self, agent_id: int, attempt: int) -> str` |
-| `@dataclass(frozen=True, slots=True) class DigestRow` | `number: str`（`n3`、`d2`、`m1`）；`payload: dict`（交给模型的那一行）；`sources: tuple[str, ...]`（这一行背后的事件身份）；`text: str`（这一行除「编号」以外的全部字符串值用 `\n` 接起来）；`verified: str`（日回顾这一行的核验字符串用 `\n` 接起来，月、年回顾为空串） |
-| `@dataclass(frozen=True, slots=True) class DigestInputs` | `period: DigestPeriod`；`payload: dict`；`rows: Mapping[str, tuple[DigestRow, ...]]`（类别键 → 行）；`counts: Mapping[str, tuple[str, ...]]`（类别键 → 次数统计行，日回顾为空）；`food_required: tuple[str, ...]`；`kits_cooked: tuple[str, ...]`（这两项只在日回顾非空，见「守卫用到的概念」）；`names: tuple[str, ...]`（目录名称）；`goods_names: frozenset[str]`（商品名称）；`kit_names: frozenset[str]`（食材包名称）。后三项由 `pending_inputs` 从 `context.catalog` 算出并缓存在 `WeakKeyDictionary[FootprintStore, tuple[Catalog, tuple[str, ...], frozenset[str], frozenset[str]]]` 里：缓存的目录与 `context.catalog` 是同一对象（`is`）时直接取用，否则重算并替换（`Catalog` 是带映射字段的冻结 dataclass，不能作散列键）；`check_attempt` 只读 `DigestInputs` 的字段，不读目录 |
+| `@dataclass(frozen=True, slots=True) class DigestRow` | `number: str`（`n3`、`d2`、`m1`）；`payload: dict`（交给模型的那一行）；`sources: tuple[str, ...]`（这一行背后的事件身份） |
+| `@dataclass(frozen=True, slots=True) class DigestInputs` | `period: DigestPeriod`；`payload: dict`（用户消息，月、年回顾的次数统计行只在这里）；`rows: Mapping[str, tuple[DigestRow, ...]]`（类别键 → 行）。`check_attempt` 与 `digest_outcome` 只读这三个字段 |
 | `@dataclass(frozen=True, slots=True) class DigestOutcome` | `period: DigestPeriod`；`digests: Mapping[str, dict \| None]`（事件 `data.digests` 的值）；`fallback: tuple[str, ...]` |
 | `memory_digest_tool() -> dict[str, Any]` | 唯一严格工具 |
 | `pending_inputs(context: EngineContext, observations: ObservationBuilder, agent_id: int, tier: str) -> list[DigestInputs]` | 这一级的候选期次中未登记、有输入的各期输入，按期次先后；没有输入的期次记进「不需要」缓存。层上下文取 `observations._layer_context(agent, [])`，与 day_plan_inputs.py:164 相同 |
@@ -403,7 +364,7 @@ self.t = t
 
 三种证据草稿的信封与 day_planning.py 的同名函数相同：`event_type` 依次为 `model_request`、`model_response`、`model_response`，`visibility="system"`、`source_kind="model"`；文档字符串写明是日、月、年回顾的证据。day_planning.py 的三个草稿函数不改，零点计划照旧用它们。
 
-私有辅助函数（每个不超过 50 行、5 个参数，中文文档字符串）：日、月、年三种输入的装配，候选日与各日各类有无输入的判定，目录名称、商品名称与食材包名称（由 `pending_inputs` 一侧调用、按上述方式缓存，结果放进 `DigestInputs`），切句，数字记号集合，各守卫（只读 `DigestInputs`）。模块不保存世界状态，不写事件。
+私有辅助函数（每个不超过 50 行、5 个参数，中文文档字符串）：日、月、年三种输入的装配，候选日与各日各类有无输入的判定，响应级检查与守卫表的四道守卫（只读 `DigestInputs`）。模块不保存世界状态，不写事件，不读目录名称，不导入 `contains_hex_identity`。
 
 ### `src/worldmock/simulation_engine/observation/memory/digests.py`（新建，位于记忆投影包 `observation/memory/`）
 
@@ -467,7 +428,7 @@ MEMORY_DIGEST_TEXT_LIMITS = MappingProxyType({"day": 200, "month": 800, "year": 
 
 ### `src/worldmock/state/interaction/requests.py`
 
-新增 `def contains_hex_identity(text: str) -> bool`（是否含 8 位以上十六进制串，即 `_MEMORY_HEX_IDENTITY.search(text) is not None`，:419）；`validate_memory_text`（:423-438）改用它，行为不变。
+新增 `def contains_hex_identity(text: str) -> bool`（是否含 8 位以上十六进制串，即 `_MEMORY_HEX_IDENTITY.search(text) is not None`，:419）；`validate_memory_text`（:423-438）改用它，行为不变。只有 `validate_memory_text` 用它：第四批裁定之后回顾不查十六进制串，函数名与位置照旧。
 
 ### `src/worldmock/recording_engine/events/environment_events.py`
 
@@ -491,7 +452,7 @@ MEMORY_DIGEST_TEXT_LIMITS = MappingProxyType({"day": 200, "month": 800, "year": 
 
 | 文档与位置 | 改完之后写明 |
 | --- | --- |
-| docs/design/06-agent.md「进度、待办与记忆」新增小节「日、月、年回顾」（锚点 `<a name="agent-日月年回顾"></a>`），放在第 03 章的「近三天」小节之后、第 05 章的「检索记忆」小节之前（各小节的次序见第 10 章「设计文档」）；原 :285-304 的就寝反思文字的删除见第 08 章 | 回顾是运行时在零点为每个人物做的独立模型调用，不经人物、不是决策；三级的期次、生成时机与零点次序（日→月→年→零点计划→节律），检查点之后与普通恢复的初始化里同样补做，运行到终点不做；哪些期次要生成（近三天的日子、上个月、上一年），三类都没有输入时不调用；三级的输入表（人物卡片只给日回顾，由环境一侧用 `render_card(persona_card(persona))` 从 persona.toml 构造，与工作区 profile 的 `persona_card` 逐字相同；条目全文按类切分并编号；工作类不启用时工作类没有行、必须为 null；月、年回顾的行与「未整理」行；次数统计的规则与写法）；请求：中文固定模板（逐字原文只在代码里）、紧凑 JSON 的用户消息、唯一严格工具 `submit_memory_digest`、思考关闭、底层不重试、输出上限见「宿主模型协议」；全部守卫的自然语言说明与「句」的定义；重试次数取 `reflection_validation_max_retries`，用尽时没通过的类记 null 并列入 `fallback`、运行继续；传输失败先提交证据再以运行故障停下；结果是 `memory_digest_generated`（链到记录引擎「事件与来源」）；回顾是整理出来的回忆，不是核验事实，环境从不据它结算 |
+| docs/design/06-agent.md「进度、待办与记忆」新增小节「日、月、年回顾」（锚点 `<a name="agent-日月年回顾"></a>`），放在第 03 章的「近三天」小节之后、第 05 章的「检索记忆」小节之前（各小节的次序见第 10 章「设计文档」）；原 :285-304 的就寝反思文字的删除见第 08 章 | 回顾是运行时在零点为每个人物做的独立模型调用，不经人物、不是决策；三级的期次、生成时机与零点次序（日→月→年→零点计划→节律），检查点之后与普通恢复的初始化里同样补做，运行到终点不做；哪些期次要生成（近三天的日子、上个月、上一年），三类都没有输入时不调用；三级的输入表（人物卡片只给日回顾，由环境一侧用 `render_card(persona_card(persona))` 从 persona.toml 构造，与工作区 profile 的 `persona_card` 逐字相同；条目全文按类切分并编号；工作类不启用时工作类没有行、必须为 null；月、年回顾的行与「未整理」行；次数统计的规则与写法）；请求：中文固定模板（逐字原文只在代码里），要求写成日记（要紧的事和当时的感受，时间说早上、中午、下午、晚上，不记流水账）、紧凑 JSON 的用户消息、唯一严格工具 `submit_memory_digest`、思考关闭、底层不重试、输出上限见「宿主模型协议」；输出只做格式与长度检查（响应格式、逐类 null 规则、正文非空、每类字数上限、refs 非空且都是这一类的编号），正文写的名称、数字和时间不检查；重试次数取 `reflection_validation_max_retries`，用尽时没通过的类记 null 并列入 `fallback`、运行继续；传输失败先提交证据再以运行故障停下；结果是 `memory_digest_generated`（链到记录引擎「事件与来源」）；回顾是整理出来的回忆，不是核验事实，环境从不据它结算 |
 | docs/design/06-agent.md「零点计划」:189-190 | 零点推进之后先做日、月、年回顾（链到新小节），再做零点计划，最后判定这一秒的唤醒；新建运行和反事实分支在开始的检查点之后、普通恢复在初始化时，也先补回顾、再做计划 |
 | docs/design/06-agent.md「人物身份与画像」:33-35 | 本章不改写，:35 的文字照第 08 章；回顾输入里的人物卡片只在新小节「日、月、年回顾」的输入表里写明（见上一行） |
 | docs/design/06-agent.md「宿主模型协议」:311 | 本章不改写，文字照第 08 章（其中「零点计划与回顾各用自己的 8,000」的 8,000 即本章的 `MEMORY_DIGEST_MAX_TOKENS`） |
@@ -515,11 +476,11 @@ MEMORY_DIGEST_TEXT_LIMITS = MappingProxyType({"day": 200, "month": 800, "year": 
 
 ### 新增
 
-**tests/unit/life/test_memory_digest_output.py**（纯函数；`DigestInputs` 由测试手工构造，`names`、`goods_names`、`kit_names` 按「守卫用到的概念」从夹具环境目录写出）
+**tests/unit/life/test_memory_digest_output.py**（纯函数；`DigestInputs` 由测试手工构造）
 
 | 测试 | 断言（对应的行为条款） |
 | --- | --- |
-| `test_digest_prompts_match_the_frozen_texts` | 三个提示常量逐字等于本章「提示原文」（测试里写死原文）；`DIGEST_PROMPTS` 的键恰为三级（提示原文） |
+| `test_digest_prompts_match_the_frozen_texts` | 三个提示常量逐字等于本章「提示原文」的日记式原文（测试里写死原文）；`DIGEST_PROMPTS` 的键恰为三级（提示原文） |
 | `test_submit_memory_digest_tool_and_schema_are_pinned` | `memory_digest_tool()` 逐值等于本章的工具字典；`deepseek_strict_schema(MemoryDigestRequest)` 逐值等于本章的 Schema（请求） |
 | `test_request_caps_output_and_disables_thinking[32000-8000]`、`[4096-4096]` | `prepare_digest_request` 的全部键与值；`max_tokens == min(8000, max_output_tokens)`；用户消息是紧凑、不排序的 JSON（请求、序列化） |
 | `test_request_over_capacity_fails_before_any_call` | 把 `context_window` 调小：抛 `RuntimeError("memory digest request capacity exceeded")`，日志有 `Memory digest request exceeds the model context`（请求） |
@@ -528,21 +489,15 @@ MEMORY_DIGEST_TEXT_LIMITS = MappingProxyType({"day": 200, "month": 800, "year": 
 | `test_response_level_errors[no-choice]`、`[two-choices]`、`[no-tool-call]`、`[other-tool]`、`[invalid-json]`、`[missing-key]`、`[extra-key]` | 错误文字逐字；这次尝试不接受任何类（响应级） |
 | `test_truncated_output_is_a_validation_failure` | `finish_reason="length"` 而工具调用合法：错误恰为 `memory digest output was truncated at max_tokens`，不接受任何类（响应级） |
 | `test_null_rules_follow_category_input` | 有输入的类给 null、无输入的类给段落各报对应文字；无输入的类给 null 不报（逐类） |
-| `test_text_guards[day-200]`、`[day-201]`、`[month-800]`、`[month-801]`、`[year-2000]`、`[year-2001]`、`[empty]`、`[blank]`、`[no-chinese]`、`[hex]` | 边界内通过、越界报长度文字；空、空白、无中文、含身份串各报对应文字（守卫表） |
-| `test_refs_must_cite_this_categorys_numbers` | 空 refs、别的类的编号、不存在的编号、重复的错编号只报一次（守卫表） |
-| `test_name_guard_reads_only_this_categorys_input` | 名称只在别的类或人物卡片里时报名称问题；在本类输入里通过；短于 3 字的目录名称不查（守卫表） |
-| `test_food_goods_names_must_come_from_verified_lines` | 商品名只在「当时查到」或自述里：报饮食核验名称问题；在核验里通过；工作类不跑这一守卫（守卫表） |
-| `test_food_coverage_requires_every_received_food_and_cooked_kit` | 手工构造的 `DigestInputs`：漏写一样收到的饮料、漏写做饭用的食材包各报一条，`missing` 按必写名称的次序列出、用「、」连接（守卫表、必写名称） |
-| `test_cooking_sentence_names_only_the_kit_cooked_that_day` | 「做饭」同句写了当天收到但没做的食材包：报问题且 `{used}` 正确；分在两句时不报；当天没做饭时 `{used}` 为 `none`（守卫表） |
-| `test_sentences_end_at_full_width_terminators` | 。！？切句；末尾无标点的剩余算一句；半角 `!`、`?` 不切句（句） |
-| `test_number_tokens_match_complete_forms` | `08:30` 在输入里通过，`8:30` 不通过；`18.3元` 通过，`18.3 元` 不通过；`1份` 通过，`2份` 不通过；月回顾里 `2026-10-09` 在行日期里通过，`10月9日` 不在输入时不通过；年回顾里 `2026-03` 在行月份里通过；本类没有、只在别的类里的记号不通过；一行的两个字符串分别以「10」结尾、以「份」开头时，正文写 `10份` 不通过（记号按字符串值分别提取）；饮食类输入只含 `10:30` 时，正文「吃了2顿」报 `digests.food: 2 does not appear in the food input`，「10点出门」报记号 `10`，「10-12点」报 `10` 与 `12`；这一类某个字符串含「3号线」时，正文写「3号线」通过（兜底的数字串）（数字守卫） |
-| `test_numbers_must_share_an_input_record_with_a_named_object` | 名称与时刻出自同一行通过；名称出自 n2、时刻出自 n3 时报同条问题；句中没有名称时只查存在（数字同条） |
-| `test_count_lines_must_be_copied_whole[month]`、`[year]` | 正文单写 `3 次` 报次数照抄问题；整行 `番茄牛肉刀削面 3 次` 通过；日回顾里同样的 `3 次` 只按数字守卫报（次数照抄） |
-| `test_problems_are_joined_in_category_and_guard_order` | 多类多守卫同时不合时错误文字的完整次序与 `"; "` 连接（错误文字） |
+| `test_text_guards[day-200]`、`[day-201]`、`[month-800]`、`[month-801]`、`[year-2000]`、`[year-2001]`、`[empty]`、`[blank]` | 恰在上限时通过，多一字时错误逐字为正文长度的问题文字；空串、全空白各报正文非空的问题文字（守卫表：正文非空、正文长度） |
+| `test_refs_must_cite_this_categorys_numbers` | 空 refs 恰报依据非空的问题文字；别的类的编号、不存在的编号各报一条依据归属的问题文字，按 refs 次序，重复的错编号只报一次（守卫表：依据非空、依据归属） |
+| `test_text_within_the_limit_is_accepted_whatever_it_mentions[clock-time]`、`[price]`、`[date]`、`[count]`、`[absent-name]`、`[hex]`、`[no-chinese]` | 不超过字数上限、refs 都是这一类编号的一段，正文分别写了输入里没有的时刻（`8:09`）、价钱（`35元`）、日期（`10月9日`）、次数（月回顾里不照抄统计行的 `5 次`）、夹具目录里有而这一类输入里没有的商品名、8 位以上的十六进制串（`a1b2c3d4e5`），或全文没有中文（`ok`）：这一类被接受，这次尝试的错误为 None，`digest_outcome` 的 `text` 逐字是原文；`[count]` 为月回顾，其余为日回顾的饮食类（守卫表只有四行） |
+| `test_removed_guard_names_no_longer_exist` | `memory_digest` 模块没有 `NUMBER_TOKEN`、`QUANTITY_UNITS` 属性；`DigestInputs` 的字段恰为 `period`、`payload`、`rows`，`DigestRow` 的字段恰为 `number`、`payload`、`sources`（`names`、`goods_names`、`kit_names`、`food_required`、`kits_cooked` 与只供已撤销守卫用的 `counts`、`text`、`verified` 都不存在）（接口与文件） |
+| `test_problems_are_joined_in_category_and_guard_order` | 日回顾三类同时不合：food 正文 201 字（另含输入里没有的时刻、价钱和商品名）且 refs 含工作类的编号，work 正文全空白且 refs 为空，life 有输入而为 null：错误文字逐字等于正文长度、依据归属、正文非空、依据非空、null 规则这五条问题按类别、再按守卫表次序用 `"; "` 连接，没有别的问题（错误文字、守卫表只有四行） |
 | `test_accepted_categories_survive_later_attempts` | 第一次 food 通过、work 不通过；第二次 food 改成不合格、work 通过：两类都按各自通过的那次接受，第二次的错误为 None（接受） |
 | `test_outcome_marks_unaccepted_categories_as_fallback` | 用尽后有输入未接受的类为 null 且在 `fallback`，次序为 food、work、life；无输入的类为 null 且不在（登记事件） |
 | `test_outcome_sources_and_citations_follow_rows` | `source_event_ids` 按行序去重，`cited_event_ids` 按 refs 次序去重且是前者的子集；月回顾的两者是日回顾事件身份（登记事件） |
-| `test_contains_hex_identity_is_shared_with_memory_text` | `contains_hex_identity` 与 `validate_memory_text` 对同一组字符串判定一致 |
+| `test_contains_hex_identity_is_shared_with_memory_text` | `contains_hex_identity` 与 `validate_memory_text` 对同一组字符串判定一致（requests.py；回顾的守卫不用它，见 `test_text_within_the_limit_is_accepted_whatever_it_mentions[hex]`） |
 
 **tests/unit/footprints/test_environment_events.py**（现有文件新增）
 
@@ -576,7 +531,6 @@ MEMORY_DIGEST_TEXT_LIMITS = MappingProxyType({"day": 200, "month": 800, "year": 
 | `test_midnight_crash_resume_generates_once` | 零点回顾调用传输失败使运行故障；从零点前的检查点恢复后跑过零点：分支库里这一期恰有一条回顾事件（恢复、分支） |
 | `test_digest_ops_records_and_transport_waits` | 每次调用一条 `MEMORY_DIGEST_CALL`，文字、级别、`call_ms`；有失败发送时另有一条传输等待记录（运维日志） |
 | `test_digest_does_not_change_the_world` | 登记前后的世界 JSON 除 `version` 外逐字节相同（回顾不是事实） |
-| `test_cooked_kit_judged_to_life_is_cooked_but_not_required` | 环境副本由 tests/life/environment_inputs.py 的 `grocery_environment`（`initial=0`，食材包为缺省的扑克牌，与第 08 章食材包用例同一种副本）建立，再 `set_content(root, "cook", memory_category="生活")`；引擎为 `engine_factory(environment_root=root, mutate=...)`，`mutate` 把 `stop_time` 改为 `2026-01-08T08:00:00+08:00`。2026-01-05 收到扑克牌，2026-01-06（D）用它做饭并做完；推进过 01-07 零点时只跑零点计划与节律、不跑回顾，然后 `pending_inputs(engine.context, engine.observations, 1, "day")` 里 D 那一期的 `food_required` 不含「扑克牌」、`kits_cooked == ("扑克牌",)`（必写名称、当天做饭用的食材包、第 03 章规则 0） |
 
 **tests/integration/runtime/test_env_lifecycle_coverage.py**（在现有文件里新增；`_inject_memory_digest_client` 与 `_inject_plan_day_client` 并列，二者共用一个调用次序列表）
 
@@ -602,7 +556,7 @@ MEMORY_DIGEST_TEXT_LIMITS = MappingProxyType({"day": 200, "month": 800, "year": 
 
 | 文件 | 修改 |
 | --- | --- |
-| tests/life/conftest.py | 新增 `memory_digest_response(arguments: dict \| str, finish_reason: str = "tool_calls", model: str = "test-model") -> dict`；新增 `StubMemoryDigestClient(model_identity=None, responses=None, raises=None, goods_names=None)`：记录请求，按脚本返回；`goods_names` 缺省取 tests/fixtures/dataset-environment 目录全部商品的 `name`（不按长度过滤）。脚本用尽后，桩把请求的用户消息按 JSON 解析（有「人物卡片」键为日回顾，否则为月、年回顾），对每个有输入（这一类的行列表非空）的类写一段：日回顾的饮食类，取 `goods_names` 中作子串出现在饮食各行「核验」字符串里的名称，按在这些字符串（按行序接起来）里首次出现的位置排、去重，写成 `"收到和用到了" + "、".join(名称) + "。"`，没有这样的名称时写「这一天吃喝照常。」；日回顾的工作类、生活类写「这一天这一类的事照常。」；月、年回顾写「这段时间的回顾已经整理。」。refs 为这一类全部编号，无输入的类为 null；这样写出的段落没有数字记号、不含「做饭」、名称都出自饮食核验，能通过全部守卫。`raises` 非空时下一次调用抛出。`settle_day_plans`（:202-209）改名为 `settle_midnight_tasks(engine, plan_client=None, digest_client=None)`：先跑回顾（缺省用桩），再跑零点计划，再在零点待判时判定节律；`advance_next`（:241-247）改调它；tests/integration/life/test_day_plan_arrangement.py:38 与 tests/integration/life/test_planning_and_errand_evidence.py:215 两处调用随之改名 |
+| tests/life/conftest.py | 新增 `memory_digest_response(arguments: dict \| str, finish_reason: str = "tool_calls", model: str = "test-model") -> dict`；新增 `StubMemoryDigestClient(model_identity=None, responses=None, raises=None)`：记录请求，按脚本返回；饮食类用到的商品名取 tests/fixtures/dataset-environment 目录全部商品的 `name`（不按长度过滤）。脚本用尽后，桩把请求的用户消息按 JSON 解析（有「人物卡片」键为日回顾，否则为月、年回顾），对每个有输入（这一类的行列表非空）的类写一段：日回顾的饮食类，取这些商品名中作子串出现在饮食各行「核验」字符串里的名称，按在这些字符串（按行序接起来）里首次出现的位置排、去重，写成 `"收到和用到了" + "、".join(名称) + "。"`，没有这样的名称时写「这一天吃喝照常。」；日回顾的工作类、生活类写「这一天这一类的事照常。」；月、年回顾写「这段时间的回顾已经整理。」。refs 为这一类全部编号，无输入的类为 null；这样写出的段落非空、refs 都是这一类的编号，在夹具的条目量下不超过字数上限，能通过全部守卫。`raises` 非空时下一次调用抛出。`settle_day_plans`（:202-209）改名为 `settle_midnight_tasks(engine, plan_client=None, digest_client=None)`：先跑回顾（缺省用桩），再跑零点计划，再在零点待判时判定节律；`advance_next`（:241-247）改调它；tests/integration/life/test_day_plan_arrangement.py:38 与 tests/integration/life/test_planning_and_errand_evidence.py:215 两处调用随之改名 |
 | tests/integration/runtime/native_runtime_fixtures.py:130、tests/integration/runtime/test_public_runtime_boundaries.py:204 | 同时把 `runtime.MemoryDigestClient` 换成 `StubMemoryDigestClient` |
 | tests/integration/runtime/test_public_runtime_boundaries.py:149 | 加一句 `MemoryDigestClient(identity).call(request)` 的同样断言 |
 | tests/unit/engineering/test_shared_model_clients.py:20 | `CLIENTS` 加 `(MemoryDigestClient, 'Memory digest')` |
@@ -638,29 +592,23 @@ MEMORY_DIGEST_TEXT_LIMITS = MappingProxyType({"day": 200, "month": 800, "year": 
 | 月、年回顾要不要人物卡片 | 不给 | 提案只在日回顾的输入里列人物卡片 |
 | 全是「未整理」行的类 | 算有输入，照样要求一段 | 提案把「未整理」行列为输入；「没有输入的类写 null」按字面 |
 | 用户消息的序列化 | 紧凑 JSON、不排序，键按本章次序 | `sort_keys` 会把「编号」排到行尾；提案示例里编号在前 |
-| 日回顾要不要日期键，月、年回顾要不要期次键 | 都不给 | 提案的输入清单不含它们；数字守卫因此只放行行里出现的日期和月份 |
-| 次数统计里的食材包 | 按做饭使用计，收货不另计；其余饮食商品按收货计（只算 meal、snack、drink） | 与饮食覆盖守卫必写名称的取法相同（后者另按当天饮食核验过滤）；避免同名两行 |
+| 日回顾要不要日期键，月、年回顾要不要期次键 | 都不给 | 提案的输入清单不含它们 |
+| 次数统计里的食材包 | 按做饭使用计，收货不另计；其余饮食商品按收货计（只算 meal、snack、drink） | 提案「每样收到的商品和每份用过的食材包」；避免同名两行 |
 | 工作、生活类计哪些活动 | 区间内结束、终态是 `completed` 或 `cancelled`、判给这一类的活动；`failed` 与运行截止的 `truncated` 不计 | 提案「收尾或自然结束的活动」；`truncated` 只在运行截止时出现（activities.py:138-142，docs/design/04-simulation-engine.md:507），既不是收尾也不是自然结束 |
 | 次数统计行的写法 | `f"{名称} {次数} 次"`，两个半角空格 | 提案「〈商品名〉 N 次」的字面 |
 | 行为空的类的次数统计 | 写空列表 | 避免模型在必须写 null 的类里看到统计 |
-| 数字守卫的「完整写法」 | 本章的正则：六种完整写法加兜底的数字串，每个阿拉伯数字都落在某个记号里（兜底一项在零宽断言之外，`-`、`.`、`:` 之后的数字串也成为记号）；记号整段比较、不规范化 | 提案「按完整写法核对，必须原样出现」；裁定 8「每个阿拉伯数字都必须出自输入」 |
-| 「次数照抄」的判定 | 单位为「次」的记号必须落在正文里逐字出现的统计行之内 | 提案「照抄统计行作为连续子串」 |
-| 「句」的切法 | 按。！？切，末尾没有标点的剩余也算一句；半角标点不切 | 提案「以。！？结尾的一段文字」 |
-| 名称守卫用哪些目录名称 | 商品名、内容标题、系列标题、app 名、地点名与显示名，`len ≥ 3`；人物卡片不算任何一类的输入；「饮食核验名称」「做饭那一句」用的商品名称、食材包名称是其中的子集，同样 `len ≥ 3`；必写名称不按长度过滤 | 提案「≥3 字的商品名、内容标题、app 名和地点名」「必须出现在这一类的输入里」；三道名称守卫用同一份名单 |
-| 饮食覆盖的必写名单 | 当天 `goods_received` 的 meal、snack、drink 商品中出现在饮食核验里的，加当天做饭用的食材包中出现在饮食核验里的；「做饭那一句」用不经核验过滤的 `kits_cooked` | 提案「当天饮食核验里收到的 meal、snack、drink 商品名，以及做饭结束句里所用的食材包名」；做饭活动被规则 0 判给别的类时，结束行不在饮食类，不过滤就会与「名称」守卫互相矛盾 |
 | 证据草稿与调用记录的归属 | 回顾的三个证据草稿在 memory_digest.py，runner 新增 `_call_memory_digest`、`_log_memory_digest_call`，零点计划一侧不改；运维码 MEMORY_DIGEST_CALL | 提案第三章代码表把回顾的证据草稿列在 memory_digest.py，代码表没有 day_planning.py |
 | 容量预检 | 第一次请求不得超过窗口的 85%，超过即运行故障，不裁剪 | 现有每次模型调用都做容量预检；回顾的输入按规则不截断 |
 | 回顾事件的读取 | 只有 `observation/memory/digests.py` 的 `registered_digests` 一处，同期两条即完整性错误 | 第 03、05 章和本章都读回顾；「按 (store, agent) 增量缓存」 |
 | 「不需要回顾」怎样记 | 只在进程内缓存，不写事件 | 提案「记一次『不需要回顾』」且不新增 AgentState 字段、世界保持 15 |
-| 事件闭集校验的范围 | 只核对形状（键、取值、长度、身份列表、fallback 与 null 的对应），不重跑生成时的守卫 | 提案「闭集字段分支（tier、period 的取值和对应关系）」；守卫依赖目录和输入，读取时没有 |
-| 十六进制身份串检查 | requests.py 公开 `contains_hex_identity`，`validate_memory_text` 与回顾共用 | 同一条规则只维护一处 |
+| 事件闭集校验的范围 | 只核对形状（键、取值、长度、身份列表、fallback 与 null 的对应）：正文非空与正文长度随形状一并核对，依据非空对应 `cited_event_ids` 非空；不按这一期的输入行重跑「依据归属」 | 提案「闭集字段分支（tier、period 的取值和对应关系）」；「依据归属」依赖这一期的输入行，读取时没有 |
+| 十六进制身份串检查 | requests.py 公开 `contains_hex_identity`，只由 `validate_memory_text` 使用；回顾不查十六进制串 | 第四批裁定只留格式与长度检查；函数名与位置照旧，不为此改名 |
+| 只供已撤销守卫用的数据 | `DigestRow.text`、`DigestRow.verified` 与 `DigestInputs.counts` 随 `names`、`goods_names`、`kit_names`、`food_required`、`kits_cooked` 一并删除；次数统计行只留在 `payload` 里 | 第四批裁定撤销九道守卫，连同只为它们存在的概念与数据：`text` 只供名称守卫查找，`verified` 只供饮食核验名称与必写名称，`counts` 只供数字与次数照抄守卫；剩下的四道守卫只读正文、`refs` 与各行编号 |
 | 工具与参数对象的说明 | 工具 description 用英文；参数对象不带 description | 零点计划工具的写法；`ToolRequestModel` 的缺省 |
 | 正文是否修剪 | 原样保存，非空按 `strip()` 判定 | 提案不要求改写模型输出 |
 | 用尽时的日志 | 写 Python 错误日志，不新增运维码 | 异常分支必须有错误日志（AGENTS.md）；运维码只记调用 |
 | 恢复辅助函数的名称 | `_settle_day_plans_on_resume` 改名为 `_settle_midnight_tasks_on_resume` | 它现在依次运行两个零点任务 |
 | 测试辅助函数的名称 | `settle_day_plans` 改名为 `settle_midnight_tasks` | 它现在依次运行回顾、计划与节律 |
-| 守卫怎样拿到目录名称 | `DigestInputs` 带 `names`、`goods_names`、`kit_names`，由 `pending_inputs` 从 `context.catalog` 算出并按足迹库对象缓存（目录同一对象时复用）；`check_attempt` 不读目录 | `check_attempt` 是只读 `DigestInputs` 的纯函数；`Catalog` 是带映射字段的冻结 dataclass，不能作散列键 |
-| 数字记号在哪段文字上提取 | 对每个字符串值分别提取后取并集；名称按字符串值查子串 | 接起来的文字会让 `\s?` 跨过 `\n` 生成跨字符串的记号，使「数字」与「数字同条」两道守卫的记号集合不一致 |
 | 工作类不启用时的回顾 | 三个类别键照常出现，工作类为空列表或空行，模型必须给 null，`work` 不进 `fallback` | 第 03 章第 8 节「04 不为它生成回顾」；工具 Schema 固定要求三个键 |
 | 次数统计放在哪里、怎样取类别与食材包 | `days.count_lines`；categories.py 与 entries.py 都在 days.py 模块级导入；活动类别按第 02 章【E11】的快照与开始结果读法；「活动 → 所用食材包」取 `entries.activity_facts(cached).kits`（10 章跨章裁定：此前写的函数内导入与 `activity_category(book, context.state, activity)` 不合第 03 章的导入边界与签名） | 提案第三章代码表「days.py……P3 加次数统计」；第 03 章只禁止 days.py 导入 progress_layer.py、memory_layer.py、day_plan_inputs.py；`activity_category(book, activity, goods_ids)` 不读世界状态 |
 | 「已登记」检查放在哪里 | 只在 `registration_draft` 做一次并写日志；证据为空的检查在 `TimeAdvanceCoordinator.register_memory_digest` | 每条规则只在一处；`causes` 由协调器从证据取得 |

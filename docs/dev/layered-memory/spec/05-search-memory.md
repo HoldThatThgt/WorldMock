@@ -1,6 +1,6 @@
 # 05 search_memory 与工具面
 
-> 属于[分层记忆开发规格](../SPEC-layered-memory.md)。代码基线 f67c25e5。
+> 属于[分层记忆开发规格](../SPEC-layered-memory.md)。代码基线 f67c25e5。第四批裁定（2026-10-30）修订。
 
 ## 目标与依据
 
@@ -89,7 +89,7 @@
 - 检索的回答只依赖：冻结观察事件 `observation`（它的 `event_seq` 是截止序号，它的 `occurred_at` 是「此刻」）、序号不超过截止序号的事件、冻结的环境输入（目录、人设、配置）。它不读 `EngineContext.state`。
 - 检索不写任何事件，不改世界状态，不推进时间，不写人物记忆；一次检索前后 `store.last_event_seq` 与 `state.model_dump_json()` 都不变。一次决策里，检索与下一次模型请求之间除了 `model_request`、`model_response` 没有别的事件。
 - 回答是确定性的：同一份事件、同一个截止序号和同一个请求，结果逐字节相同；重新打开运行（`LifeEngine.open`）后再算也相同。
-- 结果里不出现任何内部身份：没有事件身份、决策身份、`source_event_ids`、`cited_event_ids`、活动身份或十六进制串；条目只用 02 的全文形状，回顾只给正文。
+- 结果里不出现任何内部身份：没有事件身份、决策身份、`source_event_ids`、`cited_event_ids`、活动身份，检索也不加入任何十六进制串；条目只用 02 的全文形状，回顾只给正文。回顾正文是模型写的原文，第四批裁定之后生成时不查其中有没有十六进制串（04「输出校验」），正文里写了的会原样出现在结果里。
 - 结果的顶层没有 `result` 键，所以 `_earlier_changes`（life_continuation.py:102-108）把检索的 tool 消息认作非续接消息。
 
 ### 【S6】时间的解析
@@ -473,7 +473,7 @@ class MemorySources:
 | `test_unsorted_day_falls_back_to_that_days_raw_entries`：第一天做两次决策，跨零点由 `StubMemoryDigestClient` 让生活类重试用尽，第二天检索第一天生活类得到 `"未整理":true` 和那天的原始条目（含零点收尾条目） | S7、S11 |
 | `test_search_reads_nothing_after_the_frozen_observation`：以较早的观察事件调用 `engine.search_memory`，之后登记的回顾和条目不出现 | S5 |
 | `test_search_does_not_write_or_change_the_world`：前后 `last_event_seq` 与世界状态 JSON 相同 | S5 |
-| `test_search_results_carry_no_internal_identity`：结果里没有任何事件身份、决策身份、`source_event_ids` 的值，也没有 8 位以上十六进制串 | S5 |
+| `test_search_results_carry_no_internal_identity`：结果里没有任何事件身份、决策身份、`source_event_ids` 的值，也没有 8 位以上十六进制串（夹具的回顾由确定性桩 `StubMemoryDigestClient` 写成，不含十六进制串） | S5 |
 | `test_search_is_byte_identical_after_reopening_the_run` | S5 |
 
 ### 新增 tests/integration/runtime/test_memory_search_tool.py
