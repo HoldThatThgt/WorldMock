@@ -29,7 +29,7 @@ flowchart LR
 | [行为评估](design/07-evaluation.md) | 保留行为与工作统计、工具归属和缺失说明 |
 | [配置](design/08-configuration.md) | 单人人设、工作安排、运行配置、模型身份与加载检查 |
 | [状态与序列化](design/09-io-formats.md) | 世界与人物状态、严格字段和编码规则 |
-| [运行与框架集成](design/10-runtime.md) | AgentSociety 装配、生命周期、命令行、安装和恢复 |
+| [运行装配与决策循环](design/10-runtime.md) | 运行装配、决策循环、生命周期、命令行、安装和恢复 |
 
 在仓库根执行 `python scripts/build_design_doc.py`，得到 `.work/docs/design/worldmock-design.html`。
 HTML 是阅读附件，只从模块正文生成，不直接编辑、不进入版本控制。

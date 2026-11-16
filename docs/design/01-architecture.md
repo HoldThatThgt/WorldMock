@@ -45,8 +45,8 @@ flowchart TB
     D --> O[模型训练数据与规则引擎测试数据]
 ```
 
-图中的引擎表示职责边界。AgentSociety 2 提供调度、模型调用、人物决策与记忆基础；
-LifeAgent 承载数字人，LifeEnv 是模拟引擎接入 AgentSociety 2 的环境入口。
+图中的引擎表示职责边界。WorldMock 自有的决策循环由运行宿主 `RunHost` 承担：它驱动决策轮、推进与共同检查点；
+LifeAgent 承载数字人，`LifeEngine` 是模拟引擎的门面：运行宿主经它编排决策轮，人物只经五个方法接触世界。
 源码按 resource_engine、exchange_engine、simulation_engine、recording_engine 四个引擎组织，
 引擎内部按登记、计算、活动、调度、观察和记录等职责分子目录。
 跨模块共用的状态、请求与纯字段判定在 state 中维护，通用模型、文件和序列化函数在 foundation 中维护。
@@ -68,7 +68,7 @@ LifeAgent 承载数字人，LifeEnv 是模拟引擎接入 AgentSociety 2 的环�
 | LabelKit-DataSet 数据加工 | 证据窗口、离线经历回顾与假设推演、LabelKit 加工、样本校验与发布 | 交付可追溯的训练数据与规则测试数据 |
 | [行为评估](07-evaluation.md) | 依据已记录事实计算行为与工作统计 | 带来源与缺失说明的统计 |
 
-LifeEnv 与活动属于模拟引擎的执行职责；数字足迹、检查点和分支存储属于记录引擎。
+LifeEngine 与活动属于模拟引擎的执行职责；数字足迹、检查点和分支存储属于记录引擎。
 离线数据加工由 LabelKit-DataSet 消费认证导出，
 默认不写回仍在运行的数字人；数字人运行中的收尾记忆由人物模块维护，今天条目与日、月、年回顾由模拟引擎从已提交事件和零点的模型调用生成。
 反事实分支中的实际执行由模拟引擎编排，分支保存和来源关系由记录引擎维护。
@@ -84,7 +84,7 @@ LifeEnv 与活动属于模拟引擎的执行职责；数字足迹、检查点和
 | 主观记忆、画像与模型会话 | 人物模块 | 引用真实事件形成主观记录，不能改变客观结果 |
 | 持久事件、素材、状态版本与检查点 | 记录引擎 | 在一次提交内保存并校验，向恢复与评估提供已记录事实 |
 
-运行宿主组织调用，不另建世界状态副本。字段面见[状态与序列化](09-io-formats.md)，
+运行宿主（`src/worldmock/runtime/lifecycle/run_host.py` 的 `RunHost`）组织调用，不另建世界状态副本，也不持有第二份时钟。字段面见[状态与序列化](09-io-formats.md)，
 变化规则见[模拟引擎](04-simulation-engine.md)，事务边界见[记录引擎](05-recording-engine.md)。
 
 <a name="architecture-端到端数据流"></a>
@@ -123,7 +123,7 @@ flowchart LR
 模型的叙述只作为主观文字保存，不能代替实际进度、支付或收货。
 
 请求和受理规则见[人物工具与管理接口](04-simulation-engine.md)，
-提示与模型协议见[人物](06-agent.md)，框架调用边界见[运行与框架集成](10-runtime.md)。
+提示与模型协议见[人物](06-agent.md)，决策循环与运行装配见[运行装配与决策循环](10-runtime.md)。
 
 <a name="architecture-事件驱动的时间推进"></a>
 ### 事件驱动的时间推进
@@ -169,10 +169,10 @@ LifeEngine 保留创建、打开、观察、动作、推进与检查点接口；
 
 | 职责 | 现有承载位置 | 详细设计 |
 | --- | --- | --- |
-| 数字人 | [LifeAgent](../../custom/agents/life_agent.py)、[日、月、年回顾](../../src/worldmock/simulation_engine/evidence/memory_digest.py)、[人物画像](../../src/worldmock/configuration/persona)、AgentSociety 2 人物与记忆模块 | [人物](06-agent.md) |
+| 数字人 | [LifeAgent](../../src/worldmock/agents/life_agent.py)、[回合循环](../../src/worldmock/agents/protocol/react_loop.py)、[人物工作区与记忆存储](../../src/worldmock/agents/memory)、[日、月、年回顾](../../src/worldmock/simulation_engine/evidence/memory_digest.py)、[人物画像](../../src/worldmock/configuration/persona) | [人物](06-agent.md) |
 | 资源引擎 | [目录登记、加载与图查询](../../src/worldmock/resource_engine)及只读反向索引；内容选择与进度由模拟引擎负责 | [资源引擎](03-resource-engine.md) |
 | 交换引擎 | [固定类型、常数与算子](../../src/worldmock/exchange_engine)、[具体动作声明](../../src/worldmock/exchange_engine/conditions/activity_rules.py)、[资源分录计算与校验](../../src/worldmock/exchange_engine/ledger)及生活模型中的条件、费用和报酬规则 | [交换引擎](02-exchange-engine.md) |
-| 模拟引擎 | [模拟职责](../../src/worldmock/simulation_engine)、[LifeEnv](../../custom/envs/life_env.py)、[运行装配](../../src/worldmock/runtime) | [模拟引擎](04-simulation-engine.md) |
+| 模拟引擎 | [模拟职责](../../src/worldmock/simulation_engine)、[LifeEngine](../../src/worldmock/simulation_engine/engine.py)、[运行装配](../../src/worldmock/runtime)（[运行宿主](../../src/worldmock/runtime/lifecycle/run_host.py)、[零点任务](../../src/worldmock/runtime/lifecycle/midnight.py)） | [模拟引擎](04-simulation-engine.md) |
 | 记录引擎 | [足迹存储](../../src/worldmock/recording_engine)、[素材存储](../../src/worldmock/recording_engine/storage/assets.py) | [记录引擎](05-recording-engine.md) |
 | 完整导出与分析 | [导出模块](../../src/worldmock/recording_engine/export/export.py)、[分析工具](../../tools/analysis) | [记录引擎](05-recording-engine.md)、[行为评估](07-evaluation.md) |
 
@@ -192,7 +192,7 @@ LifeEngine 是现有内部代码载体，不作为四个引擎之外的另一项
 | 环境目录 | 提供登记对象、绑定、内容与发布图 | [资源引擎](03-resource-engine.md) |
 | 包内规则 | 提供固定类别与结算算法 | [交换引擎](02-exchange-engine.md) |
 | 模型凭证 | 在运行环境读取，不进入仓库或数字足迹 | [配置](08-configuration.md) |
-| 命令行与依赖 | 发起校验、运行、恢复、导出和评估 | [运行与框架集成](10-runtime.md) |
+| 命令行与依赖 | 发起校验、运行、恢复、导出和评估 | [运行装配与决策循环](10-runtime.md) |
 
 输入、代码和模型身份在运行开始时冻结，恢复必须匹配；格式与身份只在所属模块维护。
 旧格式直接拒绝，不设置兼容读取或迁移路径。
@@ -222,14 +222,14 @@ flowchart LR
 结构检查直接验证模块依赖，行为测试验证状态只有一个写入入口。
 资源、交换、记录和共享状态不依赖模拟执行、人物执行或运行宿主；生产包不导入 tools 或 scripts。
 时间线的共用投影由记录引擎提供，工程查看命令调用它，记录引擎不按路径加载工程脚本。
-认证质量报告所需的统计保留在记录引擎，独立行为与工作分析放在 tools/analysis，纳入同一套风格、覆盖与变异检查。
+认证质量报告所需的统计保留在记录引擎，独立行为与工作分析放在 tools/analysis；风格、覆盖与变异检查的生产根恰为 src/worldmock 与 tools/analysis。
 
 <a name="architecture-核心决策"></a>
 ## 核心决策
 
 | 设计决定 | 原因 |
 | --- | --- |
-| 复用 AgentSociety、Pydantic、JSON Schema 与 SQLite | 使用现有调度、校验、结构与事务能力，WorldMock 集中实现生活规则 |
+| 复用 litellm、Pydantic、JSON Schema 与 SQLite | 使用现有的模型调用、校验、结构与事务能力；决策轮由 WorldMock 自己的运行宿主承担，WorldMock 集中实现生活规则 |
 | 模型负责选择，环境负责事实 | 主观计划和叙述不能直接更改余额、身体、活动进度或完成状态 |
 | 统一模拟时钟与确定性结算 | 唯一人物使用同一个已提交时间和世界，不依赖程序运行速度 |
 | 只提供实际可见内容 | 观察、查询与记忆可追溯到明确的世界版本和事件 |
@@ -273,8 +273,8 @@ python -m pytest tests
 
 | 证明 | 做什么 | 证明不了什么 |
 | --- | --- | --- |
-| 掩码完整日比较 `scripts/compare_complete_days.py` | 在基与头两个检出里各录活动日与回调日两份完整日，比较行为签名：与绑定代码身份的签名相同，只把运行清单与导出清单的 `code_sha256`、`git_commit`、`git_dirty` 换成占位、检查点里的 `manifest_sha256` 按屏蔽后的清单重算、质量报告里以代码摘要为键的那一项改用占位键 | 引擎被直接驱动，不经 LifeAgent：看不见动态提示渲染，系统文本、层结构和工具定义只经清单里的两个指纹看到；只有一天、人工环境，没有模型证据和重启 |
-| 录音应答运行 `scripts/recorded_response_run.py` | 用一次真实运行自己录下的模型应答，在 127.0.0.1 上重跑新代码：每次请求的模型可见字段必须与录音逐值相等，任何偏差以 HTTP 400 拒绝并写偏差报告；在录音的检查点位置重现重启；各段沿用来源的运行身份，因为动作随机流以带运行身份的动作身份为键（[配置](08-configuration.md)「唯一种子与随机键」） | 只覆盖有录音的提示谱系与操作系统；录音没走过的路径（传输失败、停驻、整次截止）不被检验；工具定义的键序只在两次重放之间比较 |
+| 掩码完整日比较 `scripts/compare_complete_days.py` | 在基与头两个检出里各录活动日与回调日两份完整日：每一侧用自己根目录引导出来的虚拟环境录制，子进程只从这一侧的 `src` 与根目录导入，两侧依赖锁可以不同；比较行为签名：与绑定代码身份的签名相同，只把运行清单与导出清单的 `code_sha256`、`git_commit`、`git_dirty` 换成占位、检查点里的 `manifest_sha256` 按屏蔽后的清单重算、质量报告里以代码摘要为键的那一项改用占位键 | 引擎被直接驱动，不经 LifeAgent：看不见动态提示渲染，系统文本、层结构和工具定义只经清单里的两个指纹看到；只有一天、人工环境，没有模型证据和重启 |
+| 录音应答运行 `scripts/recorded_response_run.py` | 用一次真实运行自己录下的模型应答，在 127.0.0.1 上重跑新代码：每次请求的模型可见字段必须与录音逐值相等，任何偏差以 HTTP 400 拒绝并写偏差报告；在录音的检查点位置重现重启；各段沿用来源的运行身份，因为动作随机流以带运行身份的动作身份为键（[配置](08-configuration.md)「唯一种子与随机键」）；子进程用运行工具的解释器，只从被测检出的 `src` 与根目录导入，同一份工具可重放任一检出，重放基线时用基线工作树自己的解释器运行它 | 只覆盖有录音的提示谱系与操作系统；录音没走过的路径（传输失败、停驻、整次截止）不被检验；工具定义的键序只在两次重放之间比较 |
 | 运行比对 `scripts/compare_runs.py` | 按[记录引擎](05-recording-engine.md)「运行比对」的字段分类比较两次运行的事件、清单、重启点与日终世界、检查点和每个导出工件 | 比的是存下的值，键序看不见 |
 
 掩码完整日比较在本地运行，不进 CI：声明不改变人物经历的变更不带规则比较，结论须为「相等」；改了记录形式的变更带声明的重建规则运行，结论为「在规则下相等」；报告附在 PR 里。

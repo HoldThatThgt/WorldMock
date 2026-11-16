@@ -137,8 +137,8 @@ flowchart LR
 
 `[model]` 的键只有上表这些：人物卡片不经模型，没有给它用的校验预算，写 `persona_validation_max_retries` 就是未知字段，
 与其他未知字段一样以 `RUN_CONFIG_INVALID` 拒绝。
-凭据值不进入文件、清单、提示或日志。两类服务重试由同一个 dispatcher 循环计数，每次失败只消耗一类预算，计数内的
-退避不变：传输失败第 n 次（从 0 起）等 2·2ⁿ 秒；限流与其他过载等 2ⁿ 秒、至多 60 秒，429 不短于服务给出的 `Retry-After`。
+凭据值不进入文件、清单、提示或日志。两类服务重试由模型客户端的同一个发送循环计数，每次失败只消耗一类预算，计数内的
+退避：传输失败第 n 次（从 0 起）等 2·2ⁿ 秒；限流 429 只按 litellm 的 `RateLimitError` 类型判定，等 2ⁿ 秒、至多 60 秒，不短于服务给出的 `Retry-After`；其他普通失败计数内立即重发；错误文字不参与判定。
 
 计数用尽后，传输失败与限流 429（按类型判定）不使运行失败而是停放：同一请求原样重发，两次发送之间按同一指数退避、
 至多 120 秒（429 不短于 `Retry-After`），从停放开始至多十二小时；无论计数内还是停放中，任何一次等待长于十二小时都立即
@@ -147,10 +147,20 @@ flowchart LR
 十二小时内仍未成功才失败，错误写明发送次数、耗时、最后的错误类型和根因异常链（只有类型名，不含服务返回的正文）；
 不合成成功或跳过模拟时间。
 
-其他普通失败（含 HTTP 502 `BadGatewayError`）在 `max_retries` 用尽后失败；鉴权与参数错误立即失败；底层隐式重试关闭。
+其他普通失败（含 HTTP 502 `BadGatewayError`）在 `max_retries` 用尽后失败；鉴权与参数错误立即失败；底层隐式重试关闭：每次发送显式传 SDK 重试 0 次与请求超时 300 秒，两者是引擎常量（不传时 litellm 会分别用 2 次与 600 秒）。
 每次发送受整次期限约束：120 秒加请求 `max_tokens` 每个 7.5 毫秒（16,000 时 240 秒，零点计划和回顾的 8,000 时 180 秒）。到期按
 传输超时计，重发同一请求；这是同一请求会得到新回答的唯一情形，只在服务卡住时发生。
 输出纠正是新的逻辑请求，各自受同一规则约束。
+
+<a name="configuration-模型客户端"></a>
+### 模型客户端
+
+整次运行只有一个模型客户端，即 `src/worldmock/configuration/model/model_client.py` 的 `ModelClient`，人物回合、零点计划与日、月、年回顾共用；它的构造与关闭时机见[运行装配与决策循环](10-runtime.md)「决策循环」。
+它直接调用 `litellm.acompletion`，不经 Router，也不用 litellm 的客户端缓存：构造时建一个 OpenAI SDK 异步网络客户端（SDK 重试 0 次、超时 300 秒），每次发送作为 `client=` 传入，关闭时关掉它。
+两类重试次数取自运行清单冻结的 `stage_model_identity`，构造时校验一次，不是 `0–10` 的严格整数时以 `Model retry budgets must be integers in [0, 10]` 拒绝；请求里不带重试次数。
+它只接受键集合恰为 `model`、`messages`、`tools`、`tool_choice`、`max_tokens`、`extra_body` 的请求，不合时以 `Model request keys must be exactly model, messages, tools, tool_choice, max_tokens, extra_body` 拒绝、不发送；同一请求的每次重发参数逐值相同。
+最终失败抛 `LLMDispatchError`，文字为 `Failed to get valid response after {N} attempts in {s:.1f} s. Last error type: {T}. Error chain: {chain}`，错误链只有类型名。
+`src` 里只有这个模块导入 litellm；它在导入 litellm 之前把 `LITELLM_LOCAL_MODEL_COST_MAP` 设为 `True`，不联网拉取价目表；token 计数用的 `token_counter` 也经这个模块取得。
 
 <a name="configuration-上下文核验"></a>
 ## 权威上下文核验
@@ -158,13 +168,13 @@ flowchart LR
 只读取实际服务元数据，按 `requested_model` 精确匹配唯一 `data[].id`，要求严格正整数
 `context_window` 与 `max_output_tokens`。总容量不得低于声明，输出上限不得超过总容量。
 元数据缺失、身份不存在或能力不足直接失败，不使用社区表、静态模型表或估算。
-接口位于 `model_endpoint`，token 计数继续使用已有 LiteLLM 能力。
+接口位于 `model_endpoint`，token 计数用 litellm 的 `token_counter`，经模型客户端模块取得。
 
 纯环境校验允许只读元数据 HTTP，不发生成请求。连接（含 TLS 与代理）、超时、响应体中断与 429/5xx 整次重试（GET、核对
 状态与解析 JSON 一起重来），至多五次，间隔 2、4、8、16 秒；鉴权失败、内容不合法与容量不足不重试。五次都失败时仍报
 `model context metadata is unavailable`。
-新运行在驱动与环境 actor 各读一次并冻结核验值与来源。
-恢复与重放不访问模型服务：驱动与环境 actor 都读父运行清单冻结的 `model_metadata`，与每个提示侧读者本来就读的那一份相同；
+新运行只在运行进程准入时读一次，冻结核验值与来源。
+恢复与重放不访问模型服务：运行进程读父运行清单冻结的 `model_metadata`，与每个提示侧读者本来就读的那一份相同；
 清单里的值缺失或不合法时报 `Frozen model metadata is missing or invalid`。
 服务容量在一条链的中途变小时，恢复不会提前发现，第一次模型调用以参数错误失败。
 发送容量与浓缩阈值取已核验实际总容量，预留输出满足服务输出上限。
@@ -176,8 +186,8 @@ flowchart LR
 登记失败的 `reason` 是固定英文原因后接一个空格和详情，没有详情时只有固定原因；
 行号、实际路径、地点对和更短路线等详情都经这一处到达作者。
 成功只返回 `valid`、`environment_id`、`environment_version`。
-新建运行在纯加载成功后由 `persona.toml` 直接构造人物卡片，不调用模型；恢复和重放核对工作区里的卡片与冻结的
-`persona.toml` 一致，见[人物](06-agent.md)「人物身份与画像」。命令行没有单独的人物卡片命令。
+新建运行在纯加载成功后由 `persona.toml` 直接构造人物卡片，不调用模型；恢复和重放在每次运行开始时同样由冻结的 `persona.toml` 构造卡片，不比对人物工作区，
+`persona.toml` 与父运行的一致由运行清单的 `persona_sha256` 核对，见[人物](06-agent.md)「人物身份与画像」。命令行没有单独的人物卡片命令。
 运行输入警告有两种，新建运行时算出、冻结进运行清单的 `input_warnings`、计入质量报告并各写一条运维日志，不使运行失败：
 没有任何 app 绑定内容而人物写了媒体口味或带「看、刷、听」的习惯（`CONTENT_EMPTY_WITH_MEDIA_TASTES`），
 以及地点显示名带坐标或标识形态（`LOCATION_NAME_SUSPICIOUS`）。警告条目的形状是 `{code, agent_id, message, details}`，
