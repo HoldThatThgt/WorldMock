@@ -4,17 +4,17 @@ import json
 from dataclasses import replace
 
 import pytest
-from litellm.exceptions import APIConnectionError, AuthenticationError
+from litellm.exceptions import APIConnectionError, AuthenticationError, BadGatewayError
 
-from agentsociety2.agent.base import ModelCallEvidence, ReactLoopRequest
-from agentsociety2.config.llm_dispatcher import LLMDispatchError
-from tests.integration.runtime.current_contract_fixtures import ToolResponse, environment, person
+from tests.integration.runtime.current_contract_fixtures import person
 from tests.integration.runtime.test_life_agent_protocol import _ModelResponse
 from tests.life.conftest import MAIN_TOOL, context, main_arguments, plan_day_response, stage_day_plan
 from tests.life.environment_runtime import events
-from tests.unit.as2.test_llm_dispatcher_transport import _client, _error
+from tests.unit.runtime.model_client_fixtures import provider_error, scripted_client
+from worldmock.configuration.model.model_client import REQUEST_KEYS, LLMDispatchError, ModelClient
 from worldmock.foundation.errors import ProtocolError
-from worldmock.runtime.lifecycle.runner import PlanDayClient, settle_pending_day_plans
+from worldmock.runtime.lifecycle.midnight import settle_pending_day_plans
+from worldmock.state.model.exchange import ModelCallEvidence
 
 
 ATTEMPTS = ({"attempt": 1, "error": "APIConnectionError", "failed_after_ms": 10, "wait_ms": 2000},
@@ -72,14 +72,11 @@ def test_malformed_attempts_are_rejected(engine_factory, attempts):
 SENT_AGAIN = {"attempt": 1, "error": "APIConnectionError", "failed_after_ms": 0, "wait_ms": 2000}
 
 
-def _plan_day_caller(monkeypatch, identity, script):
-    """按冻结身份建立真实 PlanDayClient；它取得的是只替换 Router 的真实 LLMClient，按脚本失败或作答。"""
-    import agentsociety2.config
-
-    inner, _ = _client(monkeypatch, script, clock=[0.0])
-    inner.model_name, inner.base_url = identity["requested_model"], identity["base_url"]
-    monkeypatch.setattr(agentsociety2.config, "build_client_for_role", lambda role: inner)
-    return PlanDayClient(identity)
+def _plan_day_caller(monkeypatch, identity, script) -> ModelClient:
+    """按冻结身份的两类重试次数建立真实模型客户端，只换掉 litellm 发送，按脚本失败或作答；零点计划任务用真实
+    PlanDayClient 包装它。"""
+    return scripted_client(monkeypatch, script, clock=[0.0], max_retries=identity["max_retries"],
+                           transport_max_retries=identity["transport_max_retries"])[0]
 
 
 @pytest.mark.parametrize("script,attempts", [
@@ -89,14 +86,14 @@ def _plan_day_caller(monkeypatch, identity, script):
                                                                "failed_after_ms": 2000, "wait_ms": None}]]),
 ], ids=["response", "validation-retry", "failure"])
 async def test_plan_day_evidence_carries_attempts(engine_factory, monkeypatch, script, attempts):
-    """零点计划经真实 PlanDayClient 与真实分发器：每次调用的失败发送进入这次调用自己的响应证据（含校验纠错的那次），
+    """零点计划经真实 PlanDayClient 与真实模型客户端：每次调用的失败发送进入这次调用自己的响应证据（含校验纠错的那次），
     最终失败时进入失败证据并抛出；供应商响应不增加字段。"""
     engine = engine_factory()
     identity = engine.context.store.manifest["stage_model_identity"]
     answers = {"plan": plan_day_response(model=identity["requested_model"]),
                "invalid": plan_day_response(arguments="not json", model=identity["requested_model"])}
     caller = _plan_day_caller(monkeypatch, identity,
-                              [answers[item] if isinstance(item, str) else _error(item) for item in script])
+                              [answers[item] if isinstance(item, str) else provider_error(item) for item in script])
     fails = script[-1] is AuthenticationError
     if fails:
         with pytest.raises(LLMDispatchError, match="Failed to get valid response after 2 attempts"):
@@ -115,11 +112,11 @@ async def test_plan_day_evidence_carries_attempts(engine_factory, monkeypatch, s
     ((APIConnectionError, "invalid", "digest"), [[SENT_AGAIN], []]),
 ], ids=["response", "validation-retry"])
 async def test_memory_digest_evidence_carries_attempts(engine_factory, monkeypatch, script, attempts):
-    """日回顾经真实 MemoryDigestClient 与真实分发器：每次调用的失败发送进入这次调用自己的响应证据（含校验纠错的那次）；
+    """日回顾经真实 MemoryDigestClient 与真实模型客户端：每次调用的失败发送进入这次调用自己的响应证据（含校验纠错的那次）；
     供应商响应不增加字段。"""
     from tests.integration.life.test_memory_digest_runtime import _digest_caller, _late, _night
     from tests.life.conftest import StubMemoryDigestClient, memory_digest_response
-    from worldmock.runtime.lifecycle.runner import settle_pending_memory_digests
+    from worldmock.runtime.lifecycle.midnight import settle_pending_memory_digests
     from worldmock.simulation_engine.evidence import memory_digest
 
     engine = engine_factory(mutate=_late)
@@ -130,12 +127,46 @@ async def test_memory_digest_evidence_carries_attempts(engine_factory, monkeypat
                                                 model=identity["requested_model"]),
                "invalid": memory_digest_response("not json", model=identity["requested_model"])}
     caller = _digest_caller(monkeypatch, identity,
-                            [answers[item] if isinstance(item, str) else _error(item) for item in script])
+                            [answers[item] if isinstance(item, str) else provider_error(item) for item in script])
     assert [item["period"] for item in await settle_pending_memory_digests(engine, caller)] == ["2026-01-05"]
     stored = [row.data for row in events(engine, "model_response") if row.data["purpose"] == "memory_digest"]
     assert [row["phase"] for row in stored] == ["response"] * len(attempts)
     assert [row["transport_attempts"] for row in stored] == attempts
     assert all("transport_attempts" not in (row["response"] or {}) for row in stored)
+
+
+@pytest.mark.parametrize("budget", [1, 0])
+async def test_midnight_drafts_carry_exactly_the_six_keys_and_sends_use_the_frozen_budgets(
+        engine_factory, monkeypatch, budget):
+    """零点计划经真实入口与真实模型客户端：底稿恰为交给模型客户端的六个键（库里按规范 JSON 存，键序不进字节，比集合；
+    构造次序由单元用例钉住）；普通重试次数只取自运行清单冻结的身份，次数为 1 时 502 之后立即重发、计划登记，为 0 时
+    第一次失败即结束并留下失败证据；litellm 收到的五个请求值与底稿逐值相同。"""
+    engine = engine_factory(mutate=lambda persona, config: config["model"].__setitem__("max_retries", budget))
+    identity = engine.context.store.manifest["stage_model_identity"]
+    client, _, sent = scripted_client(
+        monkeypatch, [provider_error(BadGatewayError), plan_day_response(model=identity["requested_model"])],
+        clock=[0.0], max_retries=identity["max_retries"], transport_max_retries=identity["transport_max_retries"])
+    if budget:
+        assert [item["agent_id"] for item in await settle_pending_day_plans(engine, client)] == [1]
+    else:
+        with pytest.raises(LLMDispatchError, match="after 1 attempts"):
+            await settle_pending_day_plans(engine, client)
+    drafts = [row.data["request"] for row in events(engine, "model_request") if row.data["purpose"] == "plan_day"]
+    stored = [row.data for row in events(engine, "model_response") if row.data["purpose"] == "plan_day"]
+    assert identity["max_retries"] == budget
+    assert len(drafts) == 1 and sorted(drafts[0]) == sorted(REQUEST_KEYS)
+    assert len(sent) == budget + 1
+    for arguments in sent:
+        assert arguments["model"] == f"openai/{drafts[0]['model']}"
+        assert {key: arguments[key] for key in REQUEST_KEYS[1:]} == {key: drafts[0][key] for key in REQUEST_KEYS[1:]}
+    if budget:
+        assert [row["phase"] for row in stored] == ["response"]
+        assert stored[0]["transport_attempts"] == [
+            {"attempt": 1, "error": "BadGatewayError", "failed_after_ms": 0, "wait_ms": 0}]
+        assert engine.context.state.agents[1].plan_submitted_dates
+    else:
+        assert [row["phase"] for row in stored] == ["failure"]
+        assert not engine.context.state.agents[1].plan_submitted_dates
 
 
 #: 同一秒的三次回答：本回合没有的工具（TOOL_CALL_REQUIRED 纠错）、改交修订今日计划、续接后开始在家歇一刻钟。
@@ -153,12 +184,11 @@ def _wire(value) -> str:
 
 
 async def _decided(engine, round_id, client):
-    """一次单人决策轮：真实观察，真实 LifeAgent 经给定客户端决策并结算；返回观察与宿主上下文。"""
-    env, frozen = environment(engine), context(engine, round_id)
+    """一次单人决策轮：真实观察，真实 LifeAgent 经给定客户端只跑回合循环并结算；返回观察与宿主上下文。"""
+    frozen = context(engine, round_id)
     engine.begin_decision_round([frozen])
-    observed = await env.observe(frozen)
-    await person(env, frozen, client).run_react_loop(ReactLoopRequest(0, frozen.observed_at, [
-        {"turn": 0, "action": "observe", "ok": True, "data": observed}]))
+    observed = engine.observe(frozen)
+    await person(engine, frozen, client).run_turns(frozen, observed)
     engine.commit_decision_round(round_id)
     return observed, frozen
 
@@ -171,12 +201,11 @@ async def _same_second_run(engine_factory, monkeypatch, failing):
     answers = [_ModelResponse(call, tool, json.dumps(arguments, ensure_ascii=False), reasoning, note)
                for call, tool, arguments, reasoning, note in _SAME_SECOND]
     script = [item for answer in answers
-              for item in ((_error(APIConnectionError), answer) if failing else (answer,))]
-    client, _ = _client(monkeypatch, script, clock=[0.0])
-    client.model_name = engine.context.inputs.model_metadata.requested_model
+              for item in ((provider_error(APIConnectionError), answer) if failing else (answer,))]
+    client, _, wire = scripted_client(monkeypatch, script, clock=[0.0])
     await _decided(engine, "plan", client)
     observed, frozen = await _decided(engine, "wait", client)
-    sent = client._router.requests[-1]
+    sent = wire[-1]
     notes = [row.data["self_note"] for row in events(engine, "action_requested")]
     return {"messages": _wire(sent["messages"]), "tools": _wire(sent["tools"]),
             "progress": _wire(observed["progress_layer"]), "self_notes": notes,

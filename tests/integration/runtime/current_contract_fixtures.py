@@ -4,16 +4,19 @@ from __future__ import annotations
 
 import copy
 import json
-import os
-import sys
-from contextlib import nullcontext
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any
 
 from tests.data_paths import ENVIRONMENT_ROOT
 from tests.frozen_inputs import fixture_metadata
 from worldmock.configuration.inputs.environment import load_environment
 from worldmock.runtime.framework.setup import creation_inputs, stage_model_identity
+
+if TYPE_CHECKING:
+    from worldmock.agents.life_agent import LifeAgent
+    from worldmock.agents.protocol.react_loop import ReactDecision
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -46,31 +49,6 @@ def metadata_service(monkeypatch, frozen=None):
     return calls
 
 
-#: 进程配置写入的十二个环境变量，加上它前置项目根的 PYTHONPATH。
-PROCESS_VARIABLES = ("WORKSPACE_PATH", "AGENTSOCIETY_LLM_API_KEY", "AGENTSOCIETY_LLM_API_BASE", "AGENTSOCIETY_LLM_MODEL",
-                     "AGENTSOCIETY_CODER_LLM_API_KEY", "AGENTSOCIETY_CODER_LLM_API_BASE",
-                     "AGENTSOCIETY_CODER_LLM_MODEL", "AGENTSOCIETY_EMBEDDING_MODEL", "LITELLM_LOCAL_MODEL_COST_MAP",
-                     "AGENTSOCIETY_LLM_REQUEST_TIMEOUT", "MEM0_TELEMETRY", "ANONYMIZED_TELEMETRY", "PYTHONPATH")
-
-
-def aligned_process(monkeypatch, frozen):
-    """@brief 让直接调用准备函数的进程内用例走真实的进程配置。
-
-    pytest 进程里 AgentSociety2 早已按 conftest 的值加载：把已加载的配置对上这份环境的端点与模型，
-    并用 monkeypatch 隔离进程配置会写的环境变量与 sys.path（假项目根会被插到最前，不隔离会污染之后的导入）。
-    """
-    from agentsociety2.config.config import Config
-
-    for name in ("LLM_API_BASE", "CODER_LLM_API_BASE"):
-        monkeypatch.setattr(Config, name, frozen.config.model.base_url)
-    for name in ("LLM_MODEL", "CODER_LLM_MODEL"):
-        monkeypatch.setattr(Config, name, frozen.config.model.requested_model)
-    monkeypatch.setattr(Config, "EMBEDDING_MODEL", "")
-    for name in PROCESS_VARIABLES:
-        monkeypatch.setenv(name, os.environ.get(name, ""))
-    monkeypatch.setattr(sys, "path", list(sys.path))
-
-
 class ToolResponse:
     """@brief 唯一工具调用的提供商形状响应。"""
 
@@ -96,42 +74,44 @@ class ScriptedModel:
     def __init__(self, responses):
         self.responses, self.requests = list(responses), []
 
-    async def call(self, **request):
+    async def call(self, request):
+        """@brief 记下实际交给模型客户端的请求副本，返回下一条脚本响应。"""
         self.requests.append(copy.deepcopy(request))
         if not self.responses:
             raise AssertionError("Scripted model responses exhausted")
         return self.responses.pop(0)
 
 
-def person(environment, context, model):
-    from custom.agents.life_agent import LifeAgent
+def person(engine, context, model, turns: int = 16) -> LifeAgent:
+    """@brief 真实 LifeAgent：冻结输入取自夹具人设表与清单的模型身份，名字「林舟」，不做步尾保存（记忆存储为 None）。"""
+    from worldmock.agents.life_agent import LifeAgent, person_inputs
 
-    agent = LifeAgent()
-    agent._id, agent._name, agent._profile = context.agent_id, "林舟", profile()
-    agent._env, agent._dispatcher, agent._model_name = environment, model, model.model_name
-    agent._decision_context, agent._max_react_turns, agent._enable_memory = context, 16, False
-    agent.trace_span = lambda *args, **kwargs: nullcontext(SimpleNamespace(attributes={}))
-    return agent
+    frozen = inputs()
+    identity = stage_model_identity(frozen.config.model, frozen.model_metadata)
+    person_input = replace(person_inputs(frozen.persona, identity), name="林舟",
+                           model_identity={**identity, "max_react_turns": turns})
+    return LifeAgent(person_input, engine, model, None)
 
 
-def environment(engine):
-    from custom.envs.life_env import LifeEnv
+async def turns_with_history(agent, context, observation) -> tuple[list[ReactDecision], list[dict[str, Any]]]:
+    """@brief 与 LifeAgent.run_turns 相同的三步，另交还回合循环结束时的消息历史（人物不保存历史）。"""
+    from worldmock.agents.protocol.react_loop import ReactLoop
 
-    result = LifeEnv()
-    result.engine = engine
-    return result
+    agent._context = context
+    budget, history = agent._prepare(observation)
+    loop = ReactLoop(agent, context, budget, history)
+    registered = await loop.run()
+    return registered, loop._history
 
 
 async def decide(engine, round_id, responses):
-    from agentsociety2.agent.base import ReactLoopRequest
+    """@brief 开轮、观察、只跑回合循环、提交；返回观察、模型请求、登记的工具名与提交结果。"""
     from tests.life.conftest import context
 
-    env, frozen = environment(engine), context(engine, round_id)
+    frozen = context(engine, round_id)
     engine.begin_decision_round([frozen])
-    observed = await env.observe(frozen)
+    observed = engine.observe(frozen)
     model = ScriptedModel(responses)
-    agent = person(env, frozen, model)
-    result = await agent.run_react_loop(ReactLoopRequest(0, frozen.observed_at,
-        [{"turn": 0, "action": "observe", "ok": True, "data": observed}]))
+    registered = await person(engine, frozen, model).run_turns(frozen, observed)
     committed = engine.commit_decision_round(round_id)
-    return observed, model.requests, result, committed
+    return observed, model.requests, [decision.action for decision in registered], committed

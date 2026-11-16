@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-from agentsociety2.agent.base import ReactDecision
 
 from tests.integration.runtime.test_life_agent_protocol import (
     _WAIT,
@@ -15,6 +14,7 @@ from tests.integration.runtime.test_life_agent_protocol import (
     _with_activities,
 )
 from tests.life.conftest import MAIN_TOOL, SIDE_TOOL, main_arguments, side_arguments
+from worldmock.agents.protocol.react_loop import ReactDecision
 from worldmock.simulation_engine.activities.lifecycle.activity_control import PHASE_ACTIVE
 
 _REASON = ("Submit one world request, start_main_activity together with start_side_activity, "
@@ -28,14 +28,14 @@ _SIDE = (SIDE_TOOL, _WORK_CHOICE)
 
 
 def _feedback(*calls: tuple[str, dict]):
-    """宿主对一次回复全部工具调用的整批校验结果（空串即通过）与本回合开放的工具。"""
+    """宿主对一次回复全部工具调用的整批校验结果（None 即通过）与本回合开放的工具。"""
     observations = _observations()
     _with_activities(observations[0]["data"], (_WAIT, PHASE_ACTIVE))
-    agent = _prepared(observations)
-    offered = [item["function"]["name"] for item in agent.build_react_tool_schemas(readonly=False)]
-    decisions = [ReactDecision("", name, arguments, "", f"call-{index}")
+    agent = _prepared(observations[0]["data"])
+    offered = [item["function"]["name"] for item in agent.turn_tools(16, False)]
+    decisions = [ReactDecision(name, arguments, f"call-{index}")
                  for index, (name, arguments) in enumerate(calls)]
-    return agent.validate_react_decisions(decisions, False), offered
+    return agent._validate(decisions), offered
 
 
 @pytest.mark.parametrize("calls", [
@@ -44,7 +44,7 @@ def _feedback(*calls: tuple[str, dict]):
 def test_three_legal_batch_shapes_pass(calls):
     """全部是只读查询；恰好一个世界请求；两个开始工具各一次，先后不限。"""
     feedback, offered = _feedback(*calls)
-    assert feedback == ""
+    assert feedback is None
     assert offered[:2] == [MAIN_TOOL, SIDE_TOOL] and len(offered) == 8 and "start_activity" not in offered
 
 
@@ -71,7 +71,7 @@ def test_removed_query_world_next_to_a_valid_call_fails_the_whole_batch(position
     calls = [_MAIN]
     calls.insert(position, removed)
     feedback, offered = _feedback(*calls)
-    assert feedback != "" and "query_world" not in offered
+    assert feedback is not None and "query_world" not in offered
     report = feedback.report.payload()
     assert report["error_code"] == "TOOL_CALL_REQUIRED"
     assert report["items"] == [{

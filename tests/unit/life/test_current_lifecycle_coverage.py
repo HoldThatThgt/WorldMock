@@ -7,8 +7,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from agentsociety2.agent.base import ModelCallEvidence, MemoryUpdateEvidence
-from agentsociety2.society import DirectToolCall
 from tests.life.conftest import (
     MAIN_TOOL,
     SIDE_TOOL,
@@ -23,7 +21,10 @@ from tests.life.conftest import (
 )
 from tests.life.environment_runtime import act, events
 from worldmock.foundation.errors import BusinessRuleError, IntegrityError, ProtocolError
+from worldmock.recording_engine.events.memory_evidence import MemoryUpdateEvidence
+from worldmock.state.decisions.round import DirectToolCall
 from worldmock.state.interaction.requests import RecallTaskSummaryRequest, ReviseDayPlanRequest
+from worldmock.state.model.exchange import ModelCallEvidence
 
 
 @pytest.mark.parametrize("change,message", [
@@ -195,7 +196,7 @@ def test_memory_evidence_cannot_claim_another_observation_or_source_window(engin
               "source-window": lambda: observed["observation_event_id"]}
     evidence = MemoryUpdateEvidence(context=frozen, operation="refresh_summary", created_episode_ids=(),
         merged_episode_ids=(), episodes=(), memory_before_sha256="a" * 64, memory_sha256="b" * 64,
-        episodes_sha256="c" * 64, state_sha256="d" * 64, consolidated=False,
+        episodes_sha256="c" * 64,
         observation_event_id=claims[claim](),
         verified_event_ids=("not-visible",) if claim == "source-window" else ())
     with pytest.raises(ProtocolError, match="Memory update evidence is invalid"):
@@ -212,7 +213,7 @@ def test_summary_refresh_is_recorded_without_a_life_transition_or_fabricated_wri
     before = engine.context.state.model_dump(mode="json")
     evidence = MemoryUpdateEvidence(context=frozen, operation="refresh_summary", created_episode_ids=(),
         merged_episode_ids=(), episodes=(), memory_before_sha256="a" * 64, memory_sha256="b" * 64,
-        episodes_sha256="c" * 64, state_sha256="d" * 64, consolidated=False,
+        episodes_sha256="c" * 64,
         observation_event_id=observed["observation_event_id"], verified_event_ids=())
     engine.record_memory_update(evidence)
     [recorded] = events(engine, "memory_updated")

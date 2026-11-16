@@ -10,8 +10,9 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[3]
 OWNERS = {
-    'src/worldmock/agents/prompt/life_prompt.py': ('empty_memory_layer', 'life_user_layers', 'user_layer', 'last_progress_layer'),
+    'src/worldmock/agents/prompt/life_prompt.py': ('life_user_layers', 'user_layer', 'last_progress_layer'),
     'src/worldmock/agents/prompt/prompt_schemas.py': ('USER_LAYER_NAMES',),
+    'src/worldmock/agents/protocol/react_loop.py': ('TURNS_EXHAUSTED', 'model_call_id'),
     'src/worldmock/configuration/inputs/models.py': ('LEGACY_TEMPLATE_FIELDS', 'HourWindow', 'NonBlankText', 'Identity', 'Situation', 'Relationship', 'HabitDeclaration', 'Tastes'),
     'src/worldmock/configuration/inputs/warnings.py': ('INPUT_WARNING_CODES', 'InputWarning', 'frozen_input_warnings'),
     'src/worldmock/configuration/model/model_metadata.py': ('IndependentModelClient',),
@@ -35,7 +36,7 @@ OWNERS = {
     'src/worldmock/foundation/time/intervals.py': ('valid_interval', 'is_body_settlement', 'body_settlements'),
     'src/worldmock/foundation/time/readable.py': ('interval_phrases',),
     'src/worldmock/recording_engine/events/environment_events.py': ('ENTRY_KIND_CAUSES',),
-    'src/worldmock/recording_engine/events/memory_evidence.py': ('MEMORY_WRITE_POINTS',),
+    'src/worldmock/recording_engine/events/memory_evidence.py': ('MEMORY_WRITE_POINTS', 'MEMORY_UPDATE_KEYS'),
     'src/worldmock/recording_engine/export/export.py': ('EXPORT_SCHEMA_VERSION', 'EXPORT_ARTIFACTS'),
     'src/worldmock/recording_engine/export/post_run.py': ('DROPPED_PAYLOADS', 'post_run_view', 'post_run_row'),
     'src/worldmock/recording_engine/projections/activities/location_stays.py': ('project_location_stays', 'validate_location_stays'),
@@ -64,6 +65,7 @@ OWNERS = {
     'src/worldmock/state/interaction/actions.py': ('START_TOOLS', 'start_tool'),
     'src/worldmock/state/interaction/control_items.py': ('CONTROL_TOOLS',),
     'src/worldmock/state/interaction/sleep.py': ('parse_sleep_minutes', 'SLEEP_MINUTES_MIN', 'SLEEP_MINUTES_MAX', 'SLEEP_MINUTES_REASON'),
+    'src/worldmock/state/model/exchange.py': ('ModelCallEvidence', 'wire_tool_call', 'assistant_message'),
     'src/worldmock/state/model/memory.py': ('SUBJECTIVE_TYPES', 'SUBJECTIVE_SNAPSHOT_FIELDS', 'valid_subjective_snapshot', 'valid_subjective_snapshots'),
     'src/worldmock/state/observation/labels.py': ('ACTIVITY_KIND_LABELS', 'ACTIVITY_DOING_LABELS', 'ACTION_LABELS'),
     'src/worldmock/state/world/agent.py': ('NavigationForeground',),
@@ -112,7 +114,7 @@ def _table(value):
 def single_source_violations(root):
     ownership = {name: path for path, names in OWNERS.items() for name in names}
     functions, tables, violations = defaultdict(list), defaultdict(list), []
-    for base in ('src/worldmock', 'custom', 'tools/analysis'):
+    for base in ('src/worldmock', 'tools/analysis'):
         for path in sorted((root / base).rglob('*.py')):
             relative = path.relative_to(root).as_posix()
             tree = ast.parse(path.read_text(encoding='utf-8'))
@@ -162,13 +164,13 @@ def test_observation_offers_only_current_actions_without_retired_resource_gate(e
 
 def test_new_function_clone_fails_even_with_different_name_and_docstring(tmp_path):
     _sample(tmp_path, 'src/worldmock/a.py', 'def first(value):\n "a"\n result = value + 1\n return result\n')
-    _sample(tmp_path, 'custom/b.py', 'def second(value):\n "b"\n result = value + 1\n return result\n')
+    _sample(tmp_path, 'tools/analysis/b.py', 'def second(value):\n "b"\n result = value + 1\n return result\n')
     assert any('function clone' in item for item in single_source_violations(tmp_path))
 
 
 def test_copied_rule_table_fails_even_after_renaming(tmp_path):
     _sample(tmp_path, 'src/worldmock/a.py', 'KINDS = {"chat": "social", "call": "social"}\n')
-    _sample(tmp_path, 'custom/b.py', 'OTHER_KINDS = {"chat": "social", "call": "social"}\n')
+    _sample(tmp_path, 'tools/analysis/b.py', 'OTHER_KINDS = {"chat": "social", "call": "social"}\n')
     assert any('rule table clone' in item for item in single_source_violations(tmp_path))
 
 
@@ -195,14 +197,14 @@ def test_copied_rule_table_fails_even_after_renaming(tmp_path):
                                     'TITLE_LIST_LIMIT = 5\n',
                                     'def opening_duration(catalog, state, request):\n return None\n'])
 def test_wrong_shared_rule_owner_fails(tmp_path, source):
-    _sample(tmp_path, 'custom/wrong.py', source)
+    _sample(tmp_path, 'tools/analysis/wrong.py', source)
     assert any('wrong owner' in item for item in single_source_violations(tmp_path))
 
 
 def test_import_logger_type_and_thin_protocol_hooks_are_not_business_clones(tmp_path):
     source = ('from worldmock.foundation.serialization import canonical_json\nimport logging\nLOGGER = logging.getLogger(__name__)\nAMOUNTS = (int, float)\nclass Request:\n @field_validator("goals")\n def goals(cls, value):\n  validate_goals(value)\n  return value\n')
     _sample(tmp_path, 'src/worldmock/a.py', source)
-    _sample(tmp_path, 'custom/b.py', source.replace('Request', 'Response'))
+    _sample(tmp_path, 'tools/analysis/b.py', source.replace('Request', 'Response'))
     assert not single_source_violations(tmp_path)
 
 
@@ -210,5 +212,5 @@ def test_protocol_hook_with_business_branch_is_scanned(tmp_path):
     source = ('class Request:\n @field_validator("goals")\n def goals(cls, value):\n'
               '  if len(value) > 8:\n   raise ValueError("too many")\n  return value\n')
     _sample(tmp_path, 'src/worldmock/a.py', source)
-    _sample(tmp_path, 'custom/b.py', source.replace('Request', 'Response'))
+    _sample(tmp_path, 'tools/analysis/b.py', source.replace('Request', 'Response'))
     assert any('function clone' in item for item in single_source_violations(tmp_path))

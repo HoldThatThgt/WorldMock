@@ -41,7 +41,7 @@ def _layers() -> list[dict]:
 def _request(layers: list[dict]) -> tuple[dict, ProgressBudget]:
     """系统层与六层 user 组成的请求，和进度层四条记录的私有元数据。"""
     request = {"model": "test-model", "max_tokens": 100, "tools": [],
-               "messages": [system_message(False), user_message(layers)]}
+               "messages": [system_message(), user_message(layers)]}
     meta = tuple({"protected": False, "lines": [f"第{index}条"]} for index in range(4))
     return request, ProgressBudget(tuple(layers), meta)
 

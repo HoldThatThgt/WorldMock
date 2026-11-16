@@ -33,6 +33,12 @@ TIMEZONE = "Asia/Shanghai"
 T0 = 1767571200
 URL, METADATA_URL = "https://model.example.invalid/v1", "https://model.example.invalid/v1/models"
 CODE = "1" * 64
+#: 基线英文模板 MEMORY.md 的正文（LF 写法）。
+BASE_TEMPLATE = "# Memory\n\n" + "\n".join(f"## {title}\n- None recorded yet.\n" for title in (
+    "Identity And Profile", "Stable Preferences", "Relationships", "Durable Goals And Commitments",
+    "Important Past Events", "Known Constraints"))
+#: 两侧的提示指纹（带字母，按字符串读入规则）。
+BASE_PROMPT, HEAD_PROMPT = "a" * 64, "c" * 64
 
 
 def _bytes(value) -> bytes:
@@ -67,13 +73,40 @@ def _config(url: str = URL, metadata_url: str = METADATA_URL, seed: int = 7) -> 
     return f'seed = {seed}\n\n[model]\nbase_url = "{url}"\nmetadata_url = "{metadata_url}"\n'.encode()
 
 
-def _workspace(initialized_at: str = "2026-10-05T00:00:00", base_url: str = URL, memory: bytes = b"# memory\n",
-               workspace: dict | None = None):
-    """@brief 人物工作区快照：AGENT.json 带壁钟、地址与工作区所在目录，MEMORY.md 是事实。"""
-    agent = {"initialized_at": initialized_at, "profile": {"name": "测试人物", "model_identity": {
-        "base_url": base_url, "metadata_url": METADATA_URL, "model_metadata": {"metadata_url": METADATA_URL}}},
-        "workspace": workspace or {"root": "/runs/base/as2/agent-1", "memory_dir": "memory"}}
-    return _tar({"AGENT.json": _bytes(agent), "MEMORY.md": memory})
+def _entry(number: int, text: str = "早上吃了包子。") -> dict:
+    """@brief 头一侧的一条条目：十个字段，编号连续。"""
+    return {"id": f"m_{number:06d}", "agent_id": 1, "time": "2026-01-05T08:10:00+08:00", "type": "routine",
+            "importance": 0.5, "keywords": ["早饭"], "text": text, "source": "activity_conclusion", "merge_count": 1,
+            "epistemic_status": "subjective"}
+
+
+def _base_entry(entry: dict, **changes) -> dict:
+    """@brief 同一条条目的基线写法：十五个字段，编号带恒为零的八位前缀。"""
+    record = {"id": f"m_00000000_{entry['id'][2:]}", "agent_id": entry["agent_id"], "tick": 0, "tick_duration_sec": 0,
+              "step_index": 3, "time": entry["time"], "step_count": 3, "type": entry["type"],
+              "importance": entry["importance"], "keywords": entry["keywords"], "text": entry["text"],
+              "source": entry["source"], "refs": [], "merge_count": entry["merge_count"],
+              "epistemic_status": entry["epistemic_status"]}
+    return {**record, **changes}
+
+
+def _lines(records: list[dict], newline: str = "\n") -> bytes:
+    """@brief 条目文件的字节：每条 json.dumps 加换行。"""
+    return "".join(json.dumps(record, ensure_ascii=False) + newline for record in records).encode()
+
+
+def _workspace(memory: bytes = b"# memory\n", episodes: bytes | None = None) -> bytes:
+    """@brief 人物工作区快照：MEMORY.md 与 memory/episodes.jsonl 两个成员。"""
+    return _tar({"MEMORY.md": memory, "memory/episodes.jsonl": _lines([_entry(1)]) if episodes is None else episodes})
+
+
+def _base_workspace(recording, entries: list[dict], memory: bytes | None = None) -> bytes:
+    """@brief 基一侧的工作区快照：CRLF 的 MEMORY.md 与条目文件，另有四个框架成员。"""
+    memory = (memory or _memory_line(recording, 6)).replace(b"\n", b"\r\n")
+    agent = {"initialized_at": "2026-10-05T00:00:00", "workspace": {"root": "/runs/base/agents/agent_0001"}}
+    return _tar({"AGENT.json": _bytes(agent), "MEMORY.md": memory, "config.json": b"{}",
+                 "life_prompt_snapshot.json": b"{}", "memory/episodes.jsonl": _lines(entries, "\r\n"),
+                 "memory/state.json": b'{"episode_counter": 1}'})
 
 
 class Recording:
@@ -401,9 +434,8 @@ def test_an_amount_change_is_a_difference(tmp_path):
 
 
 def _relocated(recording: Recording, url: str, metadata_url: str) -> Recording:
-    """@brief 同一份运行换到另一个模型服务地址：清单、冻结配置与工作区里的地址都换掉，代码身份也不同。"""
+    """@brief 同一份运行换到另一个模型服务地址：清单与冻结配置里的地址都换掉，代码身份也不同。"""
     recording.config = _config(url, metadata_url)
-    recording.workspace = _workspace(base_url=url)
     recording.states = {seq: {**state, "config_sha256": _digest(recording.config)}
                         for seq, state in recording.states.items()}
     recording.manifest = recording._manifest()
@@ -441,22 +473,14 @@ def test_config_digest_is_mapped_through_url_normalized_content(tmp_path):
     assert report["verdict"] == "different" and ".config_sha256" in _paths(report)
 
 
-def test_agent_json_initialized_at_is_masked_inside_workspace_snapshots(tmp_path):
-    head = Recording()
-    head.workspace = _workspace(initialized_at="2026-10-16T09:30:00", base_url="http://127.0.0.1:9/beta")
-    assert _compare(tmp_path / "masked", Recording(), head)["verdict"] == "equal"
-    head.workspace = _workspace(memory=b"# memory\nchanged\n")
-    report = _compare(tmp_path / "memory", Recording(), head)
+def test_agent_json_is_an_ordinary_member_without_the_rule(tmp_path):
+    """不启用 workspace-members 时 AGENT.json 按原始字节列出：两侧 initialized_at 不同即报为不同。"""
+    base, head = Recording(), Recording()
+    base.workspace = _tar({"AGENT.json": _bytes({"initialized_at": "2026-10-05T00:00:00"}), "MEMORY.md": b"# memory\n"})
+    head.workspace = _tar({"AGENT.json": _bytes({"initialized_at": "2026-10-16T09:30:00"}), "MEMORY.md": b"# memory\n"})
+    report = _compare(tmp_path, base, head)
     assert report["verdict"] == "different"
     assert any(path.startswith(".snapshots.agent:1.sha256") for path in _paths(report))
-
-
-def test_agent_json_workspace_root_is_masked_only_at_its_path(tmp_path):
-    head = Recording()
-    head.workspace = _workspace(workspace={"root": "/runs/head/as2/agent-1", "memory_dir": "memory"})
-    assert _compare(tmp_path / "root", Recording(), head)["verdict"] == "equal"
-    head.workspace = _workspace(workspace={"root": "/runs/head/as2/agent-1", "memory_dir": "notes"})
-    assert _compare(tmp_path / "sibling", Recording(), head)["verdict"] == "different"
 
 
 def _memory_line(recording: Recording, seq: int) -> bytes:
@@ -493,6 +517,209 @@ def test_memory_digests_are_compared_by_first_appearance(tmp_path):
     repeated = _memory_digests(Recording(), ("4" * 64, "5" * 64, "5" * 64))
     report = _compare(tmp_path / "repeated", base, repeated)
     assert report["verdict"] == "different" and ".data.memory_sha256" in _paths(report)
+
+
+def test_migration_rules_are_declared_on_their_targets():
+    expected = {
+        "workspace-members": ("rebuild", "workspace-asset", "members", "05",
+                              "Readers of workspace snapshots: restore_directory (checkpoint.py) and the export copy "
+                              "(export.py); no prompt reads the workspace"),
+        "memory-updated-form": ("rebuild", "event:memory_updated", "data", "05",
+                                "Readers of memory_updated: quality.py, scripts/inspect_run.py, "
+                                "tools/analysis/behavior/metrics.py and tools/run-viewer.html; no prompt layer "
+                                "reads it"),
+        "model-request-parameters": ("rebuild", "event:model_request", "data.request", "04",
+                                     "No reader takes stream, max_retries or transport_max_retries from model_request "
+                                     "(continuation.py reads messages, quality.py reads extra_body and messages); they "
+                                     "were never sent"),
+        "prompt-fingerprint": ("value", "run-manifest", "model_identity.prompt_sha256", "03",
+                               "Only the read-only system layer left the fingerprint; life requests are compared byte "
+                               "for byte by raw-order"),
+    }
+    for name, (kind, scope, target, chapter, search) in expected.items():
+        rule = compare_runs.RULES[name]
+        assert (rule.name, rule.kind, rule.scope, rule.path, rule.chapter, rule.reader_search) == (
+            name, kind, scope, target, chapter, search)
+        assert (scope, target) in compare_runs.ALLOWED_RULE_TARGETS
+        require_allowed(rule)
+    applied = parse_rules(["workspace-members", "memory-updated-form", "model-request-parameters",
+                           f"prompt-fingerprint={BASE_PROMPT}:{HEAD_PROMPT}"])
+    assert [item.rule.name for item in applied] == list(expected)
+    assert (applied[3].base_value, applied[3].head_value) == (BASE_PROMPT, HEAD_PROMPT)
+    with pytest.raises(ComparisonError, match="Rule prompt-fingerprint needs BASE:HEAD values"):
+        parse_rules(["prompt-fingerprint"])
+
+
+def test_workspace_members_rule_rebuilds_the_base_workspace_into_the_two_kept_files(tmp_path):
+    """基一侧六个成员（CRLF 的 MEMORY.md、十五字段的 CRLF 条目文件、四个框架成员）在规则下等于头一侧的两个 LF 文件；
+    两个检查点共用同一份快照，applied 等于基一侧的快照份数 1。"""
+    base, head = Recording(), Recording(prefix="b")
+    base.workspace = _base_workspace(base, [_base_entry(_entry(1)), _base_entry(_entry(2, "中午吃了面。"))])
+    head.workspace = _workspace(_memory_line(head, 6), _lines([_entry(1), _entry(2, "中午吃了面。")]))
+    report = _compare(tmp_path / "rule", base, head, "workspace-members")
+    assert report["verdict"] == "equal", _paths(report)
+    assert report["rules"]["workspace-members"]["applied"] == 1
+    report = _compare(tmp_path / "plain", base, head)
+    assert report["verdict"] == "different"
+    assert any(path.startswith(".snapshots.agent:1.sha256") for path in _paths(report))
+
+
+def test_workspace_members_rule_keeps_entry_text_and_line_endings_strict(tmp_path, caplog):
+    entry = _entry(1)
+    cases = {"text": ([_base_entry(entry)], _lines([_entry(1, "早上吃了饺子。")])),
+             "tick": ([_base_entry(entry, tick=1)], _lines([entry])),
+             "crlf": ([_base_entry(entry)], _lines([entry], "\r\n")),
+             "unterminated": ([_base_entry(entry)], _lines([entry])[:-1])}
+    for name, (entries, episodes) in cases.items():
+        base, head = Recording(), Recording()
+        base.workspace = _base_workspace(base, entries)
+        head.workspace = _workspace(_memory_line(head, 6), episodes)
+        report = _compare(tmp_path / name, base, head, "workspace-members")
+        assert report["verdict"] == "different", name
+        assert any(path.startswith(".snapshots.agent:1.sha256") for path in _paths(report)), name
+    base, head = Recording(), Recording()
+    base.workspace = _base_workspace(base, [_base_entry(entry)])
+    head.workspace = _workspace(_memory_line(head, 6), b"[1, 2]\n")
+    base_run, base_export = _write(tmp_path / "object" / "base", base)
+    head_run, head_export = _write(tmp_path / "object" / "head", head)
+    code = compare_runs.main(["runs", "--base-run", str(base_run), "--base-export", str(base_export),
+                              "--head-run", str(head_run), "--head-export", str(head_export),
+                              "--rule", "workspace-members", "--report", str(tmp_path / "object" / "report.json")])
+    assert code == 2 and "Workspace episodes line 1 is not a JSON object" in caplog.text
+
+
+def test_empty_episode_files_and_the_template_are_absent_on_both_sides(tmp_path):
+    template = BASE_TEMPLATE.replace("\n", "\r\n").encode()
+    assert {_digest(BASE_TEMPLATE.encode()), _digest(template)} == compare_runs.BASE_MEMORY_TEMPLATE_SHA256
+    base, head = Recording(), Recording()
+    agent = _bytes({"initialized_at": "2026-10-05T00:00:00"})
+    base.workspace = _tar({"AGENT.json": agent, "MEMORY.md": template, "memory/episodes.jsonl": b""})
+    head.workspace = _tar({})
+    report = _compare(tmp_path / "empty", base, head, "workspace-members")
+    assert report["verdict"] == "equal", _paths(report)
+    head.workspace = _tar({"memory/episodes.jsonl": b""})
+    assert _compare(tmp_path / "file", base, head, "workspace-members")["verdict"] == "equal"
+    assert _compare(tmp_path / "plain", base, head)["verdict"] == "different"
+
+
+def _memory_update(recording: Recording, number: int, digests: tuple[str | None, str, str]) -> dict:
+    """@brief 头一侧一条 memory_updated 的数据：十一个键，新建第 number 条条目；digests 是写入前后与条目文件的摘要。"""
+    identity = f"m_{number:06d}"
+    return {"operation": "append_episodes", "created_episode_ids": [identity], "merged_episode_ids": [],
+            "episodes": [{"id": identity, "type": "routine", "text": "早上吃了包子。", "epistemic_status": "subjective"}],
+            "memory_before_sha256": digests[0], "memory_sha256": digests[1], "episodes_sha256": digests[2],
+            "observation_event_id": recording.eid(1), "verified_event_ids": [], "trigger": ["activity_conclusion"],
+            "decision_id": f"{recording.run_id}:round:{T0}:agent:1"}
+
+
+def _base_update(data: dict, **changes) -> dict:
+    """@brief 同一条更新的基线写法：多出 state_sha256、consolidated、reflection，条目编号带八位零前缀。"""
+    old = {f"m_{index:06d}": f"m_00000000_{index:06d}" for index in range(1, 10)}
+    record = {**data, "created_episode_ids": [old[item] for item in data["created_episode_ids"]],
+              "merged_episode_ids": [old[item] for item in data["merged_episode_ids"]],
+              "episodes": [{**item, "id": old[item["id"]]} for item in data["episodes"]],
+              "state_sha256": "8" * 64, "consolidated": False, "reflection": None}
+    return {**record, **changes}
+
+
+def _with_updates(recording: Recording, updates: list[dict]) -> Recording:
+    """@brief 第 3、6 个事件换成给定数据的 memory_updated。"""
+    for seq, data in zip((3, 6), updates):
+        event = recording.events[seq - 1]
+        event["event_type"], event["data"] = "memory_updated", data
+    return recording
+
+
+def _template_digest() -> str:
+    """@brief 基线在 Windows 上首次写出的英文模板（CRLF）的摘要。"""
+    return _digest(BASE_TEMPLATE.replace("\n", "\r\n").encode())
+
+
+def test_memory_updated_form_rule_aligns_keys_ids_and_the_template_digest(tmp_path):
+    base, head = Recording(), Recording()
+    _with_updates(base, [_base_update(_memory_update(base, 1, (_template_digest(), "2" * 64, "4" * 64))),
+                         _base_update(_memory_update(base, 2, ("2" * 64, "3" * 64, "5" * 64)))])
+    _with_updates(head, [_memory_update(head, 1, (None, "2" * 64, "4" * 64)),
+                         _memory_update(head, 2, ("2" * 64, "3" * 64, "5" * 64))])
+    report = _compare(tmp_path / "rule", base, head, "memory-updated-form")
+    assert report["verdict"] == "equal", _paths(report)
+    assert report["rules"]["memory-updated-form"]["applied"] == 2
+    report = _compare(tmp_path / "plain", base, head)
+    assert report["verdict"] == "different"
+    assert {".data.state_sha256", ".data.consolidated", ".data.reflection", ".data.created_episode_ids[0]",
+            ".data.episodes[0].id"} <= set(_paths(report))
+
+
+def test_memory_updated_form_rule_nulls_only_the_template_digest(tmp_path):
+    base, head = Recording(), Recording()
+    _with_updates(base, [_base_update(_memory_update(base, 1, ("9" * 64, "2" * 64, "4" * 64)))])
+    _with_updates(head, [_memory_update(head, 1, (None, "2" * 64, "4" * 64))])
+    report = _compare(tmp_path / "digest", base, head, "memory-updated-form")
+    assert report["verdict"] == "different" and ".data.memory_before_sha256" in _paths(report)
+    consolidated = Recording()
+    update = _memory_update(consolidated, 1, (_template_digest(), "2" * 64, "4" * 64))
+    _with_updates(consolidated, [_base_update(update, consolidated=True)])
+    report = _compare(tmp_path / "consolidated", consolidated, head, "memory-updated-form")
+    assert report["verdict"] == "different" and ".data.consolidated" in _paths(report)
+
+
+def test_memory_updated_form_rule_maps_episodes_digests_by_first_appearance(tmp_path):
+    base, head, repeated, plain = Recording(), Recording(), Recording(), Recording()
+    _with_updates(base, [_base_update(_memory_update(base, 1, (_template_digest(), "2" * 64, "4" * 64))),
+                         _base_update(_memory_update(base, 2, ("2" * 64, "3" * 64, "5" * 64)))])
+    _with_updates(head, [_memory_update(head, 1, (None, "2" * 64, "6" * 64)),
+                         _memory_update(head, 2, ("2" * 64, "3" * 64, "7" * 64))])
+    _with_updates(repeated, [_memory_update(repeated, 1, (None, "2" * 64, "6" * 64)),
+                             _memory_update(repeated, 2, ("2" * 64, "3" * 64, "6" * 64))])
+    _with_updates(plain, [_memory_update(plain, 1, (None, "2" * 64, "4" * 64)),
+                          _memory_update(plain, 2, ("2" * 64, "3" * 64, "5" * 64))])
+    assert _compare(tmp_path / "order", base, head, "memory-updated-form")["verdict"] == "equal"
+    report = _compare(tmp_path / "repeated", base, repeated, "memory-updated-form")
+    assert report["verdict"] == "different" and ".data.episodes_sha256" in _paths(report)
+    report = _compare(tmp_path / "plain", plain, head)
+    assert report["verdict"] == "different" and ".data.episodes_sha256" in _paths(report)
+
+
+def _with_parameters(recording: Recording, **extra) -> Recording:
+    """@brief 模型请求事件的底稿换成带额外键的新字典（响应里的请求副本不动）。"""
+    event = _event(recording, "model_request")
+    event["data"] = {**event["data"], "request": {**event["data"]["request"], **extra}}
+    return recording
+
+
+def test_model_request_parameters_rule_drops_only_the_three_parameters_from_the_base(tmp_path):
+    retired = {"stream": False, "max_retries": 0, "transport_max_retries": 3}
+    base = _with_parameters(Recording(), **retired)
+    report = _compare(tmp_path / "rule", base, Recording(), "model-request-parameters")
+    assert report["verdict"] == "equal", _paths(report)
+    assert report["rules"]["model-request-parameters"]["applied"] == 1
+    report = _compare(tmp_path / "plain", base, Recording())
+    assert report["verdict"] == "different" and ".data.request.stream" in _paths(report)
+    report = _compare(tmp_path / "head", base, _with_parameters(Recording(), stream=False), "model-request-parameters")
+    assert report["verdict"] == "different" and ".data.request.stream" in _paths(report)
+    changed = _with_parameters(Recording(), **{**retired, "max_tokens": 101})
+    report = _compare(tmp_path / "other", changed, Recording(), "model-request-parameters")
+    assert report["verdict"] == "different" and ".data.request.max_tokens" in _paths(report)
+
+
+def _prompt(recording: Recording, value: str) -> Recording:
+    """@brief 运行清单里的提示指纹换成 value（导出清单冻结的同一份清单随之改变）。"""
+    recording.manifest["model_identity"]["prompt_sha256"] = value
+    return recording
+
+
+def test_prompt_fingerprint_rule_accepts_only_the_declared_values(tmp_path):
+    base, head = _prompt(Recording(), BASE_PROMPT), _prompt(Recording(), HEAD_PROMPT)
+    report = _compare(tmp_path / "rule", base, head, f"prompt-fingerprint={BASE_PROMPT}:{HEAD_PROMPT}")
+    assert report["verdict"] == "equal", _paths(report)
+    assert report["rules"]["prompt-fingerprint"]["applied"] == 2
+    for layer in ("manifests", "day_end_states"):
+        assert report["layers"][layer]["different"] == 0
+    assert report["layers"]["export"]["manifest.json"]["different"] == 0
+    report = _compare(tmp_path / "declared", base, head, f"prompt-fingerprint={BASE_PROMPT}:{'d' * 64}")
+    assert report["verdict"] == "different" and ".model_identity.prompt_sha256" in _paths(report)
+    report = _compare(tmp_path / "plain", base, head)
+    assert report["verdict"] == "different" and ".model_identity.prompt_sha256" in _paths(report)
 
 
 def _without_request_copy(recording: Recording) -> Recording:
@@ -803,12 +1030,7 @@ def test_workspace_gzip_rule_compares_the_tar_inside_and_its_media_type(tmp_path
 
 
 def test_gzip_workspace_snapshots_on_both_sides_are_compared_by_their_members_without_a_rule(tmp_path):
-    """@brief 两侧都存 application/gzip 的工作区快照：不带规则也先解压再按成员比较，AGENT.json 的壁钟照常屏蔽；
-    成员内容不同仍报为不同。"""
-    head = Recording()
-    head.workspace = _workspace(initialized_at="2026-10-16T09:30:00")
-    report = _compare(tmp_path / "masked", _gzip_workspace(Recording()), _gzip_workspace(head))
-    assert report["verdict"] == "equal", _paths(report)
+    """@brief 两侧都存 application/gzip 的工作区快照：不带规则也先解压再按成员比较，成员内容不同报为不同。"""
     head = Recording()
     head.workspace = _workspace(memory=b"# memory\nchanged\n")
     report = _compare(tmp_path / "memory", _gzip_workspace(Recording()), _gzip_workspace(head))

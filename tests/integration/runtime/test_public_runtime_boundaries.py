@@ -9,34 +9,21 @@ import pytest
 import requests
 
 from tests.data_paths import ENVIRONMENT_ROOT
-from tests.integration.runtime.current_contract_fixtures import ROOT, inputs, profile, metadata_service
+from tests.integration.runtime.current_contract_fixtures import inputs, profile, metadata_service
+from tests.integration.runtime_fixtures import OfflineClient
 from tests.life.conftest import StubMemoryDigestClient, StubPlanDayClient, stage_day_plan
 from tests.life.environment_runtime import settle_decision
-from worldmock.agents.prompt.life_context import persona_card_text
 from worldmock.agents.protocol.life_continuation import tool_message
-from worldmock.agents.prompt.life_persona import persona_layer, readonly_layers, write_prompt_snapshot
-from worldmock.foundation.errors import EnvironmentInputError, IntegrityError, ProtocolError
+from worldmock.agents.prompt.life_persona import persona_layer
+from worldmock.foundation.errors import EnvironmentInputError, IntegrityError
 from worldmock.agents.prompt.narration import RenderBudgetExceededError
-from worldmock.agents.prompt.prompt_schemas import validate_layer
 from worldmock.configuration.model import model_metadata as model_endpoint
 from worldmock.configuration.model.model_metadata import credential_value, load_model_metadata, model_context_length
 from worldmock.runtime.framework.setup import validate_manifest_stage_identity, validate_stage_model_identity
-from worldmock.runtime.lifecycle.runner import (
-    CounterfactualRequest,
-    MemoryDigestClient,
-    PlanDayClient,
-    ResumeRequest,
-    RunRequest,
-)
+from worldmock.runtime.lifecycle.midnight import MemoryDigestClient, PlanDayClient
+from worldmock.runtime.lifecycle.runner import CounterfactualRequest, ResumeRequest, RunRequest
 from worldmock.runtime.lifecycle.runner import run_world, resume_world, replay_world
 from worldmock.state.decisions.results import CounterfactualIntervention
-
-
-@pytest.mark.parametrize("value", [None, "", "  ", 17])
-def test_persona_text_requires_the_card_text(value):
-    with pytest.raises(IntegrityError, match="Persona card text is required"):
-        persona_card_text({"persona_card": value}, "林舟")
-    assert persona_card_text({"persona_card": "  人物卡片文本  "}, "林舟") == "人物卡片文本"
 
 
 def test_persona_layer_rejects_actual_overlong_card_without_truncation():
@@ -44,20 +31,8 @@ def test_persona_layer_rejects_actual_overlong_card_without_truncation():
     prepared["persona_card_struct"]["tastes"]["content_genres"] = ["纪" * 601]
     original = copy.deepcopy(prepared)
     with pytest.raises(RenderBudgetExceededError, match="input-side problem, not truncated"):
-        persona_layer(prepared, "林舟")
+        persona_layer(prepared["persona_card_struct"], "林舟")
     assert prepared == original
-
-
-def test_readonly_prompt_uses_saved_snapshot_and_requires_the_persona_card(tmp_path):
-    prepared = profile()
-    initial, memory = readonly_layers(None, prepared, "林舟")
-    assert initial["identity"]["name"] == "林舟"
-    assert memory == {"layer": "记忆层", "可查": {}, "近三天": {}, "今天": []}
-    validate_layer(memory)
-    write_prompt_snapshot(tmp_path, initial, memory)
-    assert readonly_layers(tmp_path, {}, "不同的姓名") == (initial, memory)
-    with pytest.raises(IntegrityError, match="Persona card structure is required"):
-        readonly_layers(tmp_path / "without-snapshot", {}, "林舟")
 
 
 def test_continuation_tool_message_preserves_actual_events_and_omits_empty_changes():
@@ -143,25 +118,27 @@ def test_actual_model_metadata_rejects_transport_capacity_and_service_identity(m
 
 
 @pytest.mark.asyncio
-async def test_day_plan_client_caps_output_using_actual_frozen_metadata(monkeypatch):
-    import agentsociety2.config
+async def test_business_clients_send_the_draft_unchanged():
+    """零点计划与回顾的业务客户端把底稿的深拷贝原样交给模型客户端：max_tokens 不截到服务上限，不加重试次数，调用方的
+    请求不变。"""
     identity = profile()["model_identity"]
     received = []
 
-    async def call(**request):
+    async def call(request):
         received.append(request)
         return {"choices": []}
 
-    transport = SimpleNamespace(model_name=identity["requested_model"], base_url=identity["base_url"], call=call)
-    monkeypatch.setattr(agentsociety2.config, "build_client_for_role", lambda role: transport)
-    request = {"messages": [], "max_tokens": 1000000}
-    assert await PlanDayClient(identity).call(request) == {"choices": []}
-    assert await MemoryDigestClient(identity).call(request) == {"choices": []}
-    assert received[1] == received[0]
-    assert received[0]["max_tokens"] == identity["model_metadata"]["max_output_tokens"]
-    assert received[0]["max_retries"] == identity["max_retries"]
-    assert received[0]["transport_max_retries"] == identity["transport_max_retries"]
-    assert request == {"messages": [], "max_tokens": 1000000}
+    transport = SimpleNamespace(call=call)
+    request = {"model": identity["requested_model"], "messages": [], "tools": [], "tool_choice": "required",
+               "max_tokens": 1000000, "extra_body": {"thinking": {"type": "disabled"}}}
+    original = copy.deepcopy(request)
+    assert await PlanDayClient(transport, identity).call(request) == {"choices": []}
+    assert await MemoryDigestClient(transport, identity).call(request) == {"choices": []}
+    assert received == [original, original]
+    assert all(sent is not request for sent in received)
+    assert received[0]["max_tokens"] == 1000000 > identity["model_metadata"]["max_output_tokens"]
+    assert not {"max_retries", "transport_max_retries"} & set(received[0])
+    assert request == original
 
 
 @pytest.mark.asyncio
@@ -170,10 +147,10 @@ async def test_public_runtime_entries_log_real_admission_failures(tmp_path, monk
     metadata_service(monkeypatch)
     destination = tmp_path / "run"
     if entry == "run":
-        request = RunRequest(ROOT, ENVIRONMENT_ROOT, destination, "probe", "different-source-group")
+        request = RunRequest(ENVIRONMENT_ROOT, destination, "probe", "different-source-group")
         operation, reason = run_world(request), "matching run_id and source_group_id"
     else:
-        request = ResumeRequest(ROOT, ENVIRONMENT_ROOT, tmp_path / "missing-parent", "checkpoint", destination)
+        request = ResumeRequest(ENVIRONMENT_ROOT, tmp_path / "missing-parent", "checkpoint", destination)
         intervention = CounterfactualIntervention(kind="set_balance_fen", agent_id=1, balance_fen=10000,
             hypothesis="Changed funds alter the next spending choice.", source_event_ids=("observation-source",))
         operation = resume_world(request) if entry == "resume" else replay_world(CounterfactualRequest(request, intervention))
@@ -185,24 +162,10 @@ async def test_public_runtime_entries_log_real_admission_failures(tmp_path, monk
 
 
 @pytest.mark.asyncio
-async def test_environment_confirmed_clock_cannot_advance_world_time(engine_factory):
-    from custom.envs.life_env import LifeEnv
-    engine = engine_factory()
-    environment = LifeEnv()
-    environment.engine = engine
-    before = engine.context.state.model_dump_json()
-    now = engine.context.config.start_time
-    with pytest.raises(ProtocolError, match="Society current time disagrees with the environment"):
-        await environment.set_current_time(now + timedelta(seconds=1))
-    assert engine.context.state.model_dump_json() == before
-    await environment.set_current_time(now)
-    assert environment.t == now
-
-
-@pytest.mark.asyncio
-async def test_real_environment_midnight_step_registers_next_plan_before_rhythm(engine_factory, monkeypatch):
-    import worldmock.runtime.lifecycle.runner as runtime
-    from custom.envs.life_env import LifeEnv
+async def test_real_environment_midnight_step_registers_next_plan_before_rhythm(engine_factory, host_factory,
+                                                                               monkeypatch):
+    """运行宿主推进过零点：先补回顾与下一天的零点计划，再判定零点节律。"""
+    import worldmock.runtime.lifecycle.midnight as midnight
 
     def overnight(persona, config):
         config["start_time"] = config["start_time"].replace(hour=23)
@@ -210,10 +173,9 @@ async def test_real_environment_midnight_step_registers_next_plan_before_rhythm(
 
     engine = engine_factory(mutate=overnight)
     stage_day_plan(engine)
-    environment = LifeEnv()
-    environment.engine = engine
-    monkeypatch.setattr(runtime, "PlanDayClient", StubPlanDayClient)
-    monkeypatch.setattr(runtime, "MemoryDigestClient", StubMemoryDigestClient)
+    host = host_factory(engine, OfflineClient())
+    monkeypatch.setattr(midnight, "PlanDayClient", lambda client, identity: StubPlanDayClient(identity))
+    monkeypatch.setattr(midnight, "MemoryDigestClient", lambda client, identity: StubMemoryDigestClient(identity))
     for index in range(100):
         state = engine.scheduling_state()
         if state.current_time.hour == 0:
@@ -222,8 +184,7 @@ async def test_real_environment_midnight_step_registers_next_plan_before_rhythm(
             _, result = settle_decision(engine, f"midnight-{index}")
             assert result.status in {"in_progress", "completed"}
         else:
-            await environment.step(int(state.next_event_at.timestamp()) - engine.context.state.current_time,
-                                   state.next_event_at)
+            await host._advance(state.next_event_at)
     else:
         raise AssertionError("The actual scheduling boundaries did not reach midnight")
     assert not engine.midnight_rhythm_pending

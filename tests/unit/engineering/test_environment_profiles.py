@@ -93,12 +93,16 @@ def test_dev_environment_receipt_records_missing_without_absolute_paths(tmp_path
     (requirements / "lock.txt").write_bytes(b"locked\n")
     (tmp_path / ".python-version").write_text("3.12.13\n")
     monkeypatch.setattr(environment, "component_status",
-                        lambda root: {"node_version": None, "missing_components": ["Node", "Chinese font"]})
+                        lambda root: {"node_version": None, "node_sqlite_available": False,
+                                      "missing_components": ["Node"]})
     monkeypatch.setattr(environment.subprocess, "check_output",
                         lambda *args, **kwargs: json.dumps({"implementation": "CPython", "version": "3.12.13"}))
-    result = environment.write_receipt(tmp_path, "dev", {"as2_source_sha256": "a" * 64})
+    result = environment.write_receipt(tmp_path, "dev")
+    assert list(result) == ["schema_version", "profile", "python_version", "python_implementation",
+                            "python_version_file_sha256", "dependency_locks", "node_version",
+                            "node_sqlite_available", "missing_components", "passed"]
     assert result["passed"] is False
-    assert result["missing_components"] == ["Node", "Chinese font"]
+    assert result["missing_components"] == ["Node"]
     content = (tmp_path / ".work/environment-receipt.json").read_text()
     assert str(tmp_path) not in content
     assert json.loads(content) == result

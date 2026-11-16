@@ -311,6 +311,20 @@ test('rule texts describe the layered memory, digests and eight tools', () => {
   assert.ok(!rules.progress.steps.some(step => step.join('').includes('self_note')));
 });
 
+test('context descriptions name the current modules', () => {
+  const {api} = parser();
+  const rules = plain(api.rules);
+  assert.equal(rules.tools.source, 'src/worldmock/agents/life_agent.py · 原生工具；'
+    + 'src/worldmock/agents/prompt/life_prompt.py · TOOL_DESCRIPTIONS');
+  assert.equal(rules.message.source, 'src/worldmock/agents/protocol/react_loop.py · ReactLoop._turn；'
+    + 'src/worldmock/agents/life_agent.py · execute_decisions');
+  assert.equal(rules.memory_view.source, 'src/worldmock/agents/memory/life_memory.py · render_memory_view、save_step');
+  assert.equal(rules.memory_view.fill,
+    '工作区 MEMORY.md 由身份、至多五条已核验经历和恒为「暂无人物自述。」的自述段组成，最多四千字符。');
+  assert.deepEqual(rules.memory_view.steps[0], ['每步重写', '根据当前身份与事实窗口重新生成视图。']);
+  assert.deepEqual(rules.memory_view.steps[2], ['范围区别', '文件四千字符预算不是整个请求的容量。']);
+});
+
 test('comparison finds equal length edits, additions and removed blocks', () => {
   const {api} = parser();
   const before = api.parseRequest(event());

@@ -8,6 +8,7 @@ import pytest
 from tests.engine_fixture import engine_factory as _engine_factory  # noqa: F401
 from tests.integration.runtime.current_contract_fixtures import ToolResponse, decide
 from tests.life.conftest import SIDE_TOOL, side_arguments, stage_day_plan
+from worldmock.configuration.model.model_client import REQUEST_KEYS
 
 
 async def _recorded_viewer_requests(factory):
@@ -40,6 +41,9 @@ async def test_viewer_fixture_is_recorded_from_the_current_host(_engine_factory)
     requests, engine = await _recorded_viewer_requests(_engine_factory)
     fixture = Path(__file__).resolve().parents[3] / "tests" / "fixtures" / "viewer-context.json"
     recorded = json.loads(fixture.read_text(encoding="utf-8"))
+    # 两个请求字典恰为模型客户端收的六个键，次序与宿主此刻构造的相同；没有从未发出的三个参数。
+    assert list(recorded["action"]) == list(recorded["continuation"]) == list(REQUEST_KEYS)
+    assert list(requests["action"]) == list(REQUEST_KEYS)
     assert recorded["action"]["messages"][0] == requests["action"]["messages"][0]
     assert recorded["action"]["tools"] == requests["action"]["tools"]
     assert recorded["continuation"]["messages"][:2] == recorded["action"]["messages"]

@@ -2,8 +2,8 @@
 
 from datetime import timedelta
 
-from agentsociety2.society import DirectToolCall
 from tests.life.conftest import advance_next, conclude_request, context, report_request, sleep, tool_of, travel
+from worldmock.state.decisions.round import DirectToolCall
 
 
 def act(engine, label, request, tool=None, action_id=None):
@@ -19,7 +19,7 @@ def act(engine, label, request, tool=None, action_id=None):
 def act_group(engine, label, *requests):
     """同一决策里按给定先后登记一个开始组（两个开始工具各一条）并整组结算。
 
-    返回观察与各动作的最终存档结果（按登记次序）；环境向框架只返回第一条动作的结果，两条结果都已落库。
+    返回观察与各动作的最终存档结果（按登记次序）；两条结果都已落库。
     """
     decision = context(engine, label)
     engine.begin_decision_round([decision])
@@ -28,7 +28,7 @@ def act_group(engine, label, *requests):
     for identity, request in zip(identities, requests, strict=True):
         engine.submit_action(DirectToolCall(decision, identity, tool_of(request), request))
     returned = engine.commit_decision_round(label)
-    assert [item.action_id for item in returned] == identities[:1]
+    assert [item.action_id for item in returned] == identities
     results = [action_result(engine, identity) for identity in identities]
     return observed, results
 

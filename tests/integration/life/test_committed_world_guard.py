@@ -6,12 +6,12 @@
 import pytest
 
 import worldmock.simulation_engine.decisions.same_moment as same_moment
-from agentsociety2.society import DirectToolCall
 from tests.committed_world_guard import public_methods
 from tests.life.conftest import advance_next, context, tool_of, travel
 from tests.life.environment_runtime import act, events, settle_decision
 from worldmock.foundation.errors import IntegrityError
 from worldmock.simulation_engine.engine import LifeEngine
+from worldmock.state.decisions.round import DirectToolCall
 
 DIFFERS = "^Engine world differs from the committed world$"
 
@@ -118,6 +118,6 @@ def test_guard_wraps_every_public_engine_method(committed_world_guard):
     expected = {"observe", "advance", "commit_decision_round", "abort_decision_round", "register_day_plan",
                 "register_memory_digest", "decide_midnight_rhythm", "apply_counterfactual", "checkpoint", "record_model_exchange",
                 "record_memory_update", "submit_action", "begin_decision_round", "scheduling_state",
-                "read_task_summary", "search_memory", "fail_run", "meal_windows_by_agent", "close"}
+                "read_task_summary", "search_memory", "read_query", "fail_run", "meal_windows_by_agent", "close"}
     assert expected <= set(public_methods(LifeEngine))
     assert all(hasattr(getattr(LifeEngine, name), "__wrapped__") for name in expected)

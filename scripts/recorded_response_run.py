@@ -58,13 +58,6 @@ VISIBLE_FIELDS = ("model", "messages", "tools", "tool_choice", "max_tokens")
 REFUSAL_WATCHDOG_SECONDS = 600
 #: 偏差差异文本行数上限。
 DIFF_LINE_LIMIT = 400
-#: 项目里恢复出的 AGentSociety2 包源码的相对位置。
-AS2_PACKAGE = Path("vendor/agentsociety2/packages/agentsociety2")
-#: 恢复出的 agentsociety2 包目录本身（相对检出根）。
-AS2_SOURCE = AS2_PACKAGE / "agentsociety2"
-#: 在子进程里找 agentsociety2 包目录的代码。
-FIND_AS2 = ("import importlib.util, json; s = importlib.util.find_spec('agentsociety2'); "
-            "print(json.dumps(list(s.submodule_search_locations)))")
 _HEX_RUN_ID = re.compile(r"^[0-9a-f]{32}$")
 _REQUESTS_SQL = ("SELECT event_seq, event_id, json_extract(body,'$.occurred_at'), json_extract(body,'$.data.purpose') "
                  "FROM events WHERE json_extract(body,'$.agent_id')=? "
@@ -327,7 +320,7 @@ def _json_object(body: bytes) -> dict | None:
 
 
 def _error_body(code: str, message: str) -> bytes:
-    """@brief HTTP 400 正文：LiteLLM 把它读成 BadRequestError，AS2 不重试。"""
+    """@brief HTTP 400 正文：LiteLLM 把它读成 BadRequestError，模型客户端不重试。"""
     return json.dumps({"error": {"type": "invalid_request_error", "code": code, "message": message}}).encode()
 
 
@@ -564,16 +557,6 @@ def serve(cassette: Cassette) -> ThreadingHTTPServer:
     return server
 
 
-def as2_location(root: Path, environment: Mapping[str, str]) -> list[Path]:
-    """@brief 在 root 下用给定环境起子进程，返回 agentsociety2 解析出的全部包目录；是否恰好一个且在 root 内由调用方判定。"""
-    result = subprocess.run([sys.executable, "-P", "-c", FIND_AS2], cwd=root, env=dict(environment),
-                            capture_output=True, text=True, timeout=300)
-    if result.returncode != 0:
-        logger.error("No agentsociety2 package resolves in %s", root)
-        return []
-    return [Path(location) for location in json.loads(result.stdout)]
-
-
 def _secret_name(name: str) -> bool:
     """@brief 凭据类变量名。"""
     upper = name.upper()
@@ -581,17 +564,17 @@ def _secret_name(name: str) -> bool:
 
 
 def _routing_name(name: str) -> bool:
-    """@brief 会把模型流量或 Ray 工作进程引到别处的变量名。"""
-    return name.upper() in {"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "RAY_ADDRESS"}
+    """@brief 会把模型流量引到别处的变量名。"""
+    return name.upper() in {"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"}
 
 
 def project_pythonpath(root: Path) -> str:
-    """@brief 只导入这一检出自己的代码：它的 src、根目录与 AS2 包目录。"""
-    return os.pathsep.join(str(path) for path in (root / "src", root, root / AS2_PACKAGE))
+    """@brief 只导入这一检出自己的代码：它的 src 与根目录。"""
+    return os.pathsep.join(str(path) for path in (root / "src", root))
 
 
 def child_environment(parent: Mapping[str, str], project: Path, api_key_env: str) -> dict[str, str]:
-    """@brief 子进程环境：去掉凭据、代理与外部 Ray 地址，只给占位凭据，只导入项目自己的代码。"""
+    """@brief 子进程环境：去掉凭据与代理，只给占位凭据，只导入项目自己的代码。"""
     variables = {name: value for name, value in parent.items() if not _secret_name(name) and not _routing_name(name)}
     project = Path(project).resolve()
     variables.update({api_key_env: DUMMY_CREDENTIAL, "NO_PROXY": "127.0.0.1,localhost",
@@ -661,15 +644,15 @@ def _resume_checkpoint(job: SegmentJob) -> str:
 
 def _segment_argv(job: SegmentJob) -> tuple[str, list[str], str | None]:
     """@brief 第 k 段子进程的模式、命令参数与恢复的检查点身份。"""
-    work, project = job.work, str(job.project)
+    work = job.work
     output = str(_segment_dir(work, job.segment))
     if job.segment == 1:
         switch = "on" if job.plan.continuation else "off"
-        return "run", ["--project-root", project, "run", "--environment", str(work / "input"), "--output", output,
+        return "run", ["run", "--environment", str(work / "input"), "--output", output,
                        "--same-second-continuation", switch], None
     checkpoint = _resume_checkpoint(job)
     parent = str(_segment_dir(work, job.segment - 1))
-    return "resume", ["--project-root", project, "resume", "--environment", str(work / "input"), "--parent", parent,
+    return "resume", ["resume", "--environment", str(work / "input"), "--parent", parent,
                       "--checkpoint", checkpoint, "--output", output], checkpoint
 
 
@@ -796,7 +779,7 @@ def finish(plan: Plan, work: Path, project: Path, report: dict) -> None:
     count = len(report["segments"])
     last_run = Path(report["segments"][-1]["run_dir"])
     cutoff = plan.chain.positions[count - 1] if count < len(plan.chain.runs) else None
-    command = [sys.executable, "-P", "-m", "worldmock.cli", "--project-root", str(project), "export", "--run-dir",
+    command = [sys.executable, "-P", "-m", "worldmock.cli", "export", "--run-dir",
                str(last_run), "--output", str(work / "export"), *(["--cutoff", str(cutoff)] if cutoff else [])]
     exported = _child_command(command, project, plan.api_key_env, work / "logs" / "export.log")
     if exported.returncode != 0:
@@ -901,13 +884,7 @@ def _run(arguments: argparse.Namespace) -> int:
     if work.exists():
         raise _fail(f"Work directory {work} already exists")
     work.mkdir(parents=True)
-    as2 = project / AS2_SOURCE
-    if not as2.is_dir():
-        raise _fail(f"Project root has no restored AS2 source: {as2}")
     plan = load_plan(arguments.source)
-    locations = as2_location(project, child_environment(os.environ, project, plan.api_key_env))
-    if len(locations) != 1 or not locations[0].resolve().is_relative_to(project):
-        raise _fail(f"Project AS2 source resolves outside the project: {[str(item) for item in locations]}")
     count, control = _options(arguments, plan)
     cassette = Cassette(plan, work)
     cassette.control = control
@@ -1007,7 +984,7 @@ def export_source(project: Path, source: Path, cutoff: int, work: Path) -> int:
     shutil.copytree(source / "assets", copy / "assets")
     manifest = json.loads((copy / "manifest.json").read_text(encoding="utf-8"))
     _, config = _frozen_config(copy, manifest)
-    command = [sys.executable, "-P", "-m", "worldmock.cli", "--project-root", str(project), "export", "--run-dir",
+    command = [sys.executable, "-P", "-m", "worldmock.cli", "export", "--run-dir",
                str(copy), "--cutoff", str(cutoff), "--output", str(work / "source-export")]
     result = _child_command(command, project, config["model"]["api_key_env"], work / "export-source.log")
     if result.returncode != 0:

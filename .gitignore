@@ -1,6 +1,5 @@
 .venv/
 .work/
-.ray/
 runs/
 __pycache__/
 .pytest_cache/
@@ -15,7 +14,6 @@ CLAUDE.md
 # generated artifacts
 .coverage
 .coverage.*
-vendor/agentsociety2/
 .work-shared-rules*.log
 argv.json
 docs/coverage-report.json

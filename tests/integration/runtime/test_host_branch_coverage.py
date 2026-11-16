@@ -19,8 +19,6 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pytest
 
-os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
-os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from worldmock.foundation.errors import IntegrityError, ProtocolError
@@ -29,30 +27,20 @@ from worldmock.recording_engine.events.models import EventDraft
 from worldmock.recording_engine.storage.store import FootprintStore
 from worldmock.state.decisions.results import CounterfactualIntervention
 from worldmock.simulation_engine.engine import LifeEngine
-from tests.integration.runtime_fixtures import current_run_identity, write_agent_workspace
+from tests.integration.runtime_fixtures import current_run_identity, write_agent_workspace, write_project
 from worldmock.runtime.lifecycle.runner import (
     CounterfactualRequest,
     ResumeRequest,
-    _cleanup_runtime,
     _execute,
     _ops_crash_log,
-    _require_custom_modules,
     _require_run_shell,
-    _terminate_failed_actor,
 )
-from worldmock.runtime.framework.setup import _prepend_pythonpath, runtime_code_sha256
+from worldmock.runtime.framework.setup import runtime_code_sha256
 from worldmock.runtime.monitoring.status import read_status, write_status
 from worldmock.runtime.framework.setup import validate_stage_model_identity
-from tests.integration.as2_fixtures import use_fake_as2, write_project
 
 ROOT = Path(__file__).resolve().parents[3]
 SCENARIO = ENVIRONMENT_ROOT
-
-
-@pytest.fixture(autouse=True)
-def _locked_fake_as2(monkeypatch, tmp_path_factory):
-    """本文件的运行身份一律解析到临时 AS2 包并以其摘要为锁定值，不依赖本机实际安装的 AS2。"""
-    return use_fake_as2(monkeypatch, tmp_path_factory.mktemp("as2-site"))
 
 
 # ---------------------------------------------------------------------------
@@ -66,84 +54,60 @@ def test_counterfactual_request_rejects_foreign_payloads():
         CounterfactualRequest(SimpleNamespace(), CounterfactualIntervention(
             kind="set_balance_fen", agent_id=1, balance_fen=0, hypothesis="h",
             source_event_ids=("e",)))
-    request = ResumeRequest(ROOT, SCENARIO, ROOT, "checkpoint", ROOT / "elsewhere")
+    request = ResumeRequest(SCENARIO, ROOT, "checkpoint", ROOT / "elsewhere")
     with pytest.raises(TypeError, match="strict life model"):
         CounterfactualRequest(request, "not-an-intervention")
 
 
 def _prepared_stub(tmp_path, **overrides):
-    """构造 _execute 使用的最小启动输入。"""
+    """构造 _execute 使用的最小启动输入（普通恢复：没有运行身份、没有干预）。"""
     base = dict(
-        run_id="child", run_dir=tmp_path, intervention=None, intervention_sha256=None,
+        run_id="child", run_dir=tmp_path, run_identity=None, intervention=None, intervention_sha256=None,
         inputs=SimpleNamespace(config=SimpleNamespace(timezone="UTC")),
         start_time=datetime(2026, 1, 5, tzinfo=ZoneInfo("UTC")),
+        stage_identity={}, agents={1: "frozen-inputs"}, memory_records={1: ()},
     )
     base.update(overrides)
     return SimpleNamespace(**base)
 
 
-class _Society:
-    """记录调用顺序并支持脚本化失败的 Society 桩。"""
+def _host_stub(monkeypatch, close_error=None) -> list:
+    """把运行宿主换成记录调用的替身（关闭可抛出给定异常），把构造模型客户端的唯一一处换成返回哨兵的函数；
+    返回构造出的替身列表。"""
+    import worldmock.runtime.lifecycle.runner as runtime
+    from worldmock.runtime.lifecycle import run_host
 
-    current_time = datetime(2026, 1, 5, tzinfo=ZoneInfo("UTC"))
-    step_count = 1
+    built: list = []
 
-    def __init__(self, fail_run=None, fail_close=None):
-        self.calls = []
-        self._fail_run = fail_run
-        self._fail_close = fail_close
+    class _Host:
+        current_time = datetime(2026, 1, 5, tzinfo=ZoneInfo("UTC"))
+        step_count = 1
+        engine = None
 
-    async def init(self):
-        self.calls.append("init")
+        def __init__(self, *arguments):
+            self.calls = []
+            built.append(self)
 
-    async def run(self):
-        self.calls.append("run")
-        if self._fail_run:
-            raise self._fail_run
+        async def start_new(self, *arguments):
+            self.calls.append("start_new")
 
-    async def close(self):
-        self.calls.append("close")
-        if self._fail_close:
-            raise self._fail_close
+        async def start_resume(self):
+            self.calls.append("start_resume")
 
+        async def start_counterfactual(self, *arguments):
+            self.calls.append("start_counterfactual")
 
-async def _no_dispatchers():
-    return None
+        async def run(self):
+            self.calls.append("run")
 
+        async def close(self):
+            self.calls.append("close")
+            if close_error is not None:
+                raise close_error
 
-
-
-# ---------------------------------------------------------------------------
-# 进程配置与凭据
-# ---------------------------------------------------------------------------
-
-
-
-
-
-
-
-
-
-
-
-
-def test_prepend_pythonpath_is_idempotent(tmp_path, monkeypatch):
-    """PYTHONPATH 前插保持唯一且幂等；项目根进本进程 sys.path 的最前，只出现一次，src 不加；
-    项目根本来就在 sys.path 中间时位置不变。"""
-    monkeypatch.setenv("PYTHONPATH", f"/already{os.pathsep}/present")
-    monkeypatch.setattr(sys, "path", list(sys.path))
-    _prepend_pythonpath(tmp_path)
-    once = os.environ["PYTHONPATH"]
-    _prepend_pythonpath(tmp_path)
-    assert os.environ["PYTHONPATH"] == once
-    assert once.split(os.pathsep)[:2] == [str(tmp_path), str(tmp_path / "src")]
-    assert once.endswith("/present")
-    assert sys.path[0] == str(tmp_path) and sys.path.count(str(tmp_path)) == 1
-    assert str(tmp_path / "src") not in sys.path
-    monkeypatch.setattr(sys, "path", ["first", str(tmp_path), "last"])
-    _prepend_pythonpath(tmp_path)
-    assert sys.path == ["first", str(tmp_path), "last"]
+    monkeypatch.setattr(run_host, "RunHost", _Host)
+    monkeypatch.setattr(runtime, "_model_client", lambda prepared: object())
+    return built
 
 
 # ---------------------------------------------------------------------------
@@ -151,33 +115,14 @@ def test_prepend_pythonpath_is_idempotent(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def test_runtime_code_sha256_requires_complete_sources(tmp_path, monkeypatch):
-    """代码身份源缺失或不安全时拒绝；实际导入的 AS2 无法解析时同样拒绝给出代码身份。"""
-    import worldmock.runtime.lifecycle.runner as runtime
-
+    """代码身份源缺失或不安全时拒绝；最小工程根给出 64 位代码身份。"""
+    monkeypatch.setattr(worldmock_run_setup_module, "project_root", lambda: tmp_path)
     with pytest.raises(IntegrityError, match="missing or unsafe"):
-        runtime_code_sha256(tmp_path)
+        runtime_code_sha256()
     project = write_project(tmp_path / "project")
-    assert len(runtime_code_sha256(project)) == 64
-    monkeypatch.setattr(worldmock_run_setup_module, '_AS2_PACKAGE', 'worldmock_absent_as2_package')
-    with pytest.raises(IntegrityError, match="AS2 runtime identity differs from the locked source"):
-        runtime_code_sha256(project)
+    monkeypatch.setattr(worldmock_run_setup_module, "project_root", lambda: project)
+    assert len(runtime_code_sha256()) == 64
 
 
 def test_run_shell_rejects_non_directory_and_foreign_files(tmp_path):
@@ -191,19 +136,27 @@ def test_run_shell_rejects_non_directory_and_foreign_files(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# 崩溃日志、执行清理与 Society 装配
+# 崩溃日志与执行清理
 # ---------------------------------------------------------------------------
 
 
+def _first_ops_entry(run_dir: Path) -> dict:
+    """运行目录里第一份运维日志的第一条记录。"""
+    return json.loads(sorted((run_dir / "logs").glob("ops-*.jsonl"))[0].read_text().splitlines()[0])
+
+
 def test_ops_crash_log_records_and_never_masks_original_error(tmp_path):
-    """崩溃日志写 RUN_CRASHED；自身故障只记日志不掩盖原始异常。"""
-    prepared = _prepared_stub(tmp_path)
-    society = SimpleNamespace(current_time=1767225600)
-    _ops_crash_log(prepared, society, ValueError("original failure"))
-    entry = json.loads(
-        sorted((tmp_path / "logs").glob("ops-*.jsonl"))[0].read_text().splitlines()[0])
+    """崩溃日志写 RUN_CRASHED：宿主的引擎开着时模拟时刻取宿主时刻，引擎为空时取启动时刻；自身故障只记日志不掩盖原始异常。"""
+    prepared = _prepared_stub(tmp_path / "open")
+    host = SimpleNamespace(engine=object(), current_time=datetime(2026, 1, 5, 9, tzinfo=ZoneInfo("UTC")))
+    _ops_crash_log(prepared, host, ValueError("original failure"))
+    entry = _first_ops_entry(tmp_path / "open")
     assert entry["code"] == "RUN_CRASHED" and entry["level"] == "error"
-    assert "original failure" in entry["detail"]
+    assert "original failure" in entry["detail"] and entry["sim_time"] == host.current_time.isoformat()
+
+    closed = _prepared_stub(tmp_path / "closed")
+    _ops_crash_log(closed, SimpleNamespace(engine=None, current_time=host.current_time), ValueError("closed"))
+    assert _first_ops_entry(tmp_path / "closed")["sim_time"] == closed.start_time.isoformat()
 
     broken = _prepared_stub(tmp_path / "no-matter",
                             inputs=SimpleNamespace(config=SimpleNamespace(timezone="Bogus/Zone")))
@@ -214,138 +167,25 @@ def test_ops_crash_log_records_and_never_masks_original_error(tmp_path):
 
 @pytest.mark.asyncio
 async def test_execute_requires_intervention_identity(monkeypatch, tmp_path):
-    """干预已设置但身份缺失时拒绝进入运行。"""
-    import worldmock.runtime.lifecycle.runner as runtime
-    from agentsociety2.config import llm_dispatcher
-
-    monkeypatch.setattr(llm_dispatcher, "init_dispatchers", _no_dispatchers)
-    async def build(prepared):
-        return None, _Society()
-    monkeypatch.setattr(runtime, "_build_society", build)
+    """干预已设置但身份缺失时拒绝进入运行：宿主没有收到任何启动调用，只关闭一次。"""
+    hosts = _host_stub(monkeypatch)
     with pytest.raises(RuntimeError, match="identity is unavailable"):
         await _execute(_prepared_stub(tmp_path, intervention=object(),
                                       intervention_sha256=None))
-    entry = json.loads(
-        sorted((tmp_path / "logs").glob("ops-*.jsonl"))[0].read_text().splitlines()[0])
+    entry = _first_ops_entry(tmp_path)
     assert entry["code"] == "RUN_CRASHED" and entry["level"] == "error"
+    (host,) = hosts
+    assert host.calls == ["close"]
 
 
 @pytest.mark.asyncio
 async def test_execute_cleanup_failures_surface_without_run_failure(monkeypatch, tmp_path):
-    """运行成功但清理失败：单项错误单独上抛，多项错误合并异常组。"""
-    import ray
-
-    import worldmock.runtime.lifecycle.runner as runtime
-    from agentsociety2.config import llm_dispatcher
-
-    monkeypatch.setattr(llm_dispatcher, "init_dispatchers", _no_dispatchers)
-    single = _Society(fail_close=OSError("close failed"))
-    async def build(prepared):
-        return None, single
-    monkeypatch.setattr(runtime, "_build_society", build)
-    monkeypatch.setattr(ray, "is_initialized", lambda: False)
-    with pytest.raises(OSError, match="close failed"):
+    """运行成功但关闭失败：关闭故障原样上抛。"""
+    failure = OSError("close failed")
+    _host_stub(monkeypatch, close_error=failure)
+    with pytest.raises(OSError, match="close failed") as raised:
         await _execute(_prepared_stub(tmp_path))
-
-    both = _Society(fail_close=OSError("close failed"))
-    async def build(prepared):
-        return None, both
-    monkeypatch.setattr(runtime, "_build_society", build)
-    calls = {"count": 0}
-
-    def flip_initialized():
-        calls["count"] += 1
-        return calls["count"] > 1  # 启动时未初始化（owned_ray=True），清理时已初始化
-
-    monkeypatch.setattr(ray, "is_initialized", flip_initialized)
-    monkeypatch.setattr(ray, "shutdown", lambda: (_ for _ in ()).throw(RuntimeError("ray down")))
-    with pytest.raises(BaseExceptionGroup) as caught:
-        await _execute(_prepared_stub(tmp_path))
-    assert [type(item) for item in caught.value.exceptions] == [OSError, RuntimeError]
-
-
-@pytest.mark.asyncio
-async def test_cleanup_runtime_releases_actor_and_owned_ray(monkeypatch):
-    """清理路径释放 actor 与自有 Ray，并保留各项失败。"""
-    import ray
-
-    released = []
-    monkeypatch.setattr(ray, "is_initialized", lambda: True)
-    monkeypatch.setattr(ray, "kill",
-                        lambda target, no_restart: released.append(("kill", target, no_restart)))
-    monkeypatch.setattr(ray, "shutdown", lambda: released.append("shutdown"))
-    errors = await _cleanup_runtime(None, "actor", True)
-    assert errors == [] and released == [("kill", "actor", True), "shutdown"]
-
-    released.clear()
-    monkeypatch.setattr(ray, "kill",
-                        lambda target, no_restart: (_ for _ in ()).throw(OSError("kill failed")))
-    monkeypatch.setattr(ray, "shutdown", lambda: (_ for _ in ()).throw(OSError("down failed")))
-    errors = await _cleanup_runtime(None, "actor", True)
-    assert [type(item) for item in errors] == [OSError, OSError]
-    assert released == []
-
-
-def test_terminate_failed_actor_preserves_double_fault(monkeypatch):
-    """actor 回滚失败时与原始异常合并为异常组。"""
-    import ray
-
-    cause = ValueError("society failed")
-    monkeypatch.setattr(ray, "kill",
-                        lambda target, no_restart: (_ for _ in ()).throw(OSError("kill boom")))
-    with pytest.raises(BaseExceptionGroup) as caught:
-        _terminate_failed_actor("actor", cause)
-    assert [type(item) for item in caught.value.exceptions] == [ValueError, OSError]
-
-
-def test_require_custom_modules_accepts_registered_life_modules(monkeypatch):
-    """scanner 真实通过 LifeAgent 与 LifeEnv；错误结果拒绝。"""
-    monkeypatch.setenv("WORKSPACE_PATH", str(ROOT))
-    _require_custom_modules(ROOT)
-    from agentsociety2.registry import scan_and_register_custom_modules
-
-    original = scan_and_register_custom_modules
-    monkeypatch.setattr("agentsociety2.registry.scan_and_register_custom_modules",
-                        lambda root: {"errors": ["boom"], "agents": [], "envs": []})
-    with pytest.raises(RuntimeError, match="registration failed"):
-        _require_custom_modules(ROOT)
-    monkeypatch.setattr("agentsociety2.registry.scan_and_register_custom_modules", original)
-
-
-
-
-# ---------------------------------------------------------------------------
-# 联系人回复客户端与请求结算
-# ---------------------------------------------------------------------------
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# ---------------------------------------------------------------------------
-# 零点计划客户端与后台任务（docs/design/04-simulation-engine.md 第四章「执行位置」）
-# ---------------------------------------------------------------------------
-
-
-
-
-
-
+    assert raised.value is failure
 
 
 # ---------------------------------------------------------------------------

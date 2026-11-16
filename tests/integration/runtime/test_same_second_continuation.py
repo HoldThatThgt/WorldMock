@@ -1,6 +1,6 @@
 """同秒续接的验收（docs/design/06-agent.md 第二章「同秒续接」、第四章第 0 步、第七章「清单」）。
 
-真实 LifeEngine、LifeEnv 与 SQLite 上，脚本化模型经真实 LifeAgent 决策：同一秒的后续决策原样续接上一决策末次请求的
+真实 LifeEngine 与 SQLite 上，脚本化模型经真实 LifeAgent 决策：同一秒的后续决策原样续接上一决策末次请求的
 全部消息，追加上一决策的 assistant（原样带思考）与一条 tool 消息 {result, changes, events}；上一决策以开始组（两个开始
 工具各一次）结束时 assistant 带两个 tool_calls，按调用次序各追加一条 tool 消息，changes 与 events 只写在最后一条上；
 他人同秒发来的消息在整个请求中只出现一次；时间推进后请求只有两条消息、不带此前的思考；出发后同秒、反事实分支、缺思考、
@@ -11,7 +11,7 @@
 
 from __future__ import annotations
 
-from tests.integration.runtime.current_contract_fixtures import inputs as current_inputs, profile as current_profile
+from tests.integration.runtime.current_contract_fixtures import inputs as current_inputs, turns_with_history
 
 from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT, ENVIRONMENT_ROOT
 from worldmock.recording_engine.storage.checkpoint import restore_branch
@@ -21,22 +21,19 @@ import json
 import logging
 import os
 import re
-from contextlib import nullcontext
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
-os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
-from agentsociety2.agent.base import ReactLoopRequest  # noqa: E402
-from agentsociety2.society import DirectToolCall  # noqa: E402
+from worldmock.state.decisions.round import DirectToolCall  # noqa: E402
 
-from custom.agents.life_agent import LifeAgent  # noqa: E402
+from worldmock.agents.life_agent import LifeAgent, person_inputs  # noqa: E402
+from worldmock.agents.memory.life_memory_store import WorldMockMemoryStore, read_episodes  # noqa: E402
 from worldmock.agents.protocol.life_continuation import _overlay, _view as _seen, layer_changes, send_check  # noqa: E402
-from custom.envs.life_env import LifeEnv  # noqa: E402
 from scripts import inspect_run  # noqa: E402
 from tests.integration.runtime_fixtures import current_run_identity, write_agent_workspace  # noqa: E402
 from tests.integration.runtime.test_life_agent_protocol import _ModelResponse
@@ -77,6 +74,8 @@ from worldmock.simulation_engine.decisions.continuation import _session_changed 
 from worldmock.simulation_engine.engine import LifeEngine  # noqa: E402
 from worldmock.state.decisions.results import CounterfactualIntervention
 from worldmock.state.identity import ModelIdentity, RunIdentity  # noqa: E402
+from worldmock.state.model.exchange import ModelCallEvidence  # noqa: E402
+from worldmock.runtime.framework.setup import stage_model_identity  # noqa: E402
 from worldmock.agents.prompt.prompt_capacity import ProgressBudget, fit_request  # noqa: E402
 from worldmock.simulation_engine.observation.layers.result_projection import public_result  # noqa: E402
 from worldmock.simulation_engine.observation.memory.days import published_today  # noqa: E402
@@ -115,7 +114,7 @@ class _Script:
         self.requests: list[dict] = []
         self.responses = list(responses)
 
-    async def call(self, **request):
+    async def call(self, request):
         """保存真正发送的请求，返回下一个提供商形状响应。"""
         self.requests.append(copy.deepcopy(request))
         return self.responses.pop(0)
@@ -147,47 +146,32 @@ class _GroupReply:
                                          "reasoning_content": self._reasoning}}]}
 
 
-def _person(environment: LifeEnv, ctx, dispatcher: _Script) -> LifeAgent:
-    """每次决策都重建人物（与 AS2 从工作区重建相同），绑定真实环境与本轮宿主身份。"""
-    person = LifeAgent()
-    person._id = ctx.agent_id
-    person._name = f"人物{ctx.agent_id}"
-    person._profile = current_profile()
-    person._env = environment
-    person._dispatcher = dispatcher
-    person._model_name = "test-model"
-    person._decision_context = ctx
-    person._max_react_turns = 4
-    person._enable_memory = False
-    person.trace_span = lambda *args, **kwargs: nullcontext(SimpleNamespace(attributes={}))
-    return person
+def _person(engine: LifeEngine, ctx, dispatcher: _Script) -> LifeAgent:
+    """每次决策都新建人物：冻结输入取自夹具人设表与模型身份，名字按人物编号，回合上限 4，只跑回合循环（不做步尾保存）。"""
+    frozen = current_inputs()
+    identity = stage_model_identity(frozen.config.model, frozen.model_metadata)
+    inputs = replace(person_inputs(frozen.persona, identity), name=f"人物{ctx.agent_id}",
+                     model_identity={**identity, "max_react_turns": 4})
+    return LifeAgent(inputs, engine, dispatcher, None)
 
 
-async def _decide(environment: LifeEnv, ctx, responses) -> tuple[dict, list[dict], LifeAgent]:
-    """一次真实观察与人物循环；responses 是响应列表，或按本次观察给出响应列表的函数。"""
-    observation = await environment.observe(ctx)
+async def _decide(engine: LifeEngine, ctx, responses) -> tuple[dict, list[dict], list[dict]]:
+    """一次真实观察与人物回合循环；responses 是响应列表，或按本次观察给出响应列表的函数。返回观察、实际发送的请求与
+    回合循环结束时的消息历史。"""
+    observation = engine.observe(ctx)
     dispatcher = _Script(responses(observation) if callable(responses) else responses)
-    person = _person(environment, ctx, dispatcher)
-    await person.run_react_loop(ReactLoopRequest(0, ctx.observed_at, [
-        {"turn": 0, "action": "observe", "ok": True, "data": observation}]))
-    return observation, dispatcher.requests, person
+    person = _person(engine, ctx, dispatcher)
+    _, history = await turns_with_history(person, ctx, observation)
+    return observation, dispatcher.requests, history
 
 
-async def _single(environment: LifeEnv, round_id: str, responses) -> tuple[dict, list[dict], LifeAgent]:
-    """单人决策轮：观察、决策并结算。"""
-    engine = environment.engine
+async def _single(engine: LifeEngine, round_id: str, responses) -> tuple[dict, list[dict], list[dict]]:
+    """单人决策轮：开轮、观察、决策并结算。"""
     ctx = context(engine, round_id)
     engine.begin_decision_round([ctx])
-    decided = await _decide(environment, ctx, responses)
+    decided = await _decide(engine, ctx, responses)
     engine.commit_decision_round(round_id)
     return decided
-
-
-def _environment(engine: LifeEngine) -> LifeEnv:
-    """把真实引擎挂到 LifeEnv。"""
-    environment = LifeEnv()
-    environment.engine = engine
-    return environment
 
 
 def _plan_reply(reasoning: str | None = _THINK_PLAN) -> list:
@@ -215,12 +199,11 @@ def _person_name(observation: dict, agent_id: int) -> str:
 async def _plan_then_wait(engine: LifeEngine) -> dict:
     """同一秒两次决策：先修订今日计划，再（续接）开始等待。"""
     stage_day_plan(engine)
-    environment = _environment(engine)
-    first_observation, first, planner = await _single(environment, "plan", _plan_reply())
+    first_observation, first, planner = await _single(engine, "plan", _plan_reply())
     assert engine.scheduling_state().ready_agent_ids == (1,)
     assert engine.context.state.current_time == int(first_observation["current_time"])
-    second_observation, second, _ = await _single(environment, "wait", _wait_reply())
-    return {"environment": environment, "first": first, "planner": planner,
+    second_observation, second, _ = await _single(engine, "wait", _wait_reply())
+    return {"first": first, "planner": planner,
             "observation": second_observation, "second": second}
 
 
@@ -236,7 +219,7 @@ async def test_the_continued_request_starts_with_the_previous_request_byte_for_b
     assert len(request["messages"]) == len(prefix) + 2
     assert json.dumps(request["messages"][:len(prefix)], ensure_ascii=False) == json.dumps(prefix, ensure_ascii=False)
     assistant, tool = request["messages"][len(prefix):]
-    assert assistant == run["planner"]._react_messages[-1]
+    assert assistant == run["planner"][-1]
     assert (assistant["reasoning_content"], assistant["content"]) == (_THINK_PLAN, f"  {_NOTE}  ")
     assert assistant["tool_calls"][0]["function"]["name"] == "revise_day_plan"
     assert (tool["role"], tool["tool_call_id"]) == ("tool", "call-plan")
@@ -265,16 +248,15 @@ async def test_a_three_decision_chain_keeps_every_prefix_and_reports_each_change
     计划已由第一条 tool 消息交还，第二条 tool 消息只交还第二次决策的条目。"""
     engine = _engine_factory()
     stage_day_plan(engine)
-    environment = _environment(engine)
-    await _single(environment, "plan", _plan_reply())
+    await _single(engine, "plan", _plan_reply())
 
     def recall(observation: dict) -> list:
         goal = observation["goal_bindings"][0]["task_name"]
         return [_reply("call-recall", "recall_task_summary", {"task_name": goal}, "回看一下这段停留。"),
                 _reply("call-revision", "revise_day_plan", _PLAN, "回看后保持计划不变。")]
 
-    _, recalled, _ = await _single(environment, "recall", recall)
-    observation, [third], _ = await _single(environment, "wait", _wait_reply())
+    _, recalled, _ = await _single(engine, "recall", recall)
+    observation, [third], _ = await _single(engine, "wait", _wait_reply())
     second = recalled[-1]
     size = len(second["messages"])
     assert json.dumps(third["messages"][:size], ensure_ascii=False) == json.dumps(second["messages"], ensure_ascii=False)
@@ -316,14 +298,13 @@ async def test_duty_is_constant_within_a_same_second_chain_and_never_enters_chan
 
 
 
-async def _round(environment: LifeEnv, round_id: str, scripts: dict) -> dict[int, list[dict]]:
+async def _round(engine: LifeEngine, round_id: str, scripts: dict) -> dict[int, list[dict]]:
     """多人决策轮：按调度顺序逐人观察与决策，结算后返回各人实际发送的请求。"""
-    engine = environment.engine
     contexts = [context(engine, round_id, agent_id) for agent_id in engine.scheduling_state().ready_agent_ids]
     engine.begin_decision_round(contexts)
     requests = {}
     for ctx in contexts:
-        _, requests[ctx.agent_id], _ = await _decide(environment, ctx, scripts[ctx.agent_id])
+        _, requests[ctx.agent_id], _ = await _decide(engine, ctx, scripts[ctx.agent_id])
     engine.commit_decision_round(round_id)
     return requests
 
@@ -341,7 +322,7 @@ async def test_after_time_advances_the_request_has_no_native_turns_or_earlier_th
         names = pending_names(observation)
         return [_reply("call-end", "conclude_activity", _ended(names, "歇好了。"), "等完了，收尾。")]
 
-    observation, [request], _ = await _single(run["environment"], "later", conclude)
+    observation, [request], _ = await _single(engine, "later", conclude)
     assert observation["continuation"] is None
     assert [item["role"] for item in request["messages"]] == ["system", "user"]
     text = json.dumps(request, ensure_ascii=False)
@@ -372,13 +353,13 @@ async def test_a_plain_resume_from_a_mid_second_checkpoint_sends_the_same_reques
     """从同一秒两次决策之间的检查点普通恢复：续接照常，恢复分支发出的请求与不中断运行逐字节相同。"""
     engine = _engine_factory()
     stage_day_plan(engine)
-    await _single(_environment(engine), "plan", _plan_reply())
+    await _single(engine, "plan", _plan_reply())
     checkpoint = _checkpoint(engine)
-    _, uninterrupted, _ = await _single(_environment(engine), "wait", _wait_reply())
+    _, uninterrupted, _ = await _single(engine, "wait", _wait_reply())
     resumed = _branch(engine, checkpoint, tmp_path / "resumed")
     try:
         assert resumed.context.store.manifest["branch_kind"] == "resume"
-        observation, restored, _ = await _single(_environment(resumed), "wait", _wait_reply())
+        observation, restored, _ = await _single(resumed, "wait", _wait_reply())
         assert observation["continuation"] is not None
         assert json.dumps(restored, ensure_ascii=False) == json.dumps(uninterrupted, ensure_ascii=False)
     finally:
@@ -392,7 +373,7 @@ async def test_a_counterfactual_branch_breaks_the_chain(_engine_factory, tmp_pat
 
     engine = _engine_factory()
     stage_day_plan(engine)
-    first, _, _ = await _single(_environment(engine), "plan", _plan_reply())
+    first, _, _ = await _single(engine, "plan", _plan_reply())
     intervention = CounterfactualIntervention(
         kind="set_balance_fen", agent_id=1, balance_fen=123_456, hypothesis="More money changes the plan.",
         source_event_ids=(first["observation_event_id"],))
@@ -400,7 +381,7 @@ async def test_a_counterfactual_branch_breaks_the_chain(_engine_factory, tmp_pat
     branch = _branch(engine, _checkpoint(engine), tmp_path / "counterfactual", metadata)
     try:
         branch.apply_counterfactual(intervention)
-        observation, [request], _ = await _single(_environment(branch), "wait", _wait_reply())
+        observation, [request], _ = await _single(branch, "wait", _wait_reply())
         assert observation["continuation"] is None
         assert [item["role"] for item in request["messages"]] == ["system", "user"]
     finally:
@@ -412,9 +393,8 @@ async def test_missing_thinking_breaks_the_chain(_engine_factory) -> None:
     """上一决策的最终 assistant 没有 reasoning_content：断链，下一决策首个请求恰好两条消息。"""
     engine = _engine_factory()
     stage_day_plan(engine)
-    environment = _environment(engine)
-    await _single(environment, "plan", _plan_reply(reasoning=None))
-    observation, [request], _ = await _single(environment, "wait", _wait_reply())
+    await _single(engine, "plan", _plan_reply(reasoning=None))
+    observation, [request], _ = await _single(engine, "wait", _wait_reply())
     assert observation["continuation"] is None and len(request["messages"]) == 2
 
 
@@ -428,7 +408,7 @@ async def test_missing_model_evidence_breaks_the_chain(_engine_factory) -> None:
     engine.observe(ctx)
     engine.submit_action(DirectToolCall(ctx, f"{ctx.decision_id}:action:0001", MAIN_TOOL, do_at("家", "不存在的对象")))
     assert engine.commit_decision_round("direct")[0].status == "rejected"
-    observation, [request], _ = await _single(_environment(engine), "wait", _wait_reply())
+    observation, [request], _ = await _single(engine, "wait", _wait_reply())
     assert observation["continuation"] is None and len(request["messages"]) == 2
 
 
@@ -443,8 +423,6 @@ def _recorded_decision(engine: LifeEngine, messages: list[dict], response: dict 
                        registered: tuple[str, ...] = _ONE) -> None:
     """一次带手写模型证据的单人决策：行动请求与响应落库（response 为 None 时只有请求），按 registered 的先后登记世界请求
     （一条主调用，或开始组的两条）。主调用点名家里没有的一件事，整个决策被业务拒绝（人物同一秒再决策）。"""
-    from agentsociety2.agent.base import ModelCallEvidence
-
     ctx = context(engine, "recorded")
     engine.begin_decision_round([ctx])
     engine.observe(ctx)
@@ -519,8 +497,6 @@ def test_recorded_evidence_decides_whether_the_chain_holds(_engine_factory, mess
 
 def test_a_decision_that_registered_no_world_request_does_not_continue(_engine_factory) -> None:
     """上一决策没有以一个世界请求或一个开始组结束（有模型证据、未登记即中止）：同一秒下一次决策不续接。"""
-    from agentsociety2.agent.base import ModelCallEvidence
-
     engine = _engine_factory()
     stage_day_plan(engine)
     ctx = context(engine, "aborted")
@@ -580,9 +556,8 @@ async def test_a_rejected_request_continues_with_the_rejection_reason(_engine_fa
     进度层没有 tool_call，rejected_today 有这次拒绝。"""
     engine = _engine_factory()
     stage_day_plan(engine)
-    environment = _environment(engine)
-    await _single(environment, "refused", _unavailable)
-    observation, [request], _ = await _single(environment, "wait", _wait_reply())
+    await _single(engine, "refused", _unavailable)
+    observation, [request], _ = await _single(engine, "wait", _wait_reply())
     result = json.loads(request["messages"][-1]["content"])["result"]
     assert result["status"] == "rejected" and result["error_code"] and result["details"]["reason"]
     (refused,) = [row for row in events(engine, "action_result") if row.decision_id == "decision-refused-1"]
@@ -609,8 +584,7 @@ async def test_a_carried_record_is_not_repeated_in_the_continuation(_engine_fact
     _, (trip, keep) = act_group(engine, "depart", travel("公司", "步行"), use_app("Keep"))
     assert (trip.status, keep.status) == ("in_progress", "in_progress"), (trip.error_code, keep.error_code)
     assert advance_until_ready(engine)
-    environment = _environment(engine)
-    refused, _, _ = await _single(environment, "refused", _unavailable)
+    refused, _, _ = await _single(engine, "refused", _unavailable)
     assert [row["arguments"]["target"] for row in progress_calls(refused, SIDE_TOOL)] == [["Keep"]]
     ctx = context(engine, "next")
     engine.begin_decision_round([ctx])
@@ -639,10 +613,9 @@ async def test_a_start_group_is_continued_with_one_tool_message_per_call(_engine
     engine = _engine_factory(mutate=lambda persona, config: persona.update(
         initial_relaxation_need=_NEAR_RELAXATION_BAND))
     stage_day_plan(engine)
-    environment = _environment(engine)
     arguments = {MAIN_TOOL: _WAIT, SIDE_TOOL: side_arguments("purchase", "纸巾")}
     calls = [(f"call-{tool}", tool, arguments[tool]) for tool in order]
-    head, [previous], starter = await _single(environment, "group", [
+    head, [previous], starter = await _single(engine, "group", [
         _GroupReply(calls, "歇着顺手买包纸巾。", " 两件事一起。 ")])
     registered = engine.context.store.read_agent_events("action_requested", 1)
     assert [(event.action_id, event.data["tool_name"], event.data["request"], event.data["self_note"])
@@ -650,11 +623,11 @@ async def test_a_start_group_is_continued_with_one_tool_message_per_call(_engine
         ("decision-group-1:action:0001", order[0], arguments[order[0]], "两件事一起。"),
         ("decision-group-1:action:0002", order[1], arguments[order[1]], None)]
     assert engine.context.state.activities == {} and engine.scheduling_state().ready_agent_ids == (1,)
-    observation, [request], _ = await _single(environment, "wait", _wait_reply())
+    observation, [request], _ = await _single(engine, "wait", _wait_reply())
     prefix = previous["messages"]
     assert json.dumps(request["messages"][:len(prefix)], ensure_ascii=False) == json.dumps(prefix, ensure_ascii=False)
     assistant, *tools = request["messages"][len(prefix):]
-    assert assistant == starter._react_messages[-1] and assistant["reasoning_content"] == "歇着顺手买包纸巾。"
+    assert assistant == starter[-1] and assistant["reasoning_content"] == "歇着顺手买包纸巾。"
     assert [(call["id"], call["function"]["name"]) for call in assistant["tool_calls"]] == [
         (call_id, tool) for call_id, tool, _ in calls]
     assert [(item["role"], item["tool_call_id"]) for item in tools] == [("tool", call_id) for call_id, _, _ in calls]
@@ -674,7 +647,7 @@ async def test_a_start_group_is_continued_with_one_tool_message_per_call(_engine
     control = _engine_factory()
     stage_day_plan(control)
     accepted = {MAIN_TOOL: _WAIT, SIDE_TOOL: side_arguments("interact", "哔哩哔哩")}
-    await _single(_environment(control), "group", [_GroupReply(
+    await _single(control, "group", [_GroupReply(
         [(f"call-{tool}", tool, accepted[tool]) for tool in order], "歇着刷会儿视频。")])
     assert sorted(item.origin_action_id for item in control.context.state.activities.values()) == [
         "decision-group-1:action:0001", "decision-group-1:action:0002"]
@@ -700,13 +673,12 @@ async def test_the_continuation_report_reads_a_chain_through_a_start_group_as_in
     对照：把落库的续接请求里开始组的两条 tool 消息对调，或只留一条，同一份读数就判为断链。"""
     engine = _engine_factory()
     stage_day_plan(engine)
-    environment = _environment(engine)
-    await _single(environment, "plan", _plan_reply())
+    await _single(engine, "plan", _plan_reply())
     calls = [("call-main", MAIN_TOOL, _WAIT), ("call-side", SIDE_TOOL, side_arguments("purchase", "纸巾"))]
-    _, [grouped], _ = await _single(environment, "group", [_GroupReply(calls, "歇着顺手买包纸巾。")])
+    _, [grouped], _ = await _single(engine, "group", [_GroupReply(calls, "歇着顺手买包纸巾。")])
     assert engine.context.state.activities == {} and [item["role"] for item in grouped["messages"][2:]] == [
         "assistant", "tool"]
-    _, [request], _ = await _single(environment, "wait", _wait_reply())
+    _, [request], _ = await _single(engine, "wait", _wait_reply())
     assert [item["role"] for item in request["messages"][len(grouped["messages"]):]] == ["assistant", "tool", "tool"]
     rows, summary = _chain_report(engine)
     assert rows == [
@@ -729,24 +701,26 @@ def _tool_payload(request: dict) -> dict:
     return json.loads(request["messages"][-1]["content"])
 
 
-async def _workspace_person(environment: LifeEnv, workspace: Path, responses: list) -> tuple[LifeAgent, _Script]:
-    """启用记忆的真实 LifeAgent：首次在工作区新建，此后每次决策都从工作区重建（与 AS2 每次决策重建人物相同）。"""
-    if not (workspace / "AGENT.json").is_file():
-        LifeAgent.create(workspace, current_profile(),
-                         {"enable_memory": True, "enable_todo_list": False, "max_react_turns": 8})
+async def _workspace_person(engine: LifeEngine, workspace: Path, responses: list) -> tuple[LifeAgent, _Script]:
+    """启用记忆的真实 LifeAgent：每次调用都从工作区读回已有条目建记忆存储（首次没有条目文件时为空），回合上限 8。"""
     dispatcher = _Script(responses)
-    service = SimpleNamespace(env=environment, llm=SimpleNamespace(default=dispatcher), trace=None)
-    return await LifeAgent.from_workspace(workspace, service), dispatcher
+    frozen = current_inputs()
+    identity = stage_model_identity(frozen.config.model, frozen.model_metadata)
+    records = read_episodes(workspace, 1) if (workspace / "memory" / "episodes.jsonl").is_file() else ()
+    inputs = replace(person_inputs(frozen.persona, identity), model_identity={**identity, "max_react_turns": 8})
+    return LifeAgent(inputs, engine, dispatcher, WorldMockMemoryStore(workspace, 1, records)), dispatcher
 
 
-async def _step(environment: LifeEnv, person: LifeAgent, round_id: str) -> str:
-    """真实人物步骤：开轮、观察、决策（含检索记忆与协议纠错回合）并登记唯一世界请求，然后结算。"""
-    ctx = context(environment.engine, round_id)
-    await environment.begin_decision_round((ctx,))
-    person.bind_decision_context(ctx)
-    registered = await person.step(0, ctx.observed_at)
-    await environment.commit_decision_round(round_id)
-    return registered
+async def _step(engine: LifeEngine, person: LifeAgent, round_id: str) -> list[str]:
+    """真实人物步骤：开轮、观察、决策（含检索记忆与协议纠错回合）并登记唯一世界请求、步尾保存记忆，然后结算；
+    返回登记的工具名。"""
+    ctx = context(engine, round_id)
+    engine.begin_decision_round([ctx])
+    observation = engine.observe(ctx)
+    registered = await person.run_turns(ctx, observation)
+    person._record_memory(ctx)
+    engine.commit_decision_round(round_id)
+    return [decision.action for decision in registered]
 
 
 @pytest.mark.asyncio
@@ -758,12 +732,11 @@ async def test_a_decision_with_memory_and_correction_turns_is_continued_byte_for
     第一章「唯一出现原则」）。"""
     engine = _engine_factory()
     stage_day_plan(engine)
-    environment = _environment(engine)
     workspace = tmp_path / "agent_0001"
-    person, first = await _workspace_person(environment, workspace, [
+    person, first = await _workspace_person(engine, workspace, [
         _reply("call-memory", "search_memory", {"category": "全部", "time": "今天", "keyword": None}, "先翻翻记忆。"),
         _reply("call-bad", MAIN_TOOL, _UNKNOWN, "那就先等一会儿。"), *_plan_reply()])
-    assert await _step(environment, person, "plan") == "revise_day_plan registered"
+    assert await _step(engine, person, "plan") == ["revise_day_plan"]
     last = first.requests[-1]
     assert len(first.requests) == 3
     assert [item["role"] for item in last["messages"]] == ["system", "user", "assistant", "tool", "assistant", "tool"]
@@ -772,8 +745,8 @@ async def test_a_decision_with_memory_and_correction_turns_is_continued_byte_for
     assert searched["tool_call_id"] == "call-memory" and "result" not in json.loads(searched["content"])
     assert json.loads(last["messages"][5]["content"])["error_code"] == "NAME_NOT_FOUND"
 
-    person, second = await _workspace_person(environment, workspace, _wait_reply())
-    assert await _step(environment, person, "wait") == f"{MAIN_TOOL} registered"
+    person, second = await _workspace_person(engine, workspace, _wait_reply())
+    assert await _step(engine, person, "wait") == [MAIN_TOOL]
     [request] = second.requests
     size = len(last["messages"])
     assert json.dumps(request["messages"][:size], ensure_ascii=False) == json.dumps(last["messages"],
@@ -813,16 +786,15 @@ async def test_changes_add_each_published_entry_once_across_a_three_decision_cha
     决策的条目，第一次的不再出现；第三次请求的前缀逐字节等于第二次请求。"""
     engine = _engine_factory()
     stage_day_plan(engine)
-    environment = _environment(engine)
-    await _single(environment, "wait", _wait_reply(reasoning="先等一刻钟。"))
+    await _single(engine, "wait", _wait_reply(reasoning="先等一刻钟。"))
     assert advance_until_ready(engine)
 
     def conclude(observation: dict) -> list:
         return [_reply("call-end", "conclude_activity", _ended(pending_names(observation), "等完了。"), "等完了，收尾。")]
 
-    await _single(environment, "end", conclude)
-    planned, [second], _ = await _single(environment, "plan", _plan_reply())
-    observation, [third], _ = await _single(environment, "again", _wait_reply("call-wait-again"))
+    await _single(engine, "end", conclude)
+    planned, [second], _ = await _single(engine, "plan", _plan_reply())
+    observation, [third], _ = await _single(engine, "again", _wait_reply("call-wait-again"))
     ended_entry, planned_entry = planned["memory_layer"]["今天"][-1], observation["memory_layer"]["今天"][-1]
     assert observation["memory_layer"]["今天"][-2] == ended_entry
     assert _tool_payload(second)["changes"]["memory"] == {"added": [ended_entry]}
@@ -896,17 +868,16 @@ async def test_a_backstop_inside_a_same_second_chain_starts_the_decision_from_a_
     请求恰为 system 与 user 两条消息，按层名取到的记忆层「今天」就是此刻的「今天」。"""
     engine = _engine_factory()
     stage_day_plan(engine)
-    environment = _environment(engine)
-    await _single(environment, "plan", _plan_reply())
-    revised, _, _ = await _single(environment, "revise", [_reply("call-revision", "revise_day_plan", _PLAN,
-                                                                 "再看一遍计划。")])
+    await _single(engine, "plan", _plan_reply())
+    revised, _, _ = await _single(engine, "revise", [_reply("call-revision", "revise_day_plan", _PLAN,
+                                                            "再看一遍计划。")])
     assert revised["continuation"] is not None and len(revised["memory_layer"]["今天"]) == 1
     budget = layer_chars(revised["memory_layer"])
     monkeypatch.setattr(layout, "MEMORY_LAYER_CHARS", budget)
     monkeypatch.setattr(layout, "MEMORY_BACKSTOP_CHARS", budget)
     caplog.clear()
     with caplog.at_level(logging.WARNING):
-        observation, requests, _ = await _single(environment, "wait", _wait_reply())
+        observation, requests, _ = await _single(engine, "wait", _wait_reply())
     assert observation["memory_layer"]["今天"][0] != revised["memory_layer"]["今天"][0]
     assert observation["continuation"] is not None
     pattern = rf"^Memory layer backstop rewrote today from (\d+) to (\d+) characters \(target {budget}\)$"
@@ -1038,18 +1009,17 @@ async def test_chain_events_leave_out_memory_facts_from_the_previous_commit(_eng
     _, arrived = act(engine, "arrived", conclude_request(name, errands=[errand_add("取笔记本", "平台笔记本", 1)]),
                      "conclude_activity")
     assert arrived.status == "completed", arrived.error_code
-    environment = _environment(engine)
     scheduled = same_moment.schedule_after_round
     monkeypatch.setattr(same_moment, "schedule_after_round", lambda outcome, rhythm: (
         outcome.now, same_moment.round_wake_reasons(outcome.active, outcome.rejected), same_moment.next_stage(outcome)))
-    await _single(environment, "collect", [_reply("call-collect", MAIN_TOOL, main_arguments(
+    await _single(engine, "collect", [_reply("call-collect", MAIN_TOOL, main_arguments(
         "interact", "快递驿站", "驿站取件"), "去取快递。")])
     monkeypatch.setattr(same_moment, "schedule_after_round", scheduled)
     now = engine.context.state.current_time
     collected = [row for row in events(engine, "environment_event") if row.occurred_at == now]
     assert {"goods_received", "errand_completed"} <= {row.data.get("kind") for row in collected}
     assert engine.scheduling_state().ready_agent_ids == (1,)
-    observation, [request], _ = await _single(environment, "next", _plan_reply())
+    observation, [request], _ = await _single(engine, "next", _plan_reply())
     chain = observation["continuation"]
     assert chain is not None
     assert not [row for row in chain["events"] if row["type"] in {"errand_completed", "delivery"}]
@@ -1068,8 +1038,7 @@ async def test_errand_changes_reach_the_next_tool_message_as_added_and_removed(_
     """真实收尾新增两条事务，同秒后续收尾更改或取消，仅回报未出现的变化。"""
     engine = _engine_factory()
     stage_day_plan(engine)
-    environment = _environment(engine)
-    await _single(environment, "interact", _wait_reply())
+    await _single(engine, "interact", _wait_reply())
     advance_until_ready(engine)
 
     def note(observation):
@@ -1077,8 +1046,8 @@ async def test_errand_changes_reach_the_next_tool_message_as_added_and_removed(_
         return [_reply("call-note", "conclude_activity", {
             **_ended([name], "聊完了。"), "errands": [_SNACK_ERRAND, _TEA_ERRAND]}, "把要买的记下。")]
 
-    head, _, _ = await _single(environment, "note", note)
-    rows, requests, _ = await _single(environment, "plan", _plan_reply())
+    head, _, _ = await _single(engine, "note", note)
+    rows, requests, _ = await _single(engine, "plan", _plan_reply())
     [second] = requests
     earlier = _tool_payload(second)
     assert earlier["changes"]["errands"] == {"added": rows["todo_layer"]["errands"]}
@@ -1086,7 +1055,7 @@ async def test_errand_changes_reach_the_next_tool_message_as_added_and_removed(_
     assert [row["name"] for row in rows["todo_layer"]["errands"]] == ["周末补薯片", "囤三杯柠檬茶"]
     assert earlier["result"]["details"]["errands"] == [
         {"errand": "周末补薯片", "change": "新增"}, {"errand": "囤三杯柠檬茶", "change": "新增"}]
-    current, [third], _ = await _single(environment, "again", _wait_reply("call-again"))
+    current, [third], _ = await _single(engine, "again", _wait_reply("call-again"))
     assert _tool_payload(third)["changes"] == {"memory": {"added": [current["memory_layer"]["今天"][-1]]},
                                                "day_plan": current["todo_layer"]["day_plan"]}
     assert third["messages"][:len(second["messages"])] == second["messages"]
@@ -1097,17 +1066,17 @@ async def test_the_pre_send_check_fails_when_the_current_decision_lacks_thinking
     """带续接链的请求发送前自检：本次决策内的 assistant（协议纠错回合）没有 reasoning_content 时以英文错误失败。"""
     engine = _engine_factory()
     stage_day_plan(engine)
-    environment = _environment(engine)
-    await _single(environment, "plan", _plan_reply())
+    await _single(engine, "plan", _plan_reply())
     ctx = context(engine, "wait")
     engine.begin_decision_round([ctx])
     bad = _reply("call-bad", MAIN_TOOL, _UNKNOWN, None)
     with pytest.raises(RuntimeError, match="current decision is missing reasoning_content"):
-        await _decide(environment, ctx, [bad, *_wait_reply()])
+        await _decide(engine, ctx, [bad, *_wait_reply()])
 
 
 def test_the_pre_send_check_breaks_a_chain_whose_assistant_lacks_thinking() -> None:
-    """链中的 assistant 缺思考时断链：原地换成新快照消息，本决策此后的回合从新快照续写；没有链时原样返回。"""
+    """链中的 assistant 缺思考时断链：返回换成新快照消息的新列表，入参不变，本决策此后的回合从新快照续写；没有链时原样
+    返回入参与预算。"""
     system, head, fresh = ({"role": "system", "content": "s"}, {"role": "user", "content": "head"},
                            {"role": "user", "content": "fresh"})
     call = [{"id": "call", "type": "function", "function": {"name": "report_status", "arguments": "{}"}}]
@@ -1116,11 +1085,14 @@ def test_the_pre_send_check_breaks_a_chain_whose_assistant_lacks_thinking() -> N
     budget = ProgressBudget((), (), fresh_messages=(system, fresh), chain_length=len(chain))
     current = {"role": "assistant", "content": None, "tool_calls": call, "reasoning_content": "想想。"}
     messages = [*chain, current]
-    ended = send_check(messages, budget)
-    assert messages == [system, fresh, current]
+    replaced, ended = send_check(messages, budget)
+    assert replaced == [system, fresh, current]
+    assert messages == [*chain, current]
     assert (ended.fresh_messages, ended.chain_length) == (None, 0)
     plain = ProgressBudget((), ())
-    assert send_check([system, head], plain) is plain
+    unchained = [system, head]
+    kept, same = send_check(unchained, plain)
+    assert kept is unchained and same is plain
 
 
 def _chained_request(reasoning: str) -> tuple[dict, ProgressBudget]:
@@ -1170,8 +1142,7 @@ async def test_budget_step_zero_starts_the_decision_from_a_fresh_snapshot_for_ev
     记忆层「今天」都等于观察里的「今天」，最后一项是修订计划那次决策的条目。"""
     engine = _engine_factory()
     stage_day_plan(engine)
-    environment = _environment(engine)
-    await _single(environment, "plan", _plan_reply())
+    await _single(engine, "plan", _plan_reply())
     original, over = prompt_capacity.request_token_count, []
 
     def count(request: dict) -> int:
@@ -1184,7 +1155,7 @@ async def test_budget_step_zero_starts_the_decision_from_a_fresh_snapshot_for_ev
 
     monkeypatch.setattr(prompt_capacity, "request_token_count", count)
     bad = _reply("call-bad", MAIN_TOOL, _UNKNOWN, "先试一个。")
-    observation, requests, _ = await _single(environment, "wait", [bad, *_wait_reply()])
+    observation, requests, _ = await _single(engine, "wait", [bad, *_wait_reply()])
     assert observation["continuation"] is not None and len(requests) == 2
     today = observation["memory_layer"]["今天"]
     entries = published_today(engine.context.inputs, engine.context.store, 1, engine.context.state.current_time,

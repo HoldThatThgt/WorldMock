@@ -5,7 +5,7 @@ from worldmock.simulation_engine.decisions.decision_coordinator import DecisionC
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from agentsociety2.society import DecisionContext
+    from worldmock.state.decisions.round import DecisionContext
 
 import logging
 import time
@@ -136,8 +136,7 @@ class ModelEvidenceRecorder:
                      "error_code": feedback["error_code"]})
 
     def record_memory_update(self, evidence: Any) -> None:
-        """@brief 保存人物已落盘记忆的枚举操作、内容身份与写入点（trigger）；只接受步尾登记，由环境按已提交事实核对，
-        reflection 写 null。"""
+        """@brief 保存人物已落盘记忆的枚举操作、内容身份与写入点（trigger）；只接受步尾登记，由环境按已提交事实核对。"""
         self.decisions.validate_context(evidence.context)
         try:
             data = _memory_evidence_data(evidence)
@@ -166,7 +165,7 @@ class ModelEvidenceRecorder:
         )
 
     def _tail_registration(self, context: "DecisionContext", data: dict) -> dict:
-        """@brief 步尾登记：观察属于本决策、事实窗口一致、没有反思条目；写入点只可能是 activity_conclusion。
+        """@brief 步尾登记：观察属于本决策、事实窗口一致；写入点只可能是 activity_conclusion。
 
         观察按事件身份读取；本决策的行动请求都登记在它的唯一观察之后，所以只读观察之后的请求。
         """
@@ -181,8 +180,6 @@ class ModelEvidenceRecorder:
         visible_ids = {row["source_event_id"] for row in observation.data.get("verified_experiences", [])}
         if set(data["verified_event_ids"]) != visible_ids:
             raise ProtocolError("Memory update source window is invalid")
-        if any(item.get("source") == "reflection" for item in data["episodes"]):
-            raise ProtocolError("Step memory update carries a reflection episode")
         requests = store.read_agent_events("action_requested", context.agent_id, observation.event_seq)
         written = bool(data["created_episode_ids"] or data["merged_episode_ids"])
-        return {"trigger": memory_write_points(requests, context.decision_id, written), "reflection": None}
+        return {"trigger": memory_write_points(requests, context.decision_id, written)}

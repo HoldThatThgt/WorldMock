@@ -22,7 +22,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BRANCH_THRESHOLD = 85.0
-PRODUCTION_ROOTS = ("src/worldmock", "custom/agents", "custom/envs", "tools/analysis")
+PRODUCTION_ROOTS = ("src/worldmock", "tools/analysis")
 REPORT_PATH = REPO_ROOT / ".work" / "test-results" / "coverage-report.json"
 
 

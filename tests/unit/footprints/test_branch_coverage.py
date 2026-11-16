@@ -226,8 +226,7 @@ def test_memory_quality_reports_each_problem_code():
                 "merged_episode_ids": list(merged), "episodes": [{"id": identity, "type": "goal",
                 "text": "我想出门", "epistemic_status": "subjective"}],
                 "memory_before_sha256": "a" * 64, "memory_sha256": "b" * 64,
-                "episodes_sha256": "c" * 64, "state_sha256": "d" * 64,
-                "consolidated": False, "observation_event_id": "observation-absent",
+                "episodes_sha256": "c" * 64, "observation_event_id": "observation-absent",
                 "verified_event_ids": [], "trigger": list(trigger), "decision_id": decision_id}
     memory_item = {"type": "goal", "text": "我想出门", "importance": 0.5, "keywords": ["出门"]}
     events = [
@@ -250,7 +249,7 @@ def test_memory_quality_reports_each_problem_code():
         _event(7, "memory_updated", agent_id=1, decision_id="d2", data=update_data("m2", "d2", ("finish",))),
         _event(8, "memory_updated", agent_id=1, decision_id="d2", data=update_data("m3", "another")),
         _event(9, "memory_updated", agent_id=1, decision_id="d3",
-               data=update_data("absent", "d3", ("reflection",), merged=("absent",))),
+               data=update_data("absent", "d3", (), merged=("absent",))),
         _event(10, "action_requested", agent_id=1, decision_id="d4", action_id="a4",
                data={"tool_name": "conclude_activity", "request": _conclusion(memory_item)}),
         _event(11, "run_failed", occurred_at=200, data={"error": "memories corrupted"}),
@@ -271,7 +270,7 @@ def test_memory_quality_reports_each_problem_code():
         ("memory_run_failure", "event-11"),
         ("conclusion_without_memory_update", "event-10"),
     ]
-    assert memory["write_points_checked"] == 3
+    assert memory["write_points_checked"] == 2
 
 
 def test_model_usage_reports_cost_breakdown_rejections_and_pending_calls():
@@ -578,14 +577,13 @@ def test_restore_directory_rejects_a_member_that_aliases_an_earlier_file(tmp_pat
 
 
 def test_snapshot_and_restore_keep_every_workspace_file_byte_for_byte(tmp_path):
-    """真实工作区的文件名（人物身份、配置、记忆、提示快照）照常快照并逐字节恢复；空目录不进归档。"""
+    """真实人物工作区的两个文件（MEMORY.md 与 memory/episodes.jsonl）照常快照并逐字节恢复；空目录不进归档。"""
     from worldmock.recording_engine.storage.checkpoint import restore_directory, snapshot_directory
 
     assets = AssetStore(tmp_path / "assets")
     workspace = tmp_path / "workspace"
-    files = {"AGENT.json": b'{"id": 1}', "config.json": b'{"max_react_turns": 16}',
-             "MEMORY.md": "# 记忆\r\n".encode("utf-8"), "memory/episodes.jsonl": b"",
-             "memory/state.json": b"{}", "life_prompt_snapshot.json": b'{"persona": {}}'}
+    files = {"MEMORY.md": "# Memory\n\n## 身份\n> 林舟\n".encode("utf-8"),
+             "memory/episodes.jsonl": '{"id": "m_000001", "text": "想早点睡"}\n'.encode("utf-8")}
     for relative, raw in files.items():
         (workspace / relative).parent.mkdir(parents=True, exist_ok=True)
         (workspace / relative).write_bytes(raw)
@@ -946,6 +944,7 @@ def test_account_checks_pass_without_accounts():
 
 def test_redact_evidence_passes_scalars_and_replaces_env_secrets(monkeypatch):
     monkeypatch.setenv("DEEPSEEK_NODE_KEYS", "sk-secret-value")
+    assert evidence.SECRET_ENVIRONMENTS == ("DEEPSEEK_NODE_KEYS",)
     assert evidence.redact_evidence(7) == 7
     assert evidence.redact_evidence(None) is None
     assert evidence.redact_evidence([3, "plain"]) == [3, "plain"]

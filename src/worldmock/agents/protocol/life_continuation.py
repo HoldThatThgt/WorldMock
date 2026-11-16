@@ -86,32 +86,30 @@ def continuation_messages(chain: Mapping[str, Any] | None, layers: Sequence[dict
     return [*messages, dict(chain["assistant"]), *earlier, last]
 
 
-def send_check(messages: list[dict], budget: ProgressBudget) -> ProgressBudget:
-    """@brief 发送前协议自检（只对带续接链的请求）：本次决策内的 assistant 缺思考即英文错误失败；链中缺思考即断链。"""
+def send_check(messages: list[dict], budget: ProgressBudget) -> tuple[list[dict], ProgressBudget]:
+    """@brief 发送前协议自检（只对带续接链的请求）：本次决策内的 assistant 缺思考即英文错误失败；链中缺思考即断链。
+    返回（本回合消息列表, 预算），入参不变。"""
     if budget.fresh_messages is None:
-        return budget
+        return messages, budget
     if not reasoning_complete(messages[budget.chain_length:]):
         logging.error("An assistant turn of the current decision has no reasoning_content")
         raise RuntimeError("An assistant turn of the current decision is missing reasoning_content")
     if reasoning_complete(messages[:budget.chain_length]):
-        return budget
+        return messages, budget
     logging.warning("Continuation chain has an assistant turn without reasoning_content; using a fresh snapshot")
     return end_continuation(messages, budget)
 
 
-def end_continuation(messages: list[dict], budget: ProgressBudget) -> ProgressBudget:
-    """@brief 提前结束本秒续接：原地把链前缀换成新快照消息，本决策此后的回合都从新快照续写；返回不带续接的预算。
-
-    messages 是 AS2 本回合的消息列表，它随后成为本决策的消息历史，所以原地替换让后续回合不再带回传的思考。
-    """
-    messages[:budget.chain_length] = [dict(item) for item in budget.fresh_messages]
-    return replace(budget, fresh_messages=None, chain_length=0)
+def end_continuation(messages: list[dict], budget: ProgressBudget) -> tuple[list[dict], ProgressBudget]:
+    """@brief 提前结束本秒续接：返回把链前缀换成新快照消息的新列表与不带续接的预算，入参不变。"""
+    return ([*(dict(item) for item in budget.fresh_messages), *messages[budget.chain_length:]],
+            replace(budget, fresh_messages=None, chain_length=0))
 
 
 def _earlier_changes(message: Mapping[str, Any]) -> dict | None:
     """@brief 链中此前一条续接 tool 消息的 changes（没有改动为空对象）；记忆查询与协议纠错的 tool 消息为 None。
 
-    链中 tool 消息的正文都是宿主或 AS2 写的 JSON 对象；续接 tool 消息必有 result 键，另两种没有。
+    链中 tool 消息的正文都是宿主写的 JSON 对象；续接 tool 消息必有 result 键，另两种没有。
     """
     payload = json.loads(message["content"])
     return payload.get("changes", {}) if "result" in payload else None

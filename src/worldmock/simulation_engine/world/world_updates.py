@@ -16,7 +16,6 @@ from worldmock.state.world.world import WorldState, active_activities
 
 if TYPE_CHECKING:
     from worldmock.simulation_engine.activities.lifecycle.activities import ActivityOrigin
-    from agentsociety2.society import DecisionContext, DirectToolCall, SchedulingState
     from worldmock.recording_engine.events.models import Checkpoint
 
 

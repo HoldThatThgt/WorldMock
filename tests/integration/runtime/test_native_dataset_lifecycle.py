@@ -1,8 +1,8 @@
-"""完整运行、共同恢复和反事实重放走真实原生 Society、工作区、LifeAgent 和 LifeEnv。"""
+"""完整运行、共同恢复和反事实重放走真实运行宿主、人物工作区、LifeAgent 与引擎。"""
 import json
 import pytest
-from tests.integration.runtime.current_contract_fixtures import ROOT
-from tests.integration.runtime.native_runtime_fixtures import CurrentDecisionModel, native_runtime  # noqa: F401
+from tests.integration.runtime.native_runtime_fixtures import native_runtime  # noqa: F401
+from worldmock.configuration.model.model_client import REQUEST_KEYS
 from worldmock.recording_engine.storage.store import FootprintStore
 from worldmock.state.decisions.results import CounterfactualIntervention
 from worldmock.runtime.lifecycle.runner import (
@@ -18,20 +18,10 @@ from worldmock.runtime.lifecycle.runner import (
 @pytest.mark.asyncio
 @pytest.mark.parametrize("branch", [None, "resume", "counterfactual"])
 async def test_native_dataset_run_resume_and_replay_finish_with_real_frozen_workspaces(
-        tmp_path, native_runtime, monkeypatch, branch):
-    from worldmock.runtime.framework import setup as run_setup
-
+        tmp_path, native_runtime, branch):
     root, frozen, models = native_runtime
-    configure, configured = run_setup._configure_process, []
-
-    def counted(*args):
-        configured.append(args)
-        return configure(*args)
-
-    monkeypatch.setattr(run_setup, "_configure_process", counted)
-    result = await run_world(RunRequest(ROOT, root, tmp_path / "parent", "native-parent", "native-parent"))
+    result = await run_world(RunRequest(root, tmp_path / "parent", "native-parent", "native-parent"))
     assert result.current_time == frozen.config.stop_time
-    assert len(configured) == 1
     store = FootprintStore(result.run_dir)
     try:
         events = list(store.iter_events(store.last_event_seq))
@@ -48,20 +38,21 @@ async def test_native_dataset_run_resume_and_replay_finish_with_real_frozen_work
             *(f"catalog/{entry.path}" for entry in frozen.catalog.manifest.files)}
         assert manifest["persona_sha256"] == frozen.persona_sha256
         assert manifest["config_sha256"] == frozen.config_sha256
+        assert manifest["stage_model_identity"]["model_metadata"] == frozen.model_metadata.model_dump(mode="json")
     finally:
         store.close()
-    profile = json.loads((result.run_dir / "as2/agents/agent_0001/AGENT.json").read_text(encoding="utf-8"))["profile"]
-    assert profile["persona_card_struct"] and profile["model_identity"]["model_metadata"] == frozen.model_metadata.model_dump(mode="json")
-    assert all(request["transport_max_retries"] == 3 for request in models[0].requests)
+    workspace = result.run_dir / "agents" / "agent_0001"
+    assert {path.relative_to(workspace).as_posix() for path in workspace.rglob("*") if path.is_file()} == {
+        "MEMORY.md", "memory/episodes.jsonl"}
+    assert models[0].requests and all(sorted(request) == sorted(REQUEST_KEYS) for request in models[0].requests)
     if branch is None:
         return
-    request = ResumeRequest(ROOT, root, result.run_dir, checkpoint, tmp_path / "child")
+    request = ResumeRequest(root, result.run_dir, checkpoint, tmp_path / "child")
     intervention = None if branch == "resume" else CounterfactualIntervention(kind="set_balance_fen", agent_id=1,
         balance_fen=123456, hypothesis="Different funds change spending choices.", source_event_ids=(observation,))
     restored = (await resume_world(request) if branch == "resume"
                 else await replay_world(CounterfactualRequest(request, intervention)))
     assert restored.current_time == frozen.config.stop_time
-    assert len(configured) == 2
     child_store = FootprintStore(restored.run_dir)
     try:
         events = list(child_store.iter_events(child_store.last_event_seq))
@@ -103,7 +94,7 @@ def test_receipts_count_every_persisted_model_response_including_the_day_plan(tm
 
     root, _, _ = native_runtime
     parent = tmp_path / "parent"
-    assert main(["--project-root", str(ROOT), "run", "--environment", str(root), "--output", str(parent)]) == 0
+    assert main(["run", "--environment", str(root), "--output", str(parent)]) == 0
     receipt = json.loads((parent / "result.json").read_text(encoding="utf-8"))["token_stats"]
     assert receipt == read_status(parent)["observed_model_usage"] == read_status(parent)["token_stats"]
     rows = {row["model"]: row for row in receipt}
@@ -123,7 +114,7 @@ def test_receipts_count_every_persisted_model_response_including_the_day_plan(tm
                                         "source_event_ids": [observation]}), encoding="utf-8")
     for command, extra in (("resume", []), ("replay", ["--intervention", str(intervention)])):
         child = tmp_path / command
-        assert main(["--project-root", str(ROOT), command, "--environment", str(root), "--output", str(child),
+        assert main([command, "--environment", str(root), "--output", str(child),
                      "--parent", str(parent), "--checkpoint", point.data["checkpoint_id"], *extra]) == 0
         branch = json.loads((child / "result.json").read_text(encoding="utf-8"))["token_stats"]
         assert branch == read_status(child)["observed_model_usage"]

@@ -208,7 +208,7 @@ async def test_inspector_plan_revision_and_memory_lines(engine_factory, capsys, 
     engine = engine_factory()
     stage_day_plan(engine)
     _, _, answer, _ = await decide(engine, "plan", [ToolResponse("revise_day_plan", {"goals": []})])
-    assert answer == "revise_day_plan registered"
+    assert answer == ["revise_day_plan"]
     person = await host_run(engine, tmp_path / "agent")
     await person.rest_and_note("休息让我心情轻松。")
     lines = _events(engine, capsys)

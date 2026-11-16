@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import re
 import sqlite3
 import threading
 from datetime import datetime, timezone
@@ -24,8 +23,6 @@ HEARTBEAT_FILE = "heartbeat.json"
 HEARTBEAT_INTERVAL_SECONDS = 60
 #: status.json 仍是 running 而心跳超过这么多个间隔未更新时，status 报告驱动已失联（stale）。
 HEARTBEAT_STALE_INTERVALS = 3
-#: Ray 等写进异常文本的终端颜色序列。
-_ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
 #: 第一条与最后一条事件按主键读（不扫描事件表）；最后一条另带事件类型，供运行活性判断。
 _FIRST_EVENT_SQL = ("SELECT json_extract(body,'$.recorded_at') FROM events "
                     "WHERE event_seq=(SELECT min(event_seq) FROM events)")
@@ -48,7 +45,7 @@ _OBSERVED_USAGE_SQL = """
 
 def write_status(run_dir: Path, status: str, phase: str, error_type: str | None = None,
                  error_message: str | None = None) -> None:
-    """@brief 在明确的运行边界写单份状态，生活阶段由环境调用此入口更新；失败时另写一行可读原因 error_message。"""
+    """@brief 在明确的运行边界写单份状态，生活阶段由运行宿主调用此入口更新；失败时另写一行可读原因 error_message。"""
     if status not in {"created", "running", "completed", "failed", "interrupted"}:
         raise IntegrityError("Unknown run status")
     if phase not in {"deciding", "resolving", "advancing", "checkpointing", "stopped"}:
@@ -58,14 +55,11 @@ def write_status(run_dir: Path, status: str, phase: str, error_type: str | None 
 
 
 def failure_message(error: BaseException) -> str:
-    """@brief status.json 的 error_message：一行可读失败原因。异常组逐项以「 | 」连接；带 cause 属性且其值是另一异常的
-    （Ray 任务错误）取该异常；其余为「类型名: 文本」，去掉终端颜色序列、连续空白折成一个空格，不截断。"""
+    """@brief status.json 的 error_message：一行可读失败原因。异常组逐项以「 | 」连接；其余为「类型名: 文本」，
+    连续空白折成一个空格，不截断。"""
     if isinstance(error, BaseExceptionGroup):
         return " | ".join(failure_message(item) for item in error.exceptions)
-    cause = getattr(error, "cause", None)
-    if isinstance(cause, BaseException) and cause is not error:
-        return failure_message(cause)
-    return " ".join(_ANSI_ESCAPE.sub("", f"{type(error).__name__}: {error}").split())
+    return " ".join(f"{type(error).__name__}: {error}".split())
 
 
 class DriverHeartbeat:

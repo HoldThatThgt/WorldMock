@@ -41,8 +41,6 @@ DELAYED_IMPORTS: dict[tuple[str, str, str], str] = {
     ('worldmock.configuration.inputs.validation', 'validate_environment', 'worldmock.configuration.inputs.environment'): "按原调用时机延迟加载，保持输入纯加载边界",
     ('worldmock.configuration.inputs.validation', 'validate_environment', 'worldmock.resource_engine.catalog.loader'): "按原调用时机延迟加载，保持输入纯加载边界",
     ('worldmock.configuration.inputs.validation', 'validate_environment', 'worldmock.resource_engine.registration.admission'): "按原调用时机延迟加载，保持输入纯加载边界",
-    ('worldmock.configuration.model.model_metadata', 'IndependentModelClient.__init__', 'agentsociety2.config'): "按原调用时机延迟加载，保持输入纯加载边界",
-    ('worldmock.configuration.model.model_metadata', 'IndependentModelClient.__init__', 'worldmock.foundation.errors'): "按原调用时机延迟加载，保持输入纯加载边界",
     ('worldmock.configuration.model.model_metadata', 'IndependentModelClient.call', 'worldmock.foundation.errors'): "按原调用时机延迟加载，保持输入纯加载边界",
     ('worldmock.configuration.model.model_metadata', 'frozen_metadata_loader', 'worldmock.foundation.errors'): "按原调用时机延迟加载，保持输入纯加载边界",
     ('worldmock.configuration.model.model_metadata', 'load_model_metadata', 'worldmock.foundation.errors'): "按原调用时机延迟加载，保持输入纯加载边界",
@@ -52,62 +50,37 @@ DELAYED_IMPORTS: dict[tuple[str, str, str], str] = {
     ('worldmock.recording_engine.reports.quality', '_wake_category_distribution', 'worldmock.state.planning.schedule'): "按原调用时机延迟加载，保持输入纯加载边界",
     ('worldmock.recording_engine.reports.quality', '_wake_reason_distribution', 'worldmock.state.planning.schedule'): "按原调用时机延迟加载，保持输入纯加载边界",
     ('worldmock.resource_engine.catalog.models', 'Catalog.nearest_parcel_station', 'worldmock.resource_engine.registration.errors'): "按原调用时机延迟加载，保持输入纯加载边界",
-    ('worldmock.runtime.framework.read_query', 'life_env_actor_class', 'ray'): "按原调用时机延迟加载，保持输入纯加载边界",
-    ('worldmock.runtime.framework.setup', '_model_identity', 'custom.agents.life_agent'): "按原调用时机延迟加载，保持输入纯加载边界",
+    ('worldmock.runtime.framework.setup', '_model_identity', 'worldmock.agents.life_agent'): "按原调用时机延迟加载，保持输入纯加载边界",
     ('worldmock.runtime.framework.setup', '_model_identity', 'worldmock.agents.prompt.life_prompt'): "按原调用时机延迟加载，保持输入纯加载边界",
-    ('worldmock.runtime.framework.setup', '_require_loaded_config', 'agentsociety2.config.config'): "按原调用时机延迟加载，保持输入纯加载边界",
     ('worldmock.runtime.framework.setup', 'creation_inputs', 'worldmock.configuration.persona.persona_card'): "按原调用时机延迟加载，保持输入纯加载边界",
     ('worldmock.runtime.framework.setup', 'creation_inputs', 'worldmock.configuration.persona.persona_text'): "按原调用时机延迟加载，保持输入纯加载边界",
-    ('worldmock.runtime.framework.setup', 'stage_model_identity', 'custom.agents.life_agent'): "按原调用时机延迟加载，保持输入纯加载边界",
-    ('worldmock.runtime.framework.setup', 'validate_stage_model_identity', 'custom.agents.life_agent'): "按原调用时机延迟加载，保持输入纯加载边界",
+    ('worldmock.runtime.framework.setup', 'stage_model_identity', 'worldmock.agents.life_agent'): "按原调用时机延迟加载，保持输入纯加载边界",
     ('worldmock.runtime.framework.setup', 'validate_stage_model_identity', 'pydantic'): "按原调用时机延迟加载，保持输入纯加载边界",
+    ('worldmock.runtime.framework.setup', 'validate_stage_model_identity', 'worldmock.agents.life_agent'): "按原调用时机延迟加载，保持输入纯加载边界",
     ('worldmock.runtime.lifecycle.runner', 'CounterfactualRequest.__post_init__', 'worldmock.state.identity'): "按原调用时机延迟加载，保持输入纯加载边界",
     ('worldmock.runtime.lifecycle.runner', 'CounterfactualRequest.__post_init__', 'worldmock.state.decisions.results'): "按原调用时机延迟加载，保持输入纯加载边界",
-    ('worldmock.runtime.lifecycle.runner', '_build_society', 'agentsociety2.agent.service_proxy'): "按原调用时机延迟加载，保持输入纯加载边界",
-    ('worldmock.runtime.lifecycle.runner', '_build_society', 'agentsociety2.config.llm_dispatcher'): "按原调用时机延迟加载，保持输入纯加载边界",
-    ('worldmock.runtime.lifecycle.runner', '_build_society', 'agentsociety2.env.direct_env_actor'): "按原调用时机延迟加载，保持输入纯加载边界",
-    ('worldmock.runtime.lifecycle.runner', '_build_society', 'agentsociety2.society'): "按原调用时机延迟加载，保持输入纯加载边界",
-    ('worldmock.runtime.lifecycle.runner', '_build_society', 'worldmock.runtime.framework.read_query'): "按原调用时机延迟加载，保持输入纯加载边界",
-    ('worldmock.runtime.lifecycle.runner', '_call_plan_day', 'agentsociety2.config.llm_dispatcher'): "按原调用时机延迟加载，保持输入纯加载边界",
-    ('worldmock.runtime.lifecycle.runner', '_call_plan_day', 'worldmock.simulation_engine.scheduling.plans.day_planning'): "按原调用时机延迟加载，保持输入纯加载边界",
-    ('worldmock.runtime.lifecycle.runner', '_call_memory_digest', 'agentsociety2.config.llm_dispatcher'): "按原调用时机延迟加载，保持输入纯加载边界",
-    ('worldmock.runtime.lifecycle.runner', '_call_memory_digest', 'worldmock.simulation_engine.evidence.memory_digest'): "按原调用时机延迟加载，保持输入纯加载边界",
-    ('worldmock.runtime.lifecycle.runner', '_cleanup_runtime', 'ray'): "按原调用时机延迟加载，保持输入纯加载边界",
-    ('worldmock.runtime.lifecycle.runner', '_execute', 'agentsociety2.config.llm_dispatcher'): "按原调用时机延迟加载，保持输入纯加载边界",
-    ('worldmock.runtime.lifecycle.runner', '_execute', 'ray'): "按原调用时机延迟加载，保持输入纯加载边界",
-    ('worldmock.runtime.lifecycle.runner', '_generate_day_plan', 'worldmock.simulation_engine.scheduling.plans.day_plan_inputs'): "按原调用时机延迟加载，保持输入纯加载边界",
-    ('worldmock.runtime.lifecycle.runner', '_generate_day_plan', 'worldmock.simulation_engine.scheduling.plans.day_planning'): "按原调用时机延迟加载，保持输入纯加载边界",
-    ('worldmock.runtime.lifecycle.runner', '_generate_memory_digest', 'worldmock.simulation_engine.evidence.memory_digest'): "按原调用时机延迟加载，保持输入纯加载边界",
+    ('worldmock.runtime.lifecycle.runner', '_creation_options', 'worldmock.recording_engine.storage.opslog'): "按原调用时机延迟加载，保持输入纯加载边界",
+    ('worldmock.runtime.lifecycle.runner', '_creation_options', 'worldmock.runtime.framework.setup'): "按原调用时机延迟加载，保持输入纯加载边界",
+    ('worldmock.runtime.lifecycle.runner', '_execute', 'worldmock.runtime.lifecycle.run_host'): "按原调用时机延迟加载，保持输入纯加载边界",
     ('worldmock.runtime.lifecycle.runner', '_intervention_sha256', 'worldmock.foundation.serialization'): "按原调用时机延迟加载，保持输入纯加载边界",
-    ('worldmock.runtime.lifecycle.runner', '_log_memory_digest_call', 'worldmock.recording_engine.storage.opslog'): "按原调用时机延迟加载，保持输入纯加载边界",
-    ('worldmock.runtime.lifecycle.runner', '_log_plan_day_call', 'worldmock.recording_engine.storage.opslog'): "按原调用时机延迟加载，保持输入纯加载边界",
+    ('worldmock.runtime.lifecycle.runner', '_model_client', 'worldmock.configuration.model.model_client'): "按原调用时机延迟加载，保持输入纯加载边界",
     ('worldmock.runtime.lifecycle.runner', '_ops_log', 'worldmock.recording_engine.storage.opslog'): "按原调用时机延迟加载，保持输入纯加载边界",
+    ('worldmock.runtime.lifecycle.runner', '_prepare_new_run', 'worldmock.agents.life_agent'): "按原调用时机延迟加载，保持输入纯加载边界",
     ('worldmock.runtime.lifecycle.runner', '_prepare_new_run', 'worldmock.configuration.inputs.environment'): "按原调用时机延迟加载，保持输入纯加载边界",
     ('worldmock.runtime.lifecycle.runner', '_prepare_new_run', 'worldmock.runtime.framework.setup'): "按原调用时机延迟加载，保持输入纯加载边界",
+    ('worldmock.runtime.lifecycle.runner', '_prepare_resume', 'worldmock.agents.life_agent'): "按原调用时机延迟加载，保持输入纯加载边界",
     ('worldmock.runtime.lifecycle.runner', '_prepare_resume', 'worldmock.configuration.inputs.environment'): "按原调用时机延迟加载，保持输入纯加载边界",
     ('worldmock.runtime.lifecycle.runner', '_prepare_resume', 'worldmock.recording_engine.storage.store'): "按原调用时机延迟加载，保持输入纯加载边界",
-    ('worldmock.runtime.lifecycle.runner', '_prepare_resume', 'worldmock.runtime.framework.setup'): "按原调用时机延迟加载，保持输入纯加载边界",
     ('worldmock.runtime.lifecycle.runner', '_prepare_resume', 'worldmock.simulation_engine.decisions.continuation'): "按原调用时机延迟加载，保持输入纯加载边界",
     ('worldmock.runtime.lifecycle.runner', '_prepare_resume', 'worldmock.simulation_engine.world.run_identity'): "按原调用时机延迟加载，保持输入纯加载边界",
     ('worldmock.runtime.lifecycle.runner', '_prepare_resume', 'worldmock.state.world.world'): "按原调用时机延迟加载，保持输入纯加载边界",
-    ('worldmock.runtime.lifecycle.runner', '_require_custom_modules', 'agentsociety2.registry'): "按原调用时机延迟加载，保持输入纯加载边界",
     ('worldmock.runtime.lifecycle.runner', '_require_runtime_identity', 'worldmock.runtime.framework.setup'): "按原调用时机延迟加载，保持输入纯加载边界",
     ('worldmock.runtime.lifecycle.runner', '_require_runtime_identity', 'worldmock.simulation_engine.decisions.continuation'): "按原调用时机延迟加载，保持输入纯加载边界",
-    ('worldmock.runtime.lifecycle.runner', '_restore_agents', 'worldmock.recording_engine.storage.checkpoint'): "按原调用时机延迟加载，保持输入纯加载边界",
-    ('worldmock.runtime.lifecycle.runner', '_restore_agents', 'worldmock.simulation_engine.decisions.continuation'): "按原调用时机延迟加载，保持输入纯加载边界",
+    ('worldmock.runtime.lifecycle.runner', '_restore_branch', 'worldmock.agents.memory.workspace'): "按原调用时机延迟加载，保持输入纯加载边界",
     ('worldmock.runtime.lifecycle.runner', '_restore_branch', 'worldmock.recording_engine.storage.checkpoint'): "按原调用时机延迟加载，保持输入纯加载边界",
     ('worldmock.runtime.lifecycle.runner', '_restore_branch', 'worldmock.recording_engine.storage.store'): "按原调用时机延迟加载，保持输入纯加载边界",
-    ('worldmock.runtime.lifecycle.runner', '_restored_specs', 'worldmock.runtime.framework.setup'): "按原调用时机延迟加载，保持输入纯加载边界",
     ('worldmock.runtime.lifecycle.runner', '_run_identity', 'worldmock.runtime.framework.setup'): "按原调用时机延迟加载，保持输入纯加载边界",
     ('worldmock.runtime.lifecycle.runner', '_run_identity', 'worldmock.state.identity'): "按原调用时机延迟加载，保持输入纯加载边界",
-    ('worldmock.runtime.lifecycle.runner', '_society_specs', 'worldmock.recording_engine.storage.opslog'): "按原调用时机延迟加载，保持输入纯加载边界",
-    ('worldmock.runtime.lifecycle.runner', '_society_specs', 'worldmock.runtime.framework.setup'): "按原调用时机延迟加载，保持输入纯加载边界",
-    ('worldmock.runtime.lifecycle.runner', '_terminate_failed_actor', 'ray'): "按原调用时机延迟加载，保持输入纯加载边界",
-    ('worldmock.runtime.lifecycle.runner', '_validate_agent_workspace', 'agentsociety2.agent.memory'): "按原调用时机延迟加载，保持输入纯加载边界",
-    ('worldmock.runtime.lifecycle.runner', '_validate_agent_workspace', 'worldmock.runtime.framework.setup'): "按原调用时机延迟加载，保持输入纯加载边界",
-    ('worldmock.runtime.lifecycle.runner', '_validate_persona_card_struct', 'worldmock.configuration.persona.persona_card'): "按原调用时机延迟加载，保持输入纯加载边界",
-    ('worldmock.runtime.lifecycle.runner', 'settle_pending_day_plans', 'worldmock.simulation_engine.scheduling.plans.day_planning'): "按原调用时机延迟加载，保持输入纯加载边界",
-    ('worldmock.runtime.lifecycle.runner', 'settle_pending_memory_digests', 'worldmock.simulation_engine.evidence.memory_digest'): "按原调用时机延迟加载，保持输入纯加载边界",
     ('worldmock.simulation_engine.actions.dispatcher', 'ActionHandlers._resume_at_start_location', 'worldmock.simulation_engine.activities.content.interact'): "按原调用时机延迟加载，保持输入纯加载边界",
     ('worldmock.simulation_engine.activities.content.interact', 'InteractivityRuntime._collect', 'worldmock.simulation_engine.commerce.purchase.storefront_runtime'): "按原调用时机延迟加载，保持输入纯加载边界",
     ('worldmock.simulation_engine.commerce.fulfillment.receipt', '_food_effect', 'worldmock.simulation_engine.body.body'): "按原调用时机延迟加载，保持输入纯加载边界",
@@ -115,9 +88,7 @@ DELAYED_IMPORTS: dict[tuple[str, str, str], str] = {
     ('worldmock.simulation_engine.decisions.decision_coordinator', 'DecisionCoordinator._consumed_on_start', 'worldmock.simulation_engine.scheduling.callbacks.callbacks'): "按原调用时机延迟加载，保持输入纯加载边界",
     ('worldmock.simulation_engine.decisions.decision_coordinator', 'DecisionCoordinator._same_moment_callbacks', 'worldmock.simulation_engine.scheduling.callbacks.callbacks'): "按原调用时机延迟加载，保持输入纯加载边界",
     ('worldmock.simulation_engine.decisions.decision_coordinator', 'DecisionCoordinator._same_moment_callbacks', 'worldmock.state.planning.schedule'): "按原调用时机延迟加载，保持输入纯加载边界",
-    ('worldmock.simulation_engine.decisions.decision_coordinator', 'DecisionCoordinator._validate_call', 'agentsociety2.society'): "按原调用时机延迟加载，保持输入纯加载边界",
     ('worldmock.simulation_engine.decisions.decision_coordinator', 'DecisionCoordinator.commit_decision_round', 'worldmock.simulation_engine.scheduling.callbacks.callbacks'): "按原调用时机延迟加载，保持输入纯加载边界",
-    ('worldmock.simulation_engine.decisions.decision_coordinator', 'DecisionCoordinator.validate_context', 'agentsociety2.society'): "按原调用时机延迟加载，保持输入纯加载边界",
     ('worldmock.simulation_engine.observation.layers.environment_layer', '_duty', 'worldmock.configuration.persona.work_schedule'): "按原调用时机延迟加载，保持输入纯加载边界",
     ('worldmock.simulation_engine.observation.layers.environment_layer', '_tomorrow', 'worldmock.configuration.persona.work_schedule'): "按原调用时机延迟加载，保持输入纯加载边界",
     ('worldmock.simulation_engine.scheduling.clock.effects', '_deliver_orders', 'worldmock.simulation_engine.commerce.fulfillment.commerce'): "按原调用时机延迟加载，保持输入纯加载边界",
@@ -130,7 +101,6 @@ DELAYED_IMPORTS: dict[tuple[str, str, str], str] = {
     ('worldmock.simulation_engine.scheduling.clock.time_advance', 'TimeAdvanceCoordinator._truncate', 'worldmock.simulation_engine.commerce.purchase.storefront_runtime'): "按原调用时机延迟加载，保持输入纯加载边界",
     ('worldmock.simulation_engine.scheduling.clock.time_advance', 'TimeAdvanceCoordinator._wake_callbacks', 'worldmock.simulation_engine.scheduling.callbacks.callbacks'): "按原调用时机延迟加载，保持输入纯加载边界",
     ('worldmock.simulation_engine.scheduling.clock.time_advance', 'TimeAdvanceCoordinator._wake_callbacks', 'worldmock.state.planning.schedule'): "按原调用时机延迟加载，保持输入纯加载边界",
-    ('worldmock.simulation_engine.scheduling.clock.time_advance', 'TimeAdvanceCoordinator.scheduling_state', 'agentsociety2.society'): "按原调用时机延迟加载，保持输入纯加载边界",
     ('worldmock.simulation_engine.world.context', 'EngineContext.validate', 'worldmock.simulation_engine.activities.lifecycle.activity_validation'): "按原调用时机延迟加载，保持输入纯加载边界",
     ('worldmock.simulation_engine.world.context', 'EngineContext.validate', 'worldmock.simulation_engine.scheduling.callbacks.callbacks'): "按原调用时机延迟加载，保持输入纯加载边界",
     ('worldmock.simulation_engine.world.world_setup', '_initial_agent', 'datetime'): "按原调用时机延迟加载，保持输入纯加载边界",
@@ -159,7 +129,7 @@ class ImportEdge:
 def modules(root: Path) -> dict[str, Path]:
     """枚举固定的两个项目包根。"""
     found = {}
-    for folder, prefix in (("src/worldmock", "worldmock"), ("custom", "custom"), ("tools/analysis", "tools.analysis")):
+    for folder, prefix in (("src/worldmock", "worldmock"), ("tools/analysis", "tools.analysis")):
         for path in sorted((root / folder).rglob("*.py")):
             parts = list(path.relative_to(root / folder).with_suffix("").parts)
             if parts[-1] == "__init__":
@@ -396,6 +366,7 @@ ENGINE_BOUNDARIES = {
                                   "worldmock.simulation_engine", "worldmock.agents", "worldmock.configuration",
                                   "worldmock.runtime"),
     "worldmock.recording_engine": ("worldmock.simulation_engine", "worldmock.agents", "worldmock.runtime"),
+    "worldmock.agents": ("worldmock.runtime", "worldmock.simulation_engine.engine"),
 }
 
 
@@ -406,7 +377,7 @@ def _belongs(module: str, root: str) -> bool:
 
 def _engine_boundary(edge: ImportEdge) -> str | None:
     """四个引擎的基础职责与分析工具保持明确依赖方向。"""
-    if edge.source.startswith(("worldmock.", "custom.")) and edge.target.startswith(("tools.", "scripts.", "tests.")):
+    if edge.source.startswith("worldmock.") and edge.target.startswith(("tools.", "scripts.", "tests.")):
         return f"Engine boundary: {edge.source} -> {edge.target}"
     for owner, forbidden in ENGINE_BOUNDARIES.items():
         if _belongs(edge.source, owner) and any(_belongs(edge.target, target) for target in forbidden):
@@ -434,7 +405,7 @@ def violations(root: Path, registry=None, foundation=FOUNDATION) -> list[str]:
         graph[edge.source].add(edge.target)
         if edge.source in foundation and edge.target not in foundation:
             problems.append(f"Foundation dependency: {edge.source} -> {edge.target}")
-        if edge.target == 'worldmock.simulation_engine.engine' and edge.source != "custom.envs.life_env":
+        if edge.target == 'worldmock.simulation_engine.engine' and edge.source != "worldmock.runtime.lifecycle.run_host":
             problems.append(f"Facade consumer: {edge.source}")
     allowed = DELAYED_IMPORTS if registry is None else registry
     for item in sorted(local - set(allowed)):
@@ -457,6 +428,7 @@ def test_production_import_graph_obeys_all_boundaries():
     ("worldmock.state.world.world", "worldmock.runtime.lifecycle.runner"),
     ("worldmock.foundation.serialization", "worldmock.recording_engine.events.models"),
     ("worldmock.recording_engine.reports.quality", "tools.analysis.behavior.metrics"),
+    ("worldmock.agents.life_agent", "worldmock.simulation_engine.engine"),
 ])
 def test_engine_boundaries_reject_reverse_imports(tmp_path, source, target):
     """在隔离源码中注入反向依赖，证明包规则会实际拒绝。"""
@@ -520,9 +492,14 @@ def test_foundation_cannot_depend_on_execution(tmp_path):
     assert any("Foundation dependency" in item for item in violations(tmp_path))
 
 
-def test_only_environment_can_import_facade(tmp_path):
-    _package(tmp_path, {'worldmock.simulation_engine.engine': "", 'worldmock.simulation_engine.reader': "import worldmock.simulation_engine.engine"})
-    assert any("Facade consumer" in item for item in violations(tmp_path))
+def test_only_run_host_can_import_facade(tmp_path):
+    """@brief 人物模块导入引擎门面即报门面消费者，运行宿主导入它不报。"""
+    _package(tmp_path, {'worldmock.simulation_engine.engine': "",
+                        'worldmock.agents.life_agent': "import worldmock.simulation_engine.engine",
+                        'worldmock.runtime.lifecycle.run_host': "import worldmock.simulation_engine.engine"})
+    problems = violations(tmp_path, {})
+    assert "Facade consumer: worldmock.agents.life_agent" in problems
+    assert "Facade consumer: worldmock.runtime.lifecycle.run_host" not in problems
 
 
 @pytest.mark.parametrize("body", [
@@ -571,7 +548,10 @@ def test_unknown_dynamic_import_targets_or_object_proxies_fail_closed(tmp_path, 
     ('worldmock.simulation_engine.engine', {"_failure_draft", "affordance_contract", "AFFORDANCE_CONTRACT_KEYS"}),
     ('worldmock.runtime.lifecycle.runner', {"MAX_REACT_TURNS", "_configure_process", "_model_identity", "stage_model_identity",
                            "runtime_code_sha256", "_git_state", "creation_inputs", "_agent_specs", "_compile_persona",
-                           "validate_manifest_stage_identity"}),
+                           "validate_manifest_stage_identity", "PlanDayClient", "MemoryDigestClient",
+                           "settle_pending_day_plans", "settle_pending_memory_digests", "_generate_day_plan",
+                           "_call_plan_day", "_log_plan_day_call", "_generate_memory_digest", "_call_memory_digest",
+                           "_log_memory_digest_call"}),
     ('worldmock.configuration.inputs.validation', {"build_coverage_targets", "validate_manifest_stage_identity"}),
     ('worldmock.recording_engine.export.export', {"_load_render_day"}),
     ('tools.analysis.behavior.metrics', {"_request_tool_names"}),

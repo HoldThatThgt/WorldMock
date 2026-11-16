@@ -12,6 +12,7 @@ from tests.life.conftest import errand_add, errand_update, plan_day_response
 from worldmock.foundation.errors import BusinessRuleError, IntegrityError, ProtocolError
 from worldmock.recording_engine.events.models import EventDraft
 from worldmock.configuration.inputs.models import ModelMetadata
+from worldmock.configuration.model.model_client import REQUEST_KEYS
 from worldmock.simulation_engine.scheduling.plans import errands
 from worldmock.simulation_engine.scheduling.plans.day_planning import (
     PLAN_DAY_PROMPT,
@@ -20,6 +21,7 @@ from worldmock.simulation_engine.scheduling.plans.day_planning import (
     fit_plan_day,
     parse_plan_day,
     prepare_plan_day,
+    prepare_plan_day_correction,
     registration,
 )
 from worldmock.state.planning.errands import ErrandState
@@ -61,6 +63,17 @@ def test_plan_day_keeps_its_own_eight_thousand_output_budget():
     request = prepare_plan_day({"已核验经历": []}, frozen.config.model.requested_model)
     assert request["max_tokens"] == 8000
     assert request["extra_body"] == {"thinking": {"type": "disabled"}}
+
+
+def test_plan_day_request_has_exactly_the_six_draft_keys():
+    """零点计划的请求与纠正请求都恰为交给模型客户端的六个键，按 REQUEST_KEYS 的次序，没有 stream 与重试次数。"""
+    frozen = inputs()
+    request, _ = fit_plan_day({"人物": {"名字": frozen.persona.name}}, ["已经核验的经历。"],
+                              frozen.config.model.requested_model, frozen.model_metadata)
+    corrected = prepare_plan_day_correction(request, plan_day_response(arguments="not json"),
+                                            PlanDayOutputError("bad plan"))
+    assert tuple(request) == REQUEST_KEYS
+    assert tuple(corrected) == REQUEST_KEYS
 
 
 def test_plan_day_template_takes_the_day_kind_from_the_arrangement():

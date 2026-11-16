@@ -6,14 +6,14 @@ import inspect
 
 import pytest
 
-from custom.agents import life_agent
 from tests.profile.conftest import make_card
+from worldmock.agents import life_agent
 from worldmock.agents.prompt import life_persona
 from worldmock.agents.prompt.life_persona import persona_layer
-from worldmock.agents.prompt.life_prompt import empty_memory_layer
 from worldmock.agents.prompt.prompt_schemas import PERSONA_LAYER_SCHEMA, validate_layer
 from worldmock.configuration.persona.persona_card import persona_card_struct
 from worldmock.configuration.persona.persona_text import INTIMACY_LEVELS, intimacy_text
+from worldmock.simulation_engine.observation.memory.layout import assemble_layer
 
 #: 人设层关系行的四个键，次序即渲染顺序。
 _RELATIONSHIP_KEYS = ["person", "role", "closeness", "channels"]
@@ -21,7 +21,7 @@ _RELATIONSHIP_KEYS = ["person", "role", "closeness", "channels"]
 
 def _card_persona() -> dict:
     """夹具人设表的卡片（关系依次是母亲、老周）构建出的人设层。"""
-    return persona_layer({"persona_card_struct": persona_card_struct(make_card())}, "林舟")
+    return persona_layer(persona_card_struct(make_card()), "林舟")
 
 
 def test_card_persona_layer_passes_and_carries_no_views():
@@ -55,10 +55,10 @@ def test_persona_schema_rejects_views_and_view_only_rows(change):
 
 def test_retired_persona_view_paths_are_gone():
     """看法进人设层的旧路径已删除：没有 _relationships 与 _persona_views，宿主改用 _relationship_persons；persona_layer
-    只收档案与姓名；人设层 Schema 没有 preferences，关系行恰为四个键。"""
+    只收结构化卡片与姓名；人设层 Schema 没有 preferences，关系行恰为四个键。"""
     assert not hasattr(life_persona, "_relationships")
     assert not hasattr(life_agent, "_persona_views") and hasattr(life_agent, "_relationship_persons")
-    assert list(inspect.signature(persona_layer).parameters) == ["profile", "name"]
+    assert list(inspect.signature(persona_layer).parameters) == ["card", "name"]
     assert "preferences" not in PERSONA_LAYER_SCHEMA["properties"]
     rows = PERSONA_LAYER_SCHEMA["properties"]["relationships"]["items"]["properties"]
     assert list(rows) == _RELATIONSHIP_KEYS
@@ -66,7 +66,7 @@ def test_retired_persona_view_paths_are_gone():
 
 def _with_today(entry: dict) -> dict:
     """只有这一条今天条目的空记忆层。"""
-    layer = empty_memory_layer()
+    layer = assemble_layer(None, {}, [])
     layer["今天"] = [entry]
     return layer
 

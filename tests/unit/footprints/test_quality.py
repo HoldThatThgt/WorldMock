@@ -1,7 +1,5 @@
 import json
-from datetime import datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -76,13 +74,12 @@ def _feedback(code="ARGUMENTS_INVALID", path=("items", 0, "memories")):
 
 
 def _memory_update(identity, observation_id, decision_id, trigger=("activity_conclusion",)):
-    """引擎写出的 memory_updated.data：写入点 trigger 与所属决策 decision_id 由引擎按登记推导。"""
+    """引擎写出的 memory_updated.data（恰为十一个键）：写入点 trigger 与所属决策 decision_id 由引擎按登记推导。"""
     return {"operation": "append_episodes", "created_episode_ids": [identity],
             "merged_episode_ids": [], "episodes": [{"id": identity, "type": "goal",
             "text": "想继续生活", "epistemic_status": "subjective"}],
             "memory_before_sha256": "a" * 64, "memory_sha256": "b" * 64,
-            "episodes_sha256": "c" * 64, "state_sha256": "d" * 64,
-            "consolidated": False, "observation_event_id": observation_id,
+            "episodes_sha256": "c" * 64, "observation_event_id": observation_id,
             "verified_event_ids": [], "trigger": list(trigger), "decision_id": decision_id}
 
 
@@ -392,100 +389,13 @@ def test_non_memory_tool_json_error_is_counted_without_memory_warning():
     assert memory["problems"] == [{"code": "memory_protocol_error", "event_id": "event-1", "agent_id": 1}]
 
 
-#: 周二 2026-01-06 08:00（上海）：一夜睡醒的那一刻。
-_WOKE = int(datetime(2026, 1, 6, 8, tzinfo=ZoneInfo("Asia/Shanghai")).timestamp())
-
-
-def _wake(sequence, at=_WOKE, activity_id="night", status="completed"):
-    """环境写下的睡眠终局进度：快照是在 at 结束的已完成睡眠（status 不是 completed 时没有结束时刻）。"""
-    snapshot = {"kind": "sleep", "status": status, "agent_id": 1, "ended_at": at if status == "completed" else None}
-    return _event(sequence, "activity_progress", occurred_at=at, agent_id=1, activity_id=activity_id,
-                  data={"activity": snapshot})
-
-
-def _reflected(sequence, identity="r1", *, at=_WOKE, date="2026-01-05", decision_id="woke", **changes):
-    """取观察之前的就寝反思登记：来源观察为空，写入点恰为 reflection，带归属日期与所属睡眠。"""
-    data = {**_memory_update(identity, None, decision_id, ("reflection",)), "memory_sha256": "a" * 64,
-            "episodes": [{"id": identity, "type": "reflection", "text": "想早点睡。",
-                          "epistemic_status": "subjective", "source": "reflection"}],
-            "reflection": {"date": date, "sleep_activity_id": "night"}, **changes}
-    return _event(sequence, "memory_updated", occurred_at=at, agent_id=1, decision_id=decision_id, data=data)
-
-
-def _observed(sequence, at=_WOKE, decision_id="woke"):
-    """一次决策的冻结观察，事实窗口为空。"""
-    return _event(sequence, "observation", occurred_at=at, agent_id=1, decision_id=decision_id,
-                  data={"verified_experiences": []})
-
-
-def _memory_problems(events):
-    """质量报告的记忆来源问题（码与事件）。"""
-    memory = build_quality_report(events, [], _manifest(), sample_display_names())["memory_references"]
-    return [(item["code"], item["event_id"]) for item in memory["problems"]]
-
-
-def test_reflection_before_the_observation_and_conclusion_after_it_are_each_matched():
-    """@brief 睡醒那一步的两条登记各有来源：反思登记排在观察之前、对应当天第一次睡醒并记在前一天名下，
-    不核对事实窗口；步尾登记对应同一决策的 conclude_activity 与观察。"""
-    events = [_wake(1), _reflected(2), _observed(3), _concluded(4, "woke", _memory("睡得不太踏实。")),
-              _event(5, "memory_updated", occurred_at=_WOKE, agent_id=1, decision_id="woke",
-                     data={**_memory_update("m1", "event-3", "woke"), "reflection": None})]
-    events[3] = events[3].model_copy(update={"occurred_at": _WOKE})
-    memory = build_quality_report(events, [], _manifest(), sample_display_names())["memory_references"]
-    assert memory == {"memory_update_events": 2, "persisted_episode_ids": 2, "write_points_checked": 2,
-                      "problem_count": 0, "problems": []}
-
-
-@pytest.mark.parametrize("case", ["no_wake", "wake_at_another_time", "sleep_not_completed", "later_wake_of_the_day",
-                                  "filed_under_today", "filed_two_days_back", "after_the_observation"])
-def test_reflection_registration_without_its_first_wake_up_of_the_day_has_no_source(case):
-    """就寝反思登记只凭事件独立重算：找不到对应的睡醒、不是当天第一次睡醒、日期不是前一天、排在本决策的观察之后，
-    各记一条 memory_update_without_source。"""
-    events = {
-        "no_wake": [_reflected(1)],
-        "wake_at_another_time": [_wake(1, _WOKE - 60), _reflected(2)],
-        "sleep_not_completed": [_wake(1, status="active"), _reflected(2)],
-        "later_wake_of_the_day": [_wake(1, _WOKE - 5 * 3600, "first"), _wake(2), _reflected(3)],
-        "filed_under_today": [_wake(1), _reflected(2, date="2026-01-06")],
-        "filed_two_days_back": [_wake(1), _reflected(2, date="2026-01-04")],
-        "after_the_observation": [_wake(1), _observed(2), _reflected(3)],
-    }[case]
-    assert _memory_problems(events) == [("memory_update_without_source", events[-1].event_id)]
-
-
-def test_second_reflection_registration_at_the_same_moment_has_no_source():
-    """同一人物同一时刻只能有一条反思登记：第二条记一条 memory_update_without_source，第一条不报。"""
-    events = [_wake(1), _reflected(2, "r1"), _reflected(3, "r2"), _observed(4)]
-    assert _memory_problems(events) == [("memory_update_without_source", "event-3")]
-
-
-def test_a_wake_up_just_before_local_midnight_does_not_take_the_next_day_s_reflection():
-    """本地日按运行清单的窗口时区分：前一天 23:59 的睡醒与当天 08:00 的睡醒不在同一天，后者仍是当天第一次。"""
-    events = [_wake(1, _WOKE - 8 * 3600 - 60, "evening"), _wake(2), _reflected(3), _observed(4)]
-    assert _memory_problems(events) == []
-    same_day = [_wake(1, _WOKE - 8 * 3600, "midnight"), _wake(2), _reflected(3), _observed(4)]
-    assert _memory_problems(same_day) == [("memory_update_without_source", "event-3")]
-
-
-@pytest.mark.parametrize("change", [
-    {"observation_event_id": "event-9"}, {"reflection": {"date": "2026-01-05"}},
-    {"reflection": {"date": "", "sleep_activity_id": "night"}}, {"reflection": "2026-01-05"},
-    {"reflection": {"date": "2026-01-05", "sleep_activity_id": "night", "extra": 1}},
-])
-def test_reflection_registration_with_a_malformed_binding_is_an_invalid_memory_update(change):
-    """反思登记的来源观察必须为空，归属恰含日期与所属睡眠两个非空字符串；否则整条记为 invalid_memory_update。"""
-    events = [_wake(1), _reflected(2, **change), _observed(3)]
-    assert _memory_problems(events) == [("invalid_memory_update", "event-2")]
-
-
 @pytest.mark.parametrize("wake_reasons,registered,trigger", [
     (["planned_end"], False, ("activity_conclusion",)),
-    (["planned_end"], True, ("activity_conclusion", "reflection")),
     (["planned_end"], False, ()),
 ])
 def test_memory_update_whose_write_point_has_no_registration_has_no_source(wake_reasons, registered, trigger):
-    """写入点找不到对应登记即 memory_update_without_source：收尾写入点没有同一决策的 conclude_activity、反思写入点
-    不在醒来那一轮，或写入了条目却没有任何写入点。"""
+    """写入点找不到对应登记即 memory_update_without_source：收尾写入点没有同一决策的 conclude_activity，或写入了条目
+    却没有任何写入点。"""
     events = [_event(1, "observation", agent_id=1, decision_id="decision",
                      data={"verified_experiences": [], "wake_reasons": wake_reasons}),
               *([_concluded(2, "decision", _memory())] if registered else []),
@@ -496,21 +406,53 @@ def test_memory_update_whose_write_point_has_no_registration_has_no_source(wake_
     assert memory["problems"] == [{"code": "memory_update_without_source", "event_id": "event-3", "agent_id": 1}]
 
 
-@pytest.mark.parametrize("change", [
-    {"trigger": "activity_conclusion"}, {"trigger": ["finish"]}, {"trigger": ["reflection", "activity_conclusion"]},
-    {"trigger": ["activity_conclusion", "activity_conclusion"]}, {"decision_id": "another-decision"},
-    {"decision_id": None},
-])
-def test_malformed_trigger_or_decision_is_an_invalid_memory_update(change):
-    """trigger 须是写入点闭集按序、无重复的列表，decision_id 须等于事件所属决策；否则整条记为 invalid_memory_update。"""
+def _single_update_problems(data):
+    """观察、带记忆的收尾与一条 memory_updated（数据为 data）三条事件的记忆问题码与更新条数。"""
     events = [_event(1, "observation", agent_id=1, decision_id="decision", data={"verified_experiences": []}),
               _concluded(2, "decision", _memory()),
-              _event(3, "memory_updated", agent_id=1, decision_id="decision",
-                     data={**_memory_update("m1", "event-1", "decision"), **change})]
+              _event(3, "memory_updated", agent_id=1, decision_id="decision", data=data)]
     memory = build_quality_report(events, [], _manifest(), sample_display_names())["memory_references"]
-    assert memory["memory_update_events"] == 0
-    assert [item["code"] for item in memory["problems"]] == [
-        "invalid_memory_update", "conclusion_without_memory_update"]
+    return [item["code"] for item in memory["problems"]], memory["memory_update_events"]
+
+
+@pytest.mark.parametrize("change", [
+    {"trigger": "activity_conclusion"}, {"trigger": ["finish"]}, {"trigger": ["reflection", "activity_conclusion"]},
+    {"trigger": ["reflection"]}, {"trigger": ["activity_conclusion", "activity_conclusion"]},
+    {"decision_id": "another-decision"}, {"decision_id": None},
+])
+def test_malformed_trigger_or_decision_is_an_invalid_memory_update(change):
+    """trigger 须是写入点闭集（只有 activity_conclusion）按序、无重复的列表，含 reflection 的列表按形状不符处理；
+    decision_id 须等于事件所属决策；否则整条记为 invalid_memory_update。"""
+    codes, updates = _single_update_problems({**_memory_update("m1", "event-1", "decision"), **change})
+    assert updates == 0
+    assert codes == ["invalid_memory_update", "conclusion_without_memory_update"]
+
+
+@pytest.mark.parametrize("change", [
+    {"consolidated": False}, {"reflection": None}, {"state_sha256": "d" * 64}, "decision_id",
+])
+def test_memory_update_payload_must_have_exactly_the_eleven_keys(change):
+    """memory_updated.data 的键集合须恰为 MEMORY_UPDATE_KEYS 的十一个键：多出已删的 consolidated、reflection、
+    state_sha256，或缺 decision_id，都记 invalid_memory_update。"""
+    data = _memory_update("m1", "event-1", "decision")
+    if isinstance(change, str):
+        del data[change]
+    else:
+        data.update(change)
+    codes, updates = _single_update_problems(data)
+    assert updates == 0
+    assert codes == ["invalid_memory_update", "conclusion_without_memory_update"]
+
+
+def test_a_null_previous_view_digest_is_a_valid_memory_update():
+    """人物第一条更新的写入前摘要为 null：是合法的更新，计入更新与条目，没有记忆问题；写入前摘要既不是 null
+    也不是摘要时记 invalid_memory_update。"""
+    codes, updates = _single_update_problems({**_memory_update("m1", "event-1", "decision"),
+                                              "memory_before_sha256": None})
+    assert (codes, updates) == ([], 1)
+    codes, updates = _single_update_problems({**_memory_update("m1", "event-1", "decision"),
+                                              "memory_before_sha256": ""})
+    assert (codes, updates) == (["invalid_memory_update", "conclusion_without_memory_update"], 0)
 
 
 def test_memory_update_must_carry_its_observation_fact_window():
@@ -872,16 +814,6 @@ def test_quality_report_is_deterministic_for_the_same_authenticated_input():
     json.dumps(first, ensure_ascii=False, sort_keys=True, allow_nan=False)
 
 
-@pytest.mark.parametrize("source,codes", [("reflection", []), ("activity_conclusion", ["invalid_memory_update"])])
-def test_bedtime_reflection_snapshot_may_carry_its_source(source, codes):
-    """@brief 反思登记的快照带来源 reflection；别的来源写法不是合法的主观快照。"""
-    snapshot = {"id": "r1", "type": "reflection", "text": "睡前有点困", "epistemic_status": "subjective",
-                "source": source}
-    events = [_wake(1), _reflected(2, episodes=[snapshot]), _observed(3)]
-    memory = build_quality_report(events, [], _manifest(), sample_display_names())["memory_references"]
-    assert [item["code"] for item in memory["problems"]] == codes
-
-
 def _progress(sequence, snapshot, start, end):
     """人物 1 一段活动进度：结算区间 [start, end) 与活动快照。"""
     return _event(sequence, "activity_progress", occurred_at=end, agent_id=1, activity_id=snapshot["activity_id"],
@@ -1033,16 +965,6 @@ def test_drink_receipt_does_not_count_as_calorie_conversion():
     assert report["conversion_efficiency"]["food"]["unavailable_or_incomplete_reason"] == "no_food_receipt"
     assert not {"work_topics", "contact_reply_guard"} & report.keys()
     assert "by_action" not in report["content_contact"]
-
-
-def test_old_wake_name_does_not_prove_reflection_without_sleep_completion():
-    events = [_event(1, "observation", agent_id=1, decision_id="decision",
-                     data={"verified_experiences": [], "wake_reasons": ["session_open"]}),
-              _event(2, "memory_updated", agent_id=1, decision_id="decision",
-                     data=_memory_update("r1", "event-1", "decision", trigger=("reflection",)))]
-    problems = build_quality_report(events, [], _manifest(), sample_display_names())["memory_references"]["problems"]
-    assert [item["code"] for item in problems] == ["memory_update_without_source"]
-
 
 
 def _class_request(name):

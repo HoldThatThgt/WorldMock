@@ -6,6 +6,7 @@ import pytest
 
 from tests.integration.runtime.current_contract_fixtures import ToolResponse, decide
 from tests.life.conftest import MAIN_TOOL, SIDE_TOOL, advance_next, main_arguments, side_arguments, stage_day_plan
+from worldmock.configuration.model.model_client import REQUEST_KEYS
 
 #: 人在家点名「测试休息」：start_main_activity 的完整参数。
 _REST = main_arguments("interact", "家", "测试休息")
@@ -16,11 +17,11 @@ async def test_real_agent_registers_current_action_and_persists_complete_wire(en
     engine = engine_factory()
     stage_day_plan(engine, submitted=True)
     observed, requests, answer, results = await decide(engine, "interact-home", [ToolResponse(MAIN_TOOL, _REST)])
-    assert answer == "start_main_activity registered"
+    assert answer == ["start_main_activity"]
     assert len(requests) == 1 and results[0].status == "in_progress"
     request = requests[0]
     assert request["model"] == "test-model"
-    assert request["max_retries"] == 0 and request["transport_max_retries"] == 3
+    assert sorted(request) == sorted(REQUEST_KEYS)
     assert request["max_tokens"] <= engine.context.inputs.model_metadata.max_output_tokens
     assert len(request["messages"]) == 2
     schemas = {tool["function"]["name"]: tool["function"]["parameters"] for tool in request["tools"]}
@@ -151,7 +152,7 @@ async def test_dataset_travel_method_name_is_the_one_wording_from_the_prompt_to_
     stage_day_plan(engine, submitted=True)
     observed, requests, answer, results = await decide(engine, "ride", [
         ToolResponse(MAIN_TOOL, main_arguments("travel", "公司", "电动车"))])
-    assert answer == "start_main_activity registered" and results[0].status == "in_progress"
+    assert answer == ["start_main_activity"] and results[0].status == "in_progress"
     prompt = user_layer(json.loads(requests[0]["messages"][1]["content"]), "工具层")
     assert expand_tool_layer(prompt) == observed["tool_layer"]
     [group] = [row for row in prompt["groups"] if row["action"] == "travel"]

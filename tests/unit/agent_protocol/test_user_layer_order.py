@@ -1,13 +1,11 @@
-"""user 数组的层序只由 USER_LAYER_NAMES 决定；宿主按层名取层，进度层必须是最后一层；只读问答尚无快照时的空记忆层由
-记忆层的组装函数构建。"""
+"""user 数组的层序只由 USER_LAYER_NAMES 决定；宿主按层名取层，进度层必须是最后一层。"""
 
 import logging
 
 import pytest
 
-from worldmock.agents.prompt.life_prompt import empty_memory_layer, last_progress_layer, life_user_layers, user_layer
+from worldmock.agents.prompt.life_prompt import last_progress_layer, life_user_layers, user_layer
 from worldmock.agents.prompt.prompt_schemas import USER_LAYER_NAMES
-from worldmock.simulation_engine.observation.memory.layout import assemble_layer
 
 #: 观察里由环境构建的五层所在的键与层名。
 _OBSERVATION_KEYS = {"memory_layer": "记忆层", "todo_layer": "待办层", "tool_layer": "工具层",
@@ -82,10 +80,3 @@ def test_the_progress_layer_must_be_the_last_user_layer(caplog):
                                                            match="^Progress layer must be the last user layer$"):
             last_progress_layer(broken)
         assert f"User layers end with {last} instead of 进度层" in caplog.messages
-
-
-def test_empty_memory_layer_is_the_assembled_empty_layer():
-    """空记忆层恰为四个键的组装结果：「可查」「近三天」是空对象，「今天」是空列表；每次调用返回新对象。"""
-    first = empty_memory_layer()
-    assert first == assemble_layer(None, {}, []) == {"layer": "记忆层", "可查": {}, "近三天": {}, "今天": []}
-    assert empty_memory_layer() is not first

@@ -91,7 +91,7 @@ const ViewerContext = {};
       ],
     },
     tools: {
-      label: '工具定义', source: 'custom/agents/life_agent.py · 原生工具；src/worldmock/agents/life_prompt.py · TOOL_DESCRIPTIONS',
+      label: '工具定义', source: 'src/worldmock/agents/life_agent.py · 原生工具；src/worldmock/agents/prompt/life_prompt.py · TOOL_DESCRIPTIONS',
       fill: '六个世界请求工具（两个开始工具、三个活动控制工具与计划修订）、一个回看工具（recall_task_summary）'
         + '与一个记忆检索工具（search_memory），共八个，严格参数结构，整次运行字节相同。',
       steps: [
@@ -102,7 +102,7 @@ const ViewerContext = {};
       ],
     },
     message: {
-      label: '本轮追加消息', source: 'agentsociety2/agent/person.py；custom/agents/life_agent.py · _run_react_turn',
+      label: '本轮追加消息', source: 'src/worldmock/agents/protocol/react_loop.py · ReactLoop._turn；src/worldmock/agents/life_agent.py · execute_decisions',
       fill: '同一决策内的 assistant 调用、search_memory 与回看任务的结果和协议纠错消息按实际发送顺序保留。',
       steps: [
         ['查询结果', '查询结果作为一条紧凑 JSON 工具消息追加；search_memory 查到的往日是回顾段落，「当时查到」的价格和库存以当时为准。'],
@@ -141,12 +141,12 @@ const ViewerContext = {};
       ],
     },
     memory_view: {
-      label: '工作区记忆视图', source: 'src/worldmock/agents/life_memory.py · render_memory_view、build_context',
-      fill: '工作区 MEMORY.md 由身份、五条已核验经历和主观归纳组合，最多四千字符。',
+      label: '工作区记忆视图', source: 'src/worldmock/agents/memory/life_memory.py · render_memory_view、save_step',
+      fill: '工作区 MEMORY.md 由身份、至多五条已核验经历和恒为「暂无人物自述。」的自述段组成，最多四千字符。',
       steps: [
-        ['每步重写', '根据当前身份与事实窗口重新生成视图；主观归纳不再更新。'],
+        ['每步重写', '根据当前身份与事实窗口重新生成视图。'],
         ['提示分开取值', '生活请求不读取这个文件；七层由环境与宿主分别构建。'],
-        ['范围区别', '文件四千字符预算和主观归纳四千字符限制都不是整个请求的容量。'],
+        ['范围区别', '文件四千字符预算不是整个请求的容量。'],
       ],
     },
     capacity: {

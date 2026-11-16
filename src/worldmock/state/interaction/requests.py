@@ -612,6 +612,6 @@ REQUEST_MODELS: dict[str, type[FrozenModel]] = {
     "revise_day_plan": ReviseDayPlanRequest,
 }
 
-#: 只读查询的工具模型：不进 REQUEST_MODELS，也不进 ActionRequest，由 LifeEnv.read_query 回答
+#: 只读查询的工具模型：不进 REQUEST_MODELS，也不进 ActionRequest，由 LifeEngine.read_query 回答
 #: （docs/design/06-agent.md「检索记忆」）。
 QUERY_MODELS: dict[str, type[FrozenModel]] = {"search_memory": SearchMemoryRequest}

@@ -1,4 +1,4 @@
-"""@brief 在真实 AS2 请求路径验证七层请求、登记隔离与整次请求容量。"""
+"""@brief 在真实人物回合请求路径验证七层请求、登记隔离与整次请求容量。"""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from worldmock.agents.prompt.tool_groups import expand_tool_layer
 
 import copy
 import json
+import logging
 import re
 
 import pytest
@@ -20,16 +21,12 @@ from tests.integration.runtime.test_life_agent_protocol import (
     _observations,
     _wire_agent,
 )
-from agentsociety2.agent.base import ReactLoopRequest
-from agentsociety2.agent.base import agent_runtime
-from agentsociety2.society import DecisionContext
-from custom.agents import life_agent
+from tests.integration.runtime.current_contract_fixtures import turns_with_history
+from worldmock.agents import life_agent
 from worldmock.agents.prompt import life_prompt
-from custom.agents.life_agent import LifeAgent
-from worldmock.agents.prompt.life_persona import persona_layer
+from worldmock.state.decisions.round import DecisionContext
 from worldmock.state.interaction.requests import REQUEST_MODELS
 from worldmock.agents.prompt import prompt_capacity
-from worldmock.agents.prompt.narration import render_layer_json
 from tests.life.conftest import MAIN_TOOL, SIDE_TOOL
 
 
@@ -39,9 +36,9 @@ def _fixed_model_context(monkeypatch) -> None:
     monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model, metadata: metadata.context_window)
 
 
-@pytest.mark.parametrize("layer", ["LIFE_SYSTEM_LAYER", "READONLY_SYSTEM_LAYER"])
+@pytest.mark.parametrize("layer", ["LIFE_SYSTEM_LAYER"])
 def test_prompt_fingerprint_binds_every_formal_template(monkeypatch, layer: str) -> None:
-    """@brief 生活与只读两份系统层的任何改动都会改变运行指纹。"""
+    """@brief 生活系统层的任何改动都会改变运行指纹。"""
     original = life_prompt.life_prompt_sha256()
     changed = copy.deepcopy(getattr(life_prompt, layer))
     changed["rules"].append("新增一条规则。")
@@ -66,7 +63,7 @@ class _ScriptedDispatcher:
         self.responses = list(responses)
         self.requests: list[dict] = []
 
-    async def call(self, **request):
+    async def call(self, request):
         """@brief 捕获提供商入口的完整参数，任何多余请求都会明确失败。"""
         self.requests.append(copy.deepcopy(request))
         response = self.responses.pop(0)
@@ -82,24 +79,17 @@ def _action_response() -> _ModelResponse:
         reasoning_content="I intend to rest; the outcome is not known yet.")
 
 
-def _finish_response() -> _ModelResponse:
-    """@brief 通过只读 finish Schema 结束只读请求（生活决策没有 finish）。"""
-    return _ModelResponse("provider-finish-call", "finish", json.dumps({"answer": "I remember waiting."}))
-
-
 def _configured(responses: list, max_turns: int = 6) -> tuple:
     """@brief 使用现有真实人物装配，只替换外部模型提供商。"""
-    agent, environment = LifeAgent(), _Environment()
+    environment = _Environment()
     dispatcher = _ScriptedDispatcher(responses)
-    _wire_agent(agent, environment, dispatcher, max_turns)
-    agent._model_name = agent._profile["model_identity"]["requested_model"]
+    agent = _wire_agent(environment, dispatcher, max_turns)
     return agent, environment, dispatcher
 
 
-def _request(*, readonly: bool = False) -> ReactLoopRequest:
-    """@brief 只读请求携带不可渲染的观察，证明其不会进入生活上下文路径。"""
-    observations = [{"data": {"tool_layer": object(), "progress_layer": object()}}] if readonly else _observations()
-    return ReactLoopRequest(0, _context().observed_at, observations, "What happened?", readonly)
+def _observation() -> dict:
+    """@brief 本次决策的一份冻结观察。"""
+    return _observations()[0]["data"]
 
 
 @pytest.mark.asyncio
@@ -112,22 +102,28 @@ async def test_followup_requests_hide_receipts_and_keep_memory_pairing_and_initi
         _action_response(),
     ], 5)
     context = _context()
-    agent._decision_context = DecisionContext(
+    context = DecisionContext(
         "private-run-identity", "private-round-identity", "private-decision-identity",
         context.agent_id, context.observed_at, context.world_state_version)
-    request = _request()
+    receipts = []
+    submit = agent._submit_life_action
 
-    assert await agent.run_react_loop(request) == f"{MAIN_TOOL} registered"
+    def recording(action, args):
+        result = submit(action, args)
+        receipts.append(result)
+        return result
+
+    agent._submit_life_action = recording
+    registered, history = await turns_with_history(agent, context, _observation())
+    assert [decision.action for decision in registered] == [MAIN_TOOL]
 
     assert len(environment.calls) == 1
     assert len(dispatcher.requests) == 3
-    host_receipt = next(item for item in request.observations if item["action"] == MAIN_TOOL)
-    assert host_receipt["data"] == {
+    [host_receipt] = receipts
+    assert host_receipt.data == {
         "request_sha256": "a" * 64, "status": "submitted",
         "action_id": "private-decision-identity:action:0001",
         "round_id": "private-round-identity", "decision_id": "private-decision-identity"}
-    assert json.loads(host_receipt["observation"]) == host_receipt["data"]
-    history = agent._react_messages
     assert not any(item.get("tool_call_id") == "provider-action-call" for item in history)
     assert history[-1]["role"] == "assistant" and history[-1]["tool_calls"][0]["id"] == "provider-action-call"
     sent = json.dumps([item["messages"] for item in dispatcher.requests] + [history], ensure_ascii=False)
@@ -155,80 +151,51 @@ async def test_followup_requests_hide_receipts_and_keep_memory_pairing_and_initi
 @pytest.mark.asyncio
 @pytest.mark.parametrize("failure_phase", ["transport", "request", "response"])
 async def test_action_transport_and_evidence_failures_are_logged_without_retry(
-        monkeypatch, failure_phase: str) -> None:
+        monkeypatch, caplog, failure_phase: str) -> None:
     """@brief 行动请求的传输或证据保存错误直接终止、不重试、不登记世界请求，并产生英文错误日志。"""
     responses = [TimeoutError("transport failed")] if failure_phase == "transport" else [_action_response()]
     agent, environment, dispatcher = _configured(responses)
-    errors = []
-    monkeypatch.setattr(agent_runtime.logger, "error", lambda *args: errors.append(args))
-    monkeypatch.setattr(agent._logger, "error", lambda *args: errors.append(args))
     original = environment.record_model_exchange
 
-    async def record(exchange):
+    def record(exchange):
         if exchange.phase == failure_phase:
             raise OSError("evidence storage failed")
-        await original(exchange)
+        original(exchange)
 
     monkeypatch.setattr(environment, "record_model_exchange", record)
     expected = TimeoutError if failure_phase == "transport" else RuntimeError
-    with pytest.raises(expected) as failure:
-        await agent.run_react_loop(_request())
+    with caplog.at_level(logging.ERROR), pytest.raises(expected) as failure:
+        await agent.run_turns(_context(), _observation())
     if failure_phase != "transport":
         assert isinstance(failure.value.__cause__, OSError)
-        assert failure.value.args[0].report.error_code == "EVIDENCE_WRITE_FAILED"
+        assert failure.value.feedback.report.error_code == "EVIDENCE_WRITE_FAILED"
     assert len(dispatcher.requests) == (0 if failure_phase == "request" else 1)
     assert environment.calls == []
-    assert all(not any("一" <= char <= "鿿" for char in str(error)) for error in errors)
+    errors = [record.getMessage() for record in caplog.records if record.levelno >= logging.ERROR]
+    assert all(not any("一" <= char <= "鿿" for char in error) for error in errors)
 
 
 @pytest.mark.asyncio
-async def test_readonly_loop_uses_only_persona_memory_and_question() -> None:
-    """@brief 只读请求跳过观察：只读系统层、人设层与记忆层组成的 user、原样的外部问题；每个回合只开放 finish，
-    写了检索的回复按未开放的工具纠错、不送环境，不写世界或记忆。"""
-    agent, environment, dispatcher = _configured([
-        _ModelResponse("readonly-memory", "search_memory", _SEARCH),
-        _finish_response()], 2)
-    agent._profile["persona_card"] = "我是一个爱散步的人。"
-    result = await agent.run_react_loop(_request(readonly=True))
-    assert result == "I remember waiting."
-    assert len(dispatcher.requests) == 2
-    persona = persona_layer(agent._profile, "Alice")
-    memory = life_prompt.empty_memory_layer()
-    assert dispatcher.requests[0]["messages"] == [
-        {"role": "system", "content": render_layer_json(life_prompt.READONLY_SYSTEM_LAYER)},
-        {"role": "user", "content": render_layer_json([persona, memory])},
-        {"role": "user", "content": "What happened?"}]
-    assert "爱散步" not in json.dumps(dispatcher.requests[0], ensure_ascii=False)
-    assert [{tool["function"]["name"] for tool in item["tools"]} for item in dispatcher.requests] == [{"finish"}] * 2
-    assert "TOOL_CALL_REQUIRED" in dispatcher.requests[1]["messages"][-1]["content"]
-    assert environment.calls == environment.memory_updates == environment.queries == []
-    assert agent._last_finish_memories is None
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("stage", ["action", "readonly"])
-async def test_each_model_entry_preflights_the_complete_token_request(monkeypatch, stage: str) -> None:
-    """@brief 行动与只读入口达到窗口八成五时都在发送前报容量故障。"""
-    readonly = stage == "readonly"
-    responses = [_finish_response()] if readonly else [_action_response()]
-    agent, environment, dispatcher = _configured(responses, 3)
+async def test_each_model_entry_preflights_the_complete_token_request(monkeypatch) -> None:
+    """@brief 行动入口达到窗口八成五时在发送前报容量故障。"""
+    agent, environment, dispatcher = _configured([_action_response()], 3)
     monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model, metadata: 524288)
     monkeypatch.setattr(prompt_capacity, "request_token_count", lambda request: 445645)
     with pytest.raises(RuntimeError, match="model request capacity exceeded"):
-        await agent.run_react_loop(_request(readonly=readonly))
+        await agent.run_turns(_context(), _observation())
     assert dispatcher.requests == []
     assert environment.calls == []
 
 
 @pytest.mark.asyncio
 async def test_long_system_message_passes_when_complete_request_is_below_threshold(monkeypatch) -> None:
-    """@brief system 字符数不设熔断：整次请求低于窗口阈值时只读决策照常发送。"""
-    long_layer = {**life_prompt.READONLY_SYSTEM_LAYER, "role": life_prompt.READONLY_SYSTEM_LAYER["role"] + "很长" * 1600}
-    monkeypatch.setattr(life_prompt, "READONLY_SYSTEM_LAYER", long_layer)
+    """@brief system 字符数不设熔断：整次请求低于窗口阈值时行动决策照常发送。"""
+    long_layer = {**life_prompt.LIFE_SYSTEM_LAYER, "role": life_prompt.LIFE_SYSTEM_LAYER["role"] + "很长" * 1600}
+    monkeypatch.setattr(life_prompt, "LIFE_SYSTEM_LAYER", long_layer)
     monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model, metadata: 524288)
     monkeypatch.setattr(prompt_capacity, "request_token_count", lambda request: 445644)
-    agent, _, dispatcher = _configured([_finish_response()], 1)
-    await agent.run_react_loop(_request(readonly=True))
+    agent, _, dispatcher = _configured([_action_response()], 1)
+    await agent.run_turns(_context(), _observation())
     assert len(dispatcher.requests[0]["messages"][0]["content"]) > 3000
 
 
@@ -238,7 +205,7 @@ async def test_start_tool_descriptions_say_purpose_only_and_conditions_stay_in_t
     （duration、reason），「标为不可用会被拒绝、原因就是 reason」只在系统层写一次（docs/design/06-agent.md 第一章
     「工具层」「系统层」）。"""
     agent, environment, dispatcher = _configured([_action_response()], 3)
-    await agent.run_react_loop(_request())
+    await agent.run_turns(_context(), _observation())
     request = dispatcher.requests[0]
     descriptions = {tool["function"]["name"]: tool["function"]["description"] for tool in request["tools"]}
     assert "start_activity" not in descriptions

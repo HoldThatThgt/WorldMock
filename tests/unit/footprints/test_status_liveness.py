@@ -12,6 +12,7 @@ import pytest
 
 import worldmock.recording_engine.storage.store as store_module
 from tests.text_encoding import default_encoding_reads
+from worldmock.configuration.model.model_client import LLMDispatchError
 from worldmock.runtime.monitoring import status
 from worldmock.foundation.errors import IntegrityError
 from worldmock.recording_engine.events.models import EventDraft
@@ -69,46 +70,48 @@ def test_status_json_carries_the_one_line_error_message(tmp_path):
     assert json.loads((tmp_path / "status.json").read_bytes())["error_message"] is None
 
 
-class _RemoteFailure(Exception):
-    """模拟 Ray 任务错误：cause 属性带着远端原始异常。"""
+def test_failure_message_joins_groups_and_keeps_other_text():
+    """异常组逐项（含嵌套）以「 | 」连接；不读异常的 cause 属性，终端颜色序列原样保留；换行、制表与连串空格折成
+    一个空格，不截断。"""
 
-    def __init__(self, cause):
-        super().__init__("\x1b[31mray traceback\x1b[0m")
-        self.cause = cause
+    class _CarriesCause(Exception):
+        """带 cause 属性的普通异常：一行原因只写它自己的类型名与文本。"""
 
+        def __init__(self) -> None:
+            """以固定文本构造，并在 cause 属性上挂另一个异常。"""
+            super().__init__("outer text")
+            self.cause = OSError("disk full")
 
-def test_failure_message_unwraps_groups_and_ray_causes():
-    """异常组逐项以「 | 」连接；带 cause 异常的取它；终端颜色去掉、换行与连串空格折成一个空格，不截断。"""
     group = BaseExceptionGroup("both", [ValueError("x"), KeyError("y")])
     assert failure_message(group) == "ValueError: x | KeyError: 'y'"
-    assert failure_message(_RemoteFailure(OSError("disk  full"))) == "OSError: disk full"
-    assert failure_message(_RemoteFailure("not an exception")) == "_RemoteFailure: ray traceback"
+    nested = BaseExceptionGroup("outer", [ExceptionGroup("inner", [ValueError("a")]), OSError("b")])
+    assert failure_message(nested) == "ValueError: a | OSError: b"
+    assert failure_message(_CarriesCause()) == "_CarriesCause: outer text"
+    assert failure_message(RuntimeError("\x1b[31mred\x1b[0m")) == "RuntimeError: \x1b[31mred\x1b[0m"
     long = "a" * 5000
-    assert failure_message(RuntimeError(f"\x1b[1;33mline one\x1b[0m\n  line\ttwo   {long}")) == (
+    assert failure_message(RuntimeError(f"line one\n  line\ttwo   {long}")) == (
         f"RuntimeError: line one line two {long}")
 
 
 def test_cli_failure_writes_the_root_cause_into_status(tmp_path, monkeypatch):
-    """运行失败时 cli 在 status.json 写类型名与一行根因：异常链的类型名到达 error_message。"""
+    """运行失败时 cli 在 status.json 写原异常的类型名与一行根因：模型调用最终失败直接以 LLMDispatchError 到达。"""
     import worldmock.runtime.lifecycle.runner as runtime
     from worldmock.cli import main
 
     output = tmp_path / "run"
-    message = ("Agent decision failed: [{'error': \"LLMDispatchError('Failed to get valid response after 366 "
-               "attempts in 43206.0 s. Last error type: InternalServerError. Error chain: InternalServerError "
-               "<- ConnectError')\"}]")
+    message = ("Failed to get valid response after 366 attempts in 43206.0 s. Last error type: "
+               "InternalServerError. Error chain: InternalServerError <- ConnectError")
 
     async def failing_run(request):
         request.run_dir.mkdir(parents=True)
-        raise RuntimeError(message)
+        raise LLMDispatchError(message)
 
     monkeypatch.setattr(runtime, "run_world", failing_run)
     assert main(["run", "--environment", str(tmp_path / "environment"), "--output", str(output)]) == 1
     document = json.loads((output / "status.json").read_text(encoding="utf-8"))
-    assert document["error_type"] == "RuntimeError"
+    assert document["error_type"] == "LLMDispatchError"
+    assert document["error_message"] == f"LLMDispatchError: {message}"
     assert document["status"] == "failed" and document["phase"] == "stopped"
-    assert "ConnectError" in document["error_message"]
-    assert document["error_message"] == f"RuntimeError: {message}"
 
 
 def test_fresh_heartbeat_reads_running(tmp_path, monkeypatch):

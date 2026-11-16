@@ -161,7 +161,7 @@ _ENTRY_LINES = {"type": "array", "minItems": 1, "items": {"type": "string", "min
 _TODAY_ENTRY = _object({"时刻": {"type": "string", "pattern": r"^([01][0-9]|2[0-3]):[0-5][0-9]$"},
                         "类别": _CATEGORY_TEXT, "核验": _ENTRY_LINES, "自述": _ENTRY_LINES}, optional=("核验", "自述"))
 _TODAY_ENTRY["anyOf"] = [{"required": ["核验"]}, {"required": ["自述"]}]
-#: 「可查」：能查到的最早日期；只读问答尚无快照时的空记忆层里是空对象。
+#: 「可查」：能查到的最早日期；还没有可查的日期时是空对象。
 _AVAILABLE = _object({"最早日期": _DATE}, optional=("最早日期",))
 #: 计数行「时刻」的全部写法：HH:00–(HH+1):00，23 时写 23:00–24:00。
 _HOUR_SPANS = [f"{hour:02d}:00–{hour + 1:02d}:00" for hour in range(24)]

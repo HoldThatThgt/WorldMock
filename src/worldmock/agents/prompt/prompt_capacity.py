@@ -18,9 +18,8 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from litellm import token_counter
-
 from worldmock.agents.prompt.narration import render_layer_json
+from worldmock.configuration.model.model_client import token_counter
 from worldmock.configuration.model.model_metadata import model_context_length
 from worldmock.configuration.inputs.models import ModelMetadata
 

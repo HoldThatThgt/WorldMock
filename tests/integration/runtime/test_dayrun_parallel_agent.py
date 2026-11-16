@@ -17,19 +17,21 @@ def _group(*calls):
 @pytest.mark.parametrize("order", [(MAIN_TOOL, SIDE_TOOL), (SIDE_TOOL, MAIN_TOOL)])
 async def test_native_parallel_walk_and_app_interaction_use_both_actual_slots(engine_factory, order):
     """出行与用内容 app 同组：两条调用各登记一条动作、同一时刻开始两项活动并各占一个槽位；两条调用的先后不改变结果，
-    环境只向框架返回第一条登记动作的结果。"""
+    提交返回两条结果。"""
     engine = engine_factory()
     stage_day_plan(engine)
     arguments = {MAIN_TOOL: main_arguments("travel", "三杯咖啡", "步行"), SIDE_TOOL: side_arguments("interact", "抖音")}
-    _, requests, answer, [result] = await decide(engine, "parallel", [_group(*((tool, arguments[tool])
-                                                                                for tool in order))])
-    assert answer == f"{order[0]} and {order[1]} registered"
+    _, requests, answer, [result, second] = await decide(engine, "parallel", [_group(*((tool, arguments[tool])
+                                                                                        for tool in order))])
+    assert answer == [order[0], order[1]]
     assert result.status == "in_progress" and len(requests) == 1
     records = engine.context.store.read_agent_events("action_requested", 1)
     assert [(record.data["tool_name"], record.data["request"]) for record in records] == [
         (tool, arguments[tool]) for tool in order]
     assert len({record.decision_id for record in records}) == 1
     assert [record.action_id[-4:] for record in records] == ["0001", "0002"] and result.action_id == records[0].action_id
+    assert second.action_id == records[1].action_id
+    assert second.model_dump(mode="json") == action_result(engine, records[1].action_id).model_dump(mode="json")
     activities = engine.context.state.activities
     assert len(activities) == 2
     started = {}
@@ -49,13 +51,14 @@ async def test_conflicting_parallel_request_registers_once_then_changes_no_activ
     业务拒绝再请求模型。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    _, requests, _, [result] = await decide(engine, "conflict", [_group(
+    _, requests, _, [result, second] = await decide(engine, "conflict", [_group(
         (MAIN_TOOL, main_arguments("sleep", "450")), (SIDE_TOOL, side_arguments("interact", "抖音")))])
     assert result.error_code == "RESOURCE_CONFLICT"
     assert result.message == "Sleep requires the second activity slot to be empty. Neither start request was started."
     assert not engine.context.state.activities
     records = engine.context.store.read_agent_events("action_requested", 1)
     assert len(requests) == 1 and [record.data["tool_name"] for record in records] == [MAIN_TOOL, SIDE_TOOL]
+    assert second == result.model_copy(update={"action_id": records[1].action_id})
     first, second = (action_result(engine, record.action_id) for record in records)
     assert first == result and second == result.model_copy(update={"action_id": records[1].action_id})
     assert result.data["fix"] == "Submit start_main_activity alone to sleep."

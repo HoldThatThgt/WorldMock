@@ -1,4 +1,4 @@
-"""系统层恰二十二条，逐字、按序钉住；新五条与提案原文逐字节相同，保留的十七条与基线逐字相同；只读系统层四条；旧文字与已删除的机制不再出现；用途句恰九个键；唤醒表每一行都有系统层的措辞说出；规则引用的记忆层键都在 Schema 里；提示指纹随文字改变。"""
+"""系统层恰二十二条，逐字、按序钉住；新五条与提案原文逐字节相同，保留的十七条与基线逐字相同；旧文字与已删除的机制不再出现；用途句恰八个键；唤醒表每一行都有系统层的措辞说出；规则引用的记忆层键都在 Schema 里；提示指纹只绑定生活系统层与七层 Schema，随文字改变；系统层正文与工具指纹不变。"""
 
 from __future__ import annotations
 
@@ -7,14 +7,15 @@ import hashlib
 import json
 import re
 
+from worldmock.agents.life_agent import life_tool_schema_sha256
 from worldmock.agents.prompt import life_prompt
 from worldmock.agents.prompt.life_prompt import (
     LIFE_SYSTEM_LAYER,
-    READONLY_SYSTEM_LAYER,
     TOOL_DESCRIPTIONS,
     life_prompt_sha256,
+    system_message,
 )
-from worldmock.agents.prompt.prompt_schemas import MEMORY_LAYER_SCHEMA, validate_layer
+from worldmock.agents.prompt.prompt_schemas import LAYER_SCHEMAS, MEMORY_LAYER_SCHEMA, validate_layer
 from worldmock.state.interaction.requests import QUERY_MODELS
 from worldmock.state.planning.schedule import WAKE_TRIGGERS
 
@@ -123,14 +124,6 @@ _NEW_RULE_DIGESTS = {
     21: (63, "73ec4117944341fff516e75765cce52c4a5cbc8781833c2599d72d030d00c928"),
 }
 
-#: 只读系统层四条的逐字定稿，次序即下标。
-_READONLY_RULES = (
-    "请求由人设层、记忆层与外部问题组成。",
-    "记忆层的「核验」是环境核验的事实；「自述」和「回顾」是你自己写下或整理的，未经核验。",
-    "只依据人设层与记忆层回答，不能改变世界，也不写入记忆。",
-    "回答完成后单独调用 finish。",
-)
-
 #: 唤醒表每一行由系统层哪一条（下标）的哪段措辞说出；唤醒表增删行或改名时，这里与措辞一起改。
 _WAKE_PHRASES = {
     "planned_end": (4, "手上的事做完"),
@@ -200,37 +193,29 @@ def test_wake_sentence_names_every_wake_trigger():
         assert phrase in LIFE_SYSTEM_LAYER["rules"][index], name
 
 
-def test_readonly_system_layer_is_the_four_rules_verbatim():
-    """只读问答系统层：role 不变，规则恰为四条终稿，摘要钉住，整层通过系统层 Schema。"""
-    assert READONLY_SYSTEM_LAYER["role"] == "你是模拟世界中的一个人物，依据人设层与记忆层回答外部问题。"
-    assert READONLY_SYSTEM_LAYER["rules"] == list(_READONLY_RULES)
-    assert _digest(READONLY_SYSTEM_LAYER["rules"]) == "824b1da806e387c3f1e3726c6a431e828e715f9cf9a46b6c1df4b292bc557a3f"
-    validate_layer(READONLY_SYSTEM_LAYER)
-
-
 def test_retired_wording_is_gone_from_the_system_layers_and_tool_descriptions():
-    """旧工具名、四个旧出行动作、名额的说法、两句旧睡眠文字都不再出现；两份系统层与用途句也不提已删除的机制。"""
-    text = "".join(LIFE_SYSTEM_LAYER["rules"]) + "".join(READONLY_SYSTEM_LAYER["rules"]) + "".join(
-        TOOL_DESCRIPTIONS.values())
+    """旧工具名、四个旧出行动作、名额的说法、两句旧睡眠文字都不再出现；系统层与用途句也不提已删除的机制。"""
+    text = "".join(LIFE_SYSTEM_LAYER["rules"]) + "".join(TOOL_DESCRIPTIONS.values())
     for retired in ("start_activity", "walk", "drive", "take_taxi", "take_bus", "名额",
                     "sleep 以本人家为目标且须在家", "睡眠期间只有睡够了才会请你决策", "睡眠要求没有其他活动",
                     "内容由环境选择，标题不是动作目标", *_RETIRED_MECHANISMS):
         assert retired not in text, retired
 
 
-def test_tool_descriptions_are_the_nine_purpose_sentences():
-    """用途句恰为八个原生工具加 finish，次序固定；search_memory 的用途句与它的参数模型说明逐字相同。"""
+def test_tool_descriptions_are_the_eight_purpose_sentences():
+    """用途句恰为八个原生工具，次序同 REQUEST_MODELS 加 search_memory；search_memory 的用途句与它的参数模型说明逐字
+    相同。"""
     assert list(TOOL_DESCRIPTIONS) == [
         "start_main_activity", "start_side_activity", "recall_task_summary", "report_status", "pause_activity",
-        "conclude_activity", "revise_day_plan", "search_memory", "finish"]
+        "conclude_activity", "revise_day_plan", "search_memory"]
     assert TOOL_DESCRIPTIONS["search_memory"] == "按类别和时间查自己过去的记忆，可以加关键词，不改变世界。"
     assert QUERY_MODELS["search_memory"].__doc__.strip() == "@brief " + TOOL_DESCRIPTIONS["search_memory"]
 
 
 def test_memory_rules_quote_existing_memory_layer_keys():
-    """讲记忆的规则（生活系统层下标 0、1、2、15、21 与只读系统层四条）在「」里引用的词，去掉以「：」结尾的前缀写法与
+    """讲记忆的规则（生活系统层下标 0、1、2、15、21）在「」里引用的词，去掉以「：」结尾的前缀写法与
     「…」「全部」之后恰为八个，都是记忆层 Schema 里的键。"""
-    rules = [LIFE_SYSTEM_LAYER["rules"][index] for index in (0, 1, 2, 15, 21)] + READONLY_SYSTEM_LAYER["rules"]
+    rules = [LIFE_SYSTEM_LAYER["rules"][index] for index in (0, 1, 2, 15, 21)]
     quoted = {word for rule in rules for word in re.findall(r"「([^」]*)」", rule)}
     keys = {word for word in quoted if not word.endswith("：") and word not in {"…", "全部"}}
     assert keys == {"今天", "核验", "自述", "条数", "回顾", "近三天", "未整理", "可查"}
@@ -246,3 +231,20 @@ def test_prompt_fingerprint_is_recomputable_and_follows_the_sleep_rule(monkeypat
     assert changed["rules"][12] != LIFE_SYSTEM_LAYER["rules"][12]
     monkeypatch.setattr(life_prompt, "LIFE_SYSTEM_LAYER", changed)
     assert life_prompt_sha256() != current
+
+
+def test_prompt_fingerprint_binds_only_the_life_system_layer_and_the_layer_schemas():
+    """提示指纹是只含 life 与 layer_schemas 两个键的模板的摘要：恰为新值，不再是绑定只读系统层的基线值。"""
+    template = {"life": LIFE_SYSTEM_LAYER, "layer_schemas": LAYER_SCHEMAS}
+    encoded = json.dumps(template, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+    assert life_prompt_sha256() == hashlib.sha256(encoded).hexdigest()
+    assert life_prompt_sha256() == "cd454d1b18c8a211d8eeb0bb25aaba7ff2ef4b0732c9a2bd7aaa4385a5f67842"
+    assert life_prompt_sha256() != "1947c112bf46fd262cc159d4163a3831a0aa55d42c70ad7645ffd3ba40524a05"
+
+
+def test_the_life_system_layer_bytes_and_the_tool_fingerprint_are_unchanged():
+    """生活决策 system 消息正文的摘要与八个原生工具的工具指纹都与基线相同。"""
+    content = system_message()["content"]
+    assert hashlib.sha256(content.encode()).hexdigest() == (
+        "6f51d166a9f94a3fc12ff49f461c30ef76250a9458bace868d4a96f67f2cb5db")
+    assert life_tool_schema_sha256() == "aa0ed7fa01f00558ac94d6e25e71a36d983f25dbb06834c2c31911cffec5bd7e"

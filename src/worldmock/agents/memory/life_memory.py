@@ -1,163 +1,72 @@
-"""@brief WorldMock 人物的主观记忆与已提交经历分区运行时。"""
+"""@brief WorldMock 人物的步尾记忆保存与工作区视图。"""
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import logging
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-from agentsociety2.agent.base.react import MemoryUpdateEvidence
-from agentsociety2.agent.memory_runtime import MemoryRuntimeConfig, MemoryStepOutcome, PersonMemoryRuntime
 from worldmock.agents.memory.life_memory_store import WorldMockMemoryStore
-from worldmock.state.model.memory import SUBJECTIVE_TYPES, valid_subjective_snapshot
+from worldmock.recording_engine.events.memory_evidence import MemoryUpdateEvidence
+from worldmock.state.decisions.round import DecisionContext
+from worldmock.state.model.memory import valid_subjective_snapshot
 
-if TYPE_CHECKING:
-    from custom.agents.life_agent import LifeAgent
-
-#: 结束活动写入点的记忆来源（系统固定，与 memory_updated.data.trigger 的取值同名）。
-_CONCLUSION_SOURCE = "activity_conclusion"
-#: 记忆更新快照的基本字段（与 AS2 PersonAgent._record_memory_update 同一组）。
+#: 记忆更新快照的四个基本字段（与 SUBJECTIVE_SNAPSHOT_FIELDS 同一组，按快照的写出次序）。
 _SNAPSHOT_FIELDS = ("id", "type", "text", "epistemic_status")
-#: 记忆运行时模型入口的失败说法。
-_NO_MODEL_CALL = "WorldMock memory runtime does not call the model"
+#: 整份 MEMORY.md 视图的字数上限（Python len）。
+_VIEW_CHARACTER_BUDGET = 4000
 
 
-async def _refuse_model_call(**request: Any) -> Any:
-    """@brief WorldMock 记忆运行时不调用模型：AS2 的通用巩固入口已被步尾覆写，到达这里是宿主编排错误。"""
-    logging.error(_NO_MODEL_CALL)
-    raise RuntimeError(_NO_MODEL_CALL)
+@dataclass(frozen=True, slots=True)
+class MemoryStep:
+    """@brief 一次决策步尾保存的全部输入。"""
+
+    identity: str                              # 人物卡片文本，MEMORY.md「身份」段
+    facts: tuple[dict[str, Any], ...]          # 本决策冻结观察的已核验经历，至多五条，已按事件序排好
+    observation_event_id: str                  # 本决策冻结观察的事件身份
+    memories: tuple[Mapping[str, Any], ...]    # conclude_activity 经 control_items 读出的存储形状记忆，原样
+    now: datetime                              # 本决策的观察时刻（DecisionContext.observed_at）
 
 
-class WorldMockMemoryRuntime(PersonMemoryRuntime):
-    """@brief 保留 AS2 存储与检查点，替换步尾保存与视图装配；人物一侧的记忆不调用模型。"""
+@dataclass(frozen=True, slots=True)
+class MemoryStepOutcome:
+    """@brief 步尾保存的结果。"""
 
-    def __init__(self, owner: LifeAgent, config: MemoryRuntimeConfig) -> None:
-        """@brief 用本人物的工作区入口构造专用运行时；模型入口只会失败。"""
-        super().__init__(
-            agent_id=owner.id, agent_name=owner.name, config=config,
-            get_model_name=lambda: owner._model_name,
-            dispatch_llm=_refuse_model_call,
-            get_profile=owner.get_profile, logger=owner._logger, trace_span=owner.trace_span,
-        )
-        self._owner = owner
-
-    def ensure_store(self, workspace_root: Any) -> WorldMockMemoryStore | None:
-        """@brief 初次运行绑定宿主记忆存储，再创建框架检查点文件。"""
-        if not self.enabled:
-            return None
-        if self._store is None:
-            self._store = WorldMockMemoryStore(workspace_root, agent_id=self.agent_id)
-        self._store.ensure()
-        return self._store
-
-    def restore_store(self, workspace_root: Any) -> WorldMockMemoryStore | None:
-        """@brief 恢复必须绑定宿主存储并通过完整框架检查点验证。"""
-        if not self.enabled:
-            return None
-        if self._store is not None:
-            logging.error("Memory store was already bound")
-            raise RuntimeError("Memory store was already bound")
-        store = WorldMockMemoryStore(workspace_root, agent_id=self.agent_id)
-        store.validate_existing()
-        self._store = store
-        return store
-
-    def build_context(self) -> dict[str, Any]:
-        """@brief 记忆上下文只给最近条目窗口与文件路径，不给主观归纳；生活决策提示由七层组成，不读这里的条目与摘要。
-
-        recent_limit 为 0 时返回空列表：AS2 存储会把 0 改回 8 条（docs/design/06-agent.md）。
-        """
-        store = self.store
-        if store is None:
-            return {}
-        limit = self.config.recent_limit
-        return {
-            "recent_episodes": store.recent(limit=limit) if limit > 0 else [],
-            "files": {"summary": "MEMORY.md", "episodes": "memory/episodes.jsonl"},
-        }
-
-    async def after_step(
-        self, *, tick: int, t: datetime, step_count: int,
-        finish_memories: list[dict[str, Any]] | None = None, sleep_boundary: bool = False,
-    ) -> MemoryStepOutcome:
-        """@brief 步尾：保存结束活动写下的主观条目，再确定性渲染当前事实窗口；不调用模型。
-
-        finish_memories 承载宿主展平的 conclude_activity 逐项记忆与看法（经 control_items 读出，看法的 about 即存储的
-        subject，写入存储前剥掉）。锁定的 AS2 仍传 sleep_boundary，这里不读它
-        （docs/design/06-agent.md「宿主模型协议」）。
-        """
-        store = self.store
-        if store is None:
-            return MemoryStepOutcome((), (), None)
-        facts, observation_id = self._current_facts()
-        before = hashlib.sha256(store.memory_md_path.read_bytes()).hexdigest()
-        known = store.episode_ids()
-        memories = self._validate_subjective_memories(finish_memories)
-        written = await self._append_subjective(memories, tick=tick, t=t, step_count=step_count)
-        view = render_memory_view(
-            self._owner._persona_card_text(), facts, store.read_subjective_summary(),
-        )
-        await asyncio.to_thread(store.write_memory_view, view)
-        created, merged = _classify_episodes(written, known)
-        return MemoryStepOutcome(created, merged, before, False, observation_id,
-                                 tuple(dict.fromkeys(item["source_event_id"] for item in facts)))
-
-    def _current_facts(self) -> tuple[list[dict[str, Any]], str]:
-        """@brief 只取 LifeAgent 从本轮结构化观察冻结的五条事实。"""
-        facts = getattr(self._owner, "_life_verified_experiences", None)
-        observation_id = getattr(self._owner, "_life_observation_event_id", None)
-        if (not isinstance(facts, list) or len(facts) > 5 or not isinstance(observation_id, str)
-                or not observation_id):
-            logging.error("Current verified experience window is unavailable")
-            raise RuntimeError("Current verified experience window is unavailable")
-        if any(not isinstance(item, dict) or not isinstance(item.get("source_event_id"), str)
-               or item.get("agent_id") != self.agent_id for item in facts):
-            logging.error("Current verified experience window is invalid")
-            raise RuntimeError("Current verified experience window is invalid")
-        if [item["event_seq"] for item in facts] != sorted(item["event_seq"] for item in facts):
-            logging.error("Current verified experience order is invalid")
-            raise RuntimeError("Current verified experience order is invalid")
-        return facts, observation_id
-
-    def _validate_subjective_memories(self, raw: Any) -> list[dict[str, Any]]:
-        """@brief 只接受结束活动写下的主观条目：九种主观类型、subjective、来源由系统固定为 activity_conclusion。"""
-        try:
-            memories = self._validate_finish_memories(raw)
-        except (TypeError, ValueError):
-            logging.error("WorldMock conclusion memory payload is invalid")
-            raise
-        if any(item["type"] not in SUBJECTIVE_TYPES or item["epistemic_status"] != "subjective"
-               or item["source"] != _CONCLUSION_SOURCE for item in memories):
-            logging.error("WorldMock conclusion memory must be subjective and system-sourced")
-            raise ValueError("WorldMock conclusion memory must be subjective and system-sourced")
-        return memories
-
-    async def _append_subjective(
-        self, memories: list[dict[str, Any]], *, tick: int, t: datetime, step_count: int,
-    ) -> list[dict[str, Any]]:
-        """@brief 宿主存储执行相似合并，任何静默漏写均失败。"""
-        if not memories:
-            return []
-        store = self._require_store()
-        written = await asyncio.to_thread(store.append_episodes, memories, tick=tick, t=t, step_count=step_count)
-        if not written:
-            logging.error("Memory store did not persist finish memories")
-            raise RuntimeError("Memory store did not persist finish memories")
-        return written
+    created_episodes: tuple[dict[str, Any], ...]   # 本步新建的条目
+    merged_episodes: tuple[dict[str, Any], ...]    # 本步合并的既有条目
+    memory_before_sha256: str | None               # 写入前 MEMORY.md 的摘要，文件不存在为 None
+    observation_event_id: str                      # 本决策冻结观察
+    verified_event_ids: tuple[str, ...]            # 进入事实视图的来源事件身份
 
 
-def render_memory_view(identity: str, facts: list[dict[str, Any]], summary: str) -> str:
-    """@brief 用固定三个区段装配工作区视图，主观文字始终留在引用块。"""
+def save_step(store: WorldMockMemoryStore, step: MemoryStep) -> MemoryStepOutcome:
+    """@brief 步尾保存：记下写入前的视图摘要与条目身份，先渲染视图（预算不通过时一个文件都不写），再写条目、写视图，
+    按步前的条目身份把返回的条目分成新建与合并；不调用模型，同步执行（docs/design/06-agent.md「宿主模型协议」）。"""
+    before = _file_sha256(store.memory_md_path) if store.memory_md_path.is_file() else None
+    known = store.episode_ids()
+    view = render_memory_view(step.identity, step.facts)
+    written = store.append_episodes(step.memories, step.now)
+    store.write_memory_view(view)
+    created, merged = _classify_episodes(written, known)
+    return MemoryStepOutcome(created, merged, before, step.observation_event_id,
+                             tuple(dict.fromkeys(item["source_event_id"] for item in step.facts)))
+
+
+def render_memory_view(identity: str, facts: Sequence[Mapping[str, Any]]) -> str:
+    """@brief 用固定三个区段装配工作区视图：身份与人物自述都在引用块里，自述段恒为「暂无人物自述。」；纯函数，不碰文件。
+
+    整份视图超过 4000 字时先写错误日志再拒绝，不截断已核验经历。
+    """
     factual = "\n".join(_fact_line(item) for item in facts) or "- 暂无已核验经历。"
-    header = ("# Memory\n\n## 身份\n" + _quote(identity) +
-              "\n\n## 已核验经历\n" + factual + "\n\n## 人物自述（未经核验）\n")
-    if len(header) >= 3996:
+    view = ("# Memory\n\n## 身份\n" + _quote(identity) + "\n\n## 已核验经历\n" + factual
+            + "\n\n## 人物自述（未经核验）\n> 暂无人物自述。\n")
+    if len(view) > _VIEW_CHARACTER_BUDGET:
         logging.error("Verified memory view exceeds its character budget")
         raise ValueError("Verified memory view exceeds its character budget")
-    subjective = _quote(summary or "暂无人物自述。")
-    return header + subjective[:3999 - len(header)].rstrip() + "\n"
+    return view
 
 
 def _quote(text: str) -> str:
@@ -199,9 +108,10 @@ def _classify_episodes(
     return created, merged
 
 
-def memory_update_evidence(context: Any, store: Any, outcome: MemoryStepOutcome) -> MemoryUpdateEvidence | None:
-    """@brief 步尾已落盘记忆的证据（与 AS2 PersonAgent._record_memory_update 同一组字段，
-    docs/design/05-recording-engine.md「事件与来源」）；既没有新增或合并条目、视图也没有变化时返回 None（不登记）。
+def memory_update_evidence(context: DecisionContext, store: WorldMockMemoryStore,
+                           outcome: MemoryStepOutcome) -> MemoryUpdateEvidence | None:
+    """@brief 步尾已落盘记忆的证据（docs/design/05-recording-engine.md「事件与来源」）；既没有新增或合并条目、视图也
+    没有变化时返回 None（不登记）。写入前摘要原样交出：人物第一次保存时为 None。
     """
     memory_sha256 = _file_sha256(store.memory_md_path)
     created = tuple(str(item["id"]) for item in outcome.created_episodes)
@@ -212,9 +122,8 @@ def memory_update_evidence(context: Any, store: Any, outcome: MemoryStepOutcome)
     return MemoryUpdateEvidence(
         context=context, operation="append_episodes" if created or merged else "refresh_summary",
         created_episode_ids=created, merged_episode_ids=merged, episodes=snapshots,
-        memory_before_sha256=outcome.memory_before_sha256 or "", memory_sha256=memory_sha256,
-        episodes_sha256=_file_sha256(store.episodes_path), state_sha256=_file_sha256(store.state_path),
-        consolidated=outcome.consolidated, observation_event_id=outcome.observation_event_id,
+        memory_before_sha256=outcome.memory_before_sha256, memory_sha256=memory_sha256,
+        episodes_sha256=_file_sha256(store.episodes_path), observation_event_id=outcome.observation_event_id,
         verified_event_ids=outcome.verified_event_ids)
 
 

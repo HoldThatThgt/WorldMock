@@ -17,26 +17,24 @@ sys.path.insert(0, str(ROOT))
 
 from scripts.bootstrap_environment import environment_python, python_command
 
-QUICK_TESTS = ("tests/unit/engineering", "tests/integration/environment", "tests/integration/as2")
+QUICK_TESTS = ("tests/unit/engineering", "tests/integration/environment")
 
 
 def check_environment() -> dict[str, str]:
-    """@brief 新机器检查明确禁用 SSH、pip 缓存、uv 和真实模型调用。"""
+    """@brief 新机器检查明确禁用 SSH 与 pip 缓存，不使用 uv；快速测试离线执行。"""
     environment = dict(os.environ)
     environment.update(GIT_SSH_COMMAND="false", PIP_NO_CACHE_DIR="1", PIP_DISABLE_PIP_VERSION_CHECK="1",
-                       PIP_CONFIG_FILE=os.devnull, AGENTSOCIETY_LLM_API_KEY="offline-test-key",
-                       AGENTSOCIETY_LLM_API_BASE="https://example.invalid", LITELLM_LOCAL_MODEL_COST_MAP="True")
+                       PIP_CONFIG_FILE=os.devnull, LITELLM_LOCAL_MODEL_COST_MAP="True")
     return environment
 
 
 def quick_check(root: Path, profile: str, environment: dict) -> dict:
-    """@brief 执行环境引导与 AS2 接入检查，并读取实际导入源码的运行身份。"""
+    """@brief 执行引导后的快速测试，并读取实际导入源码的运行身份。"""
     python = environment_python(root / ".venv")
     command = [str(python), "-m", "pytest", "-q", f"--environment-profile={profile}",
                "-p", "no:cacheprovider", *QUICK_TESTS]
     subprocess.run(command, cwd=root, env=environment, check=True)
-    source = "from pathlib import Path; from worldmock.runtime.framework.setup import runtime_code_sha256; "
-    source += "print(runtime_code_sha256(Path('.')))"
+    source = "from worldmock.runtime.framework.setup import runtime_code_sha256; print(runtime_code_sha256())"
     identity = subprocess.check_output([str(python), "-c", source], cwd=root, env=environment, text=True).strip()
     receipt = json.loads((root / ".work/environment-receipt.json").read_text(encoding="utf-8"))
     return {"scope": "quick", "checks": list(QUICK_TESTS), "code_sha256": identity,

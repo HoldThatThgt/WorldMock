@@ -1,9 +1,10 @@
-"""@brief LifeEnv 使用的生活运行门面，职责与状态由显式对象承担。"""
+"""@brief 运行宿主与人物使用的生活运行门面，职责与状态由显式对象承担。"""
 
 from __future__ import annotations
 from worldmock.foundation.errors import IntegrityError
 from worldmock.simulation_engine.world import world_updates as world_ops
 
+import copy
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -13,6 +14,7 @@ from worldmock.recording_engine.events.models import AssetRef, EventDraft
 from worldmock.recording_engine.storage.store import FootprintStore
 from worldmock.simulation_engine.world.counterfactual import CounterfactualRuntime
 from worldmock.simulation_engine.decisions.decision_coordinator import DecisionCoordinator
+from worldmock.simulation_engine.decisions.read_query import ReadQueryResponder
 from worldmock.simulation_engine.world.context import EngineContext
 from worldmock.simulation_engine.evidence.memory_digest import DigestOutcome
 from worldmock.simulation_engine.evidence.model import ModelEvidenceRecorder
@@ -36,7 +38,8 @@ from worldmock.simulation_engine.world.world_updates import meal_windows_by_agen
 from worldmock.simulation_engine.decisions.continuation import CONTINUATION_KEY, same_second_chain
 
 if TYPE_CHECKING:
-    from agentsociety2.society import DecisionContext, DirectToolCall, SchedulingState
+    from worldmock.state.decisions.round import DecisionContext, DirectToolCall, SchedulingState
+    from worldmock.foundation.models import FrozenModel
     from worldmock.recording_engine.events.models import Checkpoint, Event
     from worldmock.simulation_engine.body import felt
 
@@ -53,6 +56,7 @@ class LifeEngine:
         self.clock = TimeAdvanceCoordinator(self.context, self.observations)
         self.evidence = ModelEvidenceRecorder(self.context, self.decisions)
         self.counterfactual = CounterfactualRuntime(self.context)
+        self.queries = ReadQueryResponder(self.context, self.decisions, self.actions)
 
     @classmethod
     def create(
@@ -72,7 +76,7 @@ class LifeEngine:
         return cls(*open_world(environment, run_dir))
 
     def observe(self, context: "DecisionContext") -> dict:
-        """@brief 提交一次真实观察并附当前同秒续接；返回的观察与存储层解码后的观察（去掉只给宿主的键）逐字节相同。"""
+        """@brief 提交一次真实观察并附当前同秒续接；返回深拷贝，与存储层解码后的观察（去掉只给宿主的键）逐字节相同。"""
         self.decisions.validate_context(context)
         data = self.observations._observation_data(self.context.state.agents[context.agent_id])
         stored, parts = self.observations.stored_observation(data)
@@ -89,7 +93,7 @@ class LifeEngine:
         data[CONTINUATION_KEY] = same_second_chain(
             self.context.store, self.context.state, self.observations, context.agent_id, data["observation_event_id"]
         )
-        return data
+        return copy.deepcopy(data)
 
     def begin_decision_round(self, contexts: list["DecisionContext"]) -> None:
         """@brief 按当前可恢复顺序开始决策轮。"""
@@ -150,6 +154,11 @@ class LifeEngine:
     def search_memory(self, agent_id: int, request: SearchMemoryRequest, observation: "Event") -> dict:
         """@brief 只读检索本人记忆：只读冻结观察所在事件序号及以前的事件与冻结输入，不写事件、不改世界。"""
         return search.search_memory(self.context, agent_id, request, observation)
+
+    def read_query(self, context: "DecisionContext", tool: str, request: "FrozenModel") -> dict:
+        """@brief 人物的只读查询（回看任务与检索记忆）：在本次决策的冻结观察上即时回答，不写事件、不改世界；
+        白名单以外的工具名或与工具名不符的请求类型是协议错误，业务拒绝以五字段形状返回；返回深拷贝。"""
+        return copy.deepcopy(self.queries.answer(context, tool, request))
 
     def apply_counterfactual(self, intervention: CounterfactualIntervention) -> CounterfactualReceipt:
         """@brief 在首轮之前对真实反事实分支提交严格干预。"""
