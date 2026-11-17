@@ -237,6 +237,14 @@ async def test_rate_limit_wording_on_other_errors_does_not_change_the_wait(monke
     assert [item["wait_ms"] for item in attempts] == [0, 0, 0]
 
 
+async def test_counted_transport_waits_are_two_times_two_to_the_n(monkeypatch):
+    """计数内的传输失败等 2·2ⁿ 秒：传输计数 3、三次连接失败后成功，等待依次为 2、4、8 秒。"""
+    client, delays, _ = scripted_client(monkeypatch, [provider_error(APIConnectionError)] * 3 + [_success()],
+                                        clock=[0.0], transport_max_retries=3)
+    await client.call(draft_request())
+    assert delays == [2.0, 4.0, 8.0]
+
+
 async def test_dispatcher_does_not_log_provider_error_body(monkeypatch):
     """供应商错误可能带密钥或请求片段，客户端日志和摘要只记录错误类型；停放中的重发警告写明已停放的秒数。"""
     sensitive = "fake-provider-key-in-error"
@@ -386,8 +394,10 @@ class _LogRecords(logging.Handler):
 
 
 async def test_a_closed_client_leaves_no_unclosed_session_records():
-    """真实 ModelClient 对本机服务完成五次调用后关闭：全部回答 ok，垃圾回收后没有含 Unclosed 的告警或日志记录。"""
-    records, loggers = _LogRecords(), [logging.getLogger("asyncio"), logging.getLogger("LiteLLM")]
+    """真实 ModelClient 对本机服务完成五次调用后关闭：全部回答 ok，垃圾回收后没有含 Unclosed 的告警或日志记录（asyncio、
+    litellm 两个日志器，另加 litellm 自己的详细日志器 LiteLLM）。"""
+    records = _LogRecords()
+    loggers = [logging.getLogger("asyncio"), logging.getLogger("litellm"), logging.getLogger("LiteLLM")]
     levels = [logger.level for logger in loggers]
     for logger in loggers:
         logger.addHandler(records)
@@ -503,6 +513,18 @@ async def test_unparsable_retry_after_is_ignored_with_a_warning(monkeypatch):
     assert delays == [1]
     assert [text for level, text in records if level == "warning"].count(
         "Ignoring unparsable Retry-After header: 'soon'") == 1
+
+
+async def test_retry_after_date_without_a_zone_is_read_as_utc(monkeypatch):
+    """Retry-After 的 HTTP 日期以 -0000 结尾（解析结果不带时区）：按 UTC 读，停放中等到约 45 秒后的那一刻。"""
+    target = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(seconds=45)
+    limited = await _rate_limit({"retry-after": email.utils.format_datetime(target.replace(tzinfo=None))})
+    client, delays, _ = scripted_client(monkeypatch, [limited, _success()], clock=[0.0], max_retries=0)
+    before = datetime.now(timezone.utc)
+    await client.call(draft_request())
+    after = datetime.now(timezone.utc)
+    assert len(delays) == 1
+    assert (target - after).total_seconds() <= delays[0] <= (target - before).total_seconds()
 
 
 async def test_counted_rate_limit_waits_honour_a_longer_retry_after(monkeypatch):
@@ -628,6 +650,18 @@ async def test_without_a_collector_nothing_is_recorded(monkeypatch):
     response = _success()
     client, _, _ = scripted_client(monkeypatch, [provider_error(APIConnectionError), response])
     assert await client.call(draft_request()) is response
+    assert model_client._TRANSPORT_ATTEMPTS.get() is None
+
+
+async def test_nested_collectors_restore_the_outer_one(monkeypatch):
+    """内层收集器退出后恢复外层：内层期间的一次失败只进内层，之后的一次失败只进外层；外层退出后不留收集器。"""
+    script = [provider_error(APIConnectionError), {"ok": 1}, provider_error(APIConnectionError), {"ok": 2}]
+    client, _, _ = scripted_client(monkeypatch, script, clock=[0.0])
+    with model_client.collect_transport_attempts() as outer:
+        with model_client.collect_transport_attempts() as inner:
+            await client.call(draft_request())
+        await client.call(draft_request())
+    assert len(inner) == 1 and len(outer) == 1
     assert model_client._TRANSPORT_ATTEMPTS.get() is None
 
 

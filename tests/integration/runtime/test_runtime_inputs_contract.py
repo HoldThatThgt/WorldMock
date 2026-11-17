@@ -113,10 +113,11 @@ async def test_resume_reads_the_credential_before_the_runtime_identity_and_the_b
     monkeypatch.delenv(frozen.config.model.api_key_env)
     other = write_project(tmp_path / "other-project")
     monkeypatch.setattr(run_setup, "project_root", lambda: other)
-    with caplog.at_level(logging.ERROR), pytest.raises(
-            ValueError, match="^Model credential environment variable is missing or empty$"):
+    with caplog.at_level(logging.ERROR), pytest.raises(Exception) as raised:
         _prepare_resume(ResumeRequest(ENVIRONMENT_ROOT, parent.run_dir, checkpoint.checkpoint_id,
                                       tmp_path / "child"))
+    assert type(raised.value) is ValueError
+    assert str(raised.value) == "Model credential environment variable is missing or empty"
     assert "Model credential environment variable is missing or empty: WORLDMOCK_TEST_API_KEY" in caplog.text
     assert not (tmp_path / "child").exists()
 

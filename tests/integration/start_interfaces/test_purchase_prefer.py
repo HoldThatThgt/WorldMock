@@ -136,6 +136,7 @@ def _host(engine):
     agent = person(engine, decision, ScriptedModel([]))
     agent._context = decision
     agent._prepare(observed)
+    agent.turn_tools(16, False)
     return agent
 
 

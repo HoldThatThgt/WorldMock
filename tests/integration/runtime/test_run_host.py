@@ -142,12 +142,6 @@ def _one_hour(persona, config) -> None:
     config["stop_time"] = datetime.fromisoformat("2026-01-05T09:00:00+08:00")
 
 
-def _midnight_hour(persona, config) -> None:
-    """跨本地零点的一小时：2026-01-05 23:30 开始，01-06 00:30 截止。"""
-    config["start_time"] = datetime.fromisoformat("2026-01-05T23:30:00+08:00")
-    config["stop_time"] = datetime.fromisoformat("2026-01-06T00:30:00+08:00")
-
-
 def _late_environment(tmp_path: Path) -> Path:
     """样例环境的副本：2026-01-05 23:00 开始，01-08 08:00 截止。"""
     return _mutated_environment(ENVIRONMENT_ROOT, _late_times, tmp_path / "late-environment")
@@ -320,15 +314,24 @@ async def test_step_follows_the_round_order_then_advances_and_checkpoints(tmp_pa
 
 
 async def test_same_second_redecision_checkpoints_without_advancing(tmp_path, monkeypatch, opened):
-    """人物在提交之后同一秒仍就绪：这一步不推进、时钟不变、多一个检查点；下一步在同一秒开新轮，轮次身份只差世界版本。"""
+    """人物在提交之后同一秒仍就绪：这一步不推进、时钟不变、多一个检查点；下一步在同一秒开新轮，轮次身份只差世界版本。
+    第一步里引擎的推进换成记下调用并以断言失败的替身，第二步换回真实方法。"""
     agent = _scripted(monkeypatch, requests=[_REVISE])
     fresh = _fresh(tmp_path)
     host = await _started(opened, fresh, _MidnightClient(fresh.stage))
     engine = host.engine
     advanced: list[str] = []
-    _record_call(monkeypatch, engine, "advance", advanced)
+
+    def refused(*arguments, **options):
+        advanced.append("advance")
+        raise AssertionError("RunHost advanced while agent 1 was still ready")
+
+    engine.advance = refused
     moment, checkpoints = engine.context.state.current_time, len(_events(engine, "checkpoint_created"))
-    await host.step()
+    try:
+        await host.step()
+    finally:
+        vars(engine).pop("advance")
     assert engine.context.state.current_time == moment and advanced == []
     assert len(_events(engine, "checkpoint_created")) == checkpoints + 1
     assert engine.scheduling_state().ready_agent_ids == (1,)
@@ -339,12 +342,9 @@ async def test_same_second_redecision_checkpoints_without_advancing(tmp_path, mo
 
 
 async def test_every_step_writes_exactly_one_checkpoint(tmp_path, monkeypatch, opened):
-    """一小时的新建运行跑完：检查点数恰为步数加一（加的是初始检查点），其中有只推进、不决策的步。
-
-    这一小时跨过本地零点：人物 23:30 睡下之后，零点是睡眠结束之前必到的边界，睡着的人物在那里不就绪，所以必有只推进的步。
-    """
+    """一小时的新建运行跑完：检查点数恰为步数加一（加的是初始检查点），其中有只推进、不决策的步。"""
     agent = _scripted(monkeypatch)
-    fresh = _fresh(tmp_path, mutate=_midnight_hour)
+    fresh = _fresh(tmp_path, mutate=_one_hour)
     host = await _started(opened, fresh, _MidnightClient(fresh.stage))
     await host.run()
     assert len(_events(host.engine, "checkpoint_created")) == host.step_count + 1
@@ -439,7 +439,8 @@ async def test_unknown_ready_agent_stops_before_the_round_opens(engine_factory):
 
 
 async def test_each_decision_builds_a_fresh_agent_on_the_shared_objects(tmp_path, monkeypatch, opened):
-    """两次决策构造两个人物对象；每次收到的冻结输入、引擎、模型客户端与记忆存储都是宿主持有的同一对象。"""
+    """两次决策构造两个人物对象，每个对象恰好决定一次；每次收到的冻结输入、引擎、模型客户端与记忆存储都是宿主持有的
+    同一对象。"""
     agent = _scripted(monkeypatch, requests=[_REVISE])
     fresh = _fresh(tmp_path)
     client = _MidnightClient(fresh.stage)
@@ -448,6 +449,7 @@ async def test_each_decision_builds_a_fresh_agent_on_the_shared_objects(tmp_path
     await host.step()
     first, second = agent.built
     assert first is not second
+    assert [built.calls for built in agent.built] == [1, 1]
     for built in (first, second):
         assert built.inputs is host._agents[1] and built.engine is host.engine
         assert built.model_client is client and built.memory is host._memories[1]

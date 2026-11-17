@@ -23,6 +23,8 @@ CASES = ("action", "continuation", "truncation_retry", "plan_day", "memory_diges
 _REFUSED = "http://127.0.0.1:9/v1"
 #: 一律传输失败时（传输计数 1、停放预算 600 秒）每次失败发送后的等待；最后一次结束调用。
 _PARKED = [2, 4, 8, 16, 32, 64, 120, 120, 120, None]
+#: 本机服务回非 200 状态时的错误正文，同线路探针服务：文字里没有限流字样，LiteLLM 只按状态码映射异常类型。
+_FAILURE = {"error": {"message": "probe failure", "type": "probe_error"}}
 
 
 def _probe_request() -> dict:
@@ -36,20 +38,21 @@ def _probe_request() -> dict:
 
 def _rate_limited(retry_after: str) -> list:
     """@brief 前三次 429 带给定的 Retry-After，之后 200。"""
-    return [(429, {"Retry-After": retry_after}, 0, None)] * 3 + [(200, {}, 0, None)]
+    return [(429, {"Retry-After": retry_after}, 0, _FAILURE)] * 3 + [(200, {}, 0, None)]
 
 
 #: 场景 → (本机服务的回答，None 表示端点没有监听；服务收到的请求数；每条失败发送之后的等待秒数，None 表示结束调用；
 #: 每条失败发送的错误链；调用是否成功)。预算 max_retries=2、transport_max_retries=1。
 _SCENARIOS = {
-    "400": ([(400, {}, 0, None)], 1, [None], "BadRequestError <- OpenAIError <- BadRequestError", False),
-    "401": ([(401, {}, 0, None)], 1, [None], "AuthenticationError <- OpenAIError <- AuthenticationError", False),
+    "400": ([(400, {}, 0, _FAILURE)], 1, [None], "BadRequestError <- OpenAIError <- BadRequestError", False),
+    "401": ([(401, {}, 0, _FAILURE)], 1, [None], "AuthenticationError <- OpenAIError <- AuthenticationError", False),
     "429-seconds": (_rate_limited("30"), 4, [30, 30, 30], "RateLimitError <- OpenAIError <- RateLimitError", True),
     "429-date": (_rate_limited("Thu, 01 Jan 2026 00:00:45 GMT"), 4, [45, 45, 45],
                  "RateLimitError <- OpenAIError <- RateLimitError", True),
-    "500": ([(500, {}, 0, None)], 10, _PARKED, "InternalServerError <- OpenAIError <- InternalServerError", False),
-    "502": ([(502, {}, 0, None)], 3, [0, 0, None], "BadGatewayError <- OpenAIError <- InternalServerError", False),
-    "503": ([(503, {}, 0, None)] * 2 + [(200, {}, 0, None)], 3, [2, 4],
+    "500": ([(500, {}, 0, _FAILURE)], 10, _PARKED, "InternalServerError <- OpenAIError <- InternalServerError",
+            False),
+    "502": ([(502, {}, 0, _FAILURE)], 3, [0, 0, None], "BadGatewayError <- OpenAIError <- InternalServerError", False),
+    "503": ([(503, {}, 0, _FAILURE)] * 2 + [(200, {}, 0, None)], 3, [2, 4],
             "ServiceUnavailableError <- OpenAIError <- InternalServerError", True),
     "connection-refused": (None, 0, _PARKED,
                            "InternalServerError <- OpenAIError <- APIConnectionError <- ConnectError <- ConnectError",
@@ -112,7 +115,7 @@ async def test_each_send_is_exactly_one_http_request(monkeypatch):
     monkeypatch.setattr(model_client, "_PARK_BUDGET_SECONDS", 600)
     _fake_time(monkeypatch)
     for status, expected in ((400, 1), (500, 10)):
-        with _local_server([(status, {}, 0, None)]) as (url, hits):
+        with _local_server([(status, {}, 0, _FAILURE)]) as (url, hits):
             client = ModelClient(base_url=url, api_key="probe-key", max_retries=2, transport_max_retries=1)
             try:
                 with model_client.collect_transport_attempts() as attempts:

@@ -687,25 +687,39 @@ def _workspace_listing(content: bytes, context: NormalizeContext) -> bytes:
     """@brief 归档成员按归档次序列成 name、mode、mtime 与规范化内容摘要；每个成员经 _workspace_member，不列的跳过。
 
     不是 tar 的内容（例如记为 application/x-tar 的压缩快照）原样返回，于是作为不同的素材报出。规则
-    workspace-members 下基一侧这份快照有成员被改写或不列时，规则的 applied 计数加一。
+    workspace-members 下基一侧这份快照有成员被规则改写或不列时（【T11】的来源事件映射不算），规则的 applied 计数加一。
     """
-    rows, rebuilt = [], False
+    rule = _enabled(context.rules, "workspace-members")
+    counted = rule is not None and context.side == "base"
+    rows, rewritten = [], False
     try:
         with tarfile.open(fileobj=io.BytesIO(content), mode="r:") as archive:
             for member in archive.getmembers():
                 raw = archive.extractfile(member).read() if member.isfile() else b""
                 listed = _workspace_member(member.name, raw, context)
-                rebuilt = rebuilt or listed != raw
+                rewritten = rewritten or (counted and _rule_rewrote(member.name, raw, listed))
                 if listed is not None:
                     rows.append({"name": member.name, "mode": member.mode, "mtime": member.mtime,
                                  "sha256": _sha(listed)})
     except tarfile.TarError:
         logger.exception("Workspace snapshot is not a tar archive; it is compared as raw bytes")
         return content
-    rule = _enabled(context.rules, "workspace-members")
-    if rule is not None and context.side == "base" and rebuilt:
+    if rewritten:
         rule.counts["applied"] += 1
     return canonical_bytes(rows)
+
+
+def _rule_rewrote(name: str, raw: bytes, listed: bytes | None) -> bool:
+    """@brief 规则 workspace-members 下基一侧这个成员是否被规则改写或不列。
+
+    不列的成员算；MEMORY.md 只在原始字节含 \\r\\n（被换成 LF）时算，来源事件映射不算；条目文件在改写后的字节
+    与原始字节不同时算；其余成员按原始字节列出，不算。
+    """
+    if listed is None:
+        return True
+    if name == "MEMORY.md":
+        return b"\r\n" in raw
+    return name == "memory/episodes.jsonl" and listed != raw
 
 
 def _workspace_member(name: str, raw: bytes, context: NormalizeContext) -> bytes | None:

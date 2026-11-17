@@ -204,9 +204,14 @@ def test_engine_uses_the_worldmock_round_types(engine_factory):
 
 
 def test_checkpoint_rejects_an_incomplete_agent_snapshot_set(engine_factory):
-    """直接驱动引擎：人物快照集合不全的共同检查点按完整性错误拒绝，不写任何事件。"""
+    """直接驱动引擎：人物快照集合与清单人物集合不相等的共同检查点按完整性错误拒绝——空集合不行，多出一个清单外人物的
+    集合也不行——都不写任何事件。"""
     engine = engine_factory()
-    before = engine.context.store.last_event_seq
-    with pytest.raises(IntegrityError, match="^Checkpoint agent snapshot set is incomplete$"):
-        engine.checkpoint({})
-    assert engine.context.store.last_event_seq == before
+    store = engine.context.store
+    assert {f"agent:{agent_id}" for agent_id in store.manifest["agent_ids"]} == {"agent:1"}
+    reference = store.assets.put_json({"probe": 1}, {"kind": "probe"})
+    before = store.last_event_seq
+    for snapshots in ({}, {"agent:1": reference, "agent:2": reference}):
+        with pytest.raises(IntegrityError, match="^Checkpoint agent snapshot set is incomplete$"):
+            engine.checkpoint(snapshots)
+        assert store.last_event_seq == before, sorted(snapshots)

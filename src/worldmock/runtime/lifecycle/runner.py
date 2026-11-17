@@ -164,7 +164,6 @@ async def replay_world(request: CounterfactualRequest) -> RunResult:
 
 def _prepare_new_run(request: RunRequest) -> _PreparedRun:
     """@brief 完整环境纯准入后冻结运行身份，形成唯一人物与新世界参数；失败时不留下运行目录（docs/design/10-runtime.md）。"""
-    from worldmock.agents.life_agent import person_inputs
     from worldmock.runtime.framework import setup as run_setup
     from worldmock.configuration.inputs.environment import load_environment
 
@@ -182,6 +181,9 @@ def _prepare_new_run(request: RunRequest) -> _PreparedRun:
              {"code": "RUN_STARTED", "detail": "Run started", "run_id": request.run_id,
               "code_sha256": identity.code_sha256, "persona_sha256": inputs.persona_sha256,
               "config_sha256": inputs.config_sha256, "stage_model_identity": stage})
+    # 人物模块经 prompt_capacity 加载模型客户端，准入通过之后才导入。
+    from worldmock.agents.life_agent import person_inputs
+
     agents = {inputs.persona.agent_id: person_inputs(inputs.persona, stage)}
     records = {agent_id: () for agent_id in identity.agent_ids}
     return _PreparedRun(run_dir, request.run_id, inputs, inputs.config.start_time, stage, agents, records,
@@ -209,7 +211,6 @@ def _prepare_resume(request: ResumeRequest,
 
     凭据缺失时不建分支目录（docs/design/10-runtime.md）。
     """
-    from worldmock.agents.life_agent import person_inputs
     from worldmock.configuration.inputs.environment import load_environment
     from worldmock.recording_engine.storage.store import FootprintStore
     from worldmock.simulation_engine.decisions.continuation import continuation_enabled
@@ -232,6 +233,9 @@ def _prepare_resume(request: ResumeRequest,
         manifest, state, records = _restore_branch(parent, checkpoint, destination, metadata)
     finally:
         parent.close()
+    # 人物模块经 prompt_capacity 加载模型客户端，父运行、检查点与环境的拒绝都在它之前报出。
+    from worldmock.agents.life_agent import person_inputs
+
     continuation = continuation_enabled(manifest)
     stage = manifest["stage_model_identity"]
     agents = {inputs.persona.agent_id: person_inputs(inputs.persona, stage)}

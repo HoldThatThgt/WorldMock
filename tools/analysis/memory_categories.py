@@ -97,7 +97,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.output is None:
         sys.stdout.write(text)
     else:
-        args.output.write_text(text, encoding="utf-8")
+        args.output.write_text(text, encoding="utf-8", newline="\n")
     return 0
 
 

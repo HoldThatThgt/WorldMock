@@ -455,6 +455,17 @@ def test_a_null_previous_view_digest_is_a_valid_memory_update():
     assert (codes, updates) == (["invalid_memory_update", "conclusion_without_memory_update"], 0)
 
 
+def test_a_summary_refresh_without_a_view_change_is_an_invalid_memory_update():
+    """refresh_summary 没有新建与合并的条目，写入前后 MEMORY.md 的摘要必须不同：两者相等记 invalid_memory_update、
+    不计入更新；不同则是合法的视图刷新，计入一条更新。"""
+    data = {**_memory_update("m1", "event-1", "decision", trigger=()), "operation": "refresh_summary",
+            "created_episode_ids": [], "episodes": []}
+    codes, updates = _single_update_problems(data | {"memory_sha256": "a" * 64})
+    assert "invalid_memory_update" in codes and updates == 0
+    codes, updates = _single_update_problems(data | {"memory_sha256": "b" * 64})
+    assert "invalid_memory_update" not in codes and updates == 1
+
+
 def test_memory_update_must_carry_its_observation_fact_window():
     """记忆证据的观察身份与已核验经历窗口须等于同一决策绑定的观察，否则报 invalid_memory_update_source_window。"""
     events = [_event(1, "observation", agent_id=1, decision_id="decision", data={"verified_experiences": []}),

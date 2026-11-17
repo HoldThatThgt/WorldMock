@@ -552,7 +552,8 @@ def test_migration_rules_are_declared_on_their_targets():
 
 def test_workspace_members_rule_rebuilds_the_base_workspace_into_the_two_kept_files(tmp_path):
     """基一侧六个成员（CRLF 的 MEMORY.md、十五字段的 CRLF 条目文件、四个框架成员）在规则下等于头一侧的两个 LF 文件；
-    两个检查点共用同一份快照，applied 等于基一侧的快照份数 1。"""
+    两个检查点共用同一份快照，applied 等于基一侧的快照份数 1。基一侧快照只有一份带来源事件的 LF MEMORY.md 时规则
+    没有改写成员，来源事件映射不算，applied 为 0。"""
     base, head = Recording(), Recording(prefix="b")
     base.workspace = _base_workspace(base, [_base_entry(_entry(1)), _base_entry(_entry(2, "中午吃了面。"))])
     head.workspace = _workspace(_memory_line(head, 6), _lines([_entry(1), _entry(2, "中午吃了面。")]))
@@ -562,6 +563,12 @@ def test_workspace_members_rule_rebuilds_the_base_workspace_into_the_two_kept_fi
     report = _compare(tmp_path / "plain", base, head)
     assert report["verdict"] == "different"
     assert any(path.startswith(".snapshots.agent:1.sha256") for path in _paths(report))
+    base, head = Recording(), Recording(prefix="b")
+    base.workspace = _tar({"MEMORY.md": _memory_line(base, 6)})
+    head.workspace = _tar({"MEMORY.md": _memory_line(head, 6)})
+    report = _compare(tmp_path / "memory", base, head, "workspace-members")
+    assert report["verdict"] == "equal", _paths(report)
+    assert report["rules"]["workspace-members"]["applied"] == 0
 
 
 def test_workspace_members_rule_keeps_entry_text_and_line_endings_strict(tmp_path, caplog):
@@ -569,7 +576,8 @@ def test_workspace_members_rule_keeps_entry_text_and_line_endings_strict(tmp_pat
     cases = {"text": ([_base_entry(entry)], _lines([_entry(1, "早上吃了饺子。")])),
              "tick": ([_base_entry(entry, tick=1)], _lines([entry])),
              "crlf": ([_base_entry(entry)], _lines([entry], "\r\n")),
-             "unterminated": ([_base_entry(entry)], _lines([entry])[:-1])}
+             "unterminated": ([_base_entry(entry)], _lines([entry])[:-1]),
+             "id_suffix": ([_base_entry(entry, id="m_00000000_0000012")], _lines([entry]))}
     for name, (entries, episodes) in cases.items():
         base, head = Recording(), Recording()
         base.workspace = _base_workspace(base, entries)
@@ -661,6 +669,11 @@ def test_memory_updated_form_rule_nulls_only_the_template_digest(tmp_path):
     _with_updates(consolidated, [_base_update(update, consolidated=True)])
     report = _compare(tmp_path / "consolidated", consolidated, head, "memory-updated-form")
     assert report["verdict"] == "different" and ".data.consolidated" in _paths(report)
+    suffixed = Recording()
+    update = _memory_update(suffixed, 1, (_template_digest(), "2" * 64, "4" * 64))
+    _with_updates(suffixed, [_base_update(update, created_episode_ids=["m_00000000_0000012"])])
+    report = _compare(tmp_path / "suffixed", suffixed, head, "memory-updated-form")
+    assert report["verdict"] == "different" and ".data.created_episode_ids[0]" in _paths(report)
 
 
 def test_memory_updated_form_rule_maps_episodes_digests_by_first_appearance(tmp_path):

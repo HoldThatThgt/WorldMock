@@ -116,13 +116,19 @@ def _host_stub(monkeypatch, close_error=None) -> list:
 
 
 def test_runtime_code_sha256_requires_complete_sources(tmp_path, monkeypatch):
-    """代码身份源缺失或不安全时拒绝；最小工程根给出 64 位代码身份。"""
+    """代码身份源缺失或不安全时拒绝；最小工程根给出 64 位代码身份；src 下的源码或 uv.lock 是符号链接时拒绝
+    （替换 Path.is_symlink，Windows 无需链接权限）。"""
     monkeypatch.setattr(worldmock_run_setup_module, "project_root", lambda: tmp_path)
     with pytest.raises(IntegrityError, match="missing or unsafe"):
         runtime_code_sha256()
     project = write_project(tmp_path / "project")
     monkeypatch.setattr(worldmock_run_setup_module, "project_root", lambda: project)
     assert len(runtime_code_sha256()) == 64
+    original = Path.is_symlink
+    for name in ("probe.py", "uv.lock"):
+        monkeypatch.setattr(Path, "is_symlink", lambda path, name=name: path.name == name or original(path))
+        with pytest.raises(IntegrityError, match="missing or unsafe"):
+            runtime_code_sha256()
 
 
 def test_run_shell_rejects_non_directory_and_foreign_files(tmp_path):

@@ -133,6 +133,11 @@ def _messages(caplog) -> list[str]:
     return [record.getMessage() for record in caplog.records]
 
 
+def _host_records(caplog) -> list[logging.LogRecord]:
+    """运行宿主模块日志器写下的全部记录（人物一侧的故障宿主不另写日志，这里应为空）。"""
+    return [record for record in caplog.records if record.name == "worldmock.runtime.lifecycle.run_host"]
+
+
 async def test_agent_failure_aborts_the_round_with_the_original_repr(engine_factory, host_factory, caplog):
     """人物一侧的模型调用最终失败：宿主捕获的就是模型客户端抛出的那个对象；中止原因、运行失败与运维日志都是它的
     repr，失败证据记模型服务的阶段码，宿主不另写日志，任何记录都没有包装文字。"""
@@ -153,6 +158,7 @@ async def test_agent_failure_aborts_the_round_with_the_original_repr(engine_fact
         f"Decision round aborted after 0 actions: {repr(MODEL_FAILURE)}"]
     assert _ops_details(engine, "RUN_FAILED") == []
     assert len(_logged(caplog, "LifeAgent decision failed for agent 1")) == 1
+    assert _host_records(caplog) == []
     assert not any("Decision round abort failed" in message for message in _messages(caplog))
     assert failure_message(MODEL_FAILURE) == (
         "LLMDispatchError: Failed to get valid response after 3 attempts in 12.0 s. Last error type: "
@@ -185,6 +191,7 @@ async def test_registered_start_is_aborted_with_the_tool_stage_repr(engine_facto
     assert str(caught.value) == TOOL_SERVICE_FAILED
     assert caught.value.__cause__ is injected
     assert len(_logged(caplog, "LifeAgent tool dispatch failed: start_side_activity")) == 1
+    assert _host_records(caplog) == []
     reason = f"RuntimeError('{TOOL_SERVICE_FAILED}')"
     requested = _events(engine, "action_requested")
     results = _events(engine, "action_result")
@@ -207,6 +214,7 @@ async def test_turn_exhaustion_aborts_with_the_text_without_finish(engine_factor
     error = caught.value
     assert type(error) is RuntimeError and str(error) == TURNS_EXHAUSTED
     assert len(_logged(caplog, "LifeAgent 1 used all 2 model turns without a world request")) == 1
+    assert _host_records(caplog) == []
     assert model.decisions == 2
     reason = f"RuntimeError('{TURNS_EXHAUSTED}')"
     assert [event["data"]["error"] for event in _aborts(engine)] == [reason]
@@ -221,7 +229,8 @@ async def test_budget_exhaustion_after_commit_stops_with_one_protocol_error(engi
     engine = engine_factory()
     revise = ([("revise_day_plan", {"goals": []})], "")
     host, _ = _attach(host_factory, engine, [revise] * 6)
-    with caplog.at_level(logging.ERROR), pytest.raises(ProtocolError) as caught:
+    # 接住任何异常，由下面的精确类型断言判定：错误的异常（如中止失败的异常组）以断言失败报出，而不是逃出 raises。
+    with caplog.at_level(logging.ERROR), pytest.raises(BaseException) as caught:
         await host.run()
     error = caught.value
     assert type(error) is ProtocolError and str(error) == "decision_budget_exhausted"
@@ -249,7 +258,8 @@ async def test_begin_failure_is_registered_without_an_abort(engine_factory, host
         raise error
 
     monkeypatch.setattr(engine, "begin_decision_round", begin)
-    with caplog.at_level(logging.ERROR), pytest.raises(ProtocolError) as caught:
+    # 接住任何异常，由下面的同一对象断言判定：错误的异常（如中止失败的异常组）以断言失败报出，而不是逃出 raises。
+    with caplog.at_level(logging.ERROR), pytest.raises(BaseException) as caught:
         await host.run()
     assert caught.value is error
     assert _aborts(engine) == []

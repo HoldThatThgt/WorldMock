@@ -17,20 +17,30 @@ from worldmock.state.planning.schedule import PlanGoal
 _ERROR_KEYS = {'error_code', 'reason', 'fix', 'items', 'unmet'}
 
 
+class _Recall(RecallTaskSummaryRequest):
+    """回看请求的子类：白名单按请求类型恒等核对，子类不算白名单里的类型。"""
+
+
 def _logged(caplog, message: str) -> bool:
     """caplog 里是否有一条 ERROR 级、文字恰为 message 的记录。"""
     return any(record.levelname == 'ERROR' and record.getMessage() == message for record in caplog.records)
 
 
+def _goal(engine) -> None:
+    """预置一条当日目标「歇一歇」，回看任务才有可回看的目标。"""
+    stage_day_plan(engine, goals=(PlanGoal(intent_kind='休息', goal='歇一歇',
+                                         registered_at=engine.context.state.current_time),))
+
+
 def test_read_query_answers_task_recall_and_memory_search_only(engine_factory, caplog):
     """引擎只读查询只回答回看任务与检索记忆：白名单恰为这两个工具名与各自的请求类型。工具名写已删除的 query_world 或
-    memory_recent、或工具名对而请求类型不对（search_memory 配回看请求、recall_task_summary 配检索请求或计划修订），都是
-    协议违约，原文相同，抛出前写英文错误日志；两种合法查询照常回答。全程不写事件、不改世界状态。"""
+    memory_recent、或工具名对而请求类型不对（search_memory 配回看请求、recall_task_summary 配检索请求或计划修订、
+    recall_task_summary 配回看请求的子类），都是协议违约，原文相同，抛出前写英文错误日志；两种合法查询照常回答。全程
+    不写事件、不改世界状态。"""
     assert read_query_module._READ_QUERY_MODELS == {'recall_task_summary': RecallTaskSummaryRequest,
                                                     'search_memory': SearchMemoryRequest}
     engine = engine_factory()
-    stage_day_plan(engine, goals=(PlanGoal(intent_kind='休息', goal='歇一歇',
-                                         registered_at=engine.context.state.current_time),))
+    _goal(engine)
     frozen = context(engine, 'recall-only')
     engine.begin_decision_round([frozen])
     observed = engine.observe(frozen)
@@ -38,7 +48,8 @@ def test_read_query_answers_task_recall_and_memory_search_only(engine_factory, c
     before, sequence = engine.context.state.model_dump_json(), engine.context.store.last_event_seq
     search = SearchMemoryRequest(category='饮食', time='今天', keyword=None)
     for tool, request in (('query_world', recall), ('memory_recent', recall), ('search_memory', recall),
-                          ('recall_task_summary', search), ('recall_task_summary', ReviseDayPlanRequest(goals=[]))):
+                          ('recall_task_summary', search), ('recall_task_summary', ReviseDayPlanRequest(goals=[])),
+                          ('recall_task_summary', _Recall(task_name=recall.task_name))):
         with pytest.raises(Exception) as caught:
             engine.read_query(frozen, tool, request)
         assert caught.type is ProtocolError, (tool, caught.value)
@@ -76,8 +87,10 @@ def test_read_query_requires_a_valid_context_and_the_open_round(engine_factory):
 
 def test_read_query_requires_exactly_one_frozen_observation(engine_factory, caplog):
     """开轮而不观察：白名单核对在观察核对之前，白名单外的工具名得到工具与请求类型不符；合法组合找不到唯一冻结观察，
-    抛出协议错误前写英文错误日志（找到 0 条）。两次都不写事件。"""
+    抛出协议错误前写英文错误日志（找到 0 条）。同一决策观察两次之后，按已绑定的目标名回看同样是协议违约（找到 2 条），
+    不从其中一条回答。几次查询都不写事件。"""
     engine = engine_factory()
+    _goal(engine)
     frozen = context(engine, 'unobserved')
     engine.begin_decision_round([frozen])
     sequence = engine.context.store.last_event_seq
@@ -89,6 +102,14 @@ def test_read_query_requires_exactly_one_frozen_observation(engine_factory, capl
         engine.read_query(frozen, 'recall_task_summary', request)
     assert str(caught.value) == 'Read query requires one frozen decision observation'
     assert _logged(caplog, 'Read query requires one frozen decision observation, found 0')
+    assert engine.context.store.last_event_seq == sequence
+    observed = engine.observe(frozen)
+    engine.observe(frozen)
+    bound = RecallTaskSummaryRequest(task_name=observed['goal_bindings'][0]['task_name'])
+    sequence = engine.context.store.last_event_seq
+    with pytest.raises(ProtocolError, match='^Read query requires one frozen decision observation$'):
+        engine.read_query(frozen, 'recall_task_summary', bound)
+    assert _logged(caplog, 'Read query requires one frozen decision observation, found 2')
     assert engine.context.store.last_event_seq == sequence
 
 

@@ -1,6 +1,7 @@
 """人物一侧的记忆不再调用模型（docs/design/06-agent.md「宿主模型协议」、docs/design/05-recording-engine.md「事件与来源」）：
 当天第一次睡醒那一步与其他步骤相同，只发行动请求；memory_updated 只有步尾登记，数据恰为十一个键，人物第一条的写入前摘要
-为 null；环境拒绝来源观察为空或带五键快照的证据；生活引擎没有 due_reflection，只读查询经 read_query。
+为 null；环境拒绝来源观察为空、带五键快照、写入前摘要既非 null 也非摘要、或视图没变的摘要刷新的证据；回合循环失败的
+决策不做步尾保存；生活引擎没有 due_reflection，只读查询经 read_query。
 
 真实宿主运行（tests/integration/host_run_fixtures.py）：真实引擎、SQLite、记忆存储与直接导入的 LifeAgent，引擎就是
 人物拿到的句柄；脚本模型只答行动请求，收到别的请求当场失败。
@@ -11,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import sqlite3
 from dataclasses import replace
 
 import pytest
@@ -139,6 +141,49 @@ async def test_a_five_key_snapshot_in_memory_update_evidence_is_rejected(engine_
         await _woken(engine_factory, tmp_path, check)
     assert check.checked >= 2
     assert "Memory update evidence rejected" in caplog.text
+
+
+@pytest.mark.parametrize("value", ["not-a-digest", "", "A" * 64])
+async def test_memory_update_evidence_with_a_malformed_previous_view_digest_is_rejected(engine_factory, tmp_path,
+                                                                                         caplog, value):
+    """同上，把每条步尾证据的写入前摘要改成既不是 null 也不是六十四位小写十六进制的值：整条证据被拒，事件序号不变。"""
+    check = _refused("memory_before_sha256", value)
+    with caplog.at_level(logging.ERROR):
+        await _woken(engine_factory, tmp_path, check)
+    assert check.checked >= 1
+    assert "Memory update evidence rejected" in caplog.text
+
+
+async def test_a_summary_refresh_whose_view_did_not_change_is_rejected(engine_factory, tmp_path, caplog):
+    """同上，把 refresh_summary 证据的写入前摘要改成等于写入后摘要（视图没变）：没有新建与合并的条目又没有改动视图的
+    刷新不是合法证据，整条被拒；这次运行的第一个决策就产生 refresh_summary。"""
+    check = _refused("memory_before_sha256",
+                     lambda evidence: evidence.memory_sha256 if evidence.operation == "refresh_summary" else None)
+    with caplog.at_level(logging.ERROR):
+        await _woken(engine_factory, tmp_path, check)
+    assert check.checked >= 1
+    assert "Memory update evidence rejected" in caplog.text
+
+
+async def test_a_failed_decision_saves_no_step_and_registers_no_memory_update(engine_factory, tmp_path, monkeypatch):
+    """回合循环失败的决策不做步尾保存：模型答出的世界请求在登记时工具服务抛出，人物抛出带工具阶段码的 RuntimeError；
+    库里没有 memory_updated，工作区里既没有 MEMORY.md 也没有 memory/episodes.jsonl（第一次步尾保存之前工作区为空）。"""
+    engine = engine_factory(mutate=_evening)
+    stage_day_plan(engine, submitted=True)
+    workspace = tmp_path / "people" / "agent_0001"
+    run = await host_run(engine, workspace)
+
+    def submit(call):
+        """登记世界请求时工具服务失败。"""
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(engine, "submit_action", submit)
+    with pytest.raises(RuntimeError, match="^TOOL_SERVICE_FAILED"):
+        await run.start("interact", "家", "测试休息")
+    assert len(run.model.requests) == 1
+    assert run.events("memory_updated") == []
+    assert not (workspace / "MEMORY.md").exists()
+    assert not (workspace / "memory" / "episodes.jsonl").exists()
 
 
 def test_life_channel_offers_only_read_query():

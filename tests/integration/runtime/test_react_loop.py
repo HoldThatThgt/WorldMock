@@ -2,7 +2,7 @@
 续接前缀与交出去的对象不再改动。
 
 用真实 LifeAgent、按五个方法记录调用的引擎替身（模型证据写入时当场存下请求的规范 JSON）与按脚本应答的 call(request)
-模型客户端替身；观察取协议测试的合成观察。
+模型客户端替身；失败发送进证据的两例换成只替换 litellm 发送的真实 ModelClient。观察取协议测试的合成观察。
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ from collections.abc import Mapping
 from types import SimpleNamespace
 
 import pytest
+from litellm.exceptions import APIConnectionError, BadRequestError
 
 from tests.integration.life_host_fixtures import TruncatedResponse
 from tests.integration.runtime.test_life_agent_protocol import (
@@ -29,6 +30,7 @@ from tests.integration.runtime.test_life_agent_protocol import (
     _wire_agent,
 )
 from tests.life.conftest import MAIN_TOOL
+from tests.unit.runtime.model_client_fixtures import provider_error, scripted_client
 from worldmock.agents.life_agent import ACTION_THINKING
 from worldmock.agents.prompt import prompt_capacity
 from worldmock.agents.prompt.prompt_capacity import FittedRequest, ProgressBudget
@@ -44,7 +46,7 @@ from worldmock.agents.protocol.react_loop import (
     model_call_id,
     serialized_response,
 )
-from worldmock.configuration.model.model_client import REQUEST_KEYS
+from worldmock.configuration.model.model_client import REQUEST_KEYS, LLMDispatchError
 from worldmock.foundation.serialization import canonical_json
 from worldmock.state.interaction.requests import REQUEST_MODELS
 from worldmock.state.model.exchange import assistant_message, wire_tool_call
@@ -316,6 +318,34 @@ async def test_a_cancelled_send_records_no_failure_evidence() -> None:
     with pytest.raises(asyncio.CancelledError):
         await _run(agent)
     assert [item.phase for item in engine.evidence] == ["request"]
+
+
+@pytest.mark.asyncio
+async def test_a_failed_send_carries_the_failed_sends_the_client_collected(monkeypatch) -> None:
+    """真实模型客户端先传输失败、等两秒重发后以不可重试的错误结束：失败证据带上这次调用收集到的两次失败发送，
+    再把客户端的最终失败原样上抛。"""
+    agent, engine, _ = _person([])
+    client, _, _ = scripted_client(monkeypatch, [provider_error(APIConnectionError), provider_error(BadRequestError)],
+                                   clock=[0.0], transport_max_retries=1)
+    agent.model_client = client
+    with pytest.raises(LLMDispatchError):
+        await _run(agent)
+    closing = engine.evidence[-1]
+    assert closing.phase == "failure"
+    assert [item["error"] for item in closing.transport_attempts] == ["APIConnectionError", "BadRequestError"]
+
+
+@pytest.mark.asyncio
+async def test_a_response_after_a_failed_send_carries_that_send_in_its_evidence(monkeypatch) -> None:
+    """真实模型客户端第一次传输失败、等两秒重发成功：响应证据带上那一次失败发送。"""
+    agent, engine, _ = _person([])
+    client, _, _ = scripted_client(monkeypatch, [provider_error(APIConnectionError), _world()],
+                                   clock=[0.0], transport_max_retries=1)
+    agent.model_client = client
+    await _run(agent)
+    assert engine.evidence[-1].phase == "response"
+    assert engine.evidence[-1].transport_attempts == (
+        {"attempt": 1, "error": "APIConnectionError", "failed_after_ms": 0, "wait_ms": 2000},)
 
 
 def test_serialized_response_accepts_a_model_dump_or_a_mapping_and_rejects_the_rest(caplog) -> None:
