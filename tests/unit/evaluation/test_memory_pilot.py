@@ -222,7 +222,7 @@ def test_cli_logs_the_input_error_and_returns_one(tmp_path, skip_authentication,
 
 def test_memory_pilot_imports_no_runtime_code():
     code = ("import sys\nimport tools.analysis.memory_pilot\n"
-            "prefixes = ('worldmock.simulation_engine', 'worldmock.agents', 'worldmock.runtime', 'custom')\n"
+            "prefixes = ('worldmock.simulation_engine', 'worldmock.agents', 'worldmock.runtime')\n"
             "print(sorted(name for name in sys.modules if name.startswith(prefixes)))")
     completed = subprocess.run([sys.executable, "-c", code], cwd=REPO_ROOT, capture_output=True, text=True,
                                check=True)

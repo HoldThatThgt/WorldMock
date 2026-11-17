@@ -1,9 +1,9 @@
 """输出截断与思考螺旋的验收（docs/design/10-runtime.md ，裁决 D10；验收台账「截断处理」）。
 
-真实 LifeEngine、LifeEnv 与 SQLite 上，脚本化模型经真实 LifeAgent 决策（AS2 锁定提交的 ReAct 循环，只替换远程传输）：
+真实 LifeEngine 与 SQLite 上，脚本化模型经真实 LifeAgent 决策（WorldMock 的回合循环，只替换远程传输）：
 思考用尽输出上限的截断回合（finish_reason=length、正文为空、没有工具调用）不进入后续请求，纠错为 OUTPUT_TRUNCATED 且在
 本次决策中只出现一次（相同的纠错替换、不叠加，续接链前缀不动）；截断之后的那一次重试关闭思考并 tool_choice=required，max_tokens 不变、只开放
-世界请求，其余请求（含只读问答）的参数不变；正文写到上限、空的 stop 回复、参数被截断的工具调用与没有选项的回复都不是截断回合，照现行
+世界请求，其余请求的参数不变；正文写到上限、空的 stop 回复、参数被截断的工具调用与没有选项的回复都不是截断回合，照现行
 协议纠错、不重试；重试仍没有工具调用时按现行回合预算处理；重试的回合不留下缺思考的 assistant，
 重试给出的世界请求结束本次决策、同一秒下一次决策断链；导出的质量报告 truncations 与运行记录的模型响应一致。
 """
@@ -17,27 +17,14 @@ from types import SimpleNamespace
 
 import pytest
 
-os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
-os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
-from agentsociety2.agent.base import ReactLoopRequest  # noqa: E402
-
-from custom.agents.life_agent import LifeAgent  # noqa: E402
 from worldmock.agents.protocol.life_feedback import FEEDBACK_INSTRUCTION  # noqa: E402
 from worldmock.agents.protocol.life_truncation import TRUNCATION_DETAIL, TRUNCATION_CONTENT  # noqa: E402
-from tests.integration.runtime.test_life_agent_protocol import (
-    _Environment,
-    _GroundedCorrectionDispatcher,
-    _ModelResponse,
-    _context,
-    _wire_agent,
-)
 from tests.integration.life_host_fixtures import TruncatedResponse  # noqa: E402
 from tests.integration.runtime.test_same_second_continuation import (
     _PLAN,
     _decide,
-    _environment,
     _plan_reply,
     _reply,
     _single,
@@ -47,6 +34,7 @@ from tests.engine_fixture import engine_factory as _engine_factory  # noqa: F401
 from tests.life.conftest import MAIN_TOOL, advance_next, context, main_arguments, stage_day_plan  # noqa: F401
 from worldmock.recording_engine.export.export import export_run  # noqa: E402
 from worldmock.agents.prompt import prompt_capacity  # noqa: E402
+from worldmock.configuration.model.model_client import REQUEST_KEYS  # noqa: E402
 from worldmock.state.interaction.requests import QUERY_MODELS, REQUEST_MODELS  # noqa: E402
 
 #: 截断回合的思考（每次不同，用来确认它不进入任何后续请求）。
@@ -65,7 +53,7 @@ def _fixed_context_window(monkeypatch) -> None:
 
 
 class _TextOnly:
-    """只有正文、没有工具调用的回复（finish_reason=stop）：不是截断，AS2 报 native tool_calls are required。"""
+    """只有正文、没有工具调用的回复（finish_reason=stop）：不是截断，按没有原生工具调用纠错（TOOL_CALL_REQUIRED）。"""
 
     def __init__(self, content: str = "我先想一想再说。") -> None:
         self._content = content
@@ -102,7 +90,7 @@ class _Finished:
 
 
 class _NoChoices:
-    """一个选项也没有的回复（choices 为空）：不是截断回合，AS2 报 missing response choices。"""
+    """一个选项也没有的回复（choices 为空）：不是截断回合，同样按没有原生工具调用纠错（TOOL_CALL_REQUIRED）。"""
 
     def __init__(self) -> None:
         self.choices: list = []
@@ -115,7 +103,7 @@ class _NoChoices:
 
 def _is_retry(request: dict) -> bool:
     """请求是截断重试：关闭思考、tool_choice=required；另核对两类请求共有的参数不变。"""
-    assert request["max_tokens"] == 16000 and request["max_retries"] == 0
+    assert request["max_tokens"] == 16000 and sorted(request) == sorted(REQUEST_KEYS)
     assert "reasoning_effort" not in request and "temperature" not in request
     assert all(item["function"]["strict"] is True for item in request["tools"])
     retry = (request["extra_body"], request["tool_choice"]) == ({"thinking": {"type": "disabled"}}, "required")
@@ -150,9 +138,8 @@ async def test_a_truncated_turn_is_dropped_and_retried_once_without_thinking(_en
     这次截断回合期间恰好写一条「输出被截断」的错误日志。"""
     engine = _engine_factory()
     stage_day_plan(engine)
-    environment = _environment(engine)
     with caplog.at_level(logging.ERROR):
-        _, requests, _ = await _single(environment, "spiral", [
+        _, requests, _ = await _single(engine, "spiral", [
             TruncatedResponse(_SPIRALS[0]), _reply("call-wait", MAIN_TOOL, _WAIT, None, "先歇一会儿。")])
     assert [record.getMessage() for record in caplog.records
             if record.getMessage().startswith("Life tool protocol rejected: OUTPUT_TRUNCATED")] == [
@@ -191,7 +178,7 @@ async def test_only_a_reply_that_ran_out_while_thinking_is_a_truncation(_engine_
     OUTPUT_TRUNCATED，下一次请求照常开启思考、tool_choice=auto，不发截断重试。"""
     engine = _engine_factory()
     stage_day_plan(engine)
-    _, requests, _ = await _single(_environment(engine), "not-truncated", [reply, *_wait_reply()])
+    _, requests, _ = await _single(engine, "not-truncated", [reply, *_wait_reply()])
     assert [_is_retry(item) for item in requests] == [False, False]
     assert json.loads(requests[1]["messages"][-1]["content"])["error_code"] == code
     assert _tools(requests[1]) == set(REQUEST_MODELS) | _MEMORY_TOOLS
@@ -207,7 +194,7 @@ async def test_identical_corrections_replace_each_other_across_consecutive_trunc
     stage_day_plan(engine)
     responses = [TruncatedResponse(_SPIRALS[0]), _TextOnly(), TruncatedResponse(_SPIRALS[1]),
                  _reply("call-wait", MAIN_TOOL, _WAIT, None)]
-    _, requests, _ = await _single(_environment(engine), "twice", responses)
+    _, requests, _ = await _single(engine, "twice", responses)
     assert [_is_retry(item) for item in requests] == [False, True, False, True]
     assert [_corrections(item) for item in requests] == [
         [], ["OUTPUT_TRUNCATED"], ["OUTPUT_TRUNCATED", "TOOL_CALL_REQUIRED"],
@@ -227,7 +214,7 @@ async def test_a_retry_that_is_truncated_again_is_not_retried_again(_engine_fact
     engine = _engine_factory()
     stage_day_plan(engine)
     responses = [TruncatedResponse(_SPIRALS[0]), TruncatedResponse(_SPIRALS[1]), *_wait_reply()]
-    _, requests, _ = await _single(_environment(engine), "again", responses)
+    _, requests, _ = await _single(engine, "again", responses)
     assert [_is_retry(item) for item in requests] == [False, True, False]
     assert [_corrections(item) for item in requests] == [[], ["OUTPUT_TRUNCATED"], ["OUTPUT_TRUNCATED"]]
     assert _tools(requests[2]) == set(REQUEST_MODELS) | _MEMORY_TOOLS
@@ -244,7 +231,7 @@ async def test_a_retry_still_without_a_tool_call_follows_the_turn_budget(_engine
     engine.begin_decision_round([ctx])
     responses = [TruncatedResponse(_SPIRALS[0]), _TextOnly(), _TextOnly("还是再想想。"), _TextOnly("再等等。")]
     with pytest.raises(RuntimeError, match="ReAct decision budget exhausted"):
-        await _decide(_environment(engine), ctx, responses)
+        await _decide(engine, ctx, responses)
     requests = [event.data["request"] for event in engine.context.store.read_agent_events("model_request", 1)
                 if event.decision_id == "decision-exhausted-1"]
     assert [_is_retry(item) for item in requests] == [False, True, False, False]
@@ -266,18 +253,16 @@ async def test_a_world_request_from_the_retry_ends_the_decision_and_breaks_the_s
     决策不续接，首个请求只有系统层与六层两条消息；对照组（没有截断、回复带思考）同一秒照常续接。"""
     engine = _engine_factory()
     stage_day_plan(engine)
-    environment = _environment(engine)
-    _, planned, _ = await _single(environment, "plan", [TruncatedResponse(_SPIRALS[0]),
+    _, planned, _ = await _single(engine, "plan", [TruncatedResponse(_SPIRALS[0]),
                                                         _reply("call-plan", "revise_day_plan", _PLAN, None)])
     assert [_is_retry(item) for item in planned] == [False, True]
     assert engine.context.store.read_agent_events("action_result", 1)[-1].data["error_code"] is None
-    observation, [request], _ = await _single(environment, "wait", _wait_reply())
+    observation, [request], _ = await _single(engine, "wait", _wait_reply())
     assert observation["continuation"] is None and len(request["messages"]) == 2
     control = _engine_factory()
     stage_day_plan(control)
-    control_environment = _environment(control)
-    await _single(control_environment, "plan", _plan_reply())
-    observation, [request], _ = await _single(control_environment, "wait", _wait_reply())
+    await _single(control, "plan", _plan_reply())
+    observation, [request], _ = await _single(control, "wait", _wait_reply())
     assert observation["continuation"] is not None and len(request["messages"]) > 2
 
 
@@ -295,10 +280,9 @@ async def test_a_rejected_retry_turn_is_dropped_so_a_continued_decision_keeps_ev
     自检不失败），最后带思考的世界请求照常登记。"""
     engine = _engine_factory()
     stage_day_plan(engine)
-    environment = _environment(engine)
-    await _single(environment, "plan", _plan_reply())
+    await _single(engine, "plan", _plan_reply())
     call_id, tool, arguments = retried
-    observation, requests, _ = await _single(environment, "wait", [
+    observation, requests, _ = await _single(engine, "wait", [
         TruncatedResponse(_SPIRALS[0]), _reply(call_id, tool, arguments, None), *_wait_reply()])
     assert observation["continuation"] is not None
     first, retry, last = requests
@@ -324,10 +308,9 @@ async def test_a_truncation_in_a_continued_decision_leaves_the_chain_prefix_unto
     成立、链里带着那条截断纠错；本决策再截断时，新的截断纠错接在链后，链前缀逐字节不变，链里那条相同的纠错不去掉。"""
     engine = _engine_factory()
     stage_day_plan(engine)
-    environment = _environment(engine)
-    _, planned, _ = await _single(environment, "plan", [TruncatedResponse(_SPIRALS[0]), _TextOnly(), *_plan_reply()])
+    _, planned, _ = await _single(engine, "plan", [TruncatedResponse(_SPIRALS[0]), _TextOnly(), *_plan_reply()])
     assert [_is_retry(item) for item in planned] == [False, True, False]
-    observation, requests, _ = await _single(environment, "wait", [TruncatedResponse(_SPIRALS[1]), *_wait_reply()])
+    observation, requests, _ = await _single(engine, "wait", [TruncatedResponse(_SPIRALS[1]), *_wait_reply()])
     assert observation["continuation"] is not None
     first, retry = requests
     assert first["messages"][:len(planned[-1]["messages"])] == planned[-1]["messages"]
@@ -336,38 +319,14 @@ async def test_a_truncation_in_a_continued_decision_leaves_the_chain_prefix_unto
 
 
 @pytest.mark.asyncio
-async def test_readonly_questions_keep_their_parameters_and_a_truncated_answer_is_retried_with_finish_only() -> None:
-    """只读问答与行动经同一请求入口：没有截断时只读请求的参数不变（开启思考、tool_choice=auto、16000）；只读回答被截断时
-    按状态同样重试一次，关闭思考、tool_choice=required；只读问答每个回合都只开放 finish。"""
-    dispatcher = _GroundedCorrectionDispatcher(responses=[
-        _TextOnly(),
-        _ModelResponse("call-finish-1", "finish", '{"answer":"first"}'),
-        TruncatedResponse(_SPIRALS[0]),
-        _ModelResponse("call-finish-2", "finish", '{"answer":"second"}'),
-    ])
-    agent = LifeAgent()
-    _wire_agent(agent, _Environment(), dispatcher, 4)
-    question = ReactLoopRequest(0, _context().observed_at, [], "What happened?", True)
-    assert await agent.run_react_loop(question) == "first"
-    assert await agent.run_react_loop(question) == "second"
-    assert [_is_retry(item) for item in dispatcher.requests] == [False, False, False, True]
-    assert [_tools(item) for item in dispatcher.requests] == [{"finish"}] * 4
-    retry = dispatcher.requests[3]
-    assert retry["messages"][:-1] == dispatcher.requests[2]["messages"]
-    assert json.loads(retry["messages"][-1]["content"]) == _TRUNCATION_FEEDBACK
-    assert _SPIRALS[0] not in json.dumps(retry, ensure_ascii=False)
-
-
-@pytest.mark.asyncio
 async def test_the_exported_quality_report_counts_the_truncations_the_run_recorded(_engine_factory, tmp_path) -> None:
     """真实导出路径：两次决策共三次截断（其中一次输出 8001 个 token），导出的 quality.json 的 truncations 与导出事件中
     finish_reason=length 的模型响应逐项一致：次数、按用途分列、浪费的输出 token 与其中的思考 token。"""
     engine = _engine_factory()
     stage_day_plan(engine)
-    environment = _environment(engine)
-    await _single(environment, "plan", [TruncatedResponse(_SPIRALS[0], 8001),
+    await _single(engine, "plan", [TruncatedResponse(_SPIRALS[0], 8001),
                                         _reply("call-plan", "revise_day_plan", _PLAN, None)])
-    await _single(environment, "wait", [TruncatedResponse(_SPIRALS[1]), _TextOnly(), TruncatedResponse(_SPIRALS[0]),
+    await _single(engine, "wait", [TruncatedResponse(_SPIRALS[1]), _TextOnly(), TruncatedResponse(_SPIRALS[0]),
                                         _reply("call-wait", MAIN_TOOL, _WAIT, None)])
     advance_next(engine)
     export = tmp_path / "export"
@@ -402,10 +361,9 @@ async def test_export_with_model_calls_is_byte_identical_with_and_without_the_po
 
     engine = _engine_factory()
     stage_day_plan(engine)
-    environment = _environment(engine)
-    await _single(environment, "plan", [TruncatedResponse(_SPIRALS[0], 8001),
+    await _single(engine, "plan", [TruncatedResponse(_SPIRALS[0], 8001),
                                         _reply("call-plan", "revise_day_plan", _PLAN, None)])
-    await _single(environment, "wait", [TruncatedResponse(_SPIRALS[1]), _TextOnly(), TruncatedResponse(_SPIRALS[0]),
+    await _single(engine, "wait", [TruncatedResponse(_SPIRALS[1]), _TextOnly(), TruncatedResponse(_SPIRALS[0]),
                                         _reply("call-wait", MAIN_TOOL, _WAIT, None)])
     advance_next(engine)
     store = engine.context.store

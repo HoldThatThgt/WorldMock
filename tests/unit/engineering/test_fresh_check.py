@@ -1,6 +1,7 @@
 """@brief 新检出与双平台身份检查的实际命令边界。"""
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -27,6 +28,14 @@ def test_fresh_checkout_disables_submodules_ssh_and_pip_cache(tmp_path, monkeypa
         assert arguments["env"]["GIT_SSH_COMMAND"] == "false"
         assert arguments["env"]["PIP_NO_CACHE_DIR"] == "1"
     assert result["source_commit"] == "locked-commit"
+    expected = {"GIT_SSH_COMMAND": "false", "PIP_NO_CACHE_DIR": "1", "PIP_DISABLE_PIP_VERSION_CHECK": "1",
+                "PIP_CONFIG_FILE": os.devnull, "LITELLM_LOCAL_MODEL_COST_MAP": "True"}
+    for key in expected:
+        monkeypatch.delenv(key, raising=False)
+    environment = fresh.check_environment()
+    changed = {key: value for key, value in environment.items() if os.environ.get(key) != value}
+    assert changed == expected
+    assert {key: value for key, value in environment.items() if key not in changed} == dict(os.environ)
 
 
 def test_failed_clone_stops_before_bootstrap(monkeypatch):
@@ -43,16 +52,21 @@ def test_failed_clone_stops_before_bootstrap(monkeypatch):
 
 
 def test_quick_check_runs_static_directories_and_actual_identity(tmp_path, monkeypatch):
-    calls = []
+    calls, identities = [], []
     (tmp_path / ".work").mkdir()
     (tmp_path / ".work/environment-receipt.json").write_text(json.dumps({"passed": True}))
     monkeypatch.setattr(fresh.subprocess, "run", lambda command, **kwargs: calls.append(command))
-    monkeypatch.setattr(fresh.subprocess, "check_output", lambda command, **kwargs: "a" * 64 + "\n")
+    monkeypatch.setattr(fresh.subprocess, "check_output",
+                        lambda command, **kwargs: identities.append((command, kwargs)) or "a" * 64 + "\n")
     result = fresh.quick_check(tmp_path, "release", fresh.check_environment())
     assert result["scope"] == "quick" and result["code_sha256"] == "a" * 64
     assert result["checks"] == list(fresh.QUICK_TESTS)
-    assert calls[0][7:] == ["tests/unit/engineering", "tests/integration/environment", "tests/integration/as2"]
+    assert calls[0][7:] == ["tests/unit/engineering", "tests/integration/environment"]
     assert len(calls) == 1
+    [(command, arguments)] = identities
+    source = "from worldmock.runtime.framework.setup import runtime_code_sha256; print(runtime_code_sha256())"
+    assert command == [str(fresh.environment_python(tmp_path / ".venv")), "-c", source]
+    assert arguments["cwd"] == tmp_path
 
 
 @pytest.mark.parametrize("mutation", ["code_sha256", "source_commit", "passed"])

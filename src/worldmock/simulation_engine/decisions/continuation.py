@@ -22,7 +22,7 @@ from worldmock.foundation.errors import IntegrityError
 from worldmock.recording_engine.events.models import Event
 from worldmock.recording_engine.storage.store import FootprintStore
 from worldmock.state.interaction.actions import START_TOOLS
-from worldmock.state.model.exchange import is_action_request
+from worldmock.state.model.exchange import assistant_message, is_action_request, wire_tool_call
 from worldmock.state.interaction.requests import REQUEST_MODELS
 from worldmock.state.world.world import WorldState
 from worldmock.simulation_engine.observation.layers.progress_layer import (
@@ -31,7 +31,7 @@ from worldmock.simulation_engine.observation.memory.entries import activity_fact
 
 #: 观察返回体上的续接私有键。
 CONTINUATION_KEY = "continuation"
-#: 宿主与 AS2 构造消息时的键序（tool 消息为 role、tool_call_id、content；assistant 为 role、content、tool_calls、
+#: 构造消息时的键序（tool 消息为 role、tool_call_id、content；assistant 为 role、content、tool_calls、
 #: reasoning_content；system 与 user 为 role、content）。
 _MESSAGE_KEYS = ("role", "tool_call_id", "content", "tool_calls", "reasoning_content")
 
@@ -135,7 +135,7 @@ def _decision_evidence(store: FootprintStore, agent_id: int, previous: Event) ->
 def _wire_message(message: Mapping[str, Any]) -> dict:
     """@brief 恢复一条已落库消息的发送键序：事件以规范 JSON（键排序）保存，续接前缀须与实际发出的请求逐字节相同。
 
-    宿主与 AS2 构造消息的键序固定：role、tool_call_id、content、tool_calls、reasoning_content；工具调用为 id、type、
+    宿主构造消息的键序固定：role、tool_call_id、content、tool_calls、reasoning_content；工具调用为 id、type、
     function（name、arguments）。其余键按原样排在后面。
     """
     wire = _ordered(message, _MESSAGE_KEYS)
@@ -145,7 +145,7 @@ def _wire_message(message: Mapping[str, Any]) -> dict:
 
 
 def _wire_call(call: Mapping[str, Any]) -> dict:
-    """@brief 一个工具调用的发送键序（id、type、function；function 为 name、arguments），形状与 AS2 回传的工具调用相同。"""
+    """@brief 一个工具调用的发送键序（id、type、function；function 为 name、arguments），形状同 exchange.wire_tool_call。"""
     wire = _ordered(call, ("id", "type", "function"))
     wire["function"] = _ordered(wire["function"], ("name", "arguments"))
     return wire
@@ -158,7 +158,7 @@ def _ordered(value: Mapping[str, Any], keys: tuple[str, ...]) -> dict:
 
 
 def _final_assistant(response: Any) -> dict | None:
-    """@brief 由持久化响应重建最终 assistant 消息（与 AS2 回传的形状与键序相同）；不是一个世界请求或一个开始组
+    """@brief 由持久化响应重建最终 assistant 消息（经 exchange.assistant_message，与人物回合循环接受回复时的形状与键序相同）；不是一个世界请求或一个开始组
     （两个开始工具各一个），或缺思考时为 None。"""
     choices = response.get("choices") if isinstance(response, dict) else None
     first = choices[0] if isinstance(choices, list) and choices else None
@@ -172,11 +172,10 @@ def _final_assistant(response: Any) -> dict | None:
     names = [function["name"] for function in functions]
     if len(names) != 1 and sorted(names) != sorted(START_TOOLS):
         return None
-    wired = [{"id": str(call.get("id") or ""), "type": "function",
-              "function": {"name": function["name"], "arguments": str(function.get("arguments") or "{}")}}
-             for call, function in zip(calls, functions, strict=True)]
-    return {"role": "assistant", "content": message.get("content"), "tool_calls": wired,
-            "reasoning_content": message["reasoning_content"]}
+    return assistant_message(message.get("content"),
+                             [wire_tool_call(call.get("id"), function["name"], function.get("arguments"))
+                              for call, function in zip(calls, functions, strict=True)],
+                             message["reasoning_content"])
 
 
 def _has_reasoning(message: Mapping[str, Any]) -> bool:

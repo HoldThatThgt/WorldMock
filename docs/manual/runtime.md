@@ -1,6 +1,6 @@
 # 安装、运行与恢复
 
-从仓库根使用锁定解释器与依赖，正式环境包括查看器需要的 Node.js SQLite 能力和中文图表字体。
+从仓库根使用锁定解释器与依赖，正式环境包括查看器需要的 Node.js SQLite 能力。
 
 ```powershell
 python scripts/bootstrap.py --profile release
@@ -23,7 +23,7 @@ status 的 `liveness` 是 `stale` 时驱动进程已经不在（例如被结束�
 运行失败时 `runtime.error_message` 写着失败的根因。
 
 完整验证先核对全部输入和实际模型元数据，失败时按所属路径与英文原因修正。
-这些命令可以在任何目录执行，不需要设置 `AGENTSOCIETY_*` 或 `PYTHONPATH`，只需要 model.api_key_env 指的那个变量。
+这些命令可以在任何目录执行，只需要 model.api_key_env 指的那个变量。
 run 不接受 --scenario；不读取固定供应商私密文件，不使用默认模型或另一份目录路径。
 凭据正文不写进输入包、运行清单或报告。
 

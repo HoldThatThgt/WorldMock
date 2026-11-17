@@ -53,9 +53,6 @@ MANIFEST_MASKS = frozenset({
     "lineage[].last_event_seq", "lineage[].last_event_time", "lineage[].discarded_events", "lineage[].end_reason",
     "lineage[].end_error",
 })
-#: 工作区 AGENT.json 的壁钟与地址：初始化时刻、模型服务地址、工作区所在的机器路径（AS2 agent/base/agent.py:750）。
-AGENT_MASKS = frozenset({"initialized_at", "profile.model_identity.base_url", "profile.model_identity.metadata_url",
-                         "profile.model_identity.model_metadata.metadata_url", "workspace.root"})
 #: 质量报告里由壁钟导出的项与丢弃尾段。
 QUALITY_MASKS = frozenset({
     "acceleration.observed_wall_seconds", "acceleration.speedup", "acceleration.wall_seconds_by_run",
@@ -88,11 +85,25 @@ EVENT_REFERENCES = {
     "data.verified_experiences[].source_event_id": "event",
     "data.memory_sha256": "memory-digest", "data.memory_before_sha256": "memory-digest",
 }
-#: 按首次出现编号的派生摘要：MEMORY.md 的已核验经历行写着来源事件身份（agents/life_memory.py:306），
+#: 按首次出现编号的派生摘要：MEMORY.md 的已核验经历行写着来源事件身份（src/worldmock/agents/memory/life_memory.py · render_memory_view），
 #: 它的文件摘要随事件身份变化，只按出现次序成双射比较；内容在每个比较的工作区快照里逐行比较。
-FIRST_SEEN_KINDS = frozenset({"memory-digest"})
+#: episodes-digest 是 memory-updated-form 规则下 memory/episodes.jsonl 的摘要，同样只按出现次序成双射比较。
+FIRST_SEEN_KINDS = frozenset({"memory-digest", "episodes-digest"})
 #: MEMORY.md 里已核验经历行的来源事件身份。
 MEMORY_SOURCE = re.compile(r"来源事件 ([0-9a-f]{32})")
+#: 基线英文模板 MEMORY.md 按 LF 与 CRLF 写出的两个摘要。
+BASE_MEMORY_TEMPLATE_SHA256 = frozenset({"fed81886cb8287697bcc29e8ee01c15a995bae6b891c74672799c143293b9367",
+                                         "b0c0cc2fbeb9017c6a1b94217be4ad04fbcb033231a7ddc602feb4a001d3cd6b"})
+#: 只有基线人物工作区才有的成员。
+BASE_WORKSPACE_ONLY = frozenset({"AGENT.json", "config.json", "life_prompt_snapshot.json", "memory/state.json"})
+#: 基线条目里取恒定值的字段与那个恒定值。
+BASE_EPISODE_CONSTANTS = (("tick", 0), ("tick_duration_sec", 0), ("refs", []))
+#: 基线条目里无论取值都去掉的两个计数字段。
+BASE_EPISODE_COUNTERS = ("step_index", "step_count")
+#: 基线条目编号的写法，用 fullmatch；分组是连续计数的六位。
+BASE_EPISODE_ID = re.compile(r"m_00000000_(\d{6})")
+#: 基线模型请求底稿里多出、从未发出的三个参数。
+REMOVED_REQUEST_PARAMETERS = ("stream", "max_retries", "transport_max_retries")
 #: 声明的世界状态身份与引用路径：活动按对象形式（结构 14）与数组形式（结构 15，第二章）各列一次。
 STATE_REFERENCES = {
     "run_id": "run",
@@ -146,6 +157,8 @@ ALLOWED_RULE_TARGETS = frozenset({
     ("run-manifest", "lineage"), ("export-manifest", "lineage"), ("export-manifest", "frozen_run_manifest.lineage"),
     ("quality", "lineage"), ("event:model_response", "data.transport_attempts"),
     ("quality", "model_usage.by_call_class"),
+    ("workspace-asset", "members"), ("event:memory_updated", "data"), ("event:model_request", "data.request"),
+    ("run-manifest", "model_identity.prompt_sha256"),
 })
 #: 链组身份不是任何一段运行身份时（测试里直接建的引擎运行），它在运行占位里的序号。
 GROUP_ORDINAL = 0
@@ -220,6 +233,18 @@ RULES = dict([
     _rule("cost-by-class", "replaced", ("quality", "model_usage.by_call_class"),
           "Report only, recomputed from the compared events by export certification; the class rows sum to the "
           "old purpose rows (chapter 06)", "06"),
+    _rule("workspace-members", "rebuild", ("workspace-asset", "members"),
+          "Readers of workspace snapshots: restore_directory (checkpoint.py) and the export copy (export.py); "
+          "no prompt reads the workspace", "05"),
+    _rule("memory-updated-form", "rebuild", ("event:memory_updated", "data"),
+          "Readers of memory_updated: quality.py, scripts/inspect_run.py, tools/analysis/behavior/metrics.py and "
+          "tools/run-viewer.html; no prompt layer reads it", "05"),
+    _rule("model-request-parameters", "rebuild", ("event:model_request", "data.request"),
+          "No reader takes stream, max_retries or transport_max_retries from model_request (continuation.py reads "
+          "messages, quality.py reads extra_body and messages); they were never sent", "04"),
+    _rule("prompt-fingerprint", "value", ("run-manifest", "model_identity.prompt_sha256"),
+          "Only the read-only system layer left the fingerprint; life requests are compared byte for byte by "
+          "raw-order", "03"),
 ])
 
 
@@ -659,25 +684,119 @@ def _gunzip(content: bytes, raw_sha: str) -> bytes:
 
 
 def _workspace_listing(content: bytes, context: NormalizeContext) -> bytes:
-    """@brief 归档成员按归档次序列成 name、mode、mtime 与规范化内容摘要；AGENT.json 屏蔽壁钟与地址。
+    """@brief 归档成员按归档次序列成 name、mode、mtime 与规范化内容摘要；每个成员经 _workspace_member，不列的跳过。
 
-    不是 tar 的内容（例如记为 application/x-tar 的压缩快照）原样返回，于是作为不同的素材报出。
+    不是 tar 的内容（例如记为 application/x-tar 的压缩快照）原样返回，于是作为不同的素材报出。规则
+    workspace-members 下基一侧这份快照有成员被规则改写或不列时（【T11】的来源事件映射不算），规则的 applied 计数加一。
     """
-    rows = []
+    rule = _enabled(context.rules, "workspace-members")
+    counted = rule is not None and context.side == "base"
+    rows, rewritten = [], False
     try:
         with tarfile.open(fileobj=io.BytesIO(content), mode="r:") as archive:
             for member in archive.getmembers():
                 raw = archive.extractfile(member).read() if member.isfile() else b""
-                if member.name == "AGENT.json":
-                    masked = mask_paths(json.loads(raw), AGENT_MASKS, counts=context.mask_counts("agent"))
-                    raw = canonical_bytes(masked)
-                elif member.name == "MEMORY.md":
-                    raw = _memory_text(raw, context)
-                rows.append({"name": member.name, "mode": member.mode, "mtime": member.mtime, "sha256": _sha(raw)})
+                listed = _workspace_member(member.name, raw, context)
+                rewritten = rewritten or (counted and _rule_rewrote(member.name, raw, listed))
+                if listed is not None:
+                    rows.append({"name": member.name, "mode": member.mode, "mtime": member.mtime,
+                                 "sha256": _sha(listed)})
     except tarfile.TarError:
         logger.exception("Workspace snapshot is not a tar archive; it is compared as raw bytes")
         return content
+    if rewritten:
+        rule.counts["applied"] += 1
     return canonical_bytes(rows)
+
+
+def _rule_rewrote(name: str, raw: bytes, listed: bytes | None) -> bool:
+    """@brief 规则 workspace-members 下基一侧这个成员是否被规则改写或不列。
+
+    不列的成员算；MEMORY.md 只在原始字节含 \\r\\n（被换成 LF）时算，来源事件映射不算；条目文件在改写后的字节
+    与原始字节不同时算；其余成员按原始字节列出，不算。
+    """
+    if listed is None:
+        return True
+    if name == "MEMORY.md":
+        return b"\r\n" in raw
+    return name == "memory/episodes.jsonl" and listed != raw
+
+
+def _workspace_member(name: str, raw: bytes, context: NormalizeContext) -> bytes | None:
+    """@brief 工作区快照里一个成员要取摘要的字节；None 表示不列这个成员。
+
+    不启用 workspace-members 时 MEMORY.md 映射来源事件、其余成员取原始字节。启用时基一侧先改写成头一侧的形式：
+    四个框架成员、英文模板 MEMORY.md 与空条目文件不列，其余 MEMORY.md 换成 LF，条目文件逐行对齐；头一侧不列空条目
+    文件，条目文件逐行规范化。
+    """
+    rebuild = _enabled(context.rules, "workspace-members") is not None
+    base = rebuild and context.side == "base"
+    if base and name in BASE_WORKSPACE_ONLY:
+        return None
+    if name == "MEMORY.md":
+        if base and _sha(raw) in BASE_MEMORY_TEMPLATE_SHA256:
+            return None
+        return _memory_text(raw.replace(b"\r\n", b"\n") if base else raw, context)
+    if rebuild and name == "memory/episodes.jsonl":
+        if not raw:
+            return None
+        return _base_episodes(raw) if base else _head_episodes(raw)
+    return raw
+
+
+def head_episode_id(value: object) -> object:
+    """@brief 完全匹配基线编号写法的字符串改写成 m_ 加六位，其余原样返回。"""
+    if isinstance(value, str):
+        match = BASE_EPISODE_ID.fullmatch(value)
+        if match is not None:
+            return f"m_{match.group(1)}"
+    return value
+
+
+def _episode_records(text: bytes) -> list[dict]:
+    """@brief 条目文件按 \\n 切成的各行 JSON 对象（末尾换行之后的空串不算一行）；有一行不是 JSON 对象即拒绝。"""
+    lines = text.split(b"\n")
+    if lines[-1] == b"":
+        lines.pop()
+    records = []
+    for number, line in enumerate(lines, start=1):
+        try:
+            record = json.loads(line)
+        except ValueError:
+            record = None
+        if not isinstance(record, dict):
+            _refuse(f"Workspace episodes line {number} is not a JSON object")
+        records.append(record)
+    return records
+
+
+def _episode_bytes(records: list[dict]) -> bytes:
+    """@brief 条目逐行写成规范 JSON 加 \\n。"""
+    return b"".join(canonical_bytes(record) + b"\n" for record in records)
+
+
+def _base_episodes(raw: bytes) -> bytes:
+    """@brief 基一侧非空条目文件改写成头一侧的形式后的字节。
+
+    换成 LF 后逐行：恰为恒定值的 tick、tick_duration_sec、refs 去掉，step_index、step_count 无论取值都去掉，
+    基线写法的编号改成 m_ 加六位；取值不是恒定值的字段保留，于是报成不同。
+    """
+    constants = dict(BASE_EPISODE_CONSTANTS)
+    records = []
+    for record in _episode_records(raw.replace(b"\r\n", b"\n")):
+        kept = {key: value for key, value in record.items() if key not in BASE_EPISODE_COUNTERS
+                and not (key in constants and canonical_bytes(value) == canonical_bytes(constants[key]))}
+        if "id" in kept:
+            kept["id"] = head_episode_id(kept["id"])
+        records.append(kept)
+    return _episode_bytes(records)
+
+
+def _head_episodes(raw: bytes) -> bytes:
+    """@brief 头一侧非空条目文件要取摘要的字节：含 \\r 或缺结尾换行时取原始字节（于是报成不同），否则逐行规范化。"""
+    if b"\r" in raw or not raw.endswith(b"\n"):
+        return raw
+    return _episode_bytes(_episode_records(raw))
 
 
 def _memory_text(raw: bytes, context: NormalizeContext) -> bytes:
@@ -690,12 +809,19 @@ def _memory_text(raw: bytes, context: NormalizeContext) -> bytes:
 
 
 def normalize_event(event: dict, context: NormalizeContext) -> dict:
-    """@brief 屏蔽并映射一条事件：顶层壁钟、模型响应的传输记录、声明的身份路径与素材摘要。"""
+    """@brief 屏蔽并映射一条事件：顶层壁钟、模型响应的传输记录、声明的身份路径与素材摘要；规则 memory-updated-form
+    下 memory_updated 的 episodes_sha256 按首次出现成双射映射。"""
     context.mask_counts("event").update(EVENT_MASKS & event.keys())
     event = mask_paths(event, EVENT_MASKS)
     if event.get("event_type") == "model_response":
         event = mask_paths(event, MODEL_RESPONSE_MASKS, counts=context.mask_counts("model_response"))
     event = map_ids(event, EVENT_REFERENCES, context)
+    data = event.get("data")
+    if (event.get("event_type") == "memory_updated" and isinstance(data, dict) and "episodes_sha256" in data
+            and _enabled(context.rules, "memory-updated-form") is not None):
+        episodes = context.ids.normalize(data["episodes_sha256"], "episodes-digest", context.side,
+                                         "data.episodes_sha256")
+        event = {**event, "data": {**data, "episodes_sha256": episodes}}
     return _map_digests(event, context)
 
 
@@ -735,9 +861,52 @@ def _drop_path(head: object, base: object, keys: list[str]) -> object:
     return head if child is head[keys[0]] else {**head, keys[0]: child}
 
 
+def align_memory_update(event: dict) -> dict:
+    """@brief 基一侧 memory_updated 的数据改写成头一侧的形式（规则 memory-updated-form）；没有改动时返回同一个对象。
+
+    state_sha256 无论取值都去掉；consolidated 恰为 false、reflection 恰为 null 时去掉；三处条目编号里基线写法的改成
+    m_ 加六位；memory_before_sha256 是英文模板的摘要时改成 null，其余取值不动。
+    """
+    data = event.get("data")
+    if event.get("event_type") != "memory_updated" or not isinstance(data, dict):
+        return event
+    aligned = {key: value for key, value in data.items() if key != "state_sha256"
+               and not (key == "consolidated" and value is False) and not (key == "reflection" and value is None)}
+    for key in ("created_episode_ids", "merged_episode_ids"):
+        if isinstance(aligned.get(key), list):
+            aligned[key] = [head_episode_id(item) for item in aligned[key]]
+    if isinstance(aligned.get("episodes"), list):
+        aligned["episodes"] = [{**item, "id": head_episode_id(item["id"])} if isinstance(item, dict) and "id" in item
+                               else item for item in aligned["episodes"]]
+    if aligned.get("memory_before_sha256") in BASE_MEMORY_TEMPLATE_SHA256:
+        aligned["memory_before_sha256"] = None
+    return event if aligned == data else {**event, "data": aligned}
+
+
+def drop_request_parameters(event: dict) -> dict:
+    """@brief 基一侧 model_request 的底稿去掉从未发出的三个参数（规则 model-request-parameters）；没有改动时返回同一个对象。"""
+    data = event.get("data")
+    request = data.get("request") if event.get("event_type") == "model_request" and isinstance(data, dict) else None
+    if not isinstance(request, dict) or not any(name in request for name in REMOVED_REQUEST_PARAMETERS):
+        return event
+    kept = {key: value for key, value in request.items() if key not in REMOVED_REQUEST_PARAMETERS}
+    return {**event, "data": {**data, "request": kept}}
+
+
 def align_events(base: dict, head: dict, context: CompareContext) -> tuple[dict, dict]:
-    """@brief 一对事件按启用的规则对齐头一侧记录形式（请求副本重建、新增字段移除），在 normalize_event 之前调用。"""
+    """@brief 一对事件按启用的规则对齐记录形式，在 normalize_event 之前调用。
+
+    基一侧先经 memory-updated-form 与 model-request-parameters 改写成头一侧的形式，再对齐头一侧（请求副本重建、
+    新增字段移除）。
+    """
     rules = context.options.rules
+    for name, rewrite in (("memory-updated-form", align_memory_update),
+                          ("model-request-parameters", drop_request_parameters)):
+        rule = _enabled(rules, name)
+        if rule is not None:
+            rewritten = rewrite(base)
+            rule.counts["applied"] += int(rewritten is not base)
+            base = rewritten
     copy_rule = _enabled(rules, "request-copy")
     if copy_rule is not None:
         expected = ((base.get("data") or {}).get("request") is not None
@@ -782,14 +951,18 @@ def _value_rule(base: dict, head: dict, rule: AppliedRule | None, path: str) -> 
 
 
 def align_manifests(base: dict, head: dict, scope: str, rules: tuple[AppliedRule, ...]) -> tuple[dict, dict]:
-    """@brief 一对运行清单或导出清单按启用的规则对齐（结构号、lineage），在 normalize_manifest 与清单摘要之前调用。"""
+    """@brief 一对运行清单或导出清单按启用的规则对齐（结构号、提示指纹、lineage），在 normalize_manifest 与清单摘要
+    之前调用。"""
     run_version = _enabled(rules, "run-manifest-version")
+    fingerprint = _enabled(rules, "prompt-fingerprint")
     if scope == "run-manifest":
         head = _value_rule(base, head, run_version, "schema_version")
+        head = _value_rule(base, head, fingerprint, "model_identity.prompt_sha256")
         paths = ("lineage",)
     else:
         head = _value_rule(base, head, _enabled(rules, "export-manifest-version"), "schema_version")
         head = _value_rule(base, head, run_version, "frozen_run_manifest.schema_version")
+        head = _value_rule(base, head, fingerprint, "frozen_run_manifest.model_identity.prompt_sha256")
         paths = ("lineage", "frozen_run_manifest.lineage")
     lineage = _enabled(rules, "lineage")
     if lineage is not None:

@@ -1,28 +1,22 @@
-from tests.integration.runtime.current_contract_fixtures import profile as current_profile
 """动态工具请求的持久化、身份冻结和跨目录去重回归。"""
 
 
 import json
-import os
-from contextlib import nullcontext
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
-os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
-os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
-
-from agentsociety2.agent.base import ModelCallEvidence, ReactLoopRequest
-from custom.agents.life_agent import LifeAgent
 from tests.engine_fixture import engine_factory as _engine_factory  # noqa: F401
-from tests.life.conftest import MAIN_TOOL, SIDE_TOOL, context, stage_day_plan  # noqa: F401
+from tests.life.conftest import MAIN_TOOL, SIDE_TOOL, context, main_arguments, stage_day_plan  # noqa: F401
+from worldmock.agents.life_agent import LifeAgent, life_action_tool_names, life_query_tool_names, person_inputs
 from worldmock.foundation.serialization import canonical_json
 from worldmock.recording_engine.storage.store import FootprintStore
 from worldmock.exchange_engine.conditions.activity_rules import MAIN_ACTIVITY_ACTIONS, SIDE_ACTIVITY_ACTIONS
-from worldmock.runtime.framework.setup import runtime_code_sha256
-from tests.integration.as2_fixtures import use_fake_as2
+from worldmock.runtime.framework import setup as run_setup
+from worldmock.state.model.exchange import ModelCallEvidence
 
 @pytest.fixture(autouse=True)
 def _fixed_context_window(monkeypatch):
@@ -56,30 +50,28 @@ class _PersistentResponse:
 
 
 class _CorrectionDispatcher:
-    """先返回未知工具，再返回合法只读结束。"""
+    """先返回未知工具，再返回在家里合法的开始请求。"""
 
     def __init__(self) -> None:
         self.requests: list[dict[str, Any]] = []
+        valid = json.dumps(main_arguments("interact", "家", "测试休息"), ensure_ascii=False)
         self.responses = [
             _PersistentResponse("call-invalid", "invented_tool", "{}"),
-            _PersistentResponse("call-finish", "finish", '{"answer":"fixed"}'),
+            _PersistentResponse("call-valid", MAIN_TOOL, valid),
         ]
 
-    async def call(self, **request: Any) -> Any:
+    async def call(self, request: dict[str, Any]) -> Any:
         """记录实际模型请求并返回下一个响应。"""
         self.requests.append(request)
         return self.responses.pop(0)
 
 
-class _EngineEvidenceEnvironment:
-    """把人物模型证据写入真实 LifeEngine。"""
-
-    def __init__(self, engine: Any) -> None:
-        self.engine = engine
-
-    async def record_model_exchange(self, exchange: Any) -> None:
-        """同步调用真实环境模型证据事务。"""
-        self.engine.record_model_exchange(exchange)
+def _person(engine: Any, model: Any = None, turns: int | None = None) -> LifeAgent:
+    """按引擎清单冻结的模型身份与人设表建一次决策的真实 LifeAgent；只跑回合循环，记忆存储为空。"""
+    inputs = person_inputs(engine.context.inputs.persona, engine.context.store.manifest["stage_model_identity"])
+    if turns is not None:
+        inputs = replace(inputs, model_identity={**inputs.model_identity, "max_react_turns": turns})
+    return LifeAgent(inputs, engine, model, None)
 
 
 def _start_fields(tools: list[dict]) -> dict[str, dict]:
@@ -97,13 +89,12 @@ def _assert_names_are_not_enumerated(fields: dict[str, dict]) -> None:
     assert "enum" not in json.dumps(names, ensure_ascii=False)
 
 
-def _prepared_tools(data, observed_at):
-    """用明确首观察生成实际原生工具声明。"""
-    agent = LifeAgent()
-    agent._profile = current_profile()
-    observation = {"turn": 0, "action": "observe", "ok": True, "data": data}
-    agent.prepare_react_loop(ReactLoopRequest(0, observed_at, [observation]))
-    return agent, agent.build_react_tool_schemas(readonly=False)
+def _prepared_tools(engine, ctx, observation):
+    """用真实引擎的首观察准备一次决策，生成实际原生工具声明。"""
+    agent = _person(engine)
+    agent._context = ctx
+    agent._prepare(observation)
+    return agent, agent.turn_tools(2, False)
 
 
 def test_model_request_persists_exact_grounded_tools(_engine_factory):  # noqa: F811
@@ -113,9 +104,8 @@ def test_model_request_persists_exact_grounded_tools(_engine_factory):  # noqa: 
     ctx = context(engine, "grounded-wire")
     engine.begin_decision_round([ctx])
     observation = engine.observe(ctx)
-    agent, tools = _prepared_tools(observation, ctx.observed_at)
-    agent._model_name = "test-model"
-    wire = agent._model_request([{"role": "user", "content": "Choose a visible activity."}], tools)
+    agent, tools = _prepared_tools(engine, ctx, observation)
+    wire = agent.turn_request([{"role": "user", "content": "Choose a visible activity."}], tools, False)
     expected = canonical_json(wire)
     fields = _start_fields(tools)
     assert set(fields[MAIN_TOOL]) == {"action", "target", "detail"}
@@ -138,20 +128,10 @@ def test_model_request_persists_exact_grounded_tools(_engine_factory):  # noqa: 
 
 
 async def _run_persisted_protocol_correction(engine, ctx) -> Path:
-    """通过真实人物与环境证据接口执行一次协议纠正。"""
-    agent = LifeAgent()
-    agent._profile = current_profile()
-    agent._id = ctx.agent_id
-    agent._name = "Alice"
-    agent._profile = {**current_profile(), **{'id': ctx.agent_id, 'name': 'Alice'}}
-    agent._model_name = "test-model"
-    agent._dispatcher = _CorrectionDispatcher()
-    agent._env = _EngineEvidenceEnvironment(engine)
-    agent._decision_context = ctx
-    agent._max_react_turns = 2
-    agent.trace_span = lambda *args, **kwargs: nullcontext()  # type: ignore[method-assign]
-    request = ReactLoopRequest(0, ctx.observed_at, [], "What happened?", True)
-    assert await agent.run_react_loop(request) == "fixed"
+    """通过真实人物、回合循环与引擎证据接口执行一次协议纠正，纠正后的开始请求登记成功。"""
+    agent = _person(engine, _CorrectionDispatcher(), turns=3)
+    registered = await agent.run_turns(ctx, engine.observe(ctx))
+    assert [decision.action for decision in registered] == [MAIN_TOOL]
     return engine.context.store.run_dir
 
 
@@ -189,28 +169,28 @@ def test_protocol_feedback_is_persisted_in_next_model_request(_engine_factory): 
         assert "error" not in feedback
         first_names = {item["function"]["name"] for item in events[0].data["request"]["tools"]}
         second_names = {item["function"]["name"] for item in events[2].data["request"]["tools"]}
-        assert first_names == second_names == {"finish"}
+        assert first_names == second_names == life_action_tool_names() | life_query_tool_names()
         assert all("Authoritative" not in event.data["request"]["messages"][0]["content"]
                    for event in (events[0], events[2]))
-        assert [event for event in list(reopened.iter_events(reopened.last_event_seq))
-                if event.event_type == "decision_started"] == []
+        assert len([event for event in list(reopened.iter_events(reopened.last_event_seq))
+                    if event.event_type == "decision_started"]) == 1
     finally:
         reopened.close()
 
 
-def test_runtime_code_identity_includes_life_agent_content(tmp_path: Path, monkeypatch, tmp_path_factory):
-    """只改变人物实现字节就必须改变整个运行身份（AS2 取锁定的临时包，不依赖本机安装）。"""
-    use_fake_as2(monkeypatch, tmp_path_factory.mktemp("as2-site"))
+def test_runtime_code_identity_includes_life_agent_content(tmp_path: Path, monkeypatch):
+    """只改变人物实现字节就必须改变整个运行身份；项目根指到临时工程根。"""
     for name in ("pyproject.toml", "uv.lock"):
         (tmp_path / name).write_text("frozen dependency fixture\n")
-    source = tmp_path / "custom" / "agents" / "life_agent.py"
+    source = tmp_path / "src" / "worldmock" / "agents" / "life_agent.py"
     source.parent.mkdir(parents=True)
     source.write_text("TARGET_SOURCE = 'current_observation'\n")
-    before = runtime_code_sha256(tmp_path)
+    monkeypatch.setattr(run_setup, "project_root", lambda: tmp_path)
+    before = run_setup.runtime_code_sha256()
 
     source.write_text("TARGET_SOURCE = 'unbound'\n")
 
-    assert runtime_code_sha256(tmp_path) != before
+    assert run_setup.runtime_code_sha256() != before
 
 
 def test_grounded_tool_uses_unique_readable_names_without_internal_ids(_engine_factory):  # noqa: F811
@@ -220,7 +200,7 @@ def test_grounded_tool_uses_unique_readable_names_without_internal_ids(_engine_f
     ctx = context(engine, "cross-catalog-id")
     engine.begin_decision_round([ctx])
     observation = engine.observe(ctx)
-    _, tools = _prepared_tools(observation, ctx.observed_at)
+    _, tools = _prepared_tools(engine, ctx, observation)
     _assert_names_are_not_enumerated(_start_fields(tools))
     public = [row["name"] for row in observation["tool_layer"]["targets"]]
     private = [row["object_id"] for row in observation["interaction_bindings"]]

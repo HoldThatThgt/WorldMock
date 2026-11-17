@@ -13,8 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from scripts.bootstrap_environment import require_python_identity, required_python_version
-from scripts.bootstrap_sources import file_sha256
+from scripts.bootstrap_environment import file_sha256, require_python_identity, required_python_version
 from worldmock.exchange_engine.definitions.constants import RULES_VERSION
 from worldmock.foundation.atomic_write import atomic_write
 from worldmock.foundation.serialization import canonical_json

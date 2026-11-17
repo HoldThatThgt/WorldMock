@@ -4,8 +4,8 @@
 @brief    一个登记的源码变异（SourceMutation）只在新解释器里生效：子进程先按模块名装上变异源码的加载器，再收集并运行
           登记的行为用例，共享工作树的文件一个字节都不改。基线（不带变异）与每个变异各跑一次，各写一份回执。
           子进程入口、回执目录与超时由调用方经 RunSettings 给出；各特性使用独立回执目录，互不覆盖。
-@note     变异经 sys.meta_path 按模块名注入，只对主进程里以该模块名导入的生产代码生效：Ray worker 里执行的代码、
-          AS2 注册表按文件路径以另一个模块名加载的适配器类都不受影响，针对它们的变异须由直接导入该模块的用例杀死。
+@note     变异经 sys.meta_path 按模块名注入，只对主进程里以该模块名导入的生产代码生效；子进程里执行的代码不受影响，
+          针对它的变异须由在本进程直接导入该模块的用例杀死。
           文件名不以 test_ 开头，pytest 不把它当作测试模块收集。
 """
 
@@ -57,7 +57,7 @@ def source_location(symbol: str) -> tuple[str, str]:
         raise ValueError(f"Invalid mutation symbol: {symbol}")
     if module.startswith("worldmock."):
         return module, "src/" + module.replace(".", "/") + ".py"
-    if module.startswith(("custom.", "scripts.", "tools.analysis.")):
+    if module.startswith(("scripts.", "tools.analysis.")):
         return module, module.replace(".", "/") + ".py"
     logging.error("Mutation module is outside production roots: %s", module)
     raise ValueError(f"Mutation module is outside production roots: {module}")
@@ -157,9 +157,7 @@ def run_behavior(nodes: tuple[str, ...], directory: Path, mutation: SourceMutati
     arguments = directory / "pytest-arguments.txt"
     arguments.write_text("\n".join((*nodes, "--basetemp", str(directory / "child"))) + "\n", encoding="utf-8")
     command.append(f"@{arguments}")
-    environment = {**os.environ, "AGENTSOCIETY_LLM_API_KEY": "test-only",
-                   "MEM0_TELEMETRY": "False", "ANONYMIZED_TELEMETRY": "False",
-                   "LITELLM_LOCAL_MODEL_COST_MAP": "True", "PYTHONUTF8": "1"}
+    environment = {**os.environ, "LITELLM_LOCAL_MODEL_COST_MAP": "True", "PYTHONUTF8": "1"}
     result = subprocess.run(command, cwd=REPO_ROOT, env=environment, capture_output=True, text=True,
                             encoding="utf-8", timeout=settings.timeout)
     receipt = {"name": mutation.name if mutation else "baseline", "exit_code": result.returncode,

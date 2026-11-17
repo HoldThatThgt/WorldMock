@@ -35,7 +35,7 @@ def test_facade_keeps_public_signatures_and_has_no_business_mixin():
         if isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Store)
         and isinstance(node.value, ast.Name) and node.value.id == "self"}
     assert assignments == {"context", "observations", "actions", "decisions", "clock", "evidence",
-                           "counterfactual"}
+                           "counterfactual", "queries"}
     methods = {node.name: node for node in facade.body
                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
     assert {"create", "open", "observe", "submit_action", "advance", "checkpoint"} <= set(methods)

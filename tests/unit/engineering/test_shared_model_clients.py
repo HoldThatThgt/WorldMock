@@ -1,4 +1,4 @@
-"""零点计划业务入口执行同一冻结模型客户端规则。"""
+"""零点计划与回顾的业务入口包装整次运行共用的模型客户端：请求隔离、原样交出底稿、响应序列化。"""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from worldmock.foundation.errors import ProtocolError
 from worldmock.simulation_engine.scheduling.plans import day_planning
 from worldmock.state.interaction.requests import PlanDayRequest
 from worldmock.foundation.model_feedback import schema_error_details
-from worldmock.runtime.lifecycle.runner import MemoryDigestClient, PlanDayClient
+from worldmock.runtime.lifecycle.midnight import MemoryDigestClient, PlanDayClient
 
 CLIENTS = ((PlanDayClient, 'Plan day'), (MemoryDigestClient, 'Memory digest'))
 IDENTITY = {'requested_model': 'mock-model', 'base_url': 'https://example.test', 'max_retries': 0,
@@ -23,24 +23,21 @@ IDENTITY = {'requested_model': 'mock-model', 'base_url': 'https://example.test',
 
 
 class FakeClient:
-    model_name = 'mock-model'
-    base_url = 'https://example.test'
+    """模型客户端替身：记下收到的请求副本，再改动收到的那份，核对业务入口交出的是深拷贝。"""
 
     def __init__(self, response):
         self.response = response
         self.requests = []
 
-    async def call(self, **request):
+    async def call(self, request):
         self.requests.append(copy.deepcopy(request))
         request['messages'].append({'role': 'user', 'content': 'client-local mutation'})
         return self.response
 
 
-def _client(monkeypatch, cls, response):
-    import agentsociety2.config
+def _client(cls, response):
     client = FakeClient(response)
-    monkeypatch.setattr(agentsociety2.config, 'build_client_for_role', lambda role: client)
-    return cls(dict(IDENTITY)), client
+    return cls(client, dict(IDENTITY)), client
 
 
 def _call(client, request):
@@ -48,33 +45,26 @@ def _call(client, request):
 
 
 @pytest.mark.parametrize('cls,purpose', CLIENTS)
-def test_original_clients_share_single_call_serialization_and_request_isolation(monkeypatch, cls, purpose):
+def test_original_clients_share_single_call_serialization_and_request_isolation(cls, purpose):
     for response in ({'choices': []}, SimpleNamespace(model_dump=lambda mode: {'choices': [], 'mode': mode})):
-        client, transport = _client(monkeypatch, cls, response)
-        request = {'messages': [{'role': 'user', 'content': 'request'}], 'max_retries': 0}
+        client, transport = _client(cls, response)
+        request = {'messages': [{'role': 'user', 'content': 'request'}]}
         original = copy.deepcopy(request)
         assert _call(client, request)['choices'] == []
-        assert transport.requests == [{**original, 'transport_max_retries': 3}]
+        assert transport.requests == [original]
+        assert not {'max_retries', 'transport_max_retries'} & set(transport.requests[0])
         assert request == original
         assert client.purpose == purpose
-
-
-@pytest.mark.parametrize('cls,purpose', CLIENTS)
-@pytest.mark.parametrize('key,value', [('requested_model', 'other'), ('base_url', 'https://wrong.test')])
-def test_original_clients_reject_identity_and_retry_drift(monkeypatch, cls, purpose, key, value):
-    import agentsociety2.config
-    monkeypatch.setattr(agentsociety2.config, 'build_client_for_role', lambda role: FakeClient({}))
-    with pytest.raises(ProtocolError, match=purpose + ' .*disagree'):
-        cls({**IDENTITY, key: value})
+        assert client.model_name == IDENTITY['requested_model']
 
 
 @pytest.mark.parametrize('cls,purpose', CLIENTS)
 @pytest.mark.parametrize('response,reason', [(object(), 'not serializable'),
                                            (SimpleNamespace(model_dump=lambda mode: []), 'not a serialized object')])
-def test_original_clients_reject_unserializable_responses(monkeypatch, cls, purpose, response, reason):
-    client, _ = _client(monkeypatch, cls, response)
+def test_original_clients_reject_unserializable_responses(cls, purpose, response, reason):
+    client, _ = _client(cls, response)
     with pytest.raises(ProtocolError, match=purpose + ' model response is ' + reason):
-        _call(client, {'messages': [], 'max_retries': 0})
+        _call(client, {'messages': []})
 
 
 def test_plan_corrections_keep_tools_budgets_and_channel_echo():

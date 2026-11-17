@@ -72,10 +72,10 @@ flowchart LR
 `lineage` 为空数组；恢复与重放分支另带分支来源字段，`lineage` 是父运行的 `lineage` 加一项父运行这一段，见
 [记录引擎](05-recording-engine.md)「冻结输入、检查点与分支」。
 清单不保存由人物卡片换算出的数值：社交需要每小时增长在冻结的 `persona.toml` 里，世界创建时直接读它。
-`code_sha256` 覆盖 `src/` 与 `custom/` 下的全部 Python 源码、根目录的 `pyproject.toml` 与 `uv.lock`，以及实际导入的
-AgentSociety2 包；引擎包里没有 Python 源码以外的规则文件，`src/` 下其他类型的文件不进代码身份。
-人物卡片的两份派生物（结构化卡片与卡片文本）保存在人物工作区 `AGENT.json` 的 `profile` 里，
-`AGENT.json` 的结构号是 1；卡片由 `persona.toml` 直接构造，没有单独的编译产物文件和结构号，见[人物](06-agent.md)。
+`code_sha256` 覆盖 `src/` 下的全部 Python 源码与根目录的 `pyproject.toml`、`uv.lock`；项目根由已导入的 `worldmock` 包位置推出（包目录 `src/worldmock` 往上两级）。
+引擎包里没有 Python 源码以外的规则文件，`src/` 下其他类型的文件不进代码身份。
+人物卡片的两份派生物（结构化卡片与卡片文本）在每次运行开始时由 `persona.toml` 直接构造，不写进人物工作区，也不另存副本；
+没有单独的编译产物文件和结构号，见[人物](06-agent.md)。
 发布目录可以含声明距离的 map.jsonl，但不含生成的地图；冻结的目录素材跟随目录清单的文件表。
 模型身份保存实际服务、请求模型、实际元数据与来源、上下文声明、两种重试预算、回顾与日计划两项校验预算、
 阶段生成参数与回合上限。api_key_env 只是输入中的凭据变量名称；凭据正文绝不序列化。
@@ -84,18 +84,18 @@ AgentSociety2 包；引擎包里没有 Python 源码以外的规则文件，`src
 
 ### 记忆层
 
-记忆层的顶层恰为下表四个键，次序固定；只读问答尚无快照时的空记忆层恰为 `{"layer":"记忆层","可查":{},"近三天":{},"今天":[]}`。
+记忆层的顶层恰为下表四个键，次序固定。
 行为与上限见[人物](06-agent.md)「记忆层的形状、上限与兜底」。
 
 | 键 | 形状 |
 | --- | --- |
 | `layer` | 常量「记忆层」 |
-| `可查` | 对象，唯一的键 `最早日期`（`YYYY-MM-DD`）；只读空记忆层里为空对象 |
+| `可查` | 对象，唯一的键 `最早日期`（`YYYY-MM-DD`）；还没有可查的日期时是空对象 |
 | `近三天` | 对象，键是饮食、工作、生活的子集并按此次序，值是格子数组 |
 | `今天` | 数组，每项是一条今天条目或一行计数行 |
 | 今天条目 | 封闭对象：键 `时刻`（`HH:MM`）、`类别`（类别串），可选 `核验`、`自述`，二者至少有一，各是至少一项的非空字符串数组；渲染时键序为时刻、类别、核验、自述；条目全文另有 `当时查到`，不进提示 |
 | 计数行 | 恰为 `{"时刻":"HH:00–HH′:00","类别":<类别串>,"条数":<正整数>}`，HH′ 是 HH+1，23 时写「23:00–24:00」，「–」是 U+2013 |
-| 近三天格子 | `近三天` 的键是启用的类别、按饮食、工作、生活的次序（只读空记忆层里为空对象），值是至多三格、按日期升序的数组；饮食格、生活格是封闭对象，键依次为 `日期`（YYYY-MM-DD）、`星期`（`WEEKDAY_NAMES` 之一）、`回顾`（1–250 字）；工作格在 `星期` 与 `回顾` 之间另有必有的 `安排`（工作日或休息日）；未整理的格 `回顾` 为 null，末尾带 `未整理: true`；那天这一类没有记录时不写这一格；Schema 是 `_RECENT_CELLS` |
+| 近三天格子 | `近三天` 的键是启用的类别、按饮食、工作、生活的次序，值是至多三格、按日期升序的数组；饮食格、生活格是封闭对象，键依次为 `日期`（YYYY-MM-DD）、`星期`（`WEEKDAY_NAMES` 之一）、`回顾`（1–250 字）；工作格在 `星期` 与 `回顾` 之间另有必有的 `安排`（工作日或休息日）；未整理的格 `回顾` 为 null，末尾带 `未整理: true`；那天这一类没有记录时不写这一格；Schema 是 `_RECENT_CELLS` |
 
 类别串是饮食、工作、生活里互不相同的一到三项，以「、」相连。记忆层经 `render_layer_json` 渲染：键序即构建顺序，中文不转义，`null`、空列表与空对象原样保留；
 Schema 是 [prompt_schemas.py](../../src/worldmock/agents/prompt/prompt_schemas.py) 的 `MEMORY_LAYER_SCHEMA`。
@@ -117,8 +117,67 @@ Schema 是 [prompt_schemas.py](../../src/worldmock/agents/prompt/prompt_schemas.
 ## 事件与检查点
 
 事件编码为确定性 UTF-8 JSON，资金只在信封 resource_changes 中记录。运行目录里的 `manifest.json`、`status.json`、`heartbeat.json`、`result.json` 和反事实干预文件一律按 UTF-8 读写，不依赖系统默认编码。
-`status.json` 与 `heartbeat.json` 是规范 JSON，字段见[运行与框架集成](10-runtime.md)「运行与恢复」；其中的时刻都是 UTC 的 ISO 8601 文本。
+`status.json` 与 `heartbeat.json` 是规范 JSON，字段见[运行装配与决策循环](10-runtime.md)「运行与恢复」；其中的时刻都是 UTC 的 ISO 8601 文本。
 运行库的观察分件表 `parts` 与观察的存储形式归[记录引擎](05-recording-engine.md)「事件与来源」，编码同样是确定性 UTF-8 JSON。
 回调、时间、天气、提醒、两种停留事件和回顾事件 `memory_digest_generated` 使用当前闭合模型，写入和读取时都校验，旧事件种类立即拒绝；字段见[记录引擎](05-recording-engine.md)「事件与来源」。
 预排事件的种类闭集含发货通知排程 `order_shipped`，它与到达排程一样保存在世界状态的调度边界里。
 检查点与导出字段及认证规则统一归[记录引擎](05-recording-engine.md)，不在状态层维护第二份事件合同。
+
+## 人物工作区
+
+人物 N 的工作区是运行目录下的 `agents/agent_NNNN/`，NNNN 是补足四位的人物编号，例如 `agents/agent_0001/`。新建运行在建引擎之前建出这个空目录，目录已存在时以 `FileExistsError("Agent workspace already exists: <路径>")` 停止。
+人物第一次决策的步尾保存之前工作区为空；此后恰有两个普通文件：`MEMORY.md` 与 `memory/episodes.jsonl`，没有别的文件。
+两个文件都按 UTF-8 编码、LF 换行直接写字节；新内容的字节与现有文件相同时不写。人物第一次步尾保存时还没有条目，条目文件写成空文件。
+工作区随每个共同检查点快照，快照格式与恢复时的校验见[记录引擎](05-recording-engine.md)「冻结输入、检查点与分支」。
+
+`MEMORY.md` 是给人看的已核验视图，恰为下面的模板，不写任何英文模板：
+
+```text
+# Memory
+
+## 身份
+> 卡片文本去掉首尾空白后的每一行，各加前缀「> 」
+
+## 已核验经历
+每条已核验经历一行；没有时恰为「- 暂无已核验经历。」
+
+## 人物自述（未经核验）
+> 暂无人物自述。
+```
+
+整份视图按 Python `len` 至多 4000 字，超过时以 `ValueError("Verified memory view exceeds its character budget")` 停止；视图在写任何文件之前渲染，所以超过时两个文件都不写。已核验经历一行的写法见 [life_memory.py](../../src/worldmock/agents/memory/life_memory.py) 的 `render_memory_view`。
+
+`memory/episodes.jsonl` 每行一条人物收尾时写下的主观记忆，按编号顺序，每行是 `json.dumps(条目, ensure_ascii=False)`（缺省分隔符）加 `\n`。条目恰为十个键，次序固定：
+
+| 键 | 取值 |
+| --- | --- |
+| `id` | 第 n 行恰为 `m_` 加六位的 n，从 `m_000001` 起连续；新条目的编号是当前条目数加一，合并不占编号 |
+| `agent_id` | 人物编号，整数 |
+| `time` | 新建或最近一次合并时那次决策的观察时刻，带偏移的 ISO 8601 文本 |
+| `type` | 主观记忆类型，属于 `SUBJECTIVE_TYPES` |
+| `importance` | 0 到 1 的数 |
+| `keywords` | 字符串列表：每项去掉首尾空白，去掉空串，按首次出现去重 |
+| `text` | 正文，连续空白折成一个空格 |
+| `source` | 常量 `activity_conclusion` |
+| `merge_count` | 至少为 1 的整数，新建为 1，每合并一次加一 |
+| `epistemic_status` | 常量 `subjective` |
+
+合并：每条新记忆按输入次序，从最新一条往前找类型相同、新时刻减去条目时刻落在 0 到 24 小时（含两端）、规范化正文相邻字符对的 Jaccard 不小于 0.6 的第一条；找到就把它的 `merge_count` 加一、`time` 改为本次观察时刻，找不到就新建。两个时刻无法相减时按窗口外处理；同一次保存里先新建的条目也参加后面记忆的判定。
+
+恢复与重放严格读回条目文件：按 UTF-8 解码，以 `"\n"` 切行，最后一段为空时丢掉（文件为空或以换行结尾），不按 Unicode 的其他行分隔符切行；每行 `json.loads`，再按下表次序核对，第一条不成立的写英文错误日志并以同文 `ValueError` 拒绝（`{n}` 是从 1 起的行号）：
+
+| 条件 | 错误文字 |
+| --- | --- |
+| 该行去掉空白后为空 | `Memory episode line {n} is blank` |
+| 不是对象，或键集合不是上表十个键 | `Memory episode line {n} has an invalid schema` |
+| `id` 不是本行的连续编号 | `Memory episode line {n} has a non-contiguous identity` |
+| `agent_id` 不是整数，或不是本人 | `Memory episode line {n} has inconsistent identity` |
+| `merge_count` 不是整数，或小于 1 | `Memory episode line {n} has invalid counters` |
+| `type` 不是主观记忆类型 | `Memory episode line {n} has an invalid type` |
+| `epistemic_status` 不是 `subjective` | `Memory episode line {n} has an invalid epistemic status` |
+| `source` 不是 `activity_conclusion` | `Memory episode line {n} has an invalid source` |
+| `importance` 是布尔、不是数，或不在 0 到 1 之间 | `Memory episode line {n} has invalid importance` |
+| `time` 或 `text` 不是非空字符串 | `Memory episode line {n} has empty text fields` |
+| `keywords` 不是列表，或有一项不是字符串 | `Memory episode line {n} has invalid string lists` |
+
+不能按 UTF-8 解码与不是 JSON 的行照原异常拒绝。读回不修复、不补默认值、不跳过任何一行。

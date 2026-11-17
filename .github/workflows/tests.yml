@@ -62,7 +62,7 @@ jobs:
       - name: Install runtime components
         run: |
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends fonts-noto-cjk libatomic1
+          sudo apt-get install --yes --no-install-recommends libatomic1
           python scripts/bootstrap.py --profile release
       - name: Run the fixed test layer
         env:

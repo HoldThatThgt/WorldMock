@@ -19,7 +19,7 @@ from tests.life.conftest import (
 from tests.life.environment_runtime import act, events, observe_only
 from worldmock.agents.prompt.narration import render_layer_json
 from worldmock.foundation.time.readable import local_date
-from worldmock.runtime.lifecycle.runner import settle_pending_day_plans, settle_pending_memory_digests
+from worldmock.runtime.lifecycle.midnight import settle_pending_day_plans, settle_pending_memory_digests
 from worldmock.simulation_engine.observation.memory.days import day_bound, day_window
 from worldmock.simulation_engine.scheduling.plans import day_plan_inputs
 from worldmock.simulation_engine.scheduling.plans.day_plan_inputs import plan_inputs
@@ -34,7 +34,7 @@ def _evening(persona, config):
 
 
 def _sleep_through(engine, activity_id: str) -> None:
-    """逐边界推进到睡眠的计划结束；零点边界照 LifeEnv.step 先生成当日计划。"""
+    """逐边界推进到睡眠的计划结束；零点边界照运行宿主的零点推进先生成当日计划。"""
     planned_end = engine.context.state.activities[activity_id].planned_end_at
     while engine.context.state.current_time < planned_end:
         advance_next(engine)

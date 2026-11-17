@@ -51,6 +51,29 @@ def engine_factory(tmp_path: Path, frozen_inputs):
         yield create
 
 
+@pytest.fixture
+def host_factory():
+    """把真实运行宿主挂在 engine_factory 建出的真实引擎上：attach(engine, client) 建空的人物工作区，以引擎冻结的人设表
+    与阶段身份为人物冻结输入（回合上限因此是这台引擎冻结的 max_react_turns），记忆从空开始；不走新建或恢复的启动顺序，
+    引擎仍由 engine_factory 在用例结束时关闭。"""
+    from worldmock.agents.life_agent import person_inputs
+    from worldmock.agents.memory.workspace import create_workspaces
+    from worldmock.runtime.lifecycle.run_host import RunHost
+
+    def attach(engine, client) -> RunHost:
+        run_dir = engine.context.store.run_dir
+        manifest = engine.context.store.manifest
+        agent_ids = tuple(manifest["agent_ids"])
+        create_workspaces(run_dir, agent_ids)
+        persona = engine.context.inputs.persona
+        agents = {persona.agent_id: person_inputs(persona, manifest["stage_model_identity"])}
+        host = RunHost(run_dir, engine.context.inputs, client, agents, {agent_id: () for agent_id in agent_ids})
+        host.engine = engine
+        return host
+
+    return attach
+
+
 def _mutated_environment(source: Path, mutate, target: Path) -> Path:
     shutil.copytree(source, target)
     persona = tomlkit.parse((target / "persona.toml").read_text(encoding="utf-8"))

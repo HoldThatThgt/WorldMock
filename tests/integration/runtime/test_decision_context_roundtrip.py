@@ -1,4 +1,4 @@
-from tests.integration.runtime.current_contract_fixtures import profile as current_profile
+from tests.integration.runtime.current_contract_fixtures import inputs, turns_with_history
 """真实人物、环境与足迹边界上的跨轮决策上下文验收。"""
 
 
@@ -7,17 +7,15 @@ from worldmock.agents.prompt.tool_groups import compact_render, expand_tool_laye
 
 import copy
 import json
-from contextlib import nullcontext
-from types import SimpleNamespace
+from dataclasses import replace
 
 import pytest
 
 from tests.engine_fixture import engine_factory as _engine_factory  # noqa: F401
 from tests.life.conftest import advance_next, context, main_arguments, pending_names, stage_day_plan  # noqa: F401
 from tests.integration.runtime.test_life_agent_protocol import _ModelResponse
-from agentsociety2.agent.base import ReactLoopRequest
-from custom.agents.life_agent import LifeAgent
-from custom.envs.life_env import LifeEnv
+from worldmock.agents.life_agent import LifeAgent, person_inputs
+from worldmock.runtime.framework.setup import stage_model_identity
 
 #: 提交世界请求那一次回复的正文（写成 action_requested.data.self_note；不进进度层，只经记忆层「今天」条目的「正文：」进入 user 消息）。
 _REPLY = "我先歇一会儿，再接着做事。"
@@ -36,44 +34,35 @@ class _RoundDispatcher:
             ),
         ]
 
-    async def call(self, **request):
+    async def call(self, request):
         """保存真正发送的请求，返回预定的提供商形状响应。"""
         self.requests.append(copy.deepcopy(request))
         return self.responses.pop(0)
 
 
-def _person(environment, ctx, dispatcher):
-    """把人物绑定到真实环境和本轮宿主身份。"""
-    person = LifeAgent()
-    person._profile = current_profile()
-    person._id = ctx.agent_id
-    person._name = "测试人物"
-    person._profile = {**current_profile(), **{'id': ctx.agent_id, 'name': '测试人物'}}
-    person._env = environment
-    person._dispatcher = dispatcher
-    person._model_name = "test-model"
-    person._decision_context = ctx
-    person._max_react_turns = 3
-    person._enable_memory = False
-    person.trace_span = lambda *args, **kwargs: nullcontext(SimpleNamespace(attributes={}))
-    return person
+def _person(engine, ctx, dispatcher):
+    """把人物绑定到真实引擎；回合上限 3，不做步尾保存。"""
+    identity = stage_model_identity(inputs().config.model, inputs().model_metadata)
+    frozen = replace(person_inputs(inputs().persona, identity), agent_id=ctx.agent_id, name="测试人物",
+                     model_identity={**identity, "max_react_turns": 3})
+    return LifeAgent(frozen, engine, dispatcher, None)
 
 
-async def _decide(environment, ctx, choose):
+async def _decide(engine, ctx, choose):
     """执行一个真实观察与人物循环（choose 按本轮观察给出唯一世界请求），返回观察与发给模型的请求。"""
-    observation = await environment.observe(ctx)
+    observation = engine.observe(ctx)
     dispatcher = _RoundDispatcher(choose(observation))
-    person = _person(environment, ctx, dispatcher)
-    before = environment.engine.context.state.model_dump(mode="json")
-    request = ReactLoopRequest(0, ctx.observed_at, [
-        {"turn": 0, "action": "observe", "ok": True, "data": observation},
-    ])
-    await person.run_react_loop(request)
-    assert environment.engine.context.state.model_dump(mode="json") == before
+    person = _person(engine, ctx, dispatcher)
+    before = engine.context.state.model_dump(mode="json")
+    registered, history = await turns_with_history(person, ctx, observation)
+    assert engine.context.state.model_dump(mode="json") == before
     assert len(dispatcher.requests) == 1
-    assert person._react_messages[-1]["role"] == "assistant"
-    assert person._react_messages[-1]["reasoning_content"]
-    assert request.observations[-1]["data"]["action_id"] == f"{ctx.decision_id}:action:0001"
+    assert history[-1]["role"] == "assistant"
+    assert history[-1]["reasoning_content"]
+    [action] = [event for event in engine.context.store.read_agent_events("action_requested", ctx.agent_id)
+                if event.decision_id == ctx.decision_id]
+    assert [decision.action for decision in registered] == [action.data["tool_name"]]
+    assert action.action_id == f"{ctx.decision_id}:action:0001"
     return observation, dispatcher.requests
 
 
@@ -104,11 +93,9 @@ async def test_real_context_roundtrip_preserves_evidence_and_delays_results(_eng
                         lambda _model, metadata: metadata.context_window)
     engine = _engine_factory()
     stage_day_plan(engine)
-    environment = LifeEnv()
-    environment.engine = engine
     first = context(engine, "context-first")
     engine.begin_decision_round([first])
-    initial, first_requests = await _decide(environment, first, _wait)
+    initial, first_requests = await _decide(engine, first, _wait)
     assert _tool_calls(initial) == []
     results = engine.commit_decision_round(first.round_id)
     assert results[0].status.value == "in_progress"
@@ -116,7 +103,7 @@ async def test_real_context_roundtrip_preserves_evidence_and_delays_results(_eng
 
     second = context(engine, "context-second")
     engine.begin_decision_round([second])
-    feedback, second_requests = await _decide(environment, second, _conclude_just_ended)
+    feedback, second_requests = await _decide(engine, second, _conclude_just_ended)
     [waited_call] = _tool_calls(feedback)
     assert (waited_call["tool"], waited_call["arguments"]) == _wait(initial)
     assert waited_call["result"]["status"] == "completed" and "self_note" not in waited_call

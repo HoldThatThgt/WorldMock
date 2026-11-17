@@ -5,24 +5,15 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "worldmock"
 version = "0.2.0"
-description = "Auditable AS2 life simulation and digital footprint production"
+description = "Auditable life simulation and digital footprint production"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-  "agentsociety2==2.8.7",
   "pydantic==2.12.5",
-  "mcp==1.26.0",
   "litellm==1.89.2",
-  "ray==2.55.1",
-  "mem0ai==2.0.7",
-  "krippendorff==0.8.2",
-  "numpy==2.3.5",
-  "pandas==2.3.3",
-  "scipy==1.16.3",
-  "matplotlib==3.11.1",
   "networkx==3.6.1",
   "jsonschema==4.26.0",
   "requests==2.32.5",
-  "python-dotenv==1.2.1",
+  "tzdata==2026.4",
 ]
 
 [dependency-groups]
@@ -30,19 +21,15 @@ dev = [
     "coverage==7.15.4",
     "pytest==9.1.1",
     "pytest-asyncio==1.4.0",
+    "tomlkit==0.15.1",
 ]
 
 build = [
-    "editables==0.6",
-    "hatchling==1.32.4",
     "setuptools==84.0.0",
 ]
 
 [project.scripts]
 worldmock = "worldmock.cli:main"
-
-[tool.uv.sources]
-agentsociety2 = { path = "vendor/agentsociety2/packages/agentsociety2", editable = true }
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -52,7 +39,7 @@ pythonpath = ["src", "."]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 markers = [
-    "engine: tests with engine factory or direct LifeEngine/LifeEnv imports",
+    "engine: tests with engine factory or direct LifeEngine imports",
     "mutation: isolated source mutation review",
     "day_run: complete persona-day execution",
     "external: tests requiring Node.js",
@@ -61,13 +48,10 @@ markers = [
 [tool.coverage.run]
 branch = true
 relative_files = true
-# 注意：coverage 枚举未执行文件时会剪枝无 __init__.py 的子目录，custom/agents
-# 与 custom/envs 均非包，必须显式列为 source 叶子目录才能计入测量。
-source = ["src/worldmock", "custom/agents", "custom/envs", "tools/analysis"]
+source = ["src/worldmock", "tools/analysis"]
 omit = [
     "*/tests/*",
     "*/scripts/*",
-    "*/vendor/*",
 ]
 
 [tool.coverage.report]

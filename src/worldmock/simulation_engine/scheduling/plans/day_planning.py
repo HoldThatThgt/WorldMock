@@ -1,6 +1,6 @@
 """@brief 零点计划 plan_day 的请求、输出校验、模型证据与系统登记（docs/design/04-simulation-engine.md）。
 
-plan_day 是运行时的独立后台任务（worldmock.runtime.settle_pending_day_plans），不是决策、不调用人物：
+plan_day 是运行时的独立后台任务（worldmock.runtime.lifecycle.midnight.settle_pending_day_plans），不是决策、不调用人物：
 本模块给出请求模板与输出 Schema（模块常量，由 code_sha256 覆盖，不进运行清单的阶段键）、输出不合法时附回的
 英文错误、带 purpose="plan_day" 的 model_request/model_response 证据，以及经引擎系统登记入口与计划一次提交的
 environment_event（data.kind="day_plan_generated"）。幂等键为既有字段 AgentState.plan_submitted_dates。
@@ -79,15 +79,14 @@ def agents_missing_plan(state: WorldState, timezone_name: str) -> list[int]:
 
 
 def prepare_plan_day(payload: dict[str, Any], model_name: str) -> dict[str, Any]:
-    """@brief 形成零点计划请求：中文模板、JSON 输入、唯一严格工具，思考关闭、无内部重试且给出 max_tokens。"""
+    """@brief 形成零点计划请求：中文模板、JSON 输入、唯一严格工具，思考关闭且给出 max_tokens；只含交给模型客户端的六个键。"""
     tool = {"type": "function", "function": {
         "name": PLAN_DAY_TOOL, "strict": True, "description": "Submit today's complete ordered goal list.",
         "parameters": deepseek_strict_schema(PlanDayRequest)}}
     messages = [{"role": "system", "content": PLAN_DAY_PROMPT},
                 {"role": "user", "content": json.dumps(payload, ensure_ascii=False, sort_keys=True)}]
-    return {"model": model_name, "messages": messages, "stream": False, "tools": [tool],
-            "tool_choice": "required", "max_tokens": PLAN_DAY_MAX_TOKENS, "max_retries": 0,
-            "extra_body": {"thinking": {"type": "disabled"}}}
+    return {"model": model_name, "messages": messages, "tools": [tool], "tool_choice": "required",
+            "max_tokens": PLAN_DAY_MAX_TOKENS, "extra_body": {"thinking": {"type": "disabled"}}}
 
 
 def fit_plan_day(payload: dict[str, Any], sentences: Sequence[str], model_name: str,

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import shutil
 from contextlib import nullcontext
 from datetime import datetime
@@ -13,12 +12,10 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
-
 
 if TYPE_CHECKING:
-    from agentsociety2.society import DecisionContext
     from worldmock.simulation_engine.engine import LifeEngine
+    from worldmock.state.decisions.round import DecisionContext
 
 
 
@@ -28,7 +25,7 @@ if TYPE_CHECKING:
 
 def context(engine: LifeEngine, round_id: str, agent_id: int = 1) -> DecisionContext:
     """形成指向当前已提交世界的宿主上下文。"""
-    from agentsociety2.society import DecisionContext
+    from worldmock.state.decisions.round import DecisionContext
 
     observed = datetime.fromtimestamp(engine.context.state.current_time, ZoneInfo(engine.context.config.timezone))
     return DecisionContext(engine.context.state.run_id, round_id, f"decision-{round_id}-{agent_id}",
@@ -53,7 +50,7 @@ def oversleep_identity(engine: LifeEngine, label: str, seconds: int | None = Non
 def stage_day_plan(engine: LifeEngine, agent_id: int = 1, goals: tuple = (), submitted: bool = False) -> None:
     """预置当日计划（只置 day_plan）并保持存储版本连续；submitted 时同时写入当日日期（零点计划的幂等键）。
 
-    用于经 LifeEnv 驱动的测试之前时传 submitted=True，零点计划后台任务就不再为该人物生成计划。
+    用于经运行宿主驱动的测试之前时传 submitted=True，零点计划任务就不再为该人物生成计划。
     """
     from worldmock.recording_engine.events.models import EventDraft
     from worldmock.simulation_engine.scheduling.plans.day_planning import plan_date
@@ -274,7 +271,7 @@ def drive(coroutine):
 def settle_midnight_tasks(engine: LifeEngine, plan_client=None, digest_client=None) -> list[dict]:
     """依次执行零点的后台任务（缺省都用确定性桩）：先回顾，再零点计划，零点边界随后执行零点节律入口；返回零点计划的
     登记摘要。"""
-    from worldmock.runtime.lifecycle.runner import settle_pending_day_plans, settle_pending_memory_digests
+    from worldmock.runtime.lifecycle.midnight import settle_pending_day_plans, settle_pending_memory_digests
 
     model = {"requested_model": engine.context.config.model.requested_model}
     drive(settle_pending_memory_digests(engine, client=digest_client or StubMemoryDigestClient(model)))
@@ -292,7 +289,7 @@ def travel_quote(engine: LifeEngine, mode: str, base_seconds: int) -> int:
 
 def submit_round(engine: LifeEngine, requests: dict[int, tuple[str, object]], round_id: str):
     """按全部就绪人物创建并提交一个真实决策轮。"""
-    from agentsociety2.society import DirectToolCall
+    from worldmock.state.decisions.round import DirectToolCall
 
     ready = engine.scheduling_state().ready_agent_ids
     contexts = [context(engine, round_id, agent_id) for agent_id in ready]
@@ -314,7 +311,7 @@ NIGHT_SLEEP_MINUTES = 450
 
 
 def advance_next(engine: LifeEngine) -> None:
-    """推进到环境报告的下一个严格未来边界；零点边界照 LifeEnv.step 先生成回顾（确定性桩），再生成当日计划（确定性空清单桩），
+    """推进到环境报告的下一个严格未来边界；零点边界照运行宿主的零点推进先生成回顾（确定性桩），再生成当日计划（确定性空清单桩），
     最后判定节律。"""
     state = engine.scheduling_state()
     assert state.next_event_at is not None
@@ -452,7 +449,7 @@ def pending_names(observed: dict) -> list[str]:
 
 def conclude_pending(engine: LifeEngine, round_id: str, agent_id: int = 1):
     """单个就绪人物当秒给全部待收尾活动收尾（第七章「活动一结束就要结束它」），返回本轮动作结果。"""
-    from agentsociety2.society import DirectToolCall
+    from worldmock.state.decisions.round import DirectToolCall
 
     decision = context(engine, round_id, agent_id)
     engine.begin_decision_round([decision])

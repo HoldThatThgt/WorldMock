@@ -7,8 +7,6 @@ import os
 import pytest
 from pydantic import ValidationError
 
-os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
-os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from worldmock.configuration.inputs.models import PersonaConfig
@@ -65,12 +63,12 @@ def test_frozen_persona_identity_reaches_the_native_agent_prompt_as_the_persona_
     specification = creation_inputs(frozen)[0][0]
     profile = specification["profile"]
     person = frozen.persona
-    persona = persona_layer(profile, person.name)
+    persona = persona_layer(profile["persona_card_struct"], person.name)
     layer_names = (("tool_layer", "工具层"), ("memory_layer", "记忆层"), ("todo_layer", "待办层"),
                    ("environment_layer", "环境层"), ("progress_layer", "进度层"))
     observation = {key: {"layer": name} for key, name in layer_names}
     user = json.dumps(life_user_layers(observation, persona), ensure_ascii=False)
-    system = system_message(False)["content"]
+    system = system_message()["content"]
     assert persona["identity"] == {"name": person.name, "age": 32, "occupation": "产品经理",
                                    "living_arrangement": "与伴侣合租两居室"}
     assert [(row["person"], row["role"]) for row in persona["relationships"]] == [("母亲", "家人"), ("老周", "老友")]
@@ -86,11 +84,10 @@ def test_frozen_persona_identity_reaches_the_native_agent_prompt_as_the_persona_
 
 def test_relationship_channels_reach_the_persona_layer_as_the_dataset_wrote_them(tmp_path):
     """@brief 联系渠道不设闭集：数据集写「飞书」「邮件」「写信」这样的词，新建运行的人设层和卡片文本里就是这几个词，
-    重复的词不去重，工作区里的结构化卡片通过恢复核对。"""
+    重复的词不去重。"""
     from tests.life.environment_inputs import copy_environment
     from tests.life.persona_inputs import edit_persona
     from worldmock.agents.prompt.life_persona import persona_layer
-    from worldmock.runtime.lifecycle.runner import _validate_persona_card_struct
 
     def mutate(document):
         document["relationships"][0]["channels"] = ["飞书", "邮件", "飞书"]
@@ -100,12 +97,11 @@ def test_relationship_channels_reach_the_persona_layer_as_the_dataset_wrote_them
     edit_persona(root, mutate)
     loaded = _loaded(root)
     profile = creation_inputs(loaded)[0][0]["profile"]
-    persona = persona_layer(profile, loaded.persona.name)
+    persona = persona_layer(profile["persona_card_struct"], loaded.persona.name)
     assert [(row["person"], row["channels"]) for row in persona["relationships"]] == [
         ("母亲", ["飞书", "邮件", "飞书"]), ("老周", ["写信"])]
     assert "母亲（家人，很亲近，飞书、邮件、飞书联系）" in profile["persona_card"]
     assert "老周（老友，较亲近，写信联系）" in profile["persona_card"]
-    _validate_persona_card_struct(profile, loaded.persona)
 
 
 @pytest.mark.parametrize('field', ('occupation', 'routine_preference',
@@ -132,79 +128,15 @@ def test_initial_agent_state_and_profile_do_not_keep_numeric_tastes():
         AgentState.model_validate({**state.model_dump(mode="python"), "taste_weights": {"content": 1.0}})
 
 
-@pytest.mark.parametrize("profile", [{"taste_weights": {}}, {"taste_weights": {"content": 1.0},
-                                                              "persona_card_struct": None}])
-def test_restored_persona_profile_rejects_retired_taste_weights(profile):
-    """@brief 恢复时直接拒绝旧数值口味，即使没有结构化卡片也不保留。"""
-    from worldmock.foundation.errors import IntegrityError
-    from worldmock.runtime.lifecycle.runner import _validate_persona_card_struct
-
-    with pytest.raises(IntegrityError, match="retired taste weights"):
-        _validate_persona_card_struct(profile, inputs().persona)
-
-
-def _tampered(struct: dict, kind: str) -> object:
-    """把一份结构化卡片改坏一处：返回改过的副本。"""
-    changed = json.loads(json.dumps(struct))
-    if kind == "rounded_window":
-        changed["time_anchors"]["arrive_home"] = {"start_hour": 18.0, "end_hour": 19.0}
-    elif kind == "shifted_bedtime":
-        changed["time_anchors"]["bedtime"] = {"start_hour": 47.5, "end_hour": 48.5}
-    elif kind == "sleep_need":
-        changed["sleep_need_hours"] = 7.5
-    elif kind == "relationship":
-        changed["relationships"][0]["intimacy"] = 3
-    elif kind == "habit":
-        changed["habits"] = []
-    elif kind == "coping":
-        changed["coping"] = "拼高达模型"
-    elif kind == "extra_field":
-        changed["big_five"] = {"extraversion": 6}
-    else:
-        return {"missing": None, "empty": {}, "list": []}[kind]
-    return changed
-
-
-@pytest.mark.parametrize("kind", ["rounded_window", "shifted_bedtime", "sleep_need", "relationship", "habit",
-                                  "coping", "extra_field", "missing", "empty", "list"])
-def test_restored_card_must_equal_the_card_built_from_the_frozen_persona(tmp_path, kind):
-    """@brief 恢复只留一条核对：工作区里的结构化卡片必须与用冻结的 persona.toml 重新构造出的卡片逐值相等；
-    取整过的时段、平移过的就寝、别的睡眠需要、改过的关系习惯或应对方式、多出的字段、缺失或损坏的卡片都停止恢复。"""
-    from worldmock.foundation.errors import IntegrityError
-    from worldmock.runtime.lifecycle.runner import _validate_persona_card_struct
-
-    declared = _declared_inputs(tmp_path, **DECLARED)
-    profile = creation_inputs(declared)[0][0]["profile"]
-    _validate_persona_card_struct(profile, declared.persona)
-    broken = {**profile, "persona_card_struct": _tampered(profile["persona_card_struct"], kind)}
-    with pytest.raises(IntegrityError, match="Restored persona card differs from persona.toml"):
-        _validate_persona_card_struct(broken, declared.persona)
-    for unusable in (None, [], "card"):
-        with pytest.raises(IntegrityError, match="Restored persona card differs from persona.toml"):
-            _validate_persona_card_struct(unusable, declared.persona)
-
-
-def test_a_card_frozen_for_another_persona_table_does_not_restore(tmp_path):
-    """@brief 同一份工作区卡片换一份人设表就不相等：夹具人物的卡片不能恢复到改过作息的人设表上。"""
-    from worldmock.foundation.errors import IntegrityError
-    from worldmock.runtime.lifecycle.runner import _validate_persona_card_struct
-
-    declared = _declared_inputs(tmp_path, **DECLARED)
-    with pytest.raises(IntegrityError, match="Restored persona card differs from persona.toml"):
-        _validate_persona_card_struct(current_profile(), declared.persona)
-    _validate_persona_card_struct(current_profile(), inputs().persona)
-
-
 async def _created_run(tmp_path, native_runtime, run_id: str, **declared):
-    """经真实的运行创建路径（run_world、原生 Society 与工作区）用改过人设表的环境新建一次运行。"""
-    from tests.integration.runtime.current_contract_fixtures import ROOT
+    """经真实的运行创建路径（run_world、运行宿主与人物工作区）用改过人设表的环境新建一次运行。"""
     from tests.life.persona_inputs import declare
     from worldmock.recording_engine.storage.store import FootprintStore
     from worldmock.runtime.lifecycle.runner import RunRequest, run_world
 
     root, _, models = native_runtime
     declare(root, **declared)
-    result = await run_world(RunRequest(ROOT, root, tmp_path / run_id, run_id, run_id))
+    result = await run_world(RunRequest(root, tmp_path / run_id, run_id, run_id))
     store = FootprintStore(result.run_dir)
     try:
         events = list(store.iter_events(store.last_event_seq))
@@ -212,10 +144,12 @@ async def _created_run(tmp_path, native_runtime, run_id: str, **declared):
     finally:
         store.close()
     assert not any(event.event_type == "run_failed" for event in events)
-    profile = json.loads((result.run_dir / "as2/agents/agent_0001/AGENT.json").read_text(encoding="utf-8"))["profile"]
+    workspace = result.run_dir / "agents" / "agent_0001"
+    assert sorted(path.relative_to(workspace).as_posix() for path in workspace.rglob("*") if path.is_file()) == [
+        "MEMORY.md", "memory/episodes.jsonl"]
     plan = next(event.data["request"] for event in events
                 if event.event_type == "model_request" and event.data.get("purpose") == "plan_day")
-    return {"root": root, "result": result, "events": events, "manifest": manifest, "profile": profile,
+    return {"root": root, "result": result, "events": events, "manifest": manifest,
             "plan": json.dumps(plan, ensure_ascii=False), "models": models,
             "persona_layer": _sent_persona_layer(models[0].requests[0])}
 
@@ -246,9 +180,7 @@ async def test_new_run_makes_no_model_request_for_the_persona_and_shows_the_tabl
     应对方式。新建运行不为人物卡片调用模型：独立模型客户端一旦被构造或调用就让运行失败，落库的模型请求只有零点计划和
     人物自己的决策；落库的零点计划请求里午饭、到家、就寝时段是人设表写的同一分钟；工作区里的卡片、清单的习惯反应文本
     都来自人设表，运行能从检查点恢复。"""
-    from tests.integration.runtime.current_contract_fixtures import ROOT
     from worldmock.configuration.model import model_metadata as model_endpoint
-    from worldmock.configuration.persona.persona_card import persona_card, persona_card_struct
     from worldmock.runtime.lifecycle.runner import ResumeRequest, resume_world
 
     def refuse(*arguments, **keywords):
@@ -258,7 +190,6 @@ async def test_new_run_makes_no_model_request_for_the_persona_and_shows_the_tabl
     monkeypatch.setattr(model_endpoint.IndependentModelClient, "call", refuse)
     run = await _created_run(tmp_path, native_runtime, "persona-parent", **DECLARED)
     loaded = _loaded(run["root"])
-    persona = loaded.persona
     layer = run["persona_layer"]
     assert layer["rhythm"] == DECLARED_RHYTHM and layer["coping"] == "去江边散步"
     assert layer["identity"] == {"name": "林舟", "age": 32, "occupation": "产品经理",
@@ -266,7 +197,6 @@ async def test_new_run_makes_no_model_request_for_the_persona_and_shows_the_tabl
     assert [row["response"] for row in layer["habits"]] == ["公园慢跑半小时", "读几页小说"]
     assert layer["tastes"] == {"content_genres": ["悬疑", "纪录片"], "food_preferences": ["川菜", "面食"],
                                "media": ["长视频", "短视频"]}
-    assert run["profile"]["persona_card_struct"] == persona_card_struct(persona_card(persona))
     assert run["manifest"]["persona_habit_responses"] == {"1": ["公园慢跑半小时", "读几页小说"]}
     assert "world_dynamics" not in run["manifest"] and run["manifest"]["input_warnings"] == []
     requests = [event for event in run["events"] if event.event_type == "model_request"]
@@ -279,34 +209,44 @@ async def test_new_run_makes_no_model_request_for_the_persona_and_shows_the_tabl
 
     checkpoint = next(event.data["checkpoint_id"] for event in run["events"]
                       if event.event_type == "checkpoint_created")
-    restored = await resume_world(ResumeRequest(ROOT, run["root"], run["result"].run_dir, checkpoint,
+    restored = await resume_world(ResumeRequest(run["root"], run["result"].run_dir, checkpoint,
                                                 tmp_path / "persona-child"))
     assert restored.current_time == loaded.config.stop_time
 
 
 @pytest.mark.asyncio
-async def test_memory_view_identity_is_the_card_text_rendered_from_the_persona_table(tmp_path):
-    """@brief 卡片文本这一处：真实 LifeAgent 的记忆运行时做一次步尾，工作区 MEMORY.md 的「## 身份」段逐行以「> 」引用的
-    就是由 persona.toml 构造的卡片渲染出的文本，时刻写到分钟；人物档案里保存的也是同一段文本。"""
-    from agentsociety2.agent.memory_runtime import MemoryRuntimeConfig
-    from custom.agents.life_agent import LifeAgent
+async def test_the_persona_layer_name_is_the_persona_table_name_on_new_and_resumed_runs(tmp_path, native_runtime):
+    """@brief 名字这一处：persona.toml 写首尾带空格的名字，经 run_world 新建、resume_world 从检查点恢复，两条运行第一个
+    生活决策请求的人设层 identity.name 都恰为人设表里的原字符串，不去空白、不改写。"""
+    from worldmock.runtime.lifecycle.runner import ResumeRequest, resume_world
+
+    run = await _created_run(tmp_path, native_runtime, "named-parent", name=" 林舟 ")
+    assert run["persona_layer"]["identity"]["name"] == " 林舟 "
+    checkpoint = next(event.data["checkpoint_id"] for event in run["events"]
+                      if event.event_type == "checkpoint_created")
+    await resume_world(ResumeRequest(run["root"], run["result"].run_dir, checkpoint, tmp_path / "named-child"))
+    assert len(run["models"]) == 2
+    assert _sent_persona_layer(run["models"][1].requests[0])["identity"]["name"] == " 林舟 "
+
+
+def test_memory_view_identity_is_the_card_text_rendered_from_the_persona_table(tmp_path):
+    """@brief 卡片文本这一处：由 persona.toml 建出的冻结输入里的卡片文本经步尾保存写进临时工作区，MEMORY.md 的「## 身份」
+    段逐行以「> 」引用的就是由 persona.toml 构造的卡片渲染出的文本，时刻写到分钟。"""
     from datetime import datetime, timezone
-    from worldmock.agents.memory.life_memory import WorldMockMemoryRuntime
+    from worldmock.agents.life_agent import person_inputs
+    from worldmock.agents.memory.life_memory import MemoryStep, save_step
+    from worldmock.agents.memory.life_memory_store import WorldMockMemoryStore
     from worldmock.configuration.persona.persona_card import persona_card
     from worldmock.configuration.persona.persona_text import render_card
+    from worldmock.runtime.framework.setup import stage_model_identity
 
     declared = _declared_inputs(tmp_path, **DECLARED)
-    profile = creation_inputs(declared)[0][0]["profile"]
-    agent = LifeAgent()
-    agent._id, agent._name, agent._profile, agent._model_name = 1, "林舟", profile, "test-model"
-    agent.trace_span = None
-    agent._life_verified_experiences, agent._life_observation_event_id = [], "observation-identity"
-    runtime = WorldMockMemoryRuntime(agent, MemoryRuntimeConfig())
-    store = runtime.ensure_store(tmp_path / "memory")
+    frozen = person_inputs(declared.persona, stage_model_identity(declared.config.model, declared.model_metadata))
+    store = WorldMockMemoryStore(tmp_path / "memory", 1, ())
     moment = datetime(2026, 1, 5, 8, 0, tzinfo=timezone.utc)
-    await runtime.after_step(tick=60, t=moment, step_count=1, finish_memories=[])
+    save_step(store, MemoryStep(frozen.persona_card.strip(), (), "observation-identity", (), moment))
     card = render_card(persona_card(declared.persona))
-    assert profile["persona_card"] == card
+    assert frozen.persona_card == card
     view = store.memory_md_path.read_text(encoding="utf-8")
     identity = view.split("## 身份\n", 1)[1].split("\n\n## 已核验经历", 1)[0]
     assert identity == "\n".join("> " + line for line in card.splitlines())
@@ -403,7 +343,7 @@ def _persona_rhythm(loaded) -> dict:
     from worldmock.agents.prompt.life_persona import persona_layer
 
     profile = creation_inputs(loaded)[0][0]["profile"]
-    return persona_layer(profile, loaded.persona.name)["rhythm"]
+    return persona_layer(profile["persona_card_struct"], loaded.persona.name)["rhythm"]
 
 
 @pytest.mark.asyncio
@@ -411,7 +351,6 @@ async def test_a_table_whose_card_text_exceeds_the_budget_is_refused_before_a_ru
     """@brief 600 汉字预算在加载人设表时检查，不截断：口味里写成长句的人设表被完整环境加载、纯校验和新建运行以同一条
     PERSONA_INVALID 拒绝，原因写出实际的汉字数；新建运行在创建运行目录之前就停下。"""
     from tests.frozen_inputs import fixture_metadata
-    from tests.integration.runtime.current_contract_fixtures import ROOT
     from worldmock.foundation.errors import EnvironmentInputError
     from worldmock.runtime.lifecycle.runner import RunRequest, run_world
     from worldmock.configuration.inputs.validation import validate_environment
@@ -425,7 +364,7 @@ async def test_a_table_whose_card_text_exceeds_the_budget_is_refused_before_a_ru
     assert validate_environment(root, metadata_loader=fixture_metadata) == {
         "valid": False, "errors": [{"path": "persona.toml", "code": "PERSONA_INVALID", "reason": reason}]}
     with pytest.raises(EnvironmentInputError) as refused:
-        await run_world(RunRequest(ROOT, root, tmp_path / "over-budget", "over-budget", "over-budget"))
+        await run_world(RunRequest(root, tmp_path / "over-budget", "over-budget", "over-budget"))
     assert (refused.value.code, refused.value.reason) == ("PERSONA_INVALID", reason)
     assert not (tmp_path / "over-budget").exists()
 
@@ -453,7 +392,7 @@ def test_formerly_rejected_windows_reach_the_persona_layer_and_the_plan_as_writt
     root = _declared_environment(tmp_path, **declared)
     loaded = _loaded(root)
     profile = creation_inputs(loaded)[0][0]["profile"]
-    rhythm = persona_layer(profile, loaded.persona.name)["rhythm"]
+    rhythm = persona_layer(profile["persona_card_struct"], loaded.persona.name)["rhythm"]
     assert {name: rhythm[name] for name in layer} == layer
     assert all(text in profile["persona_card"] for text in layer.values())
     anchors = profile["persona_card_struct"]["time_anchors"]

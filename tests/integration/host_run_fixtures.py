@@ -1,6 +1,7 @@
-"""@brief 真实宿主运行：真实引擎、SQLite、LifeEnv 与直接导入的 LifeAgent，只替换远程模型传输。
+"""@brief 真实宿主运行：真实引擎、SQLite 与直接导入的 LifeAgent，只替换远程模型传输。
 
-人物的每一步都走生产的 LifeAgent.step：取本次决策唯一的一份观察，随后是决策循环与步尾的记忆收尾；人物一侧不调用别的模型。
+人物的每一步都走生产的 LifeAgent.decide：取本次决策唯一的一份观察，随后是回合循环与步尾的记忆保存；人物一侧不调用别的模型。
+每个决策新建一个 LifeAgent，整次运行共用冻结输入、记忆存储与脚本模型。
 脚本模型只答行动请求（工具含 start_main_activity）；收到别的请求就是宿主发出了不该发的模型调用，当场失败。
 """
 
@@ -12,11 +13,10 @@ from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 
-from custom.agents.life_agent import LifeAgent
-from custom.envs.life_env import LifeEnv
-from tests.integration.runtime.current_contract_fixtures import profile as current_profile
 from tests.integration.runtime.test_life_agent_protocol import _ModelResponse
 from tests.life.conftest import MAIN_TOOL, advance_next, context, main_arguments, stage_day_plan
+from worldmock.agents.life_agent import LifeAgent, PersonInputs, person_inputs
+from worldmock.agents.memory.life_memory_store import WorldMockMemoryStore, read_episodes
 from worldmock.simulation_engine.activities.lifecycle.activity_control import is_pending_conclusion
 
 #: 行动回复的正文（登记成世界请求的自述）与思考。
@@ -46,7 +46,7 @@ class DayModel:
         """某一种请求（只有 action）按先后的原样内容。"""
         return [request for name, request in self.requests if name == kind]
 
-    async def call(self, **request):
+    async def call(self, request):
         """只答行动请求并返回脚本响应。"""
         if MAIN_TOOL not in tool_names(request):
             raise AssertionError("LifeAgent sent a non-action model request")
@@ -57,11 +57,10 @@ class DayModel:
 
 
 class HostRun:
-    """一个真实运行上的人物：每次决策开一轮、走 LifeAgent.step、再结算；label 是决策身份的前缀。"""
+    """一个真实运行上的人物：每次决策开一轮、新建 LifeAgent 走一次 decide、再结算；label 是决策身份的前缀。"""
 
-    def __init__(self, engine, agent: LifeAgent, model: DayModel, label: str) -> None:
-        self.engine, self.agent, self.model, self.label = engine, agent, model, label
-        self.environment = agent._env
+    def __init__(self, engine, inputs: PersonInputs, store: WorldMockMemoryStore, model: DayModel, label: str) -> None:
+        self.engine, self.inputs, self.store, self.model, self.label = engine, inputs, store, model, label
         self.rounds = 0
 
     def events(self, event_type: str | None = None, decision=None) -> list:
@@ -72,19 +71,20 @@ class HostRun:
                 and (decision is None or event.decision_id == decision.decision_id)]
 
     async def open(self):
-        """在当前时刻开一轮并把决策上下文绑到人物上。"""
+        """在当前时刻开一轮，返回本轮唯一的决策上下文。"""
         self.rounds += 1
         decision = context(self.engine, f"{self.label}-{self.rounds}")
-        await self.environment.begin_decision_round((decision,))
-        self.agent.bind_decision_context(decision)
+        self.engine.begin_decision_round([decision])
         return decision
 
     async def decide(self, tool: str, arguments: dict):
-        """一次完整的决策：开轮、人物走一步（脚本模型以给定的世界请求作答）、结算；返回决策上下文与结果。"""
+        """一次完整的决策：开轮、新建 LifeAgent 走完观察、回合与步尾保存（脚本模型以给定的世界请求作答）、结算；
+        返回决策上下文与结果。"""
         decision = await self.open()
         self.model.actions.append((tool, arguments))
-        await self.agent.step(0, decision.observed_at)
-        (result,) = await self.environment.commit_decision_round(decision.round_id)
+        agent = LifeAgent(self.inputs, self.engine, self.model, self.store)
+        await agent.decide(decision)
+        (result,) = self.engine.commit_decision_round(decision.round_id)
         return decision, result
 
     async def conclude(self, *memories: dict):
@@ -123,17 +123,11 @@ class HostRun:
 
 
 async def host_run(engine, workspace: Path, label: str = "host", create: bool = True) -> HostRun:
-    """在真实引擎上备好 LifeEnv 与直接导入的 LifeAgent；create 为假时从已有的人物工作区恢复。"""
-    environment = LifeEnv()
-    environment.engine = engine
-    if create:
-        LifeAgent.create(workspace, current_profile(),
-                         {"enable_memory": True, "enable_todo_list": False, "max_react_turns": 16})
-    model = DayModel()
-    service = SimpleNamespace(env=environment, llm=SimpleNamespace(default=model), trace=None)
-    agent = await LifeAgent.from_workspace(workspace, service)
-    assert type(agent) is LifeAgent
-    return HostRun(engine, agent, model, label)
+    """在真实引擎上备好冻结输入与记忆存储；create 为假时从已有的人物工作区读回条目。"""
+    inputs = person_inputs(engine.context.inputs.persona, engine.context.store.manifest["stage_model_identity"])
+    records = () if create else read_episodes(workspace, inputs.agent_id)
+    store = WorldMockMemoryStore(workspace, inputs.agent_id, records)
+    return HostRun(engine, inputs, store, DayModel(), label)
 
 
 def _evening(persona, config) -> None:
@@ -143,8 +137,8 @@ def _evening(persona, config) -> None:
 
 
 async def waking_decision(engine_factory, tmp_path, note: str | None = "这一晚歇得很踏实。") -> SimpleNamespace:
-    """真实引擎上先写下一条记忆、再睡完一夜，开出当天第一次睡醒的那一轮决策，并备好真实 LifeEnv 与直接导入的
-    LifeAgent；脚本模型排好给刚醒的这段睡眠收尾。note 为 None 时人物睡前什么都没写下。"""
+    """真实引擎上先写下一条记忆、再睡完一夜，开出当天第一次睡醒的那一轮决策，并为这一次决策新建直接导入的 LifeAgent
+    （引擎就是人物拿到的句柄）；脚本模型排好给刚醒的这段睡眠收尾。note 为 None 时人物睡前什么都没写下。"""
     engine = engine_factory(mutate=_evening)
     stage_day_plan(engine, submitted=True)
     run = await host_run(engine, tmp_path / "people" / "agent_0001")
@@ -155,5 +149,5 @@ async def waking_decision(engine_factory, tmp_path, note: str | None = "这一�
     name = engine.context.state.activities[slept].name
     run.model.actions.append(("conclude_activity", {"items": [
         {"activity_name": name, "summary": "睡醒了。", "memories": [], "views": []}], "errands": []}))
-    return SimpleNamespace(engine=engine, environment=run.environment, agent=run.agent, decision=decision,
-                           model=run.model, slept=slept)
+    agent = LifeAgent(run.inputs, engine, run.model, run.store)
+    return SimpleNamespace(engine=engine, agent=agent, decision=decision, model=run.model, slept=slept)

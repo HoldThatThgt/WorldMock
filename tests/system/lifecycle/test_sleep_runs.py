@@ -9,8 +9,6 @@ from datetime import datetime
 
 import pytest
 
-os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
-os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from tests.footprints.recording import artifact_rows
@@ -19,6 +17,7 @@ from tests.integration.runtime_fixtures import write_agent_workspace
 from tests.life.conftest import advance_next, oversleep_identity, sleep, stage_day_plan, travel
 from tests.life.environment_runtime import act, finish_activity, run_to_end
 from tools.analysis.behavior.metrics import behavior_metrics_report
+from worldmock.recording_engine.events.memory_evidence import MEMORY_UPDATE_KEYS
 from worldmock.recording_engine.storage.checkpoint import restore_branch, restore_directory, snapshot_directory
 from worldmock.recording_engine.export.export import export_run
 from worldmock.recording_engine.validation.validation import validate_export
@@ -134,7 +133,7 @@ def test_oversleep_survives_a_mid_sleep_checkpoint_and_a_rerun_draws_the_same_ex
 async def test_run_with_naps_exports_clean_memory_sources_and_makes_no_memory_model_call(engine_factory, tmp_path):
     """多日运行含午睡，人物每一步都走真实的 LifeAgent：原运行与从睡醒那一秒、第一次决策之前的检查点恢复的分支，脚本
     模型都只收到行动请求；运行到截止后导出的质量报告里 consolidation、reflection 两类调用都是 0，每条 memory_updated
-    都是步尾登记（reflection 为 null、consolidated 为 false），记忆来源没有问题，核对的写入点恰为三次带记忆的收尾。"""
+    都是步尾登记（数据恰为 MEMORY_UPDATE_KEYS 的十一个键），记忆来源没有问题，核对的写入点恰为三次带记忆的收尾。"""
     engine = engine_factory(mutate=_evening)
     stage_day_plan(engine, submitted=True)
     workspace = tmp_path / "people" / "agent_0001"
@@ -185,8 +184,7 @@ async def test_run_with_naps_exports_clean_memory_sources_and_makes_no_memory_mo
     plans = sum(row["event_type"] == "model_request" and row["data"].get("purpose") == "plan_day" for row in events)
     assert rows["plan_day"]["request_events"] == plans and plans > 0
     updates = [row for row in events if row["event_type"] == "memory_updated"]
-    assert updates and all(row["data"]["reflection"] is None and row["data"]["consolidated"] is False
-                           for row in updates)
+    assert updates and all(set(row["data"]) == set(MEMORY_UPDATE_KEYS) for row in updates)
     memory_references = quality["memory_references"]
     assert memory_references["problems"] == [] and memory_references["problem_count"] == 0
     assert memory_references["write_points_checked"] == 3

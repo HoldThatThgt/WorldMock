@@ -2,10 +2,10 @@
 """掩码完整日比较：在基与头两个检出里各录活动日与回调日，比较只屏蔽代码身份的行为签名。
 
 @file     compare_complete_days.py
-@brief    每一侧用自己的代码与测试助手录制（子进程只从这一侧的 src、根目录与恢复的 AS2 源码导入）。签名相等即
-          equal；不等时若给了 --rule，就用 compare_runs 在声明的重建规则下逐项比较两侧的运行与导出，两种完整日都
-          相等即 equal_under_rules；否则 different，并附上 compare_runs 报告给出叶子路径。设计见
-          docs/design/01-architecture.md「工程验证」。
+@brief    每一侧用这一侧引导出来的虚拟环境（<根>/.venv）与这一侧的代码、测试助手录制，子进程只从这一侧的 src 与
+          根目录导入，两侧依赖锁可以不同。签名相等即 equal；不等时若给了 --rule，就用 compare_runs 在声明的重建规则
+          下逐项比较两侧的运行与导出，两种完整日都相等即 equal_under_rules；否则 different，并附上 compare_runs 报告
+          给出叶子路径。设计见 docs/design/01-architecture.md「工程验证」。
 
 用法：
   python scripts/compare_complete_days.py --base-root BASE --head-root HEAD --work WORK [--rule NAME[=B:H] ...]
@@ -27,14 +27,13 @@ if str(ROOT) not in sys.path:
 
 from scripts.compare_runs import (  # noqa: E402
     Chain, ComparisonError, Options, Side, compare, parse_rules, write_report)
-from scripts.recorded_response_run import AS2_SOURCE, as2_location, project_pythonpath  # noqa: E402
+from scripts.bootstrap_environment import environment_python  # noqa: E402
+from scripts.recorded_response_run import project_pythonpath  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
 #: 两份完整日。
 KINDS = ("activity", "callback")
-#: 两侧必须逐字节相同的依赖锁。
-LOCKS = ("uv.lock", "requirements/lock.txt")
 #: 行为录制入口（相对检出根）。
 RECORDER = Path("tests/life/behaviour_day.py")
 #: 一侧录制的时限（秒）。
@@ -49,33 +48,32 @@ def _refuse(message: str) -> ComparisonError:
     return ComparisonError(message)
 
 
+def side_python(root: Path) -> Path:
+    """@brief 一侧自己引导出来的解释器：environment_python(<根>/.venv)。"""
+    return environment_python(Path(root) / ".venv")
+
+
 def side_environment(root: Path) -> dict[str, str]:
-    """@brief 一侧子进程只导入这一侧的代码：PYTHONPATH 是这一侧的 src、根目录与 AS2 包目录。"""
+    """@brief 一侧子进程只导入这一侧的代码：PYTHONPATH 是这一侧的 src 与根目录。"""
     return {**os.environ, "PYTHONPATH": project_pythonpath(Path(root).resolve()), "PYTHONUTF8": "1",
             "PYTHONDONTWRITEBYTECODE": "1"}
 
 
 def require_comparable_roots(base: Path, head: Path) -> None:
-    """@brief 两个检出必须同锁、各有 AS2 源码与录制入口，且各自的 AS2 从自己的检出导入。"""
-    for name in LOCKS:
-        if (Path(base) / name).read_bytes() != (Path(head) / name).read_bytes():
-            raise _refuse("Base and head use different dependency locks; record each side in its own environment")
+    """@brief 两个检出各有自己引导出来的解释器与录制入口，否则以 ComparisonError 拒绝。"""
     for root in (Path(base), Path(head)):
-        if not (root / AS2_SOURCE).is_dir():
-            raise _refuse(f"Root {root} has no restored AS2 source; run scripts/bootstrap.py there")
+        python = side_python(root)
+        if not python.is_file():
+            raise _refuse(f"Root {root} has no bootstrapped environment at {python}; run scripts/bootstrap.py there")
         if not (root / RECORDER).is_file():
             raise _refuse(f"Root {root} has no behaviour recorder (tests/life/behaviour_day.py)")
-        locations = as2_location(root, side_environment(root))
-        if len(locations) != 1 or not locations[0].resolve().is_relative_to(root.resolve()):
-            location = ", ".join(str(item) for item in locations) or "nowhere"
-            raise _refuse(f"Root {root} imports AS2 from {location}")
 
 
 def record_side(root: Path, case_root: Path) -> dict:
-    """@brief 在一侧检出里录两份完整日并读回签名。"""
+    """@brief 在一侧检出里用这一侧的解释器录两份完整日并读回签名。"""
     output = case_root / "behaviour.json"
     log = case_root.parent / f"{case_root.name}.log"
-    command = [sys.executable, "-P", "-m", "tests.life.behaviour_day", "--case-root", str(case_root),
+    command = [str(side_python(root)), "-P", "-m", "tests.life.behaviour_day", "--case-root", str(case_root),
                "--output", str(output)]
     case_root.parent.mkdir(parents=True, exist_ok=True)
     with log.open("wb") as stream:

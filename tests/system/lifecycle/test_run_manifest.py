@@ -2,11 +2,13 @@
 import copy
 import pytest
 from tests.integration.runtime.current_contract_fixtures import inputs, metadata_service
-from tests.integration.runtime_fixtures import current_run_identity
+from tests.integration.runtime_fixtures import OfflineClient, new_run
 from tests.data_paths import ENVIRONMENT_ROOT
+from tests.life.conftest import StubPlanDayClient
 from worldmock.foundation.errors import IntegrityError
 from worldmock.runtime.framework.setup import stage_model_identity, validate_stage_model_identity
-from custom.envs.life_env import LifeEnv
+from worldmock.runtime.lifecycle import midnight
+from worldmock.runtime.lifecycle.runner import RunRequest, _prepare_new_run
 
 @pytest.mark.parametrize("field", ["transport_max_retries", "max_react_turns", "reflection_validation_max_retries",
                                    "day_plan_validation_max_retries"])
@@ -27,11 +29,11 @@ def test_manifest_model_budgets_refuse_incomplete_or_invalid_values(field, chang
 async def test_native_environment_manifest_contains_full_declared_service_identity(tmp_path, monkeypatch):
     frozen = inputs()
     metadata_service(monkeypatch, frozen)
-    env = LifeEnv(environment_root=str(ENVIRONMENT_ROOT), run_dir=str(tmp_path / "run"),
-                  run_identity=current_run_identity(frozen, "manifest").model_dump(mode="json"))
-    await env.init(frozen.config.start_time)
+    monkeypatch.setattr(midnight, "PlanDayClient", lambda client, identity: StubPlanDayClient(identity))
+    prepared = _prepare_new_run(RunRequest(ENVIRONMENT_ROOT, tmp_path / "run", "manifest", "manifest"))
+    host = await new_run(prepared, OfflineClient())
     try:
-        manifest = env.engine.context.store.manifest
+        manifest = host.engine.context.store.manifest
         assert manifest["schema_version"] == 7
         listed = [entry.path for entry in frozen.catalog.manifest.files]
         assert listed == ["app-catalog.jsonl", "content-catalog.jsonl", "location.jsonl", "merchant-catalog.jsonl",
@@ -47,4 +49,4 @@ async def test_native_environment_manifest_contains_full_declared_service_identi
         assert "api_key_env" not in manifest["stage_model_identity"]
         assert manifest["agent_ids"] == [1]
     finally:
-        await env.close()
+        await host.close()

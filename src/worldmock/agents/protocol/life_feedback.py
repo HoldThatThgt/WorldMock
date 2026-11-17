@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, replace
 from typing import Any, NamedTuple
 
 from pydantic import BaseModel, ValidationError
@@ -14,17 +15,13 @@ from worldmock.state.interaction.request_errors import argument_report
 
 FEEDBACK_INSTRUCTION = "No world action was registered. Correct the reported parameters and submit again."
 
-class HostFeedback(str):
-    """@brief 英文证据字符串同时持有完整的结构化错误。"""
+
+@dataclass(frozen=True, slots=True)
+class ProtocolFeedback:
+    """@brief 宿主协议纠错：五字段错误结构与写进证据 error 的英文文字。"""
 
     report: ErrorReport
-
-    def __new__(cls, text: str, report: ErrorReport | None = None) -> "HostFeedback":
-        """@brief 复制时保留实例字典中的结构化合同。"""
-        feedback = super().__new__(cls, text)
-        if report is not None:
-            feedback.report = report
-        return feedback
+    text: str
 
 
 class HostIssue(NamedTuple):
@@ -35,13 +32,14 @@ class HostIssue(NamedTuple):
     detail: str
 
 
-def host_feedback(report: ErrorReport, detail: str) -> HostFeedback:
+def host_feedback(report: ErrorReport, detail: str) -> ProtocolFeedback:
     """@brief 错误日志和模型反馈从同一结构产生。"""
     logging.error("Life tool protocol rejected: %s: %s", report.error_code, detail)
-    return HostFeedback(f"{report.error_code}: {detail}", report)
+    return ProtocolFeedback(report, f"{report.error_code}: {detail}")
 
 
-def merged_feedback(issues: Sequence[HostIssue], total: int, fixes: Mapping[str, str] | None = None) -> HostFeedback:
+def merged_feedback(issues: Sequence[HostIssue], total: int,
+                    fixes: Mapping[str, str] | None = None) -> ProtocolFeedback:
     """@brief 所有独立错误按参数顺序保留，不因错误类别截断。"""
     items = tuple(issue.item for issue in issues)
     table = {item.error_code: host_defaults(item.error_code)[1] for item in items} | dict(fixes or {})
@@ -50,24 +48,26 @@ def merged_feedback(issues: Sequence[HostIssue], total: int, fixes: Mapping[str,
     return host_feedback(report, "; ".join(issue.detail for issue in issues))
 
 
-def argument_feedback(tool: str, error: ValidationError, model: type[BaseModel], arguments: Any) -> HostFeedback:
+def argument_feedback(tool: str, error: ValidationError, model: type[BaseModel], arguments: Any) -> ProtocolFeedback:
     """@brief 保留全部 Pydantic loc、原值、有限枚举及明确格式条件。"""
     return host_feedback(argument_report(tool, error, model, arguments), f"Invalid {tool} arguments.")
 
 
-def feedback_report(error: str) -> ErrorReport:
-    """@brief 只消费生成时保留的结构，拒绝从旧日志字符串重建错误。"""
-    if not isinstance(error, HostFeedback) or not isinstance(getattr(error, "report", None), ErrorReport):
-        logging.error("Tool protocol feedback is missing its structured error report")
-        raise TypeError("Tool protocol feedback requires a structured error report")
-    return error.report
+def stage_feedback(code: str, path: tuple) -> ProtocolFeedback:
+    """@brief 服务和证据异常明确指出失败阶段与调用位置，不虚构参数或执行结果。"""
+    report = host_report(code)
+    item = ErrorItem(path, None, code, expected=report.fix, why=report.reason)
+    return host_feedback(replace(report, items=(item,)), report.reason)
+
+
+def stage_error(code: str, path: tuple) -> RuntimeError:
+    """@brief 阶段失败的异常：文字是阶段纠错的证据文字，同一份纠错结构挂在属性 feedback 上。"""
+    feedback = stage_feedback(code, path)
+    error = RuntimeError(feedback.text)
+    error.feedback = feedback
+    return error
 
 
 def report_content(report: ErrorReport) -> str:
     """@brief 由错误结构直接编出模型收到的纠错正文：完整五字段错误加固定英文修正指示；不写日志。"""
     return json.dumps({**report.payload(), "instruction": FEEDBACK_INSTRUCTION}, ensure_ascii=False)
-
-
-def feedback_content(error: str) -> str:
-    """@brief 模型收到完整五字段错误和固定英文修正指示。"""
-    return report_content(feedback_report(error))

@@ -11,8 +11,8 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
-from agentsociety2.agent.base import ModelCallEvidence
-from agentsociety2.society import DirectToolCall
+from worldmock.state.decisions.round import DirectToolCall
+from worldmock.state.model.exchange import ModelCallEvidence
 
 from tests.life.conftest import (
     activity_name,

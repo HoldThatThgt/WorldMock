@@ -322,16 +322,21 @@ def test_renderer_and_label_report_use_manifest_timezone_and_real_local_day(zone
     assert workload_metrics._days(timeline, zone_info) == [day]
 
 
-def test_independent_reflection_snapshot_is_valid_across_memory_quality_and_behavior():
+def test_a_reflection_sourced_snapshot_is_rejected_across_memory_quality_and_behavior():
+    """带第五个键 source=reflection 的快照在记忆证据、质量报告与行为工具三处都不是合法的主观快照（行为工具记一条畸形）；
+    去掉 source 的四键快照三处都合法。"""
     from worldmock.recording_engine.reports import quality
 
     episode = {'id': 'reflection', 'type': 'reflection', 'text': '睡前想了想',
                'epistemic_status': 'subjective', 'source': 'reflection'}
-    assert _memory_evidence_valid_subjective_snapshot(episode)
-    assert _memory_evidence_valid_subjective_snapshots([episode], ['reflection'])
-    assert quality.valid_subjective_snapshots([episode], ['reflection'])
-    assert behavior_metrics._episode_pairs([{'event_type': 'memory_updated', 'data': {'episodes': [episode]}}])[-1] == 0
-    assert not _memory_evidence_valid_subjective_snapshot({**episode, 'source': 'activity_conclusion'})
+    assert not _memory_evidence_valid_subjective_snapshot(episode)
+    assert not _memory_evidence_valid_subjective_snapshots([episode], ['reflection'])
+    assert not quality.valid_subjective_snapshots([episode], ['reflection'])
+    assert behavior_metrics._episode_pairs([{'event_type': 'memory_updated', 'data': {'episodes': [episode]}}])[-1] == 1
+    plain = {key: value for key, value in episode.items() if key != 'source'}
+    assert _memory_evidence_valid_subjective_snapshot(plain)
+    assert quality.valid_subjective_snapshots([plain], ['reflection'])
+    assert behavior_metrics._episode_pairs([{'event_type': 'memory_updated', 'data': {'episodes': [plain]}}])[-1] == 0
 
 
 def test_value_error_rejection_logs_once_and_preserves_message(caplog):

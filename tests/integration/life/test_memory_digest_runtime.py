@@ -1,5 +1,6 @@
 """日、月、年回顾经真实引擎与 SQLite 生成（docs/design/06-agent.md「日、月、年回顾」）：零点任务经生产入口
-runtime.settle_pending_memory_digests 执行，客户端是确定性桩 StubMemoryDigestClient 或换掉 Router 的真实 MemoryDigestClient。
+midnight.settle_pending_memory_digests 执行，客户端是确定性桩 StubMemoryDigestClient 或只换掉 litellm 发送的真实模型客户端，
+都由真实 MemoryDigestClient 包装。
 
 除非用例另说，零点推进之后只由用例自己调用回顾任务：_live 逐边界推进时不跑任何零点任务，_finish_midnight 只跑零点计划
 与节律。
@@ -15,7 +16,7 @@ from pathlib import Path
 import pytest
 from litellm.exceptions import APIConnectionError
 
-import worldmock.runtime.lifecycle.runner as runtime
+import worldmock.runtime.lifecycle.midnight as midnight
 from tests.integration.life.test_opslog import _records
 from tests.integration.runtime_fixtures import write_agent_workspace
 from tests.life.conftest import (
@@ -38,7 +39,8 @@ from tests.life.conftest import (
 from tests.integration.life.test_grocery_cooking import cook, grocery_engine, receive
 from tests.life.environment_inputs import catalog_rows, write_catalog_rows
 from tests.life.environment_runtime import act, act_group, events, settle_decision, until_ended
-from tests.unit.as2.test_llm_dispatcher_transport import _client, _error
+from tests.unit.runtime.model_client_fixtures import provider_error, scripted_client
+from worldmock.configuration.model.model_client import ModelClient
 from worldmock.configuration.persona.persona_card import persona_card
 from worldmock.configuration.persona.persona_text import render_card
 from worldmock.configuration.persona.work_schedule import shift_on
@@ -46,7 +48,7 @@ from worldmock.foundation.errors import IntegrityError, ProtocolError
 from worldmock.foundation.time.readable import local_date
 from worldmock.recording_engine.events.models import EventDraft
 from worldmock.recording_engine.storage.checkpoint import restore_branch, snapshot_directory
-from worldmock.runtime.lifecycle.runner import MemoryDigestClient, settle_pending_day_plans, settle_pending_memory_digests
+from worldmock.runtime.lifecycle.midnight import settle_pending_day_plans, settle_pending_memory_digests
 from worldmock.simulation_engine.engine import LifeEngine
 from worldmock.simulation_engine.evidence import memory_digest
 from worldmock.simulation_engine.observation.memory import days
@@ -138,18 +140,18 @@ def _night(engine) -> None:
 
 
 class _Built:
-    """记下运行时构造过的回顾客户端；构造出的就是确定性桩。"""
+    """记下零点任务构造过的回顾业务客户端；构造出的就是确定性桩。"""
 
     def __init__(self, monkeypatch):
         self.clients: list[StubMemoryDigestClient] = []
         built = self.clients
 
         class Recorded(StubMemoryDigestClient):
-            def __init__(self, model_identity):
+            def __init__(self, model_client, model_identity):
                 super().__init__(model_identity)
                 built.append(self)
 
-        monkeypatch.setattr(runtime, "MemoryDigestClient", Recorded)
+        monkeypatch.setattr(midnight, "MemoryDigestClient", Recorded)
 
 
 def _counted_entries(monkeypatch, empty: bool = False) -> list[str]:
@@ -205,10 +207,10 @@ def test_day_without_entries_calls_no_model_and_is_remembered(engine_factory, mo
     _night(engine)
     built, calls = _Built(monkeypatch), _counted_entries(monkeypatch, empty=True)
     before = engine.context.store.last_event_seq
-    assert drive(settle_pending_memory_digests(engine)) == []
+    assert drive(settle_pending_memory_digests(engine, StubMemoryDigestClient())) == []
     assert built.clients == [] and calls and engine.context.store.last_event_seq == before
     calls.clear()
-    assert drive(settle_pending_memory_digests(engine)) == []
+    assert drive(settle_pending_memory_digests(engine, StubMemoryDigestClient())) == []
     assert calls == [] and built.clients == []
 
 
@@ -620,7 +622,7 @@ def test_run_end_generates_no_digest(engine_factory, monkeypatch, stop):
         _live(engine)
     assert engine.context.state.current_time == engine.context.state.end_time
     built = _Built(monkeypatch)
-    assert drive(settle_pending_memory_digests(engine)) == []
+    assert drive(settle_pending_memory_digests(engine, StubMemoryDigestClient())) == []
     assert built.clients == [] and _digest_events(engine) == []
 
 
@@ -674,25 +676,17 @@ def _checkpoint(engine, tmp_path: Path, name: str):
     return engine.checkpoint({"agent:1": snapshot_directory(workspace, engine.context.store.assets)})
 
 
-async def test_checkpoint_after_registration_builds_no_entries(engine_factory, monkeypatch, tmp_path):
-    """登记之后连续两次 LifeEnv.checkpoint：不再读任何往日的条目，除两次检查点自己以外不写事件。"""
-    from agentsociety2.society import SocietyCheckpointRequest
-    from custom.envs.life_env import LifeEnv
-
+async def test_checkpoint_after_registration_builds_no_entries(engine_factory, host_factory, monkeypatch):
+    """登记之后运行宿主连续两次写共同检查点（各自跑一次零点任务）：不再读任何往日的条目，除两次检查点自己以外不写事件。"""
     engine = engine_factory(mutate=_late)
     _night(engine)
     settle_midnight_tasks(engine)
     assert len(_digest_events(engine)) == 1
     calls, built = _counted_entries(monkeypatch), _Built(monkeypatch)
-    environment = LifeEnv()
-    environment.engine = engine
-    workspace = write_agent_workspace(tmp_path / "agent")
-    moment = datetime.fromtimestamp(engine.context.state.current_time).astimezone()
-    request = SocietyCheckpointRequest(run_id=engine.context.state.run_id, round_id="checkpoint",
-                                       current_time=moment, agent_workspaces=((1, str(workspace)),))
+    host = host_factory(engine, StubMemoryDigestClient())
     before = engine.context.store.last_event_seq
-    await environment.checkpoint(request)
-    await environment.checkpoint(request)
+    await host._checkpoint()
+    await host._checkpoint()
     added = engine.context.store.iter_events(engine.context.store.last_event_seq, after=before)
     assert [row.event_type for row in added] == ["checkpoint_created", "checkpoint_created"]
     assert calls == [] and built.clients == []
@@ -747,14 +741,11 @@ def test_midnight_crash_resume_generates_once(engine_factory, tmp_path):
         child.close()
 
 
-def _digest_caller(monkeypatch, identity: dict, script: list) -> MemoryDigestClient:
-    """按冻结身份建立真实 MemoryDigestClient；它取得的是只替换 Router 的真实 LLMClient，按脚本失败或作答。"""
-    import agentsociety2.config
-
-    inner, _ = _client(monkeypatch, script, clock=[0.0])
-    inner.model_name, inner.base_url = identity["requested_model"], identity["base_url"]
-    monkeypatch.setattr(agentsociety2.config, "build_client_for_role", lambda role: inner)
-    return MemoryDigestClient(identity)
+def _digest_caller(monkeypatch, identity: dict, script: list) -> ModelClient:
+    """按冻结身份的两类重试次数建立真实模型客户端，只换掉 litellm 发送，按脚本失败或作答；回顾任务用真实
+    MemoryDigestClient 包装它。"""
+    return scripted_client(monkeypatch, script, clock=[0.0], max_retries=identity["max_retries"],
+                           transport_max_retries=identity["transport_max_retries"])[0]
 
 
 async def test_digest_ops_records_and_transport_waits(engine_factory, monkeypatch):
@@ -765,7 +756,7 @@ async def test_digest_ops_records_and_transport_waits(engine_factory, monkeypatc
     [inputs] = memory_digest.pending_inputs(engine.context, engine.observations, 1, "day")
     good = memory_digest_response(StubMemoryDigestClient().answer(inputs.payload))
     identity = engine.context.store.manifest["stage_model_identity"]
-    caller = _digest_caller(monkeypatch, identity, [_error(APIConnectionError), _bad_food(engine), good])
+    caller = _digest_caller(monkeypatch, identity, [provider_error(APIConnectionError), _bad_food(engine), good])
     assert [item["fallback"] for item in await settle_pending_memory_digests(engine, caller)] == [[]]
     records = _records(engine)
     calls = [row for row in records if row["code"] == "MEMORY_DIGEST_CALL"]

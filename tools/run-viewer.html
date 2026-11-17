@@ -551,9 +551,9 @@ function buildIndex(log){
       ct:r['$.data.response.usage.completion_tokens'],tt:r['$.data.response.usage.total_tokens']});
   });
   typeQuery('memory_updated', ['$.data.operation','$.data.created_episode_ids',
-                               '$.data.merged_episode_ids','$.data.consolidated'], r=>{
+                               '$.data.merged_episode_ids'], r=>{
     S.summaries.set(r.seq,{op:r['$.data.operation'],created:r['$.data.created_episode_ids'],
-      merged:r['$.data.merged_episode_ids'],cons:r['$.data.consolidated']});
+      merged:r['$.data.merged_episode_ids']});
   });
   typeQuery('checkpoint_created', ['$.data.checkpoint_id'], r=>{
     S.summaries.set(r.seq,{cp:r['$.data.checkpoint_id']});
@@ -707,7 +707,7 @@ function makeSummary(e){
         ` · ${statusLabel(s.status)} · 已进行 ${fmtDur(s.elapsed)}${s.bnd?' · '+bndLabel(s.bnd):''}`;
     case 'memory_updated': {
       const n = parseJArr(s.created||'[]').length + parseJArr(s.merged||'[]').length;
-      return `记忆更新 · ${MEMOP_LABELS[s.op]||s.op||'—'} · ${n} 段记忆${s.cons?' · 已巩固':''}`;
+      return `记忆更新 · ${MEMOP_LABELS[s.op]||s.op||'—'} · ${n} 段记忆`;
     }
     case 'checkpoint_created': return '存档';
     case 'environment_event': return environmentText(e, s);

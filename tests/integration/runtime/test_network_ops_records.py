@@ -8,10 +8,10 @@ from litellm.exceptions import APIConnectionError, AuthenticationError
 
 from tests.integration.life.test_opslog import _records
 from tests.integration.runtime.test_model_exchange_attempts import ATTEMPTS, opened_exchange
-from tests.unit.as2.test_llm_dispatcher_transport import _client, _error
+from tests.unit.runtime.model_client_fixtures import draft_request, provider_error, scripted_client
 from worldmock.simulation_engine.evidence import memory_digest
 from worldmock.simulation_engine.scheduling.plans.day_planning import request_draft, response_draft
-from worldmock.runtime.lifecycle.runner import _call_memory_digest, _call_plan_day
+from worldmock.runtime.lifecycle.midnight import _call_memory_digest, _call_plan_day
 
 
 @pytest.mark.parametrize("phase,code", [("response", None), ("response", "TOOL_CALL_REQUIRED"),
@@ -38,17 +38,17 @@ def test_model_exchange_logs_separate_commit_wait_and_protocol_failure(engine_fa
 
 @pytest.mark.parametrize("fails", [False, True])
 async def test_plan_day_call_records_attempts_and_outcome(engine_factory, monkeypatch, fails):
-    """真实分发器的日计划请求成功与失败均记录发送、调用耗时和传输等待。"""
+    """真实模型客户端的日计划请求成功与失败均记录发送、调用耗时和传输等待。"""
     engine = engine_factory()
     kind = AuthenticationError if fails else APIConnectionError
     raw = {"choices": [], "usage": {"prompt_tokens": 10}}
-    client, _ = _client(monkeypatch, [_error(kind), raw], clock=[0.0])
+    client, _, _ = scripted_client(monkeypatch, [provider_error(kind), raw], clock=[0.0])
 
     async def call(request):
-        return await client.call(**request)
+        return await client.call(request)
 
     now = engine.context.state.current_time
-    request = {"messages": [{"role": "user", "content": "plan"}]}
+    request = draft_request([{"role": "user", "content": "plan"}])
     evidence = [request_draft(now, 1, ("plan", 1, None), request)]
     link = ("plan", 1, evidence[0].event_id)
     if fails:
@@ -73,17 +73,17 @@ async def test_plan_day_call_records_attempts_and_outcome(engine_factory, monkey
 
 @pytest.mark.parametrize("fails", [False, True])
 async def test_memory_digest_call_records_attempts_and_outcome(engine_factory, monkeypatch, fails):
-    """真实分发器的回顾请求成功与失败均记录发送、调用耗时（MEMORY_DIGEST_CALL）和传输等待，零点计划的记录码不出现。"""
+    """真实模型客户端的回顾请求成功与失败均记录发送、调用耗时（MEMORY_DIGEST_CALL）和传输等待，零点计划的记录码不出现。"""
     engine = engine_factory()
     kind = AuthenticationError if fails else APIConnectionError
     raw = {"choices": [], "usage": {"prompt_tokens": 10}}
-    client, _ = _client(monkeypatch, [_error(kind), raw], clock=[0.0])
+    client, _, _ = scripted_client(monkeypatch, [provider_error(kind), raw], clock=[0.0])
 
     async def call(request):
-        return await client.call(**request)
+        return await client.call(request)
 
     now = engine.context.state.current_time
-    request = {"messages": [{"role": "user", "content": "digest"}]}
+    request = draft_request([{"role": "user", "content": "digest"}])
     call_id = "memory-digest:1:day:2026-01-04:attempt:1"
     evidence = [memory_digest.request_draft(now, 1, (call_id, 1, None), request)]
     link = (call_id, 1, evidence[0].event_id)

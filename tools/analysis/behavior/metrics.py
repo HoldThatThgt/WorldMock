@@ -36,7 +36,7 @@ from worldmock.foundation.errors import IntegrityError
 from tools.analysis.errors import EvaluationError
 from tools.analysis.behavior.workday import WorkdayInputs, workday_reports
 
-#: MEMORY.md 示例身份残留标记（来源：AS2 memory_runtime.py:55-56 巩固提示示例）。
+#: 回顾正文里不该出现的示例身份标记（一套外部提示样例里的示例人物与示例编号），命中即在 memory_digest_identity_residue 报告。
 MEMORY_IDENTITY_MARKERS = (
     "marketing analyst", "28-year-old female", "aoi 500038964", "aoi 500021584",
 )
@@ -65,7 +65,6 @@ def behavior_metrics_report(
     *,
     timezone: str = "Asia/Shanghai",
     locations: Mapping[str, Location] | None = None,
-    memory_md_texts: Mapping[int | str, str] | None = None,
     workday: WorkdayInputs | None = None,
 ) -> dict[str, Any]:
     """@brief 计算全部行为指标，按事件携带的 code_sha256 分组返回报告。
@@ -73,7 +72,6 @@ def behavior_metrics_report(
     :param events: 冻结足迹事件 dict 列表（可跨多次运行）。
     :param timezone: 模拟时间的本地时区（默认与全部冻结场景一致的 Asia/Shanghai）。
     :param locations: 地点身份到当前目录地点对象的映射；提供才计算早到分钟。
-    :param memory_md_texts: 人物编号到 MEMORY.md 文本的映射；提供才计算身份残留。
     :param workday: 工作负荷与作息偏离的打包输入（workload_metrics.workday_inputs）；提供才计算这两项。
     :returns: {code_sha256: {schema_version, gates, reports, notes}} 的报告字典。
     """
@@ -87,7 +85,7 @@ def behavior_metrics_report(
     reports: dict[str, Any] = {}
     goal_reports = day_plan_metrics(events, timezone)
     for code, group_events in sorted(groups.items()):
-        reports[code] = _group_report(group_events, timezone, locations, memory_md_texts, workday)
+        reports[code] = _group_report(group_events, timezone, locations, workday)
         reports[code]["reports"].update({key: value for key, value in goal_reports[code].items() if key != "gates"})
         reports[code]["gates"].update(goal_reports[code]["gates"])
         if code == UNREPORTED_CODE_KEY:
@@ -99,7 +97,6 @@ def _group_report(
     events: list[dict[str, Any]],
     timezone: str,
     locations: Mapping[str, Location] | None,
-    memory_md_texts: Mapping[int | str, str] | None,
     workday: WorkdayInputs | None,
 ) -> dict[str, Any]:
     """@brief 汇总单个代码组内的协议门禁、报告项与口径说明；工作负荷与作息偏离按打包输入算一次，按真实观察事实计算。"""
@@ -108,7 +105,6 @@ def _group_report(
         "observation_repetition": _observation_gate(events, notes),
         "silent_boundary_ratio": _silent_boundary_gate(events, notes),
         "memory_repetition_ratio": _memory_repetition_gate(events, notes),
-        "memory_md_identity_residue": _memory_residue_gate(memory_md_texts, notes),
     }
     token_median = _decision_token_median(events, notes)
     early = _early_minutes(events, timezone, locations, notes)
@@ -666,21 +662,3 @@ def _memory_repetition_gate(events: list[dict[str, Any]], notes: list[str]) -> d
         return _gate(0.0, "<=", 0.2, note="同类型记忆均不足两条，无重复对可比较")
     return _gate(round(qualifying / total, 6), "<=", 0.2,
                  note=f"{qualifying}/{total} 对同类型记忆 Jaccard ≥ 0.6")
-
-
-def _memory_residue_gate(
-    memory_md_texts: Mapping[int | str, str] | None, notes: list[str],
-) -> dict[str, Any]:
-    """@brief 检查 MEMORY.md 是否残留示例身份或示例编号；门禁必须为 0。"""
-    if not memory_md_texts:
-        notes.append("MEMORY.md 文本未提供，身份残留无法检查")
-        return _gate(None, "==", 0)
-    matched: dict[str, list[str]] = {}
-    for agent, text in sorted(memory_md_texts.items(), key=lambda item: str(item[0])):
-        hits = sorted(marker for marker in MEMORY_IDENTITY_MARKERS
-                      if marker in text.lower())
-        if hits:
-            matched[str(agent)] = hits
-    entry = _gate(len(matched), "==", 0)
-    entry["matched_agents"] = matched
-    return entry

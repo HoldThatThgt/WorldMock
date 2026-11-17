@@ -29,7 +29,7 @@ from tests.unit.life.test_planning_and_errand_boundaries import note
 from worldmock.foundation.errors import ProtocolError
 from worldmock.simulation_engine.scheduling.plans.day_plan_inputs import plan_inputs
 from worldmock.foundation.time.readable import clock_phrase
-from worldmock.runtime.lifecycle.runner import settle_pending_day_plans
+from worldmock.runtime.lifecycle.midnight import settle_pending_day_plans
 
 #: 经历句开头的起止：「HH:MM–HH:MM」，跨日时各带「M月D日 」。
 _SPAN = re.compile(r"^(?:\d+月\d+日 )?\d\d:\d\d–(?:\d+月\d+日 )?\d\d:\d\d ")

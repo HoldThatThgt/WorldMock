@@ -8,11 +8,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from agentsociety2.config import llm_dispatcher
 from tests.dayrun_baseline import deterministic_day_runtime
 from tests.integration.runtime import native_runtime_fixtures as fixtures
-from tests.integration.runtime.current_contract_fixtures import ROOT
 from tests.integration.runtime.native_runtime_fixtures import native_runtime  # noqa: F401
+from worldmock.configuration.model import model_client
 from worldmock.foundation.serialization import canonical_json
 from worldmock.recording_engine.storage.store import FootprintStore
 from worldmock.runtime.lifecycle.runner import RunRequest, run_world
@@ -61,7 +60,7 @@ def _unique_requests(requests):
 
 @pytest.fixture
 async def paired_runs(tmp_path, native_runtime, monkeypatch):
-    """相同运行身份执行一小时两次，仅第二次的第二次模型调用先失败六次，越过三次计数进入停车。
+    """相同运行身份执行一小时两次，都经真实模型客户端，仅第二次的第二次模型调用先失败六次，越过三次计数进入停车。
 
     MEMORY.md 的来源事件身份参与内容摘要，因此每次复用完整日录制的固定 UUID 与记录时钟，内容摘要仍逐字比较。
     """
@@ -69,24 +68,23 @@ async def paired_runs(tmp_path, native_runtime, monkeypatch):
     clock, waits = [0.0], []
 
     async def sleep(delay):
-        assert all(model._sem.acquired == 0 for model in models)
         waits.append(delay)
         clock[0] += delay
         await asyncio.sleep(0)
 
-    monkeypatch.setattr(llm_dispatcher, "time", SimpleNamespace(monotonic=lambda: clock[0]))
-    monkeypatch.setattr(llm_dispatcher, "asyncio", SimpleNamespace(
-        sleep=sleep, timeout=asyncio.timeout, get_running_loop=asyncio.get_running_loop))
+    monkeypatch.setattr(model_client, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+    monkeypatch.setattr(model_client, "asyncio", SimpleNamespace(sleep=sleep, timeout=asyncio.timeout))
     runs = []
     for name, failures in (("clean", {}), ("parked", {2: 6})):
         # MEMORY.md 的来源事件身份参与内容摘要，复用完整日录制的固定身份与记录时钟，不屏蔽内容摘要。
         deterministic_day_runtime(monkeypatch)
-        monkeypatch.setattr(fixtures, "MODEL_FACTORY", lambda env: fixtures.scripted_dispatcher(env, failures))
-        result = await run_world(RunRequest(ROOT, root, tmp_path / name, "park", "park"))
+        monkeypatch.setattr(fixtures, "MODEL_FACTORY",
+                            lambda prepared: fixtures.failing_client(monkeypatch, prepared, failures))
+        result = await run_world(RunRequest(root, tmp_path / name, "park", "park"))
         assert result.current_time == frozen.config.stop_time
         runs.append(_read_run(result.run_dir))
     assert waits == [2, 4, 8, 16, 32, 64]
-    return runs, [model._router.requests for model in models]
+    return runs, [model.wire_requests for model in models]
 
 
 async def test_parked_run_settles_like_an_uninterrupted_run(paired_runs):

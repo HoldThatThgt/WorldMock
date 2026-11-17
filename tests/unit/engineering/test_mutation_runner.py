@@ -84,7 +84,7 @@ def test_original_must_be_unique_inside_the_definition(tmp_path, monkeypatch):
         mutated_source(_case())
 
 
-@pytest.mark.parametrize("symbol", ["worldmock.sample", "worldmock.sample::", "os::path", "tools.sample::answer", "tests.sample::answer", "custom.x::a..b"])
+@pytest.mark.parametrize("symbol", ["worldmock.sample", "worldmock.sample::", "os::path", "tools.sample::answer", "tests.sample::answer", "tests.x::a..b"])
 def test_symbol_rejects_nonproduction_or_malformed_location(symbol):
     """@brief 固定生产包根不接受任意模块与畸形限定名。"""
     with pytest.raises(ValueError):
@@ -94,15 +94,15 @@ def test_symbol_rejects_nonproduction_or_malformed_location(symbol):
 def test_source_mutation_has_only_current_symbol_fields():
     """@brief 登记只有当前定义符号，不保留旧模块或路径兼容字段。"""
     assert set(SourceMutation.__dataclass_fields__) == {"name", "symbol", "original", "replacement", "tests"}
-    assert source_location("custom.agents.life_agent::LifeAgent.step") == (
-        "custom.agents.life_agent", "custom/agents/life_agent.py")
+    with pytest.raises(ValueError, match="^Mutation module is outside production roots: "):
+        source_location("cus" + "tom.agents.life_agent::LifeAgent")
 
 
 def test_source_mutation_resolves_actual_python_production_roots():
     """@brief 三个实际 Python 生产根只解析当前物理模块。"""
     for symbol, relative in (
         ('worldmock.simulation_engine.activities.content.interact::InteractivityRuntime.start', "src/worldmock/simulation_engine/activities/content/interact.py"),
-        ("custom.agents.life_agent::LifeAgent.step", "custom/agents/life_agent.py"),
+        ("tools.analysis.behavior.metrics::behavior_metrics_report", "tools/analysis/behavior/metrics.py"),
         ("scripts.freeze_rrs_baseline::freeze_matching_baseline", "scripts/freeze_rrs_baseline.py"),
     ):
         module, path = source_location(symbol)

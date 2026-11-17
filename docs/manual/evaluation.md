@@ -24,10 +24,10 @@ python scripts/inspect_run.py <运行目录> workday --environment <完整环境
 
 Python 调用方使用 `tools.analysis.behavior.metrics.behavior_metrics_report`；
 工作输入和工作报告使用 `tools.analysis.behavior.workday.workday_inputs`、`workday_reports`。
-函数参数、返回字段、缺失说明与 `behavior-metrics-4` 标识保持原样。
+`behavior_metrics_report` 的参数是事件与关键字参数 `timezone`、`locations`、`workday`，不接受 `MEMORY.md` 文本；返回字段与缺失说明保持原样，只是 `gates` 里没有 `memory_md_identity_residue`；`behavior-metrics-4` 标识不变。
 事件必须先经过记录引擎认证；按代码身份分组时，身份来自对应冻结运行清单。
 
-缺少地点、记忆文本或工作输入时，相关指标仍按原合同返回未知值和说明，不能据此宣称行为真实或检查通过。
+缺少地点或工作输入时，相关指标仍按原合同返回未知值和说明，不能据此宣称行为真实或检查通过。
 分析函数是仓库工具，不是模拟运行的前置条件，也不增加新的模型任务。
 
 ## 计算分层记忆试点指标

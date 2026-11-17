@@ -21,7 +21,7 @@ flowchart LR
 
 查看器打开导出目录：在页面里从 events.jsonl 建索引，读导出清单、运行清单和冻结的目录素材，见「显示写法与检查工具」。
 
-运行库只有环境 actor 一个写入者，写入分两种，每次都是一个 SQLite 事务。
+运行库只有一个写入者，就是运行进程里的生活引擎：引擎的方法同步执行，运行宿主逐个调用（见[运行装配与决策循环](10-runtime.md)「决策循环」）。写入分两种，每次都是一个 SQLite 事务。
 
 - **一步世界推进**：版本恰好加一的新世界与至少一条因果事件。调用方同时交上这一步出发时的世界，存储先核对它与已提交
   世界的规范 JSON 逐字节相同，不同即以 `Engine world differs from the committed world` 拒绝；新世界在写入前已按加载口径
@@ -101,27 +101,23 @@ callback_effect、callback_reminder、time_trigger、weather 使用闭合字段�
 下面任何一条不成立都是运行故障，先写英文错误日志，再抛 `IntegrityError("Activity completion effects must use the current location completion contract")`：
 值为 null 或对象；为对象时键恰为三个成员、`data.content.completed` 为真、`data.content.app_id` 为 null；每个非空成员的键恰如上表、`tier` 在该成员的档位表内。
 
-`memory_updated` 登记人物工作区已落盘的记忆，所有登记用同一组键：`operation`、`created_episode_ids`、
-`merged_episode_ids`、`episodes`、四个文件身份、`consolidated`、`observation_event_id`、`verified_event_ids`、
-`trigger`、`decision_id` 和 `reflection`。环境只接受步尾登记，要求如下：
+`memory_updated` 登记人物工作区已落盘的记忆，所有登记用同一组键，恰为十一个：`operation`、`created_episode_ids`、`merged_episode_ids`、
+`episodes`、`memory_before_sha256`、`memory_sha256`、`episodes_sha256`、`observation_event_id`、`verified_event_ids`、`trigger` 与 `decision_id`。
+环境只接受步尾登记，要求如下：
 
 | 键 | 要求 |
 | --- | --- |
+| `operation` | `append_episodes` 时至少有一个新建或合并的编号；`refresh_summary` 时没有编号，且写入前后的 `MEMORY.md` 摘要不同 |
+| `memory_before_sha256` | `null` 或六十四位小写十六进制摘要：人物在整条运行谱系里的第一条为 `null`，此后等于本人上一条的 `memory_sha256`（由步尾保存的写法保证，环境不另核） |
+| `memory_sha256`、`episodes_sha256` | 写入后 `MEMORY.md` 与 `memory/episodes.jsonl` 字节的六十四位小写十六进制摘要 |
+| `episodes` | 新建在前、合并在后，每条恰为 `{id, type, text, epistemic_status}` 四个键，与两组编号一一对应 |
 | `observation_event_id` | 非空字符串，是本决策的冻结观察 |
-| `consolidated` | 恰为 `false` |
-| `trigger` | 环境推导：`[]` 或 `["activity_conclusion"]` |
-| `reflection` | 环境写入 `null` |
-| 其余 | 观察属于本决策，事实窗口与观察里的 `verified_experiences` 一致；快照里没有来源为 `reflection` 的条目 |
+| `trigger` | 环境推导：`[]` 或 `["activity_conclusion"]`；写入点的闭集只有 `activity_conclusion` |
+| 其余 | 新建与合并的编号合起来不重复，已核验事件身份不重复；观察属于本决策，事实窗口与观察里的 `verified_experiences` 一致 |
 
 任一条不满足先记英文错误日志，再以 `ProtocolError("Memory update evidence is invalid")` 作为运行故障拒绝。每一步至多一条 `memory_updated`。
-
-键 `consolidated` 与 `reflection` 保留，使本规格交付之前的历史运行仍按同一形状重新认证：那时人物一侧有记忆巩固（`consolidated` 可为真）和睡醒时的反思登记（`observation_event_id` 为 `null`、`trigger` 恰为 `["reflection"]`、`reflection` 为 `{date, sleep_activity_id}`）。
-下面的反思来源核对只用于重新认证这些历史运行，新运行里没有这类登记。
-质量报告对每个 `reflection` 非空的记忆更新只凭事件独立重算四件事，任一不成立记一条 `memory_update_without_source`：
-同一人物有一条 `activity_progress` 事件，快照是已完成的睡眠，结束时刻等于这次更新的发生时刻；
-这是该人物在这个本地日（时区取运行清单的窗口时区）最早的一次睡醒；`reflection.date` 是这个本地日的前一天；
-这次更新排在同一决策的观察之前，并且该人物在这一时刻只有这一条反思登记。
-`reflection` 为空的更新照旧核对观察与事实窗口。观察不再带刚结束睡眠的私有键。
+质量报告对每条记忆更新只凭事件独立核对：键集合不是上面十一个、`memory_before_sha256` 既不是 `null` 也不是摘要、或其余形状不符时记 `invalid_memory_update`；
+每条更新都核对观察与事实窗口；收尾写入点没有同一决策的 `conclude_activity`，或写入了条目却没有写入点时，记 `memory_update_without_source`。
 
 手机上的三类事由引擎写成四种环境事件：app 的开和关、进出地点、订单通知。
 它们都是 `environment_event`，来源是环境，可见性是 `system`，不带资金变化，事件类型的闭集不变。
@@ -154,9 +150,9 @@ callback_effect、callback_reminder、time_trigger、weather 使用闭合字段�
 模型请求与观察里的大表各只存一次，读出的证据与写入前相同：
 
 - **模型证据**：模型调用逐次留证。
-  - 请求事件 `model_request` 的 `data.request` 是实际发出的完整请求，消息、工具与参数原样。
+  - 请求事件 `model_request` 的 `data.request` 是交给模型客户端的完整请求：人物回合、零点计划与回顾都恰为 `model`、`messages`、`tools`、`tool_choice`、`max_tokens`、`extra_body` 六个键，消息与工具原样；HTTP 正文由 litellm 从这六个键生成，`extra_body` 的键并入正文顶层。两类重试次数不在请求里，记在运行清单的 `stage_model_identity`。
   - 同一调用的响应或失败事件 `model_response` 的 `data.request` 恒为 null（键照常出现），`caused_by` 恰一项，指向它的请求事件。请求只存一次；零点计划与回顾的证据本就如此。其余键照旧：`phase`、`call_id`、`attempt`、`response`、`error`，响应带 `protocol_feedback` 时也照旧。
-  - 环境登记请求时记下请求规范 JSON 的 sha256；登记响应或失败时，核对它带来的请求与之相同。比较按规范内容，内容相同、只是重新构造（例如跨进程传送后键的插入次序不同）的请求照常接受。
+  - 环境登记请求时记下请求规范 JSON 的 sha256；登记响应或失败时，核对它带来的请求与之相同。比较按规范内容，内容相同、只是重新构造（例如键的插入次序不同）的请求照常接受。
   - 不同说明请求在调用途中被改动：先写英文错误日志 `Model <phase> for call <call_id> carries a request that differs from its recorded request`，再抛 `ProtocolError("Model exchange request differs from its recorded request")`。这条响应不写入，运行按故障停下。
 - **观察分件**：观察里七张随时间增长或几乎不变的表按内容单独存放一次，观察事件的正文只带它们的 sha256。存储形式如下表。
 
@@ -437,7 +433,7 @@ Python 一侧取不到名称时：`render_day.py` 的命令行不写出时间线
   读不到（文件被移走或改动）时在该处写读取失败和英文错误日志。
 - **不完整导出。** 没有最终存档时，对象名称、运行输入警告和当地时刻照常；期末账户与世界状态版本显示「无 world_state」，
   没有地点会话，人物写「agent <编号>」。
-- **人物总结。** `MEMORY.md` 只在同一次拖入了运行目录（`as2/agents/agent_<编号>/MEMORY.md`）时显示；记忆正文照常取自
+- **人物总结。** `MEMORY.md` 只在同一次拖入了运行目录（`agents/agent_<编号>/MEMORY.md`）时显示；记忆正文照常取自
   `memory_updated` 事件。
 - **冻结目录。** 认定运行清单（拖入了运行目录的 `manifest.json` 时取它本身，否则取导出清单里的冻结副本）后，取 `environment_assets`
   里上表五个素材名的 `sha256` 和 `size_bytes`，在同一次拖入的文件里找到 `assets/<sha256>`（直接位于名为 `assets` 的目录下的文件按
@@ -612,7 +608,7 @@ catalog/map.jsonl 是数据集声明的距离，按原字节冻结；map.json �
 清单保存原始字节摘要、五项环境身份、实际模型元数据与非密模型参数。凭据正文不进入清单、事件或报告。
 
 检查点绑定准确事件前缀、共同世界和人物工作区素材。
-每个 AgentSociety2 步骤之后写一个共同检查点；检查点不更新、不删除，每一步都能恢复，恢复从失败的那一秒继续。
+运行宿主的每一步之后写一个共同检查点，只推进不决策的步也写（见[运行装配与决策循环](10-runtime.md)「决策循环」）；检查点不更新、不删除，每一步都能恢复，恢复从失败的那一秒继续。
 检查点表的一行是 `(checkpoint_id, body, record_sha256)`：`body` 是 zlib 流（RFC 1950，压缩级别 1，头两字节 `78 01`），
 解压后恰为检查点载荷的规范 JSON 字节；`record_sha256` 是这些未压缩字节的 SHA-256。检查点记录、恢复分支写出的
 `restored-checkpoint.json`、导出清单里的最终检查点和它的认证因此都与压缩无关。读取检查点先解压、再核对摘要：行不存在、
@@ -624,7 +620,7 @@ gzip 头部固定为 `1f 8b 08 00 00 00 00 00 00 ff`：修改时刻为 0、不�
 素材，不打开它。
 分支复制全部冻结环境素材和所需快照，
 恢复前认证归档成员，拒绝绝对路径、符号链接、别名与覆盖已有目标文件。
-人物工作区恢复后核验结构化卡片与用冻结的 persona.toml 重新构造出的卡片逐值相等，并核验模型身份，不接受旧结构或参数漂移。
+人物工作区恢复只校验一次：每个人物的快照展开后，工作区里的普通文件恰为空集，或恰为 `MEMORY.md` 与 `memory/episodes.jsonl`，否则报 `Restored agent workspace members are invalid`；不为空时 `MEMORY.md` 去掉空白后不能为空，条目文件按[状态与序列化](09-io-formats.md)「人物工作区」逐行严格读回，任一不成立报 `Restored agent memory is invalid`；检查点缺某个人物的快照报 `Checkpoint is missing an agent workspace snapshot`。全部人物通过之后才发布子目录。人物卡片、名字与模型身份不在工作区里，恢复不另核它们：冻结的 persona.toml 与父运行的一致由运行清单的 `persona_sha256` 核对，模型身份与代码身份由运行清单核对。
 
 分支按存储字节复制父库截止前缀。先按事件序号分页经唯一的行解码器逐条校验父事件，核对每行的序号、身份与正文一致，逐个
 读取并核对每条事件引用的素材，同时记下前缀里出现的运行身份；`source_run_ids` 仍是这些运行身份加新运行身份的升序集合。
@@ -760,12 +756,13 @@ app 的开关、订单通知和地点停留只进事件与这些工件，不进�
   自由文本中的身份与未声明路径上的同名字段照原文比较，不按字段名或 UUID 形状统一替换。
   回顾事件 `memory_digest_generated` 的 `data.digests.*.source_event_ids[]` 与 `data.digests.*.cited_event_ids[]`
   同样映射到所指事件的序号；某一类为 null 时照常比较 null。
-- **壁钟**：只有事件顶层的 `recorded_at` 与 `wall_elapsed_ms`、人物工作区 AGENT.json 的 `initialized_at`、运行清单 `lineage` 各项的 `last_recorded_at` 与 `branched_at`、质量报告 `acceleration` 下的实测墙钟项、按记录时刻定峰谷的估价项与峰时计数、`lineage` 节的停机秒数。data 里的模拟时刻是事实，照常比较，例如记忆层「今天」各条的「时刻」。
+- **壁钟**：只有事件顶层的 `recorded_at` 与 `wall_elapsed_ms`、运行清单 `lineage` 各项的 `last_recorded_at` 与 `branched_at`、质量报告 `acceleration` 下的实测墙钟项、按记录时刻定峰谷的估价项与峰时计数、`lineage` 节的停机秒数。data 里的模拟时刻是事实，照常比较，例如记忆层「今天」各条的「时刻」。
 - **传输记录**：`model_response` 信封里的 `transport_attempts`（失败发送的壁钟毫秒数与传输错误），不进任何提示。
 - **丢弃尾段**：`lineage` 各项描述父运行越过重启点走了多远、为何停下（`last_event_seq`、`last_event_time`、`discarded_events`、`end_reason`、`end_error`）及质量报告 `lineage` 节里对应的项。重放以拒绝重启点之后的第一次调用重现重启，来源那一段可能是被杀或传输失败，所以这几项在来源与重放之间本来就不同；丢弃尾段本身不比较。
-- **运行位置与代码身份**：运行清单与人物工作区里的模型服务地址（`base_url`、`metadata_url`），人物工作区 AGENT.json 的 `workspace.root`（工作区所在目录），以及 `code_sha256`、`git_commit`、`git_dirty`。`config_sha256` 不屏蔽：去掉两项地址后按 config.toml 原文重算摘要，再比较。
+- **运行位置与代码身份**：运行清单里的模型服务地址（`base_url`、`metadata_url`），以及 `code_sha256`、`git_commit`、`git_dirty`。`config_sha256` 不屏蔽：去掉两项地址后按 config.toml 原文重算摘要，再比较。
 - **其余一律是事实**，逐值比较。
 - **记录形式**的变化只能用声明的重建规则对齐。规则只用于没有任何提示、决策、准入或导出路径读取的记录形式，每条写明所依据的读取者检索；观察、绑定、动作事件、结算事件、记忆写入、模型请求与世界事实不能重建、投影或过滤，也没有按事件种类过滤的规则。
+  唯一的例外是去掉 AgentSociety2 那次变更声明的四条规则，只用于那次变更的基线与新代码两次运行的对比，只改写基一侧：`workspace-members` 把基一侧的人物工作区快照改写成两个保留文件的形式（不列新格式没有的成员、首次写入的英文模板与空的条目文件，条目去掉恒定的 `tick`、`tick_duration_sec`、`refs` 与 `step_index`、`step_count`，编号改成连续序号，行尾改成 LF）；`memory-updated-form` 对齐 `memory_updated` 删去的三个键、条目编号的写法与人物首条 `memory_before_sha256` 的模板摘要，两侧 `episodes_sha256` 按首次出现的次序成双射比较；`model-request-parameters` 只去掉基一侧 `model_request` 的 `data.request` 里从未发出的 `stream`、`max_retries`、`transport_max_retries`；`prompt-fingerprint` 是数值规则，两侧运行清单的提示指纹恰为声明的两个值时对齐。
   两侧记录形式相同时各按自己记下的形式读取（检查点行的 zlib 流、`application/gzip` 的工作区快照，见「冻结输入、检查点与分支」），不需要规则；一侧检查点行是文本、另一侧是 zlib 流而没有声明对应规则时拒绝比较，工作区快照的媒体类型不同照常报为不同。
   `processed-actions-pruned` 先按既定必留键集合裁剪基一侧的已处理动作，并记录符合终态覆盖条件的键；
   保留状态各按本侧身份与素材摘要规范化后，才将这些键的基一侧 `result` 对齐为头一侧规范化后的 `result`。

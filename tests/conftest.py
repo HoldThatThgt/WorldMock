@@ -12,16 +12,14 @@ import pytest
 from scripts.bootstrap_environment import MISSING_NODE, PROFILE_ENV, component_status, require_profile
 
 from tests.data_paths import ARTIFICIAL_ENVIRONMENT_ROOT
-from tests.engine_fixture import engine_factory  # noqa: F401
+from tests.engine_fixture import engine_factory, host_factory  # noqa: F401
 from tests.frozen_inputs import FrozenInputs
 
 
 ROOT = Path(__file__).resolve().parents[1]
 SKIPPED = pytest.StashKey[bool]()
 
-# 离线测试使用明确无效的本地配置值，不读取或要求供应商密钥。
-os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "offline-test-key")
-os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://example.invalid")
+# 离线测试不读取或要求供应商密钥；先于任何 litellm 导入固定本地价目表。
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 

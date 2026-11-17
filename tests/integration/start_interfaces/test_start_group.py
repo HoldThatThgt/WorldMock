@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import (
     MAIN_TOOL,
@@ -23,6 +22,7 @@ from tests.life.conftest import (
 )
 from tests.life.environment_runtime import act, act_group, action_result, events
 from worldmock.foundation.errors import ProtocolError
+from worldmock.state.decisions.round import DirectToolCall
 from worldmock.state.interaction.requests import REQUEST_MODELS, StartMainActivityRequest, StartSideActivityRequest
 
 _SUFFIX = " Neither start request was started."
@@ -122,8 +122,8 @@ def test_swapping_the_two_calls_gives_the_same_world(engine_factory):
     assert opened == [action_identity("pair", 1), action_identity("pair", 2)]
 
 
-def test_commit_returns_one_result_per_decision_and_persists_both(engine_factory):
-    """环境向框架只返回该决策第一条动作的结果，两条结果都已落库。"""
+def test_commit_returns_every_result_and_persists_both(engine_factory):
+    """提交返回该决策两条动作的结果，两条结果都已落库。"""
     engine = engine_factory()
     decision = context(engine, "single")
     engine.begin_decision_round([decision])
@@ -135,7 +135,7 @@ def test_commit_returns_one_result_per_decision_and_persists_both(engine_factory
     assert [receipt.action_id for receipt in receipts] == [side_id, main_id]
     assert engine.submit_action(DirectToolCall(decision, main_id, MAIN_TOOL, main)).action_id == main_id
     returned = engine.commit_decision_round("single")
-    assert [result.action_id for result in returned] == [side_id]
+    assert [result.action_id for result in returned] == [side_id, main_id]
     stored = engine.context.state.processed_actions
     assert {side_id, main_id} <= set(stored)
     assert stored[main_id].result["activity_id"] == f"activity-{main_id}"

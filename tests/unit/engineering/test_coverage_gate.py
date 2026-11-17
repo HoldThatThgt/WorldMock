@@ -128,15 +128,15 @@ def test_uncovered_public_interface_detection(tmp_path):
         "    def run(self):\n"         # line 16
         "        return self.value\n"  # line 17 (missing)
     )
-    write_module(tmp_path, "custom/agents/synthetic_agent.py", source)
+    write_module(tmp_path, "src/worldmock/synthetic_agent.py", source)
     cov = make_cov_data(
-        {"custom/agents/synthetic_agent.py": make_file_entry(1, 1, [5, 9, 14, 17])}
+        {"src/worldmock/synthetic_agent.py": make_file_entry(1, 1, [5, 9, 14, 17])}
     )
-    gaps = gate.find_uncovered_interfaces(tmp_path, ("custom",), cov)
+    gaps = gate.find_uncovered_interfaces(tmp_path, ("src/worldmock",), cov)
     located = {(gap.file, gap.line, gap.name, gap.kind) for gap in gaps}
     assert located == {
-        ("custom/agents/synthetic_agent.py", 4, "public_api", "function"),
-        ("custom/agents/synthetic_agent.py", 16, "run", "method"),
+        ("src/worldmock/synthetic_agent.py", 4, "public_api", "function"),
+        ("src/worldmock/synthetic_agent.py", 16, "run", "method"),
     }
 
 
@@ -153,11 +153,11 @@ def test_private_and_dunder_functions_not_counted(tmp_path):
         "    def __repr__(self):\n"    # line 8
         "        return 'Thing'\n"     # line 9 (missing)
     )
-    write_module(tmp_path, "custom/envs/synthetic_env.py", source)
+    write_module(tmp_path, "src/worldmock/synthetic_env.py", source)
     cov = make_cov_data(
-        {"custom/envs/synthetic_env.py": make_file_entry(0, 2, [5, 9])}
+        {"src/worldmock/synthetic_env.py": make_file_entry(0, 2, [5, 9])}
     )
-    gaps = gate.find_uncovered_interfaces(tmp_path, ("custom",), cov)
+    gaps = gate.find_uncovered_interfaces(tmp_path, ("src/worldmock",), cov)
     assert gaps == []
 
 

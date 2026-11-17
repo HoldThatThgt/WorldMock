@@ -22,6 +22,7 @@ def test_current_commands_require_their_explicit_inputs():
     ["resume", "--environment", "env", "--output", "run"],
     ["profile"], ["profile", "compile", "--persona", "persona.toml"],
     ["profile", "check", "--persona", "persona.toml"], ["profile", "validate", "--environment", "env"],
+    ["--project" + "-root", ".", "run", "--environment", "env", "--output", "run"],
 ])
 def test_removed_commands_and_incomplete_inputs_are_rejected(arguments):
     with pytest.raises(SystemExit) as captured:

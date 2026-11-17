@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 from worldmock.simulation_engine.body import sleep as sleep_module
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from agentsociety2.society import SchedulingState
+from worldmock.state.decisions.round import SchedulingState
 from worldmock.foundation.time.readable import _datetime
 from worldmock.simulation_engine.world.world_updates import _body_settlement_data
 from worldmock.simulation_engine.world.world_updates import _put_agent
@@ -82,9 +79,7 @@ class TimeAdvanceCoordinator:
         self.midnight: RhythmBoundary | None = None
 
     def scheduling_state(self) -> "SchedulingState":
-        """@brief 返回 AS2 使用的带时区当前时刻、就绪人物和下一边界。"""
-        from agentsociety2.society import SchedulingState
-
+        """@brief 返回运行宿主使用的带时区当前时刻、就绪人物和下一边界。"""
         self._require_midnight_decided()
         current = _datetime(self.context.state.current_time, self.context.config.timezone)
         if self.context.state.current_time >= self.context.state.end_time:

@@ -1,13 +1,13 @@
 """服务、证据和查询失败保留实际阶段与完整错误合同。
 
-末两例经真实引擎、SQLite、LifeEnv 与直接导入的 LifeAgent（docs/design/10-runtime.md  与验收台账「故障传播」）：
+末两例经真实引擎、SQLite 与直接导入的 LifeAgent（docs/design/10-runtime.md  与验收台账「故障传播」）：
 世界请求的工具服务失败与模型服务失败各跑一次醒来那一轮的人物步骤，核对日志、上抛的异常对象与类型、失败阶段码，
 以及库里没有多出模型证据之外的任何事件。其余用例在替身环境上直调私有覆写点，是这两例的补充证据与变异杀手。
 
 其后追加的两例同样经真实引擎（上面所说的「末两例」排在它们之前）：失败阶段码不挑异常类型——不是 OSError 的工具服务
 失败照样先留日志再以 TOOL_SERVICE_FAILED 上抛；足迹库以 sqlite3 错误拒写请求证据或响应证据时以 EVIDENCE_WRITE_FAILED 上抛。
 
-开始组（同一次回复里两个开始工具各一次）的第二条世界请求登记失败在替身环境上经真实 ReAct 循环核对：失败阶段码指向
+开始组（同一次回复里两个开始工具各一次）的第二条世界请求登记失败在替身环境上经真实回合循环核对：失败阶段码指向
 第二条调用的真实位置，第一条已登记，不再请求模型。
 """
 
@@ -19,11 +19,11 @@ from types import SimpleNamespace
 
 import pytest
 
-os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
-from agentsociety2.agent.base import ModelCallEvidence, ReactDecision, ReactLoopRequest
-from worldmock.agents.protocol.life_feedback import HostFeedback
+from worldmock.agents.protocol.life_feedback import ProtocolFeedback
+from worldmock.agents.protocol.react_loop import ReactDecision, ReactLoop
+from worldmock.state.model.exchange import ModelCallEvidence
 from tests.integration.runtime.test_life_agent_protocol import (
     _Environment,
     _GroundedCorrectionDispatcher,
@@ -54,15 +54,16 @@ def _assert_report(report, code, path):
 @pytest.mark.asyncio
 async def test_model_service_failure_persists_stage_without_parsing_exception_text(monkeypatch):
     """真实模型传输入口保存明确的服务阶段，原始传输异常仍终止决策。"""
-    person, environment = _prepared(), _Environment()
+    environment = _Environment()
 
-    async def fail(**request):
+    async def fail(request):
         raise OSError("NAME_NOT_FOUND: unrelated exception text")
 
-    _wire_agent(person, environment, SimpleNamespace(call=fail), 4)
-    monkeypatch.setattr(person, "_model_request", lambda messages, tools: {"model": "test", "messages": messages})
+    person = _wire_agent(environment, SimpleNamespace(call=fail), 4)
+    budget, history = person._prepare(_observations()[0]["data"])
+    loop = ReactLoop(person, _context(), budget, history)
     with pytest.raises(OSError, match="unrelated exception"):
-        await person._complete_react_once([], [], 1)
+        await loop._send("model-1", {"model": "test", "messages": []})
     assert [event.phase for event in environment.evidence] == ["request", "failure"]
     _assert_report(environment.evidence[-1].response["protocol_feedback"], "MODEL_SERVICE_FAILED", ["tool_calls"])
 
@@ -70,17 +71,19 @@ async def test_model_service_failure_persists_stage_without_parsing_exception_te
 @pytest.mark.asyncio
 async def test_evidence_write_failure_stops_with_structured_stage():
     """证据写入失败不继续模型调用或世界操作。"""
-    person, environment = _prepared(), _Environment()
+    person = _prepared()
+    environment = person.engine
 
-    async def fail(exchange):
+    def fail(exchange):
         raise OSError("evidence unavailable")
 
     environment.record_model_exchange = fail
-    person._env = environment
+    budget, history = person._prepare(_observations()[0]["data"])
+    loop = ReactLoop(person, _context(), budget, history)
     with pytest.raises(RuntimeError) as failure:
-        await person._record_model_evidence(ModelCallEvidence(_context(), "model-1", "request", 1, {}))
-    feedback = failure.value.args[0]
-    assert isinstance(feedback, HostFeedback)
+        loop._record(ModelCallEvidence(_context(), "model-1", "request", 1, {}))
+    feedback = failure.value.feedback
+    assert isinstance(feedback, ProtocolFeedback)
     _assert_report(feedback.report.payload(), "EVIDENCE_WRITE_FAILED", ["tool_calls"])
     assert environment.calls == []
 
@@ -89,21 +92,22 @@ async def test_evidence_write_failure_stops_with_structured_stage():
 async def test_tool_service_failure_points_to_real_call_without_claiming_execution(monkeypatch, caplog):
     """第二个合法检索在环境 read_query 处服务异常，保留真实下标，不声称已取得数据；先留一条带异常链的英文 error 日志，
     再按失败阶段码上抛（docs/design/10-runtime.md ）。"""
-    person, environment = _prepared(), _Environment()
-    _wire_agent(person, environment, None, 4)
+    person = _prepared()
+    environment = person.engine
+    person.turn_tools(4, False)
     arguments = {"category": "全部", "time": "今天", "keyword": None}
-    decisions = [ReactDecision("", "search_memory", arguments, "", f"call-{index}") for index in range(2)]
-    assert person.validate_react_decisions(decisions, False) == ""
+    decisions = [ReactDecision("search_memory", arguments, f"call-{index}") for index in range(2)]
+    assert person._validate(decisions) is None
     injected = OSError("query store unavailable")
 
-    async def fail(context, tool, request):
+    def fail(context, tool, request):
         raise injected
 
     monkeypatch.setattr(environment, "read_query", fail)
     with caplog.at_level(logging.ERROR), pytest.raises(RuntimeError) as failure:
-        await person._execute_react_tool(decisions[1])
-    feedback = failure.value.args[0]
-    assert isinstance(feedback, HostFeedback)
+        person._dispatch_decision(decisions[1])
+    feedback = failure.value.feedback
+    assert isinstance(feedback, ProtocolFeedback)
     _assert_report(feedback.report.payload(), "TOOL_SERVICE_FAILED", ["tool_calls", 1])
     assert type(failure.value) is RuntimeError and failure.value.__cause__ is injected
     assert environment.calls == []
@@ -125,11 +129,11 @@ class _SecondSubmitFails(_Environment):
         super().__init__()
         self.injected = injected
 
-    async def submit_action(self, call):
+    def submit_action(self, call):
         """已经登记过一条之后的登记一律失败。"""
         if self.calls:
             raise self.injected
-        return await super().submit_action(call)
+        return super().submit_action(call)
 
 
 @pytest.mark.asyncio
@@ -141,17 +145,17 @@ async def test_second_start_call_service_failure_points_to_its_own_call(monkeypa
     _fixed_context_window(monkeypatch)
     arguments = {MAIN_TOOL: _WAIT_CHOICE, SIDE_TOOL: _WORK_CHOICE}
     injected = OSError("environment actor unavailable")
-    person, environment = _prepared(), _SecondSubmitFails(injected)
+    environment = _SecondSubmitFails(injected)
     dispatcher = _GroundedCorrectionDispatcher(responses=[_MultipleModelResponse([
         (f"call-{tool}", tool, json.dumps(arguments[tool], ensure_ascii=False)) for tool in order])])
-    _wire_agent(person, environment, dispatcher, 4, memory=False)
+    person = _wire_agent(environment, dispatcher, 4)
 
     with caplog.at_level(logging.ERROR), pytest.raises(RuntimeError) as failure:
-        await person.run_react_loop(ReactLoopRequest(0, _context().observed_at, _observations()))
+        await person.run_turns(_context(), _observations()[0]["data"])
 
     assert type(failure.value) is RuntimeError and failure.value.__cause__ is injected
-    feedback = failure.value.args[0]
-    assert isinstance(feedback, HostFeedback)
+    feedback = failure.value.feedback
+    assert isinstance(feedback, ProtocolFeedback)
     _assert_report(feedback.report.payload(), "TOOL_SERVICE_FAILED", ["tool_calls", 1])
     assert [(call.action_id, call.tool_name) for call in environment.calls] == [("decision:action:0001", order[0])]
     assert len(dispatcher.requests) == 1
@@ -176,26 +180,26 @@ def _events_after(run, sequence: int) -> list:
 @pytest.mark.asyncio
 async def test_tool_service_failure_on_the_real_engine_is_logged_and_raised_with_its_stage(
         engine_factory, tmp_path, monkeypatch, caplog):
-    """真实引擎、SQLite、LifeEnv 与直接导入的 LifeAgent：醒来那一轮的世界请求在 LifeEnv.submit_action 处服务失败。
-    先写工具分发失败日志、再写决策失败日志，各一条且都带异常；step 上抛 RuntimeError，参数是指向那次工具调用的
+    """真实引擎、SQLite 与直接导入的 LifeAgent：醒来那一轮的世界请求在 LifeEngine.submit_action 处服务失败。
+    先写工具分发失败日志、再写决策失败日志，各一条且都带异常；decide 上抛 RuntimeError，参数是指向那次工具调用的
     TOOL_SERVICE_FAILED 反馈，原因是注入的异常对象；库里只多出观察、decision_started 与一对模型请求与响应，没有
     action_requested，也没有 memory_updated。"""
     _fixed_context_window(monkeypatch)
     run = await waking_decision(engine_factory, tmp_path, note=None)
     injected = OSError("environment actor unavailable")
 
-    async def fail(call):
-        """LifeEnv 提交世界请求的替身：服务不可用。"""
+    def fail(call):
+        """引擎提交世界请求的替身：服务不可用。"""
         raise injected
 
-    monkeypatch.setattr(run.environment, "submit_action", fail)
+    monkeypatch.setattr(run.engine, "submit_action", fail)
     sequence = run.engine.context.store.last_event_seq
     with caplog.at_level(logging.ERROR), pytest.raises(RuntimeError) as failure:
-        await run.agent.step(0, run.decision.observed_at)
+        await run.agent.decide(run.decision)
 
     assert type(failure.value) is RuntimeError and failure.value.__cause__ is injected
-    feedback = failure.value.args[0]
-    assert isinstance(feedback, HostFeedback)
+    feedback = failure.value.feedback
+    assert isinstance(feedback, ProtocolFeedback)
     _assert_report(feedback.report.payload(), "TOOL_SERVICE_FAILED", ["tool_calls", 0])
     assert _agent_logs(caplog) == [
         (logging.ERROR, "LifeAgent tool dispatch failed: conclude_activity", injected),
@@ -210,21 +214,21 @@ async def test_tool_service_failure_on_the_real_engine_is_logged_and_raised_with
 @pytest.mark.asyncio
 async def test_model_service_failure_on_the_real_engine_is_logged_once_and_reraised_unchanged(
         engine_factory, tmp_path, monkeypatch, caplog):
-    """同一真实路径上醒来那一轮的模型调用失败：决策失败日志恰好一条、带原异常，step 把同一个异常对象原样上抛；
+    """同一真实路径上醒来那一轮的模型调用失败：决策失败日志恰好一条、带原异常，decide 把同一个异常对象原样上抛；
     该次模型证据以 failure 阶段记下 MODEL_SERVICE_FAILED；库里只多出观察、decision_started、模型请求与这条失败证据，
     没有世界请求，也没有 memory_updated。"""
     _fixed_context_window(monkeypatch)
     run = await waking_decision(engine_factory, tmp_path, note=None)
     injected = OSError("model transport unavailable")
 
-    async def fail(**request):
+    async def fail(request):
         """远程模型传输的替身：连接失败。"""
         raise injected
 
     monkeypatch.setattr(run.model, "call", fail)
     sequence = run.engine.context.store.last_event_seq
     with caplog.at_level(logging.ERROR), pytest.raises(OSError) as failure:
-        await run.agent.step(0, run.decision.observed_at)
+        await run.agent.decide(run.decision)
 
     assert failure.value is injected and type(failure.value) is OSError
     assert _agent_logs(caplog) == [(logging.ERROR, "LifeAgent decision failed for agent 1", injected)]
@@ -250,26 +254,26 @@ def _service_failures() -> list:
 async def test_tool_service_failure_of_any_exception_type_is_logged_and_raised_with_its_stage(
         engine_factory, tmp_path, monkeypatch, caplog, injected):
     """工具分发失败不挑异常类型（docs/design/10-runtime.md  与验收台账「故障传播」）：真实引擎、SQLite、
-    LifeEnv 与直接导入的 LifeAgent 上，醒来那一轮的世界请求在 LifeEnv.submit_action 处以不是 OSError 的异常失败。照样
-    先写工具分发失败日志、再写决策失败日志，各一条且都带异常；step 上抛的恰是 RuntimeError，参数是指向那次工具调用的
+    直接导入的 LifeAgent 上，醒来那一轮的世界请求在 LifeEngine.submit_action 处以不是 OSError 的异常失败。照样
+    先写工具分发失败日志、再写决策失败日志，各一条且都带异常；decide 上抛的恰是 RuntimeError，参数是指向那次工具调用的
     TOOL_SERVICE_FAILED 反馈，原因是注入的异常对象（没有把原异常原样漏出去）；库里只多出观察、decision_started 与一对
     模型请求与响应，没有 action_requested，也没有 memory_updated。"""
     _fixed_context_window(monkeypatch)
     run = await waking_decision(engine_factory, tmp_path, note=None)
     assert not isinstance(injected, (OSError, RuntimeError))
 
-    async def fail(call):
-        """LifeEnv 提交世界请求的替身：服务以注入的异常失败。"""
+    def fail(call):
+        """引擎提交世界请求的替身：服务以注入的异常失败。"""
         raise injected
 
-    monkeypatch.setattr(run.environment, "submit_action", fail)
+    monkeypatch.setattr(run.engine, "submit_action", fail)
     sequence = run.engine.context.store.last_event_seq
     with caplog.at_level(logging.ERROR), pytest.raises(RuntimeError) as failure:
-        await run.agent.step(0, run.decision.observed_at)
+        await run.agent.decide(run.decision)
 
     assert type(failure.value) is RuntimeError and failure.value.__cause__ is injected
-    feedback = failure.value.args[0]
-    assert isinstance(feedback, HostFeedback)
+    feedback = failure.value.feedback
+    assert isinstance(feedback, ProtocolFeedback)
     _assert_report(feedback.report.payload(), "TOOL_SERVICE_FAILED", ["tool_calls", 0])
     assert _agent_logs(caplog) == [
         (logging.ERROR, "LifeAgent tool dispatch failed: conclude_activity", injected),
@@ -293,36 +297,36 @@ _EVIDENCE_FAILURES = {
 async def test_evidence_write_failure_of_the_footprint_store_is_raised_with_its_stage(
         engine_factory, tmp_path, monkeypatch, caplog, failure_phase):
     """证据写入失败以运行故障上抛，带失败阶段码 EVIDENCE_WRITE_FAILED、定位在 tool_calls（docs/design/10-runtime.md  第二段与接口合同宿主错误码表），同样不挑异常类型：真实写入方是环境后面的 SQLite 足迹库，它的失败是 sqlite3 的
-    错误而不是 OSError。真实引擎、SQLite、LifeEnv 与直接导入的 LifeAgent 上，醒来那一轮行动请求的请求证据或响应证据写入
-    以 sqlite3.OperationalError 失败：step 上抛的恰是 RuntimeError，参数是该阶段码的反馈，原因是注入的异常对象；决策失败
+    错误而不是 OSError。真实引擎、SQLite 与直接导入的 LifeAgent 上，醒来那一轮行动请求的请求证据或响应证据写入
+    以 sqlite3.OperationalError 失败：decide 上抛的恰是 RuntimeError，参数是该阶段码的反馈，原因是注入的异常对象；决策失败
     日志恰好一条；不重试（请求证据失败时模型一次都没被调用，响应证据失败时恰好一次）；世界请求没有登记，库里只留下失败
     之前已写入的事件。"""
     _fixed_context_window(monkeypatch)
     model_calls, kept = _EVIDENCE_FAILURES[failure_phase]
     run = await waking_decision(engine_factory, tmp_path, note=None)
     injected = sqlite3.OperationalError("database is locked")
-    record, call, requests = run.environment.record_model_exchange, run.model.call, []
+    record, call, requests = run.engine.record_model_exchange, run.model.call, []
 
-    async def failing_record(exchange):
-        """LifeEnv 保存模型证据的替身：指定阶段的写入以足迹库的错误失败，其余照常落库。"""
+    def failing_record(exchange):
+        """引擎保存模型证据的替身：指定阶段的写入以足迹库的错误失败，其余照常落库。"""
         if exchange.phase == failure_phase:
             raise injected
-        await record(exchange)
+        record(exchange)
 
-    async def counted_call(**request):
+    async def counted_call(request):
         """远程模型传输照常应答，只多记下被调用的次数。"""
         requests.append(request)
-        return await call(**request)
+        return await call(request)
 
-    monkeypatch.setattr(run.environment, "record_model_exchange", failing_record)
+    monkeypatch.setattr(run.engine, "record_model_exchange", failing_record)
     monkeypatch.setattr(run.model, "call", counted_call)
     sequence = run.engine.context.store.last_event_seq
     with caplog.at_level(logging.ERROR), pytest.raises(RuntimeError) as failure:
-        await run.agent.step(0, run.decision.observed_at)
+        await run.agent.decide(run.decision)
 
     assert type(failure.value) is RuntimeError and failure.value.__cause__ is injected
-    feedback = failure.value.args[0]
-    assert isinstance(feedback, HostFeedback)
+    feedback = failure.value.feedback
+    assert isinstance(feedback, ProtocolFeedback)
     _assert_report(feedback.report.payload(), "EVIDENCE_WRITE_FAILED", ["tool_calls"])
     assert _agent_logs(caplog) == [(logging.ERROR, "LifeAgent decision failed for agent 1", failure.value)]
     assert len(requests) == model_calls

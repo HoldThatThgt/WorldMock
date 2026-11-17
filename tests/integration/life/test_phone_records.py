@@ -386,7 +386,7 @@ def user_prompt(engine, label):
     """这一刻人物会看到的两条消息：系统层与六个用户层，取自一次真实观察。"""
     observed = engine.observe(context(engine, label))
     layers = life_user_layers(observed, {"layer": "人设层"})
-    return system_message(False)["content"], user_message(layers)["content"], observed
+    return system_message()["content"], user_message(layers)["content"], observed
 
 
 def test_phone_records_never_reach_any_prompt_layer(engine_factory, tmp_path):

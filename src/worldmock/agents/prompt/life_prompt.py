@@ -1,9 +1,8 @@
-"""@brief 七层请求的宿主侧：生活与只读系统层、原生工具用途说明、六层 user 组装、按层名取层与提示指纹。
+"""@brief 七层请求的宿主侧：生活系统层、原生工具用途说明、六层 user 组装、按层名取层与提示指纹。
 
 docs/design/06-agent.md「提示与工具」：system 为系统层 JSON（整次运行逐字节不变），user 为人设层、记忆层、待办层、
 工具层、环境层、进度层六个对象组成的 JSON 数组（次序即 prompt_schemas.USER_LAYER_NAMES，进度层在最后）；宿主按层名
-取层，不按位置。工具定义只经原生 tools，description 只写用途，世界交互规则只在系统层 rules 写一次。只读问答的 user
-为人设层与记忆层，外部问题另起一条 user 消息原样给出。
+取层，不按位置。工具定义只经原生 tools，description 只写用途，世界交互规则只在系统层 rules 写一次。
 """
 
 from __future__ import annotations
@@ -16,7 +15,6 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from worldmock.agents.prompt.narration import render_layer_json
-from worldmock.simulation_engine.observation.memory.layout import assemble_layer
 
 #: 生活决策的系统层（逐字原文只在这里；话题见 docs/design/06-agent.md「提示与工具」）。
 LIFE_SYSTEM_LAYER: dict[str, Any] = {
@@ -118,18 +116,6 @@ LIFE_SYSTEM_LAYER: dict[str, Any] = {
     ],
 }
 
-#: 只读问答的系统层（docs/design/06-agent.md「提示与工具」）。
-READONLY_SYSTEM_LAYER: dict[str, Any] = {
-    "layer": "系统层",
-    "role": "你是模拟世界中的一个人物，依据人设层与记忆层回答外部问题。",
-    "rules": [
-        "请求由人设层、记忆层与外部问题组成。",
-        "记忆层的「核验」是环境核验的事实；「自述」和「回顾」是你自己写下或整理的，未经核验。",
-        "只依据人设层与记忆层回答，不能改变世界，也不写入记忆。",
-        "回答完成后单独调用 finish。",
-    ],
-}
-
 #: 原生工具的用途说明（只写用途；协议与阶段规则只在系统层）。
 TOOL_DESCRIPTIONS: dict[str, str] = {
     "start_main_activity": "开始一项占槽位 1 的活动：出行、在当前地点做一件事，或睡觉。",
@@ -140,7 +126,6 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
     "conclude_activity": "按活动名结束一两项活动，写下总结、想记住的事、形成的看法与个人事务的变更。",
     "revise_day_plan": "用完整的新清单替换今日计划中的目标。",
     "search_memory": "按类别和时间查自己过去的记忆，可以加关键词，不改变世界。",
-    "finish": "给出外部问题的回答。",
 }
 
 #: 观察中由环境构建的五层所在的键与层名（人设层由宿主从人物档案构建）。
@@ -148,15 +133,9 @@ _OBSERVATION_LAYER_KEYS = (("memory_layer", "记忆层"), ("todo_layer", "待办
                            ("environment_layer", "环境层"), ("progress_layer", "进度层"))
 
 
-def system_message(readonly: bool) -> dict[str, str]:
-    """@brief 生活决策或只读问答的 system 消息：对应系统层的紧凑 JSON。"""
-    layer = READONLY_SYSTEM_LAYER if readonly else LIFE_SYSTEM_LAYER
-    return {"role": "system", "content": render_layer_json(layer)}
-
-
-def empty_memory_layer() -> dict[str, Any]:
-    """@brief 只读问答尚无快照时的空记忆层：「可查」与「近三天」是空对象，「今天」是空列表。"""
-    return assemble_layer(None, {}, [])
+def system_message() -> dict[str, str]:
+    """@brief 生活决策的 system 消息：生活系统层的紧凑 JSON。"""
+    return {"role": "system", "content": render_layer_json(LIFE_SYSTEM_LAYER)}
 
 
 def life_user_layers(observation: Mapping[str, Any], persona: dict[str, Any]) -> list[dict[str, Any]]:
@@ -197,17 +176,9 @@ def user_message(layers: Sequence[dict[str, Any]]) -> dict[str, str]:
     return {"role": "user", "content": render_layer_json(list(layers))}
 
 
-def readonly_messages(persona: dict[str, Any], memory: dict[str, Any], question: str | None) -> list[dict[str, str]]:
-    """@brief 只读问答的消息：只读系统层、人设层与记忆层组成的 user，以及原样给出的外部问题。"""
-    messages = [system_message(True), user_message([persona, memory])]
-    if question is not None:
-        messages.append({"role": "user", "content": question})
-    return messages
-
-
 def life_prompt_sha256() -> str:
-    """@brief 提示指纹：绑定生活与只读两份系统层以及七层 Schema（prompt_schemas.LAYER_SCHEMAS）。"""
+    """@brief 提示指纹：绑定生活系统层与七层 Schema。"""
 
-    templates = {"life": LIFE_SYSTEM_LAYER, "readonly": READONLY_SYSTEM_LAYER, "layer_schemas": LAYER_SCHEMAS}
+    templates = {"life": LIFE_SYSTEM_LAYER, "layer_schemas": LAYER_SCHEMAS}
     encoded = json.dumps(templates, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(encoded.encode()).hexdigest()

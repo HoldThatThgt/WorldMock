@@ -1,7 +1,7 @@
 """分层记忆试点指标读真实宿主写出的两天导出（tools/analysis/memory_pilot.py，docs/design/07-evaluation.md
 「分层记忆试点指标」）。
 
-真实 LifeEngine、LifeEnv 与 SQLite 上，脚本化模型经真实 LifeAgent 决策（current_contract_fixtures.decide）：第一天 21:00
+真实 LifeEngine 与 SQLite 上，脚本化模型经真实 LifeAgent 决策（current_contract_fixtures.decide）：第一天 21:00
 起修订计划、下单一份食品、在家开始一项事、播报，其间按实际活动收尾，最后上床；用 engine.advance 推进过零点，以生产入口
 settle_pending_memory_digests 与确定性桩生成日回顾，再做零点计划与节律；第二天睡醒再决策两次，睡到运行截止。写最终检查点后
 用 export_run 导出，pilot_report 走一次真实认证。
@@ -36,7 +36,7 @@ from tools.analysis.memory_pilot import main, pilot_report
 from worldmock.foundation.errors import IntegrityError
 from worldmock.recording_engine.export.export import export_run
 from worldmock.recording_engine.validation.validation import validate_export
-from worldmock.runtime.lifecycle.runner import settle_pending_day_plans, settle_pending_memory_digests
+from worldmock.runtime.lifecycle.midnight import settle_pending_day_plans, settle_pending_memory_digests
 
 #: 修订计划的参数。
 PLAN = {"goals": [{"intent_kind": "休息", "goal": "早点睡", "remind_time": None, "around_time": None}]}

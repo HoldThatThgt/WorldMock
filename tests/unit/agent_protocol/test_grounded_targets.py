@@ -1,8 +1,7 @@
 """人物只提交本轮可见的完整名称，不能把私有身份交给模型。"""
 import json
 import pytest
-from agentsociety2.agent.base import ReactDecision, ReactLoopRequest
-from tests.integration.runtime.current_contract_fixtures import environment, person, ScriptedModel
+from tests.integration.runtime.current_contract_fixtures import person, ScriptedModel
 from tests.life.conftest import (
     MAIN_TOOL,
     SIDE_TOOL,
@@ -12,6 +11,7 @@ from tests.life.conftest import (
     stage_day_plan,
     tool_targets,
 )
+from worldmock.agents.protocol.react_loop import ReactDecision
 from worldmock.state.interaction.requests import StartMainActivityRequest, StartSideActivityRequest
 
 #: 人物在家：家可点名的一件事，与一个内容 app。
@@ -24,9 +24,10 @@ def prepared(engine):
     ctx = context(engine, "names")
     engine.begin_decision_round([ctx])
     observed = engine.observe(ctx)
-    agent = person(environment(engine), ctx, ScriptedModel([]))
-    agent.prepare_react_loop(ReactLoopRequest(0, ctx.observed_at, [
-        {"turn": 0, "action": "observe", "ok": True, "data": observed}]))
+    agent = person(engine, ctx, ScriptedModel([]))
+    agent._context = ctx
+    agent._prepare(observed)
+    agent.turn_tools(16, False)
     return agent, observed
 
 
@@ -50,8 +51,8 @@ def test_invalid_names_actions_and_removed_fields_fail_before_dispatch(engine_fa
     """对象名或 detail 找不到、已知对象在这个工具下不提供所写动作（出行去当前地点、在别处的地点做事、把 app 交给主工具、
     把地点交给副工具）、闭集之外的 action 与已删除的字段，都在分派前按各自的错误码拒绝，明细指向写错的那个参数。"""
     agent, _ = prepared(engine_factory())
-    error = agent.validate_react_decisions([ReactDecision("", tool, payload, "")], False)
-    assert error.startswith(f"{code}: ")
+    error = agent._validate([ReactDecision(tool, payload, "")])
+    assert error.text.startswith(f"{code}: ")
     [item] = error.report.items
     assert (item.error_code, list(item.path)) == (code, ["tool_calls", 0, "function", "arguments", *path])
 
@@ -61,7 +62,7 @@ def test_retired_items_shape_is_refused_by_both_start_tools(engine_factory, tool
     """旧的 items 形状交给任何一个开始工具都按参数错误拒绝：多余的 items 与缺失的每个必填参数各报一条。"""
     agent, _ = prepared(engine_factory())
     retired = {"items": [{"action": "interact", "target": "抖音"}]}
-    error = agent.validate_react_decisions([ReactDecision("", tool, retired, "")], False)
+    error = agent._validate([ReactDecision(tool, retired, "")])
     assert error.report.error_code == "ARGUMENTS_INVALID"
     required = ["action", "target", "detail"] if tool == MAIN_TOOL else ["action", "target", "prefer"]
     assert [item.path[4:] for item in error.report.items] == [*((field,) for field in required), ("items",)]
@@ -75,26 +76,26 @@ async def test_valid_readable_target_dispatches_exact_current_typed_request(engi
     动作身份的序号从 1 起。"""
     engine = engine_factory()
     agent, observed = prepared(engine)
-    decisions = [ReactDecision("", tool, payload, "", f"call-{index}") for index, (tool, payload) in enumerate(calls)]
-    assert agent.validate_react_decisions(decisions, False) == ""
+    decisions = [ReactDecision(tool, payload, f"call-{index}") for index, (tool, payload) in enumerate(calls)]
+    assert agent._validate(decisions) is None
     for tool, payload in calls:
-        result = await agent.dispatch_react_tool(tool, payload)
+        result = agent._dispatch(tool, payload)
         assert result.ok
     records = engine.context.store.read_agent_events("action_requested", 1)
     assert [(record.data["tool_name"], record.data["request"]) for record in records] == [
         (tool, payload) for tool, payload in calls]
-    decision_id = agent.require_decision_context().decision_id
+    decision_id = agent._context.decision_id
     assert [record.action_id for record in records] == [
         f"{decision_id}:action:{index:04d}" for index in range(1, len(calls) + 1)]
     with pytest.raises(RuntimeError, match="already submitted"):
-        await agent.dispatch_react_tool(*calls[0])
+        agent._dispatch(*calls[0])
 
 
 def test_tool_schema_has_current_shape_and_no_per_round_names(engine_factory):
     """两个开始工具的参数就是请求模型的字段：action 是固定闭集，对象名与 detail 没有枚举，本轮观察里的任何名称与私有
     身份都不进 Schema。"""
     agent, observed = prepared(engine_factory())
-    schemas = agent.build_react_tool_schemas(readonly=False)
+    schemas = agent.turn_tools(16, False)
     functions = {row["function"]["name"]: row["function"] for row in schemas}
     assert "start_activity" not in functions and list(functions)[:2] == [MAIN_TOOL, SIDE_TOOL]
     main, side = (functions[tool]["parameters"]["properties"] for tool in (MAIN_TOOL, SIDE_TOOL))

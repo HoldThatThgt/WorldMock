@@ -59,26 +59,26 @@ def published_environment(tmp_path):
         thread.join(timeout=5)
 
 
-def test_pure_cli_and_runtime_imports_do_not_load_engine_or_as2():
+def test_pure_cli_and_runtime_imports_do_not_load_engine_or_model_client():
     script = (
         "import sys; from worldmock.cli import build_parser; import worldmock.configuration.inputs.validation; import worldmock.runtime.lifecycle.runner; "
         "build_parser(); forbidden=('worldmock.simulation_engine.engine','worldmock.simulation_engine.world.context',"
-        "'worldmock.runtime.framework.read_query'); assert not set(forbidden)&set(sys.modules); "
-        "assert not any(name.startswith('agentsociety2') for name in sys.modules)"
+        "'worldmock.runtime.lifecycle.run_host','worldmock.configuration.model.model_client'); "
+        "assert not set(forbidden)&set(sys.modules)"
     )
     result = subprocess.run([sys.executable, "-c", script], cwd=ROOT, capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-def test_real_pytest_collection_of_pure_commands_does_not_load_engine_or_as2(tmp_path):
+def test_real_pytest_collection_of_pure_commands_does_not_load_engine_or_model_client(tmp_path):
     arguments = ["--collect-only", "tests/system/cli/test_cli.py", "tests/system/environment/test_validation.py",
                  "tests/unit/cli/test_parser.py", "-q", "-p", "no:cacheprovider",
                  "--basetemp", str(tmp_path / "collection")]
     script = (
         "import sys,pytest; code=pytest.main(" + repr(arguments) + "); assert code==0; "
-        "forbidden=('worldmock.simulation_engine.engine','worldmock.simulation_engine.world.context','worldmock.runtime.framework.read_query'); "
-        "assert not set(forbidden)&set(sys.modules); "
-        "assert not any(name.startswith('agentsociety2') for name in sys.modules)"
+        "forbidden=('worldmock.simulation_engine.engine','worldmock.simulation_engine.world.context',"
+        "'worldmock.runtime.lifecycle.run_host','worldmock.configuration.model.model_client'); "
+        "assert not set(forbidden)&set(sys.modules)"
     )
     result = subprocess.run([sys.executable, "-c", script], cwd=ROOT, capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stdout + result.stderr

@@ -9,13 +9,13 @@ import logging
 import pytest
 
 from tests.data_paths import ENVIRONMENT_ROOT
-from tests.integration.as2_fixtures import write_project
-from tests.integration.runtime.current_contract_fixtures import ROOT, inputs
+from tests.integration.runtime.current_contract_fixtures import inputs
 from tests.integration.runtime.test_runtime_inputs_contract import prepared_parent
-from tests.integration.runtime_fixtures import current_run_identity
+from tests.integration.runtime_fixtures import current_run_identity, write_project
 from worldmock.agents.prompt import life_prompt
 from worldmock.foundation.errors import IntegrityError
 from worldmock.simulation_engine.engine import LifeEngine
+from worldmock.runtime.framework import setup as run_setup
 from worldmock.runtime.framework.setup import _model_identity, stage_model_identity
 from worldmock.runtime.lifecycle.runner import ResumeRequest, _prepare_resume
 
@@ -127,9 +127,9 @@ async def test_resume_rejects_a_changed_prompt_or_tool_fingerprint_without_writi
         tmp_path, monkeypatch, caplog, edit, fingerprint):
     """父运行按当前提示与工具建好并存下检查点；此后系统层的一条规则或一个工具的用途说明变了，
     当前模型身份只在对应的那一个指纹上与父清单不同：恢复按原文拒绝，不留下新运行目录。"""
-    frozen, parent, env, checkpoint = await prepared_parent(tmp_path, monkeypatch)
-    recorded = dict(env.engine.context.store.manifest["model_identity"])
-    await env.close()
+    frozen, parent, host, checkpoint = await prepared_parent(tmp_path, monkeypatch)
+    recorded = dict(host.engine.context.store.manifest["model_identity"])
+    await host.close()
     assert recorded == _model_identity(frozen.config.model).model_dump(mode="json")
     edit(monkeypatch)
     current = _model_identity(frozen.config.model).model_dump(mode="json")
@@ -137,25 +137,27 @@ async def test_resume_rejects_a_changed_prompt_or_tool_fingerprint_without_writi
     child = tmp_path / "child"
     with caplog.at_level(logging.ERROR), pytest.raises(
             IntegrityError, match=r"^Checkpoint model identity differs from the current LifeAgent contract$"):
-        _prepare_resume(ResumeRequest(ROOT, ENVIRONMENT_ROOT, parent.run_dir, checkpoint.checkpoint_id, child))
+        _prepare_resume(ResumeRequest(ENVIRONMENT_ROOT, parent.run_dir, checkpoint.checkpoint_id, child))
     assert not child.exists()
     assert "Checkpoint model identity differs from the current contract" in caplog.text
 
 
 async def test_resume_rejects_a_different_code_identity_without_writing(tmp_path, monkeypatch, caplog):
-    """提示与工具都没有变、工程根里的生产源码不是父运行那一份：恢复报代码身份不符，不留下新运行目录。
+    """提示与工具都没有变、项目根里的生产源码不是父运行那一份：恢复报代码身份不符，不留下新运行目录。
 
-    对照：同一个检查点用父运行的工程根可以恢复。
+    对照：退出替换项目根的上下文之后，同一个检查点用真实的项目根可以恢复。
     """
-    _, parent, env, checkpoint = await prepared_parent(tmp_path, monkeypatch)
-    await env.close()
+    _, parent, host, checkpoint = await prepared_parent(tmp_path, monkeypatch)
+    await host.close()
     other = write_project(tmp_path / "other-project")
     refused = tmp_path / "refused"
-    with caplog.at_level(logging.ERROR), pytest.raises(
-            IntegrityError, match=r"^Checkpoint code identity differs from the current runtime$"):
-        _prepare_resume(ResumeRequest(other, ENVIRONMENT_ROOT, parent.run_dir, checkpoint.checkpoint_id, refused))
+    with monkeypatch.context() as patched:
+        patched.setattr(run_setup, "project_root", lambda: other)
+        with caplog.at_level(logging.ERROR), pytest.raises(
+                IntegrityError, match=r"^Checkpoint code identity differs from the current runtime$"):
+            _prepare_resume(ResumeRequest(ENVIRONMENT_ROOT, parent.run_dir, checkpoint.checkpoint_id, refused))
     assert not refused.exists()
     assert "Checkpoint code identity differs from the current runtime" in caplog.text
-    accepted = _prepare_resume(ResumeRequest(ROOT, ENVIRONMENT_ROOT, parent.run_dir, checkpoint.checkpoint_id,
+    accepted = _prepare_resume(ResumeRequest(ENVIRONMENT_ROOT, parent.run_dir, checkpoint.checkpoint_id,
                                              tmp_path / "child"))
     assert accepted.run_dir == (tmp_path / "child").resolve() and accepted.run_dir.exists()

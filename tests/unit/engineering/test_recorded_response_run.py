@@ -6,7 +6,9 @@ import email.message
 import gzip
 import hashlib
 import json
+import shutil
 import sqlite3
+import sys
 import tomllib
 import uuid
 from pathlib import Path
@@ -36,6 +38,8 @@ CONFIG = ('schema_version = 2\nseed = 7\n\n[model]\nprovider = "openai_compatibl
 PERSONA = 'schema_version = 1\nname = "林舟"\n'
 CHAT = "/beta/chat/completions"
 TOOL_NAMES = ("start_main_activity", "start_side_activity", "report_status", "conclude_activity")
+#: 已删除的项目根参数，由片段拼出。
+PROJECT_ROOT_FLAG = "--project" + "-root"
 
 
 def _tool(name: str, description: str = "做一件事。") -> dict:
@@ -397,31 +401,78 @@ def test_frozen_config_must_agree_with_the_manifest_model_identity(tmp_path):
 
 
 def test_child_environment_drops_credentials_and_proxies(tmp_path):
-    parent = {"DEEPSEEK_NODE_KEYS": "real", "OPENAI_API_KEY": "real", "GH_TOKEN": "real", "HTTPS_PROXY": "proxy",
-              "ray_address": "auto", "PYTHONPATH": "x", "PATH": "bin"}
+    proxies = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY")
+    parent = {"DEEPSEEK_NODE_KEYS": "real", "OPENAI_API_KEY": "real", "GH_TOKEN": "real",
+              **{name: "proxy" for name in proxies}, **{name.lower(): "proxy" for name in proxies},
+              "RAY_ADDRESS": "auto", "PYTHONPATH": "x", "PATH": "bin"}
     environment = tool.child_environment(parent, tmp_path, "DEEPSEEK_NODE_KEYS")
     assert environment["DEEPSEEK_NODE_KEYS"] == DUMMY_CREDENTIAL and "real" not in environment.values()
-    assert not {"OPENAI_API_KEY", "GH_TOKEN", "HTTPS_PROXY", "ray_address"} & set(environment)
+    assert not {"OPENAI_API_KEY", "GH_TOKEN", *proxies, *(name.lower() for name in proxies)} & set(environment)
+    assert environment["RAY_ADDRESS"] == "auto"
     assert (environment["NO_PROXY"], environment["PYTHONUTF8"], environment["LITELLM_LOCAL_MODEL_COST_MAP"]) == (
         "127.0.0.1,localhost", "1", "True")
     root = tmp_path.resolve()
-    assert environment["PYTHONPATH"].split(tool.os.pathsep) == [
-        str(root / "src"), str(root), str(root / "vendor" / "agentsociety2" / "packages" / "agentsociety2")]
+    assert environment["PYTHONPATH"].split(tool.os.pathsep) == [str(root / "src"), str(root)]
     assert environment["PATH"] == "bin"
 
 
-def test_project_without_restored_as2_is_refused(tmp_path, caplog):
+def test_a_project_without_the_removed_framework_source_is_accepted(tmp_path, monkeypatch, caplog):
+    """没有 vendor 目录的检出照常起服务、复原输入并进入逐段回放；日志里没有源码位置的拒绝。"""
     runs = _source(tmp_path / "source", [_request()])
-    code = tool.main(["run", "--project", str(tmp_path / "project"), "--source", *map(str, runs),
-                      "--work", str(tmp_path / "work")])
-    assert code == 2 and "no restored AS2 source" in caplog.text
+    project, work = tmp_path / "project", tmp_path / "work"
+    project.mkdir()
+    replayed = []
+
+    def replay(plan, cassette, root, directory, count):
+        """@brief 记下回放的检出与段数，不起子进程。"""
+        replayed.append((root, directory, count, cassette.next_call))
+        return {"calls_served": 0, "divergences": [], "restarts_reproduced": 0, "verdict": "zero_divergence"}
+
+    monkeypatch.setattr(tool, "_replay", replay)
+    code = tool.main(["run", "--project", str(project), "--source", *map(str, runs), "--work", str(work)])
+    assert code == 0 and not (project / "vendor").exists()
+    assert replayed == [(project.resolve(), work.resolve(), 1, 1)]
+    assert (work / "input" / "config.toml").is_file() and (work / "input" / "persona.toml").is_file()
+    assert json.loads((work / "plan.json").read_text(encoding="utf-8"))["calls"] == 1
+    assert "has no restored" not in caplog.text and "resolves outside the project" not in caplog.text
 
 
-def test_as2_location_follows_the_child_pythonpath(tmp_path):
-    (tmp_path / "agentsociety2").mkdir()
-    (tmp_path / "agentsociety2" / "__init__.py").write_text("", encoding="utf-8")
-    environment = {**tool.os.environ, "PYTHONPATH": str(tmp_path)}
-    assert tool.as2_location(tmp_path, environment) == [tmp_path / "agentsociety2"]
+def test_child_command_lines_name_no_project_root(restarted, tmp_path, monkeypatch):
+    """两段的子进程参数与两条导出命令都按新命令行组成，不带项目根参数。"""
+    cassette, _, _ = restarted
+    plan, work = cassette.plan, cassette.work
+    (work / "segments" / "01").mkdir(parents=True)
+    shutil.copy2(plan.chain.runs[0] / "footprints.sqlite", work / "segments" / "01" / "footprints.sqlite")
+    first = tool._segment_argv(tool.SegmentJob(plan, cassette, tmp_path, work, 1))
+    second = tool._segment_argv(tool.SegmentJob(plan, cassette, tmp_path, work, 2))
+    assert first == ("run", ["run", "--environment", str(work / "input"), "--output", str(work / "segments" / "01"),
+                             "--same-second-continuation", "on"], None)
+    assert second == ("resume", ["resume", "--environment", str(work / "input"), "--parent",
+                                 str(work / "segments" / "01"), "--checkpoint", CHECKPOINT, "--output",
+                                 str(work / "segments" / "02")], CHECKPOINT)
+    commands = []
+
+    def child_command(command, project, api_key_env, log):
+        """@brief 记下命令，答一次失败，让调用方在第一条命令后停下。"""
+        commands.append(command)
+        return tool.subprocess.CompletedProcess(command, 1, "", "")
+
+    monkeypatch.setattr(tool, "_child_command", child_command)
+    segments = [{"run_dir": str(work / "segments" / "01")}, {"run_dir": str(work / "segments" / "02")}]
+    for count in (2, 1):
+        report = {"segments": segments[:count]}
+        tool.finish(plan, work, tmp_path, report)
+        assert report["verdict"] == "error"
+    export = tmp_path / "source-export-work"
+    with pytest.raises(RecordedResponseError, match="Source export failed"):
+        tool.export_source(tmp_path, plan.chain.runs[0], 3, export)
+    export = export.resolve()
+    prefix = [sys.executable, "-P", "-m", "worldmock.cli", "export", "--run-dir"]
+    assert commands == [
+        [*prefix, str(work / "segments" / "02"), "--output", str(work / "export")],
+        [*prefix, str(work / "segments" / "01"), "--output", str(work / "export"), "--cutoff", "3"],
+        [*prefix, str(export / "source-run"), "--cutoff", "3", "--output", str(export / "source-export")]]
+    assert all(PROJECT_ROOT_FLAG not in command for command in [first[1], second[1], *commands])
 
 
 @pytest.mark.parametrize("case", ["planned", "early", "missing", "failed"])
