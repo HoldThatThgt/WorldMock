@@ -23,7 +23,7 @@ flowchart LR
 ## 动作、名称与并行
 
 开始一件事用两个工具：`start_main_activity` 开始占槽位 1 的活动，`start_side_activity` 开始占槽位 2 的活动。
-每个参数都必须出现，多余字段拒绝。主工具的三个参数是 `action`、`target`、`detail`，副工具的三个参数是 `action`、`target`、`prefer`。删除 `start_activity`、请求里的四个出行动作以及 `way`、`app`、`to`、`pay_app`。
+每个请求工具的每个参数都必须出现，多余字段拒绝；缺少必填字段时，纠错原因写明它在参数里的位置（`items.0.views`、`errands.0.item`），只写位置，不写该写什么。主工具的三个参数是 `action`、`target`、`detail`，副工具的三个参数是 `action`、`target`、`prefer`。删除 `start_activity`、请求里的四个出行动作以及 `way`、`app`、`to`、`pay_app`。
 
 | 工具 | `action` | `target` | `detail` | `prefer` |
 | --- | --- | --- | --- | --- |

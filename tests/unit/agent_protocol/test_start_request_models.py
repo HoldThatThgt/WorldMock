@@ -147,7 +147,7 @@ def test_every_parameter_is_required_and_extra_keys_are_refused(model, tool, val
     for field in valid:
         missing = {key: value for key, value in valid.items() if key != field}
         assert _report(model, tool, missing) == [((field,), None, _allowed(model, field),
-                                                  "This required field was omitted.")]
+                                                  f"This required field was omitted: {field}.")]
     extra = {**valid, "way": "步行"}
     assert _report(model, tool, extra) == [(("way",), "步行", (), "This field is not declared and must be removed.")]
     retired = {"items": [{"action": "walk", "target": "公司"}]}
@@ -225,7 +225,7 @@ def test_numeric_minutes_must_be_written_as_text():
 
 
 @pytest.mark.parametrize("arguments,expected", [
-    ({"action": "purchase", "target": ["柠檬茶"]}, [(("prefer",), None, (), "This required field was omitted.")]),
+    ({"action": "purchase", "target": ["柠檬茶"]}, [(("prefer",), None, (), "This required field was omitted: prefer.")]),
     ({"action": "purchase", "target": ["柠檬茶"], "prefer": ""},
      [(("prefer",), "", (), "A non-blank string matching the declared format is required.")]),
     ({"action": "purchase", "target": ["柠檬茶"], "prefer": " \u3000"},

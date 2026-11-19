@@ -140,7 +140,7 @@ def _host(engine):
 
 
 @pytest.mark.parametrize("arguments,why", [
-    ({"action": "purchase", "target": ["柠檬茶"]}, "This required field was omitted."),
+    ({"action": "purchase", "target": ["柠檬茶"]}, "This required field was omitted: prefer."),
     ({"action": "interact", "target": ["哔哩哔哩"], "prefer": "饿了么"}, "prefer must be null when action is interact"),
 ])
 def test_host_and_environment_refuse_the_same_prefer_shapes(engine_factory, arguments, why):

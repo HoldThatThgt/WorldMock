@@ -10,9 +10,10 @@ from pydantic import BaseModel, ValidationError
 
 from worldmock.state.interaction.errors import ARGUMENT_ROOT, ErrorItem, ErrorReport, host_defaults
 
-#: 严格请求模型可产生的类型与形状错误，统一解释具体 JSON 条件。
+#: 严格请求模型可产生的类型与形状错误，统一解释具体 JSON 条件；
+#: 缺字段时原因后面接参数内位置。
 _VALIDATION_REASONS = {
-    "missing": "This required field was omitted.",
+    "missing": "This required field was omitted",
     "extra_forbidden": "This field is not declared and must be removed.",
     "string_pattern_mismatch": "A non-blank string matching the declared format is required.",
     "literal_error": "The value is outside the declared allowed values.",
@@ -54,7 +55,7 @@ def argument_report(tool: str, error: ValidationError, model: type[BaseModel],
         allowed = _allowed(field)
         written = arguments if not location else None if row["type"] == "missing" else row.get("input")
         items.append(ErrorItem(location or ARGUMENT_ROOT, written, code, tuple(allowed),
-                               _expected(field, row), _why(row)))
+                               _expected(field, row), _why(row, location)))
     return ErrorReport(code, "; ".join(item.why for item in items),
                        host_defaults("ARGUMENTS_INVALID")[1], tuple(items))
 
@@ -107,7 +108,12 @@ def _expected(schema: dict, row: Mapping[str, Any]) -> str:
     return "; ".join(parts) + "." if parts else _why(row)
 
 
-def _why(row: Mapping[str, Any]) -> str:
+def _argument_path(location: Sequence[Any]) -> str:
+    """@brief 参数内位置的点号写法：成员用点号连接，不带方括号，例如 items.0.views。"""
+    return ".".join(str(part) for part in location)
+
+
+def _why(row: Mapping[str, Any], location: Sequence[Any] = ()) -> str:
     """@brief 英文校验原因不包含库转储、内部身份或验收答案。"""
     if row["type"] == "value_error":
         return str(row["ctx"]["error"])
@@ -115,6 +121,8 @@ def _why(row: Mapping[str, Any]) -> str:
         comparison, key = _VALIDATION_BOUNDS[row["type"]]
         units = " entries or characters" if "length" in key else ""
         return f"The value must be {comparison} {row['ctx'][key]}{units}."
+    if row["type"] == "missing" and location:
+        return f"{_VALIDATION_REASONS['missing']}: {_argument_path(location)}."
     if row["type"] not in _VALIDATION_REASONS:
         logging.error("Undeclared request validation condition: %s", row["type"])
         raise ValueError(f"Undeclared request validation condition: {row['type']}")

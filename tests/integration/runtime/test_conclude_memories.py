@@ -307,7 +307,7 @@ _LIMIT_REASONS = {
     "repeated_activity": "conclude_activity activity names must be distinct",
     "blank_summary": "A non-blank string matching the declared format is required.",
     "summary_over_500_characters": "must be within 500 characters",
-    "views_missing": "This required field was omitted.",
+    "views_missing": "This required field was omitted: items.0.views.",
     "nine_memories_and_views_in_total": "conclude_activity memories and views exceed eight entries in total",
     "memory_with_a_subject": "This field is not declared and must be removed.",
     "view_without_about": "A non-blank string matching the declared format is required.",
