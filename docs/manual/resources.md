@@ -1,45 +1,163 @@
 <a name="resources-设计环境数据集"></a>
 # 设计环境数据集
 
-环境根包含 catalog/、persona.toml 和 config.toml。catalog/ 必须有 manifest.json、app-catalog.jsonl、
-content-catalog.jsonl、location.jsonl、merchant-catalog.jsonl 五个文件，另外可以按需放三个可选文件：
-callbacks.jsonl 写回调声明，map.jsonl 写两地的距离，travel-method.jsonl 写步行以外的出行方式。
-可选文件不放等于零行：没有回调就不放 callbacks.jsonl，不需要声明距离就不放 map.jsonl，
-不放 travel-method.jsonl 时人物只能步行。其他名字的文件一律拒绝，文件名用连字符。
-每行是一项完整 JSON 对象，使用 UTF-8 无 BOM 与 LF。清单的 format_version 写 6，rules_version 写 6。
-字段、显示名、绑定与发布摘要合同见[资源引擎](../design/03-resource-engine.md)。
+一份 WorldMock 环境描述“一个物理与数字世界、一个人物和一次运行”。要让模拟跑起来，你需要准备一个封闭的环境根目录，里面只放三样东西：世界素材目录 `catalog/`、人物声明 `persona.toml` 和运行配置 `config.toml`。
 
-地点逐项声明，不使用 count 扩张或生成地址。给本人住处声明 is_home，为一个实际地点声明 accepts_parcels，
-同名分店使用 branch_label。
-需要营业限制时声明 weekly 与按 ISO 日期完整替换的 exceptions；省略 opens 表示全天营业。
+```mermaid
+flowchart LR
+    Catalog["catalog/：世界素材目录"] --> Validate["worldmock validate：完整校验"]
+    Persona["persona.toml：唯一人物"] --> Validate
+    Config["config.toml：时间、种子与模型"] --> Validate
+    Validate --> Run["worldmock run：开始模拟"]
+```
 
-允许睡觉的地点声明 sleepable 为 true，缺省不能睡。sleepable 与 is_home 互不推导；
-人物自己的家必须标 sleepable，否则环境加载以 HOME_NOT_SLEEPABLE 失败。
-家声明了 opens 时，关门时段内不能开始睡；想让人物随时能睡，就不要给家声明 opens。
+环境根目录与 `catalog/` 都是严格闭集：不要在里面放 `README`、草稿笔记、场景文件、脚本、符号链接或手动生成的 `map.json`，作者自己的说明文档放在环境包外面。一旦出现约定之外的文件，加载会直接以 `ENVIRONMENT_STALE_FILE` 拒绝。
+
+## 目录文件清单与格式铁律
+
+`catalog/` 里用四个必需文件搭起“地点、app、商品、内容”四张基础表，用三个可选文件按需补充“声明距离、出行方式、动态回调”，最后由 `manifest.json` 锁住真实字节身份。
+
+| 文件 | 是否必需 | 在世界里管什么 | 省略时怎么表现 | 行排序键 |
+| --- | --- | --- | --- | --- |
+| `manifest.json` | 必需 | 记录版本与在场文件字节摘要 | 无法加载 | 不适用（单个 JSON 对象） |
+| `location.jsonl` | 必需 | 全部实际地点、营业时段、住宿与驿站资格 | 无法加载 | `location_id` 升序 |
+| `app-catalog.jsonl` | 必需 | 手机上的内容 app 与功能 app | 无法加载 | `app_id` 升序 |
+| `merchant-catalog.jsonl` | 必需 | 商品类别、固定价格与售卖容器 | 无法加载 | `goods_id` 升序 |
+| `content-catalog.jsonl` | 必需 | 地点活动与手机内容、时长与效果 | 无法加载 | `content_id` 升序 |
+| `map.jsonl` | 可选 | 显式固定某两地之间的直达距离 | 全部边按种子随机生成 | `(a, b)` 升序 |
+| `travel-method.jsonl` | 可选 | 步行之外的交通方式、速度与计价 | 人物只能使用自带的步行 | `travel_method_id` 升序 |
+| `callbacks.jsonl` | 可选 | 可消耗状态声明与动态回调规则 | 没有状态，也没有回调 | 状态行在前按 `state` 升序，规则行在后按 `rule_id` 升序 |
+
+可选文件“不放”等于零行：没有自定义距离就不放 `map.jsonl`，只用步行就不放 `travel-method.jsonl`，不需要状态和回调就不放 `callbacks.jsonl`。放一个零字节空文件虽然在运行效果上和“不放”完全一样，但 `manifest.json` 的文件表和目录摘要会不同。
+
+| 格式铁律 | 具体要求 |
+| --- | --- |
+| 文件命名 | 一律用连字符，如 `travel-method.jsonl`、`app-catalog.jsonl`；下划线或 `.json` 后缀均拒收 |
+| 编码与换行 | UTF-8 无 BOM，行尾只用 LF，禁止出现 CR |
+| JSONL 结构 | 每行恰是一个完整 JSON 对象；禁止空行、纯空白行、跨行 JSON 或 `NaN`、`Infinity` |
+| 主键与引用数组 | 行与行按主键升序无重复；`app_ids`、`location_kinds`、`store_kinds`、`travel_method_ids`、`reset_on_goods` 等数组按 ASCII 字符串升序无重复 |
+| 省略优于 `null` | 除了 `Location.branch_label`、`Content.series`、`SummarySource.url`、`SummarySource.notice` 四个明确允许 `null` 的字段外，不声明某项功能就直接省略该键；写 `null` 会触发 `ENVIRONMENT_KIND_INVALID` |
+| 规则与格式版本 | `manifest.json` 的 `format_version` 与 `rules_version` 均写 `6` |
+
+字段完整定义与加载校验顺序见[资源引擎](../design/03-resource-engine.md)。
+
+<a name="resources-对象之间怎样关联"></a>
+## 对象之间怎样关联
+
+写数据集时最容易混淆“机器绑定”和“人读名称”。WorldMock 把它们分成两层：
+
+- **目录内部靠精确身份与地点类型对接**：文件之间跨表引用全靠主键身份（`location_id`、`app_id`、`goods_id`、`travel_method_id`、`state`）或逐字相等的地点类型 `kind`（比如 `"cafe"`、`"餐厅"`）。这里大小写和空格必须一字不差。
+- **人物与外部配置靠显示名对话**：`persona.toml` 里的住处 `home_location`、起点 `initial_location` 和班次地点 `work_schedule.workplace` 写地点的完整显示名；模拟中人物调用工具填写目的地、出行方式、地点活动、商品名或 `prefer` 时，也只看面向人物的名称。引擎做名称匹配时会去掉全部空白并忽略英文大小写（即 `channel_key`），但不做近义词猜测。
+
+```mermaid
+flowchart TD
+    Persona["persona.toml：住处、起点、班次地点按显示名解析；习惯 app 名按名称匹配"] -->|"display_name"| Loc["location.jsonl：location_id, kind, display_name"]
+    Loc -->|"app_ids → app_id"| App["app-catalog.jsonl：app_id, name, role"]
+    Map["map.jsonl：a, b → location_id"] -->|"固定两地直达米数"| Loc
+    Travel["travel-method.jsonl：travel_method_id, name"] -->|"travel_method_ids → travel_method_id"| App
+    Goods["merchant-catalog.jsonl：goods_id, store_kinds 或 app_ids"] -->|"store_kinds 匹配 kind"| Loc
+    Goods -->|"app_ids 匹配内容 app"| App
+    Content["content-catalog.jsonl：content_id, location_kinds 或 app_ids"] -->|"location_kinds 匹配 kind"| Loc
+    Content -->|"app_ids 匹配内容 app"| App
+    Callbacks["callbacks.jsonl：state, rule_id"] -->|"reset_on_goods → goods_id"| Goods
+    Callbacks -->|"travel_method_id"| Travel
+    Callbacks -->|"notify.app_id 或 footprint_chain → app_id"| App
+    Content -.->|"consumes_state → state"| Callbacks
+```
+
+为了保证人物喊出名字时不会找错对象，目录对名称唯一性做了严格把关：
+
+| 对象范围 | 查重口径 | 越界后果 |
+| --- | --- | --- |
+| 同一 JSONL 内部 | `app.name`、`location.display_name`、`goods.name`、`travel_method.name` 各自文件内按去空白忽略大小写唯一 | 报 `ENVIRONMENT_ID_DUPLICATE` |
+| 同名分店地点 | `location.jsonl` 中 `name` 相同的地点必须写不同的 `branch_label`，引擎会拼出 `名称（分店标签）` 作为 `display_name` | 分店显示名重复报 `ENVIRONMENT_ID_DUPLICATE` |
+| app 与地点之间 | 任何 `app.name` 都不能与任何 `location.display_name` 相同 | 报 `APP_NAME_COLLIDES_LOCATION` |
+| 出行方式与步行 | `travel_method_id` 不得为 `walking`，`name` 不得为 `步行`，且自定义方式之间不得重名 | 报 `ENVIRONMENT_ID_DUPLICATE` |
+| 地点内容单元名 | 同一个 `location_kind` 下，独立内容的 `title` 与系列的 `series.title` 合在一起不得重名；不同 `location_kind` 之间允许重名 | 报 `ENVIRONMENT_ID_DUPLICATE` 并指出冲突的两行 |
+| app 内容标题 | app 内容由人物点 app 名触发，人物不直接点播内容标题，因此不检查唯一性 | 不查重，但仍要起成自然的内容标题 |
+
+<a name="resources-按工作流设计和编写目录"></a>
+## 按工作流设计和编写目录
+
+编写环境目录推荐按对象依赖顺序推进：先定物理空间，再配交通与手机桌面，接着铺设商品和地点或手机活动，最后用条件、状态和回调把日常习惯串联起来并封包校验。
+
+```mermaid
+flowchart LR
+    Places["规划地点与空间距离"] --> MoveApps["配置出行方式与手机 app"]
+    MoveApps --> Goods["铺设商品与收货路径"]
+    Goods --> Contents["编写地点活动与手机内容"]
+    Contents --> Scenarios["串联常见生活场景与回调"]
+    Scenarios --> Publish["刷新清单摘要并校验"]
+```
+
+### 规划地点与空间距离
+
+#### `location.jsonl`：搭出世界里的去处
+
+每一行声明一个真实存在的去处，引擎不会用数量字段替你自动扩张多家门店。
+
+| 字段 | 必填 | 类型与约束 | 在世界里起什么作用 |
+| --- | --- | --- | --- |
+| `location_id` | 是 | 非空白字符串，文件内升序唯一 | 地图边与内部索引使用的地点身份 |
+| `name` | 是 | 非空白字符串，避免坐标或代码编号 | 人物看到和填写的地点名 |
+| `branch_label` | 否 | 非空白字符串或 `null`（缺省 `null`） | 区分同名分店，拼成 `name（branch_label）` |
+| `kind` | 是 | 非空白字符串 | 与商品 `store_kinds`、内容 `location_kinds` 及前提逐字匹配 |
+| `app_ids` | 是 | 内容 app 的 `app_id` 升序数组（可写 `[]`） | 声明这家店入驻了哪些可接外卖的下单 app |
+| `is_home` | 否 | 布尔（缺省 `false`） | 标记是否为住宿地点，整个目录至少有一处为 `true` |
+| `sleepable` | 否 | 布尔（缺省 `false`） | 标记停留在这里时能否开始睡觉 |
+| `accepts_parcels` | 否 | 布尔（缺省 `false`） | 标记是否为收发快递的驿站 |
+| `opens` | 否 | 对象 `{weekly, exceptions}`；省略代表全天开放 | 限制营业或进入后可开始消费、睡觉的时段 |
 
 ```json
+{"app_ids":["eleme","meituan"],"branch_label":"古镇店","kind":"cafe","location_id":"cafe","name":"三杯咖啡","opens":{"exceptions":{"2026-01-01":[]},"weekly":{"fri":[["08:00","20:00"]],"mon":[["08:00","20:00"]],"sat":[["09:00","21:00"]],"sun":[["09:00","21:00"]],"thu":[["08:00","20:00"]],"tue":[["08:00","20:00"]],"wed":[["08:00","20:00"]]}}}
 {"app_ids":[],"is_home":true,"kind":"home","location_id":"home","name":"家","sleepable":true}
 {"app_ids":[],"kind":"office","location_id":"office","name":"公司","sleepable":true}
+{"accepts_parcels":true,"app_ids":[],"kind":"parcel_station","location_id":"parcel-station","name":"快递驿站"}
 ```
 
-地图在加载时由全部地点、声明的距离和唯一运行种子在内存生成，不把生成的 map.json 放进发布环境。
-想控制两地的距离，就在 map.jsonl 里为这一对地点写一行，例如让家到公司是 12,600 米：
+编写地点时注意几件事：
+
+- **`is_home` 和 `sleepable` 互不推导**：`persona.toml` 里 `home_location` 指代的地点不仅要标 `is_home: true`，还必须显式标 `sleepable: true`，否则直接报 `HOME_NOT_SLEEPABLE`。公司、酒店等想允许午休或过夜的地方也可以标 `sleepable: true`。
+- **人物自己的家通常省略 `opens`**：一旦给家声明了 `opens`，打烊时段内人物就不能开始睡觉；想让人物回家后随时能睡，就省略 `opens`（不要写成 `null`）。
+- **营业时段使用半开区间**：`weekly` 的键只能是 `mon` 到 `sun`，缺席的星期整天休息；时段按升序、不重叠排列（如 `["08:00","10:00"]` 含 08:00 不含 10:00，`24:00` 只作当天结束时刻，跨午夜拆成相邻两日）。`exceptions` 按规范 `YYYY-MM-DD` 整日替换当天安排，写 `[]` 表示当天停业。
+- **起自然的地点名**：如果 `name` 里带有经纬度（如 `31.2, 121.5`）或带数字的多段小写标识符（如 `poi-node-1`），运行清单会记 `LOCATION_NAME_SUSPICIOUS` 警告，因为人物在日志和决策里会直接照抄这个显示名。
+
+#### `map.jsonl`：控住通勤距离与集群关系
+
+WorldMock 不在环境包里保存 `map.json`；每次加载时，引擎会把全部地点作为节点，放入 `map.jsonl` 里声明的直达边，再按 `config.toml` 的 `seed` 确定性地补齐随机连通树和额外边（所有随机生成的边长度均落在 `200` 到 `2000` 米之间）。
+
+| 字段 | 必填 | 约束 | 含义 |
+| --- | --- | --- | --- |
+| `a` | 是 | 已登记的 `location_id`，按字符串比较严格小于 `b` | 无向边的较小端点 |
+| `b` | 是 | 已登记的 `location_id` | 无向边的较大端点 |
+| `length_m` | 是 | 大于等于 `1` 的严格整数 | 两地之间的直达米数，往返共用 |
 
 ```json
-{"a": "home", "b": "office", "length_m": 12600}
+{"a":"cafe","b":"office","length_m":450}
+{"a":"home","b":"office","length_m":12600}
+{"a":"home","b":"parcel-station","length_m":600}
 ```
 
-- a、b 写 location_id，不写显示名，并且 a 按字符串比较小于 b；行按 (a, b) 升序，同一对地点只写一行。
-- length_m 是不小于 1 的整数米数，往返共用；天气照旧放慢出行。
-- 声明的两地直接相连，距离就是声明值；没有声明的边仍随机生成，长度在 200 到 2000 米之间。
-- 声明一条远大于 2,000 米的距离后，地图实际分成两簇，只靠声明的那条边相连，没有声明的地点随机挂在其中一侧。
-  凡是要在公司或家附近用到的地点（午餐店、咖啡店、便利店、驿站），都各声明一行到公司或到家的距离。
-- 加载报 MAP_DISTANCE_CONTRADICTED 时，原因里写着哪一行的直达距离比哪条绕行路线更长；
-  改其中一行，让直达的距离不超过绕行的总长。
-- 任意两地要能用这个世界里最慢的出行方式在雪天一天内走到，否则加载报 MAP_ROUTE_TOO_LONG。
-  只有步行，或定义的方式都不比步行慢时，上限是 62,208 米；定义了更慢的方式上限更小，例如每秒 0.5 米时是 25,920 米。
+设计地图距离有三个核心规律：
 
-步行由引擎自带，身份是 walking，名称是「步行」，每秒 1.2 米，免费。其他出行方式写在 travel-method.jsonl，每行一种：
+- **声明长距离通勤边会劈出两簇地点**：如果只写了 `home` 到 `office` 距离 `12600` 米，而周边商铺、餐馆、咖啡店、驿站都没声明距离，随机边（最多 `2000` 米）会把全图拉成靠这条长边相连的两簇，导致“公司旁边的咖啡店”随机挂到“家那一侧”。因此，凡是要放在家附近或公司附近的地点（午餐店、咖啡店、便利店、驿站），都请在 `map.jsonl` 里各自写一行连到 `home` 或 `office`。
+- **直达距离不能比绕行总长更长**：如果已经声明了若干条边，某条声明边两端经由其他声明边绕行的最短路严格短于它自己的 `length_m`，加载会以 `MAP_DISTANCE_CONTRADICTED` 报错并给出绕行路径。等长不报错。
+- **任意两地在雪天一天内必须能走到**：全图最短路最远的一对地点，使用当前世界最慢的出行方式在雪天（速度乘以 `0.6`）的用时不能超过 `86400` 秒，否则报 `MAP_ROUTE_TOO_LONG`。当自带的步行（`1.2` 米/秒）是最慢方式时，全图最远两点距离上限为 `62208` 米；如果数据集定义了更慢的方式（如 `0.5` 米/秒），上限会降到 `25920` 米。
+
+### 配置出行方式与手机 app
+
+#### `travel-method.jsonl`：步行之外的交通选择
+
+引擎内置了**自带的步行**（身份 `walking`，名称 `步行`，速度 `1.2` 米/秒，免费，代谢当量 `3.5` 按`费力`展示）。不要把步行写进 `travel-method.jsonl`；其他交通方式全部在这里声明：
+
+| 字段 | 必填 | 约束 | 说明 |
+| --- | --- | --- | --- |
+| `travel_method_id` | 是 | 非空白字符串，文件内升序唯一，不得为 `walking` | app 行与回调引用的身份 |
+| `name` | 是 | 非空白字符串，全方式间唯一且不得为 `步行` | 人物在工具提示、路上描述和到达记录里看到的名称 |
+| `speed_meters_per_second` | 是 | 大于 `0` 的有限整数或小数 | 基础速度（米/秒），实际用时会受天气系数影响 |
+| `start_price_fen` | 是 | 大于等于 `0` 的整数分 | 起步价，与每公里价均写 `0` 表示免费 |
+| `price_per_km_fen` | 是 | 大于等于 `0` 的整数分 | 每公里费率，车费取起步价与按公里计价中的较大值 |
+| `exertion` | 是 | `idle`、`light`、`moderate`、`heavy` 之一 | 体力档位；`idle`、`light` 显示为`轻松`，`moderate`、`heavy` 与步行显示为`费力` |
 
 ```json
 {"exertion":"light","name":"公共交通","price_per_km_fen":0,"speed_meters_per_second":5,"start_price_fen":200,"travel_method_id":"bus"}
@@ -47,166 +165,304 @@ callbacks.jsonl 写回调声明，map.jsonl 写两地的距离，travel-method.j
 {"exertion":"light","name":"打车","price_per_km_fen":300,"speed_meters_per_second":7,"start_price_fen":1400,"travel_method_id":"taxi"}
 ```
 
-- 六个字段都要写。行按 travel_method_id 升序，身份不能重复，也不能叫 walking。
-- name 是人物看到并照写的名称，全程只用这一个：活动名、路上的位置说明和到达记录都显示它。
-  名称不能叫「步行」，两种方式之间也不能重名，只差空白或大小写也算重名。
-- speed_meters_per_second 是大于 0 的数，整数或小数都可以；start_price_fen 是起步价，price_per_km_fen 是每公里价格，
-  都是不小于 0 的整数分，两个都写 0 就是免费。
-- exertion 写 idle、light、moderate、heavy 之一，与内容的体力档位同一套；人物看到的是「轻松」（idle、light）
-  或「费力」（moderate、heavy，以及步行）。
-- 人物在每个目的地下看到全部出行方式，步行排第一，其余按身份的字母顺序；余额不够付车费的方式照样列出，标为此刻不可用。
+人物在每个目的地下都会看到全部出行方式，`步行`排在最前，其余按 `travel_method_id` 升序；余额不足付车费的方式依然会列出并标明此刻不可用。
 
-app 区分内容平台和功能 app。功能 app 由引擎选择。内容平台里登记了内容的供人物打开，打开只看内容；只卖东西、没有内容的不能单独打开，只在下单和查询时出现。登记在商品的 app_ids 上、或登记在卖商品的地点的 app_ids 上的内容平台能接单，人物购买和查询时可以把它写进 prefer。app 行只写 app_id、name、role 和功能 app 的绑定，不写任何时长；写了已删除的 browse_duration_seconds 会加载失败。
-功能 app 有两种绑定，至少写一种：actions 只能写 purchase，表示它是支付 app 的候选；
-travel_method_ids 逐个写它能导航的出行方式身份（步行写 walking），表示它是这些方式的导航 app 候选。
-某种出行方式没有任何 app 绑定时，用这种方式出行的那一趟没有导航记录。内容平台不能写这两个字段。
+#### `app-catalog.jsonl`：内容 app 与功能 app 分工明确
+
+app 行只管身份、名称、角色和两项功能绑定，**没有任何时长字段**（写了已删除的 `browse_duration_seconds` 会按未知字段拒绝）。
+
+| 角色（`role`） | 谁来选用 | 允许绑定的能力字段 | 生效条件与注意点 |
+| --- | --- | --- | --- |
+| `function`（功能 app） | 引擎后台自动抽取，人物不能打开也不能写进 `prefer` | `actions`（只能写 `["purchase"]` 作为支付 app 候选）与 `travel_method_ids`（绑定可导航的 `travel_method_id` 或 `"walking"`） | 两项绑定至少写一项非空，全空报 `APP_UNBOUND`；某出行方式没绑定任何导航 app 时，该趟出行不写导航记录 |
+| `content`（内容 app） | 人物可感知；有内容时可打开，接单时可写进 `prefer` | 严禁出现 `actions` 和 `travel_method_ids`（写了 `[]` 也会报 `APP_ROLE_BINDING_INVALID`）；可选 `memory_category` | 必须至少拥有一条内容，或在商品 `app_ids`、营业门店 `app_ids` 里被引用；只接单没有内容的 app 是合法的**下单 app**，但不能单独打开 |
 
 ```json
+{"actions":["purchase"],"app_id":"alipay","name":"支付宝","role":"function"}
 {"app_id":"amap","name":"高德地图","role":"function","travel_method_ids":["bus","driving","taxi","walking"]}
+{"app_id":"bilibili","name":"哔哩哔哩","role":"content"}
+{"app_id":"dingtalk","name":"钉钉","role":"content"}
+{"app_id":"meituan","name":"美团外卖","role":"content"}
+{"app_id":"wechat","name":"微信","role":"content"}
 ```
 
-回调规则订阅出行时，触发写成 key 为 travel 并带 travel_method_id，一条规则只能指定一种出行方式，没有「任意方式」的写法；
-想让开车和打车都扣油，要写两条规则。key 为其他动作时不能带 travel_method_id。key 只能写 purchase、interact、sleep 或 travel，查询不能订阅。
+### 铺设商品与收货路径
+
+#### `merchant-catalog.jsonl`：商品分类与绑定
+
+| 字段 | 必填 | 约束 | 含义 |
+| --- | --- | --- | --- |
+| `goods_id` | 是 | 非空白字符串，文件内升序唯一 | 商品身份，供回调 `reset_on_goods` 引用 |
+| `name` | 是 | 非空白字符串，文件内唯一 | 人物购买和查询时填写的商品名称 |
+| `category` | 是 | `snack`、`meal`、`drink`、`goods` 之一 | 决定收货后提供热量还是放松效果（见[交换引擎](../design/02-exchange-engine.md)「收货与费用」） |
+| `price_fen` | 是 | 严格正整数 | 全世界统一单价（分） |
+| `store_kinds` / `app_ids` | 二选一 | 恰有一侧非空且升序去重；另一侧省略或为空数组 | `store_kinds` 绑定到具体店铺地点类型；`app_ids` 绑定为只在 app 卖的快递商品 |
 
 ```json
-{"rule_id":"fuel-daily","trigger":{"class":"action","key":"travel","travel_method_id":"driving"},"effect":{"type":"state_delta","state":"fuel","delta":-1,"once_per":"local_day"}}
-```
-
-商品只声明零食、食品、饮料、商品四类价格与地点类型或内容 app 绑定。
-内容用 app_ids 或 location_kinds 显式绑定，填写实际时长、体力档位、两项心理缓解档位和 pushable。
-不要添加内容分类（记忆的类别只用下文的 memory_category 覆盖）、manner、动作菜单、消息、聊天对象或商家账户。
-
-用 location_kinds 绑定到地点的内容，要把名字当成人物读和写的名字来起：人物在地点做哪件事，是照这个名字点名的。
-不属于系列的内容写 title，系列写 series.title；系列各集的 title 不能点名；每次点名从第一集做起，一集做完自动接下一集，人物中途结束时整件事算做完一轮。
-同一个地点类型下这些名字不能重复，独立内容和系列合在一起比，只差空白或大小写也算重复；不同地点类型之间可以重名。
-用 app_ids 绑定的内容标题不是人物可写的名字，人物只写 app 名。
-
-人物打开内容 app 后，一条放完自动接下一条：系列接下一集；系列放完，接这个 app 里最近看过、还没看完的另一部系列；
-一条独立内容放完，随机接一条没看过的独立内容。后两种只在 pushable 为 true、此刻满足前提的内容里挑，系列的下一集不看 pushable。
-所以 pushable 管两件事：这条内容能不能被推送，能不能在别的内容之后被自动接着放。
-打卡、电话、和某个人的聊天、邮件、天气这类内容的 pushable 一定写 false，否则它们会被接在同一个 app 的别的内容之后自动放：打完一通电话接着拨另一通，刷着朋友圈刷进一段私聊。
-每条内容照自己登记的时长放，引擎不给一次使用定时长。一次使用在人物决定结束时结束，或者在没有可接的内容时停下；
-人物只在得到决策机会时才会结束它，例如推送、外卖送到、提醒到点、身体感觉变了、上下班时刻，以及每隔一段时间的播报与重估。
-所以一个 app 里没看过的可推送独立内容越多，一次刷得越久；都看过之后再打开，引擎按打开时的规则挑，会重放看过的内容。
-
-接收包裹的地点也要点名才能做事；本人在那里没有已到站的包裹时，那里的事都做不了。
-
-用 app_ids 绑定的内容可以多写一个 prerequisite，声明这条内容只有人在某类地点、或当地时间落在某些时段内才能开始。
-打卡就这样写：钉钉里一条只在公司、只在上下班时段能开始的内容。人物仍只写 app 名，app 里做哪一条由引擎在此刻合格的内容里挑。
-
-```json
-{"app_ids":["dingtalk"],"content_id":"dingtalk-clock","title":"考勤打卡","duration_seconds":60,"exertion":"idle","pushable":false,"relaxation_relief":"none","social_relief":"none","summary":"打开考勤页，完成一次打卡。","summary_source":{"kind":"synthetic","url":null,"notice":"数据集作者编写"},"prerequisite":{"location_kinds":["office"],"opens":{"weekly":{"mon":[["08:00","10:00"],["17:00","20:00"]],"tue":[["08:00","10:00"],["17:00","20:00"]]}}}}
-```
-
-- location_kinds 写地点的 kind，按字符串升序、不重复，每项要与某个已登记地点的 kind 一字不差；不写或写空数组表示不限地点。
-- opens 的写法与地点行的 opens 完全相同；不写表示不限时间。时段含头不含尾，weekly 没写的星期整天不可用。
-- 两项至少写一项，两项都写时都要满足。没有前提就省略这个字段，写成 null 会被拒绝。
-- 前提只卡开始：开始以后时段过了、人离开了都照常做完，暂停后恢复也不再看前提。
-- 一个 app 的内容此刻都不满足前提时，这个 app 仍列出但不可用，原因里写着要去的地点名称和今天能用的时段；
-  今天没有能用的时段时，写之后七天里下一次能用的那天和时段，例如 `next available Mon 10-19 08:00–10:00, 17:00–20:00`，七天里都没有也写明。
-
-写前提时留意这几条：
-
-- 前提只能写在 app 内容上；写在用 location_kinds 绑定到地点的内容上会以 CONTENT_PREREQUISITE_INVALID 拒绝。
-- 内容行顶层的 location_kinds 把内容绑定到地点，人物要在那里点名才做；prerequisite 里的 location_kinds 只是 app 内容的开始条件，内容仍在 app 里。
-- 想让某个 app 在某地某时只做一件事，就让那时只有它合格：这个 app 只登记这一条，或者给其他内容写上错开的 opens。
-- 引擎不区分上班卡和下班卡；要在记录里分清，就登记两条内容，各写各的时段，content_id 不同。
-- 同时卖商品的 app 至少留一条不带前提的内容，否则前提都不满足时它打不开；它卖的商品仍然可以查询，也可以按商品名购买。
-- 带前提的可推送内容只在前提满足的整点才可能被推送；推送之后时段过了，打开 app 不会优先看到它。
-- 带前提的系列开始后会一集接一集做完；不想让内容在时段外连着做，就不要把它写成系列。同一系列各集的前提必须完全相同。
-
-用 location_kinds 绑定到地点的内容可以多写两个字段：consumes_state 让这件事收到某些商品之后才出现、做一次就用掉，
-completion_effects 写这件事做完时的一次性效果。「买菜做饭」就这样写：
-
-```json
-{"state":"groceries","initial":0,"cap":1,"reset_on_goods":["meat-pack","veg-pack"]}
+{"category":"meal","goods_id":"beef-noodles","name":"牛肉面","price_fen":2800,"store_kinds":["restaurant"]}
+{"category":"drink","goods_id":"lemon-tea","name":"柠檬茶","price_fen":1200,"store_kinds":["cafe","convenience_store"]}
+{"app_ids":["bilibili"],"category":"goods","goods_id":"online-notebook","name":"平台笔记本","price_fen":1200}
 {"category":"goods","goods_id":"veg-pack","name":"蔬菜包","price_fen":2500,"store_kinds":["supermarket"]}
-{"content_id":"cook","title":"做饭","location_kinds":["home"],"duration_seconds":3600,"exertion":"light","pushable":false,"relaxation_relief":"low","social_relief":"none","summary":"用买来的食材做一顿饭，吃完收拾。","summary_source":{"kind":"synthetic","url":null,"notice":"数据集作者编写"},"consumes_state":"groceries","completion_effects":{"food":"meal"}}
 ```
 
-第一行写在 callbacks.jsonl，第二行写在 merchant-catalog.jsonl，第三行写在 content-catalog.jsonl。
+同一件商品在一次购买中的履行路径，由下面这张路由图唯一决定（详规见[模拟引擎](../design/04-simulation-engine.md)「购买、付款与收货」）：
 
-- 状态的 cap 写 1：买一件还是十件、买一次还是三次，收货后都只开放一次，开始做饭就用掉，想再做要再买。
-  initial 写 0 表示运行开始时家里没菜，写 1 表示有。
-- 食材商品的类别写 goods。写成 snack 或 meal 会在收货时补能，人物就等于吃了两顿；goods 收货时只让放松需要减 0.10。
-- 没开放时人物在家看不到「做饭」；照写也做不了，原因里列出收到哪些商品能开放它。开始之后它不再列出，直到下一次收到食材。
-- completion_effects 只写档位名，不写数值，三个成员都可以省略，但至少写一个：
-  food 写 snack 或 meal，做完补的能量与收到一件零食或食品相同；
-  relaxation_relief、social_relief 写 low、medium 或 high，做完时放松或社交需要一次减少的量，等于内容行上同名档位缓解一小时。
-  没有某项效果就省略它，不要写 none 或 null。
-- 内容行原有的 exertion 和两项缓解照旧按实际做了多久结算；completion_effects 只在做完时结算一次，提前结束或运行截止都没有。
-  系列每集做完时结算那一集写的效果。
-- 两个字段只能写在地点内容上，互不要求：只写 completion_effects 就是随时能做、做完有效果的事，例如父母家的「吃饭」写
-  {"food":"meal","social_relief":"high"}。不要让同一顿饭算两次：公司的「吃午饭」写了 food，人物点了外卖再去吃午饭就吃了两顿。
-- 系列各集的 consumes_state 必须相同；开始这件事减一次，自动接下一集不再减。
-- 状态被一件供餐的内容凭着（凭它的内容里有一条写了 completion_effects.food）、又写了 reset_on_goods 时，人物开始做饭的结果、
-  做完的结束句和零点计划都写出这次用的是哪天收到的哪件商品，例如「用的是1月5日收到的蔬菜包」；运行开始以来还没收到过时写
-  「用的是家里原有的食材」。
-- 状态的 cap 写 0 时这件事永远不会出现；状态被用掉时也能触发回调的阈值规则，例如食材用完时让买菜 app 推一条提醒。
+```mermaid
+flowchart TD
+    Buy["人物购买一件商品"] --> Container{"商品绑在哪一侧"}
+    Container -->|"app_ids：快递商品"| Courier["快递到离家最近的驿站：2至5天，人在路上也能买"]
+    Container -->|"store_kinds：店铺商品"| AtShop{"人此刻停在卖它的地点吗"}
+    AtShop -->|"是"| InStore["到店购买：忽略 prefer；营业当场收货，打烊直接拒绝"]
+    AtShop -->|"否"| OnRoad{"人此刻在路上吗"}
+    OnRoad -->|"是"| RejectRoad["拒绝：人在路上买不了店铺商品"]
+    OnRoad -->|"否"| Takeout["外卖送达：从营业且上线的门店按 prefer 或随机选店，备货600秒加每秒5米配送"]
+```
 
-写了 completion_effects.food 的地点内容做完时，人物得到与收到一件食品（meal）或零食（snack）相同的能量，不花钱，没写 consumes_state 时也不需要先买食材；
-人物中途结束不算，暂停后回来做完才算。系列的每一集各写各的，例如「做晚饭」三集只有第 2 集《吃晚饭》写 food。
-引擎不看标题：标题是「吃晚饭」而没写 food，人物做完不算吃过。想让吃饭花钱，就让人物买食品。
-饭点时段之内，能量低于 1200 千卡时人物至少「有点想吃」；能量不低于 1200 千卡时饭点里也是「不饿」，吃过一顿把能量补到 1200 千卡以上，就不会因为还在饭点而觉得饿。买来的食品也是这样。
+| 履约路径 | 触发条件 | 收货时机与费用 | 常见设计陷阱 |
+| --- | --- | --- | --- |
+| 到店购买 | 商品写 `store_kinds`，人停在对应门店 | 付款完成当秒收货，无运费 | 人在店门口却刚好打烊时不会降级成外卖，直接报 `LOCATION_CLOSED` |
+| 外卖送达 | 商品写 `store_kinds`，人在别处且门店至少绑定一个内容 app | 付款后 `600` 秒备货加最短距离除以 `5` 米/秒；每配送组固定 `500` 分运费 | 若人物习惯写了“用美团外卖点午餐”，要确保卖午餐的店把 `meituan` 放进 `app_ids` |
+| 快递到驿站 | 商品写 `app_ids` | `2` 至 `5` 天到达离家最近的 `accepts_parcels: true` 驿站；运费 `0` 或 `500` 分 | 目录里只要有快递商品就必须至少有一个驿站，且**每个驿站类型都必须有至少一条地点内容**，否则报 `PARCEL_STATION_REQUIRED` |
+
+关于驿站取件的联动规则：引擎没有单独的“取快递动作”，人物必须亲自来到驿站、点名开始任意一条属于该驿站类型的地点内容时，才会把站内全部已到站包裹一并领走；如果本人没有已到站的包裹，在驿站开始任何内容都会被 `PARCEL_NOT_READY` 拒绝。
+
+### 编写地点活动与手机内容
+
+`content-catalog.jsonl` 统一承载两类东西：**地点内容**（人在某类地点做的事）和**app 内容**（人在手机 app 里看或用的条目）。它们共用基础字段，但在触发、进度和专属字段上完全不同。
+
+| 基础字段 | 必填 | 约束 | 含义 |
+| --- | --- | --- | --- |
+| `content_id` | 是 | 非空白字符串，文件内升序唯一 | 内容唯一身份 |
+| `title` | 是 | 非空白字符串 | 独立地点内容的可点名名称；app 内容则作为记录标题 |
+| `duration_seconds` | 是 | 不小于 `60` 的严格整数 | 完整做完或放完这一条所需的实际秒数 |
+| `exertion` | 是 | `idle`、`light`、`moderate`、`heavy` 之一 | 体力消耗档位 |
+| `pushable` | 是 | 严格布尔 | 控制 app 内容能否被推送、以及能否接在同 app 别的内容后面自动播放 |
+| `relaxation_relief` / `social_relief` | 是 | `none`、`low`、`medium`、`high` 之一 | 分别对应每小时减少 `0`、`0.10`、`0.30`、`0.50` 需要 |
+| `summary` | 是 | 不超过 `200` 字符的文本 | 内容摘要，给人物和推送预览读 |
+| `summary_source` | 是 | `{kind, url, notice}`；`kind` 为 `real` 时 `url` 必填非空 | 注明真实网页来源或作者合成来源 |
+| `location_kinds` / `app_ids` | 二选一 | 恰有一侧非空，升序去重 | 分别绑定为地点内容或 app 内容 |
+| `series` | 否 | `{title, episode}`（`episode` 为正整数）或 `null` | 组成多集系列；同一系列容器、前提、凭状态与记忆类别必须一致 |
+| `memory_category` | 否 | `饮食`、`工作`、`生活`之一；不覆盖直接省略 | 手动覆盖记忆归类，禁止写 `null` |
+
+| 对比维度 | 地点内容（写 `location_kinds`） | app 内容（写 `app_ids`） |
+| --- | --- | --- |
+| 人物怎么开始 | 停在地点时，按 `title`（系列按 `series.title`）精确点名 | 只需要点开 app 名，具体放哪一条由引擎按规则挑 |
+| 系列与进度规则 | 点名总是从集号最小的集开始；用 `conclude_activity` 结束即算做完一轮，下次重头起；想留着进度要用暂停（需剩余不少于 `3` 分钟） | 会记住每一条和每一集的播放进度，结束使用或暂停后下次接着放 |
+| 放完后怎么接 | 只有同系列内一集接一集；没有跨条目自动连播 | 放完一条自动接下一条，直到人物在决策点结束或没有合格内容 |
+| 专属扩展字段 | 可写 `consumes_state` 与 `completion_effects` | 可写 `prerequisite` |
 
 ```json
-{"content_id":"dinner-2-eat","title":"吃晚饭","series":{"title":"做晚饭","episode":2},"location_kinds":["home"],"duration_seconds":1500,"exertion":"idle","pushable":false,"relaxation_relief":"none","social_relief":"none","summary":"在家吃晚饭。","summary_source":{"kind":"synthetic","url":null,"notice":"数据集作者编写"},"completion_effects":{"food":"meal"}}
+{"app_ids":["bilibili"],"content_id":"bili-vlog","duration_seconds":900,"exertion":"idle","pushable":true,"relaxation_relief":"medium","social_relief":"none","summary":"周末城市散步与装备准备经验分享。","summary_source":{"kind":"synthetic","notice":"数据集作者编写","url":null},"title":"散步装备准备"}
+{"content_id":"parcel-pickup","duration_seconds":180,"exertion":"idle","location_kinds":["parcel_station"],"pushable":false,"relaxation_relief":"none","social_relief":"none","summary":"报出取件码核对包裹并取走。","summary_source":{"kind":"synthetic","notice":"数据集作者编写","url":null},"title":"驿站取件"}
 ```
 
-人物的记忆按饮食、工作、生活三类整理。每一行内容和每个 app 归哪一类由引擎推导：看商品类别、内容做完补不补能、凭不凭供餐的状态，
-看人设工作安排里的班次地点和班次时段，不用在目录里写。推导不合意时，给内容行或 app 行写 memory_category，取「饮食」「工作」「生活」之一。
-例如研发中心的「吃午饭」本身没有食品信号（饭在外卖收货时已经补能），在班次地点做的事按推导归工作，写上覆盖就归饮食：
+#### 手机自动连播与 `pushable` 的黄金法则
 
-```json
-{"content_id":"office-eat-lunch","title":"吃午饭","location_kinds":["研发中心"],"duration_seconds":900,"exertion":"idle","pushable":false,"relaxation_relief":"low","social_relief":"low","summary":"外卖送到后在工位旁的茶水间吃午饭，顺便和同事聊几句。","summary_source":{"kind":"synthetic","url":null,"notice":"数据集作者编写"},"memory_category":"饮食"}
-```
-
-- 覆盖只决定记忆的类别，不改变人物看到的内容、能不能做和结算。
-- 系列各集写同一个值或都不写；各集不同时以 CONTENT_SERIES_INVALID 拒绝。
-- 不覆盖就省略这个字段；写成 null 以 ENVIRONMENT_KIND_INVALID 拒绝。
-- 每一行推导出的类别和理由用 tools/analysis/memory_categories.py 逐行查看。
+打开内容 app 后，引擎会一条接一条自动播放，期间不会让人物停下来重新点名，直到人物在决策点（如推送、外卖到、身体体感变化、定时重估等）主动结束使用，或者没有满足条件的下一条才停下：
 
 ```mermaid
 flowchart LR
-    Locations[显式地点] --> Bindings[内容与商品绑定]
-    Apps[内容与功能 app] --> Bindings
-    Bindings --> Publish[刷新 manifest 原字节摘要]
-    Callbacks[可选回调声明] --> Publish
-    Distances[可选距离声明] --> Publish
-    Publish --> Validate[完整环境验证]
+    Open["人物打开内容 app"] --> Play["放完当前条目"]
+    Play --> NextEp{"当前是系列且有后续集吗"}
+    NextEp -->|"是"| PlayNext["直接接下一集：不看 pushable 与前提"]
+    NextEp -->|"否"| FindOther["挑同一 app 里此刻满足前提且 pushable 为 true 的另一部未完系列或未看过的独立内容"]
+    FindOther -->|"找得到"| Play
+    FindOther -->|"找不到"| Done["本次 app 使用自动完成"]
 ```
 
-修改目录后使用仓库的发布身份工具刷新 manifest 的文件摘要与目录内容摘要，再执行完整验证。
-放了新的可选文件或删了可选文件之后同样要刷新：清单的文件表只登记实际存在的文件，
-不放与放一个空文件运行起来相同，目录摘要不同。
-验证失败按返回的所属路径与英文原因修正，原因里带着行号、文件名或路线等详情；
-不能删除未知字段错误或靠旧格式混读运行。
-报 ENVIRONMENT_STALE_FILE 时删除或改正那个文件名；报 ENVIRONMENT_FILE_UNLISTED 时刷新清单；
-报 RULES_VERSION_MISMATCH 时把清单的 format_version 改成 6、rules_version 改成 6，并按当前格式改完各文件；
-格式 5 的包报 ENVIRONMENT_KIND_INVALID：把清单的 format_version 改成 6 再刷新清单，目录行不用改（格式 6 只多出可选的 memory_category）。
-从规则版本 5 升到 6 时，还要按上文把打卡、电话、聊天、邮件、天气这类内容的 pushable 改成 false。
-操作命令见[运行手册](runtime.md)，作者说明放在环境包外。
+因此，**`pushable` 绝不能随便全写 `true`**：
+
+- 刷视频、看新闻、听播客、看图文动态这类消费型内容，写 `pushable: true`，让它既能整点推送也能连播。
+- **考勤打卡、打电话、私人聊天、查收邮件、查天气这类功能性交互，必须写 `pushable: false`**——否则人物“看一条视频看完后自动拨通一通电话”，或“刷着微博自动滑进一段工作打卡”，时间线就会直接失真。
+
+### 串联常见生活场景与动态回调
+
+掌握上面的基础目录结构之后，日常世界里最关键的“打卡、做饭、发工资或扣油费、分类纠正”都可以通过跨文件组合写出来。
+
+#### 场景：上下班考勤打卡（app 内容加 `prerequisite`）
+
+给 app 内容加上 `prerequisite`，就能规定“人必须在某类地点、或在某段时间”才能开始这条内容：
+
+```json
+{"app_ids":["dingtalk"],"content_id":"dingtalk-clock","duration_seconds":60,"exertion":"idle","prerequisite":{"location_kinds":["office"],"opens":{"weekly":{"mon":[["08:00","10:00"],["17:00","20:00"]],"tue":[["08:00","10:00"],["17:00","20:00"]]}}},"pushable":false,"relaxation_relief":"none","social_relief":"none","summary":"打开考勤页，完成一次打卡。","summary_source":{"kind":"synthetic","notice":"数据集作者编写","url":null},"title":"考勤打卡"}
+```
+
+写内容前提时请留意这些规则：
+
+- `location_kinds` 写地点的 `kind`（升序去重，省略或 `[]` 代表不限地点）；`opens` 与地点行写法一致（省略代表不限时段）；两者至少声明一项，都写则都要满足，没有前提请直接省略 `prerequisite`（写成 `null` 会报错）。
+- **只卡开始那一秒**：一旦成功打开，哪怕随后离开公司或跨出时段，正在放的这一条照常做完，暂停后恢复也不复核。
+- **区分上班卡与下班卡**：引擎不解析标题含义；若想在记录里分开上班卡和下班卡，登记两条不同的 `content_id`，各写早间和晚间的 `opens`。
+- **系列各集前提必须完全一致**：不希望系列在走出时段后继续往下一集自动播放，就拆成独立内容。
+- **既卖东西又有内容的 app**：至少留一条不带前提的内容，否则所有内容都不满足前提时，该 app 无法打开（拒收理由会列明要求去的地点显示名，以及当天可用时段或未来七天里下一次可用的日期时段，如 `next available Mon 10-19 08:00–10:00, 17:00–20:00`）。它卖的商品仍能正常查询和下单。
+
+#### 场景：买菜回家做饭与在家吃饭（回调状态加商品加地点内容）
+
+想让“家里买菜才能做饭、做完算吃饱一顿”跑通，需要把 `callbacks.jsonl` 的可消耗状态、`merchant-catalog.jsonl` 的食材商品和 `content-catalog.jsonl` 的做饭活动扣成一条闭环：
+
+```mermaid
+flowchart LR
+    Init["callbacks.jsonl 声明状态 groceries：cap 为 1，initial 为 0"] --> Buy["在超市买 category 为 goods 的蔬菜包"]
+    Buy --> Reset["收货后：groceries 置为 1，放松需要减 0.10，不提前补热量"]
+    Reset --> Visible["在家列表出现做饭，开始时消耗 groceries 减 1"]
+    Visible --> Finish["完整做完做饭：按 completion_effects.food 补足一餐能量"]
+```
+
+这组闭环分布在三个文件里：
+
+- 写在 `callbacks.jsonl` 的状态行（开局家里没菜，`initial` 写 `0`；开局已有菜写 `1`）：
+
+```json
+{"cap":1,"initial":0,"reset_on_goods":["meat-pack","veg-pack"],"state":"groceries"}
+```
+
+- 写在 `merchant-catalog.jsonl` 的食材商品行（类别必须写 `goods`）：
+
+```json
+{"category":"goods","goods_id":"veg-pack","name":"蔬菜包","price_fen":2500,"store_kinds":["supermarket"]}
+```
+
+- 写在 `content-catalog.jsonl` 的地点内容行（`consumes_state` 凭状态开放，`completion_effects` 定义做完后的一次性效果）：
+
+```json
+{"completion_effects":{"food":"meal"},"consumes_state":"groceries","content_id":"cook","duration_seconds":3600,"exertion":"light","location_kinds":["home"],"pushable":false,"relaxation_relief":"low","social_relief":"none","summary":"用买来的食材做一顿饭，吃完收拾。","summary_source":{"kind":"synthetic","notice":"数据集作者编写","url":null},"title":"做饭"}
+```
+
+如果把做饭拆成“备菜、吃晚饭、洗碗”多集系列，只需在吃饭那一集（例如 `episode` 为 `2` 的《吃晚饭》）写 `completion_effects`（全系列每一集的 `consumes_state` 必须相同，且只在刚点名开始时扣减一次）：
+
+```json
+{"completion_effects":{"food":"meal"},"content_id":"dinner-2-eat","duration_seconds":1500,"exertion":"idle","location_kinds":["home"],"pushable":false,"relaxation_relief":"none","series":{"episode":2,"title":"做晚饭"},"social_relief":"none","summary":"在家吃晚饭。","summary_source":{"kind":"synthetic","notice":"数据集作者编写","url":null},"title":"吃晚饭"}
+```
+
+设计做饭与饮食闭环的关键细节：
+
+- **食材类别写 `goods`，绝不写 `meal` 或 `snack`**：食品和零食没有库存，收到那一秒就会直接进能量池；写成 `goods` 才会只在收货时减 `0.10` 放松需要并重置 `groceries` 到上限 `1`。
+- **`cap: 1` 的语义**：无论一单买了多少包菜，收货后 `groceries` 最高也只到 `1`（即开放一轮做饭）；点名开始做饭就把 `groceries` 用掉变成 `0`，做饭从家里的可用活动清单隐身，想再做要重新买菜收货。状态用掉时，还能同时触发 `callbacks.jsonl` 的阈值提醒规则。
+- **`completion_effects` 的档位与时机**：可选 `food`（`snack` 或 `meal`，热量同同名商品）、`relaxation_relief`（`low`、`medium`、`high`）、`social_relief`（`low`、`medium`、`high`，一次性额外减少等同同名档位一小时的缓解量）。**不用的成员一律省略，禁止写 `none` 或 `null`**。只有完整做完（含暂停后回来做完）才会结算一次，提前取消或运行截止截断不结算。引擎不读标题：标题叫“吃晚饭”但没写 `food`，做完不算吃过饭。
+- **两个字段互不依赖**：只写 `completion_effects` 不写 `consumes_state`，就是随时能做、做完补能或减压的事（如在父母家“吃饭”写 `{"food":"meal","social_relief":"high"}`）。注意别把同一顿饭算两次：如果公司“吃午饭”是等外卖送到再吃，外卖收货时已经补了热量，这个地点内容就不要再写 `food`。
+- **食材溯源与饭点饥饿线**：状态既被 `completion_effects.food` 凭着又带非空 `reset_on_goods` 时，系统会自动在结果与零点计划里写出“用的是1月5日收到的蔬菜包”或“用的是家里原有的食材”。另外，饭点时段内人物能量低于 `1200` 千卡时会觉得“有点想吃”，吃过一顿推到 `1200` 千卡及以上则饭点也不饿。
+
+#### 场景：定期收支、出行耗材与低量推送提醒（`callbacks.jsonl`）
+
+`callbacks.jsonl` 严格要求**所有状态行排在文件前半部分（按 `state` 升序），所有规则行排在后半部分（按 `rule_id` 升序）**，不能交叉混写。
+
+```json
+{"cap":20,"initial":20,"reset_on_goods":[],"state":"fuel"}
+{"effect":{"delta":-1,"once_per":"local_day","state":"fuel","type":"state_delta"},"notify":{"app_id":"wechat","channel":"app_push","text":"车辆余油偏低，记得找时间加油。","when":{"below":5,"state":"fuel"}},"rule_id":"fuel-daily","trigger":{"class":"action","key":"travel","travel_method_id":"driving"}}
+{"effect":{"amount_fen":1500000,"direction":"income","type":"transfer"},"rule_id":"salary-monthly","trigger":{"class":"time","day":15,"key":"monthly","time":"10:00"}}
+```
+
+| 构成部分 | 合法JSON形状示例 | 编写要点 |
+| --- | --- | --- |
+| 动作触发 | `{"class":"action","key":"purchase"}` 或 `{"class":"action","key":"travel","travel_method_id":"driving"}` | 普通动作 `key` 可取 `purchase`、`interact`、`sleep`（不可带 `travel_method_id`，`query` 不可订阅）；`travel` 必须指定单一 `travel_method_id`（含 `walking`），没有通配写法——想让驾车和打车都扣油就要写两条规则 |
+| 时间触发 | `{"class":"time","key":"hourly"}` 或 `{"class":"time","day":15,"key":"monthly","time":"10:00"}` | 固定时刻 `key` 可取 `hourly`、`daily`、`run_start`、`run_stop`；月度触发需写 `day`（`1` 到 `31`）与 `time`（`HH:MM`） |
+| 状态与事件触发 | `{"class":"state","key":"fuel","below":5}` 或 `{"class":"event","key":"delivery_arrival"}` | `below` 取 `1..cap`；`event` 键限预排与唤醒事件闭集，见[资源引擎](../design/03-resource-engine.md#声明式回调)；不触发级联 |
+| 状态增量效果 | `{"type":"state_delta","state":"fuel","delta":-1}` | `delta` 为非零整数；按日限次可加 `"once_per":"local_day"`，不限次直接省略，禁止写 `null` |
+| 转账与足迹效果 | `{"type":"transfer","direction":"income","amount_fen":1000}` 或 `{"type":"footprint_chain","steps":[...]}` | `direction` 取 `income` 或 `expense`，在人物账户与 `external:scenario` 间结算；足迹链补充无资金流动的 app 触达痕迹 |
+| 提醒配对 `notify` | `{"when":{"state":"fuel","below":5},"channel":"app_push","app_id":"wechat","text":"..."}` 或 `{"visible":true}` | 状态提醒 `StateReminder` 只能配 `state_delta` 且必须指向内容 app；可见提示 `VisibleHint` 只能配 `footprint_chain` |
+
+#### 场景：修正记忆类别（`memory_category`）
+
+人物的记忆默认分入`饮食`、`工作`、`生活`三类。平时**不需要**在目录里标它们——引擎会自动看商品类别、内容有没有 `completion_effects.food` 或凭食品状态、内容前提是否限定在工作场所，以及人设的工作时间表自动归类。
+
+只有当自动推导不符合常识时（例如白领在研发中心茶水间“吃午饭”，因为午饭在外卖收货时已经补能，这个地点内容本身没写 `food`，按班次地点会被默认归入`工作`），才在内容行或 app 行显式加写 `"memory_category"` 覆盖：
+
+```json
+{"content_id":"office-eat-lunch","duration_seconds":900,"exertion":"idle","location_kinds":["研发中心"],"memory_category":"饮食","pushable":false,"relaxation_relief":"low","social_relief":"low","summary":"外卖送到后在工位旁的茶水间吃午饭，顺便和同事聊几句。","summary_source":{"kind":"synthetic","notice":"数据集作者编写","url":null},"title":"吃午饭"}
+```
+
+注意：`memory_category` 只接受`饮食`、`工作`、`生活`之一，不覆盖就直接省略（写 `null` 报 `ENVIRONMENT_KIND_INVALID`）；同一系列各集必须写相同的值或都不写（不同报 `CONTENT_SERIES_INVALID`）；它只影响记忆归类，不影响活动呈现、能否开始或结算数值。
 
 <a name="resources-检查内容行的记忆类别"></a>
 ## 检查内容行的记忆类别
 
-在仓库根对一个环境包执行：
+写完目录后，可以用仓库里的离线检查工具逐行核对每条内容和每个 app 最终归到哪个记忆类别，不需要连接模型服务：
 
 ```powershell
 uv run python -m tools.analysis.memory_categories --package <包目录> [--output <文件>]
 ```
 
-命令按运行时同样的规则加载并校验这个包，不访问模型服务；包加载失败时写错误日志并返回 1，不产生结果。
-不给 `--output` 时结果写到标准输出；给了时文件必须还不存在，已存在时拒绝且不覆盖。
+- 命令会用与运行时完全相同的准入逻辑加载环境包；如果环境包加载失败，直接写错误日志并返回非零退出码。
+- 不加 `--output` 时把 JSON 结果打印到标准输出；指定 `--output` 时要求目标文件尚不存在，不会覆盖已有文件。
 
-- `workplace_kind` 是人设工作安排里班次地点的地点类型，没有工作安排时为 null。
-- `rows` 逐行列出全部内容行（按 content_id）和全部 app 行（按 app_id），每行带名称、内容行的 location_kinds 与 app_ids。
-- `category` 是这一行推导出的记忆类别；`rule` 是命中的规则编号，0 表示目录行写了 memory_category，3、5、7 只出现在地点内容上，
-  6 只出现在 app 内容和 app 行上，编号的含义见[人物设计](../design/06-agent.md#agent-记忆的类别)「记忆的类别」；
-  `reason` 用一句话写明这一行为什么归这一类。
-- 目录行没有时刻，地点内容实际归哪一类还看人物开始的时刻和地点：`rule` 为 5、7 的行，`reason` 写明工作日、休息日与在岗时段的条件。
+| 输出字段 | 含义 |
+| --- | --- |
+| `workplace_kind` | 人设 `work_schedule.workplace` 对应的地点 `kind`；没有工作安排时为 `null` |
+| `rows` | 逐行列出全部内容行（`row: "content"`）和 app 行（`row: "app"`），附名称、`location_kinds` 与 `app_ids` |
+| `category` | 该行最终推导出的记忆类别（`饮食`、`工作`、`生活`） |
+| `rule` | 命中的推导编号；JSON 输出为 `0` 表示目录行显式写了 `memory_category` 覆盖，其余非零编号的详细定义见[人物设计](../design/06-agent.md#agent-记忆的类别) |
+| `reason` | 一句话说明为什么归入这一类，含班次地点在岗时段说明 |
 
-改了 memory_category 之后，照上文刷新清单、重建环境包，再运行一遍，核对那一行的 `rule` 是否为 0、`category` 是否为写的值。
+修改 `memory_category` 后，记得先刷新清单摘要，再重新运行这条命令核对对应行的 `rule` 是否变成 `0`、`category` 是否与预期一致。
+
+## 刷新清单摘要与校验排错
+
+每次修改 `catalog/` 下的任何文件内容、增删可选文件之后，都不能跳过“刷新清单摘要”直接运行，否则文件长度或 SHA-256 对不上就会被拦下。
+
+```mermaid
+flowchart LR
+    Edit["编写或增删目录文件"] --> Refresh["刷新 manifest 文件表与目录摘要"]
+    Refresh --> Offline["离线核对目录登记"]
+    Offline --> Full["完整校验环境与模型服务"]
+```
+
+下面是 `manifest.json` 的结构示例（实际 `sha256` 与 `size_bytes` 均由工具按真实字节算出，不要手写）：
+
+```json
+{
+  "catalog_content_sha256": "c697ee24e1b06309056a6ca135b9fa2def28357c7602b354b2b3be0eb1a0bd3e",
+  "environment_id": "my-world",
+  "environment_version": "1",
+  "files": [
+    {"path": "app-catalog.jsonl", "sha256": "991fb532723b932f498107e052f084e380e3b263230abbfe7e00d8680efbda7c", "size_bytes": 542},
+    {"path": "content-catalog.jsonl", "sha256": "fc4167feee9dd697c1a320896b05a31d228838ad89d77069a5c690e78327502d", "size_bytes": 4996},
+    {"path": "location.jsonl", "sha256": "acb9518f1b0d1e7e10380e798e6171e69044e2dbbc62d6b593abe469b4771455", "size_bytes": 717},
+    {"path": "merchant-catalog.jsonl", "sha256": "da2bd690cfa439798b6afd7ead121c35645c581fd59e18e05cde7a7c067a91ec", "size_bytes": 851},
+    {"path": "travel-method.jsonl", "sha256": "ef3ed0fd547b63c2a668f04a513dd8c4c734266384aca3063413e05e49ce397c", "size_bytes": 415}
+  ],
+  "format_version": 6,
+  "rules_version": 6
+}
+```
+
+在仓库根目录用下面的命令完成刷新与校验（CLI 运行细节见[运行手册](runtime.md)）：
+
+```powershell
+# 刷新清单：改完 catalog/*.jsonl 或增删可选文件后，重算文件表与目录摘要
+python -c "from worldmock.resource_engine.catalog.identity import refresh_manifest_identity; refresh_manifest_identity('D:/datasets/my-world/catalog')"
+
+# 离线校验：检查目录格式、绑定与声明距离（不需要模型服务，也不生成地图）
+python -c "from worldmock.resource_engine.catalog.loader import validate_catalog_files; validate_catalog_files('D:/datasets/my-world/catalog')"
+
+# 完整校验：检查 catalog + persona.toml + config.toml + 内存地图上限 + 模型元数据
+$env:WORLDMOCK_API_KEY = 'your-key'
+worldmock validate --environment D:/datasets/my-world
+```
+
+如果手头有规则版本 `5` 的旧环境包需要升级到 `6`：把 `manifest.json` 里的 `format_version` 和 `rules_version` 都改为 `6`，给打卡、电话、私人聊天、邮件、查天气等非连续浏览的内容把 `pushable` 改为 `false`，再刷新一次清单摘要即可。
+
+遇到报错或警告时，直接按下面这张表定位原因并修改：
+
+| 报错或警告码 | 说明哪里出了问题 | 怎么改 |
+| --- | --- | --- |
+| `RULES_VERSION_MISMATCH` | 清单的 `rules_version` 不是 `6` | 把 `manifest.json` 的 `format_version` 和 `rules_version` 都改成 `6`，按当前格式修正目录并刷新清单 |
+| `ENVIRONMENT_STALE_FILE` | 环境根目录或 `catalog/` 里出现了约定以外的文件、目录或链接 | 删除详情路径里指出的多余文件或错误文件名 |
+| `ENVIRONMENT_FILE_UNLISTED` | `manifest.json` 漏记了必需文件，或目录里多放了可选文件却没进清单 | 运行 `refresh_manifest_identity` 重新写入清单文件表 |
+| `ENVIRONMENT_IDENTITY_MISMATCH` | 实际文件字节大小或 SHA-256 与清单不一致，或存在符号链接 | 确认没有链接后重新运行 `refresh_manifest_identity` |
+| `ENVIRONMENT_LINE_INVALID` | 某个 JSONL 的某行不是恰一个 JSON 对象（如空行、非法 UTF-8、`NaN`） | 按详情给的文件名和行号去掉多余空行并修成合法单行 JSON |
+| `ENVIRONMENT_KIND_INVALID` | 换行带 CR、未知字段（如 `browse_duration_seconds`）、数组或行未排序、可选字段误写 `null`、非法的 `opens` 时段或无效枚举值 | 转成 LF 换行，把出错字段改为合法值、按升序排列，或直接省略该可选字段 |
+| `ENVIRONMENT_NUMBER_INVALID` | 数值类型不对或越界（如时长低于 `60` 秒、价格或长度不合法、状态初值大于上限） | 按详情里指出的字段调整为合法整数或正数 |
+| `ENVIRONMENT_ID_DUPLICATE` | 身份、显示名、出行方式名、或同 `location_kind` 下地点内容单元名重复 | 按详情给的两行行号改掉重复的身份或名字（同名店补上不同的 `branch_label`） |
+| `ENVIRONMENT_REF_UNKNOWN` | 引用了未登记的 `app_id`、`location_id`、`goods_id`、`travel_method_id`、`state` 或人设地点显示名 | 核对目标对象是否在对应文件登记并拼写完全一致 |
+| `HOME_LOCATION_REQUIRED` / `HOME_NOT_SLEEPABLE` | 没有标记 `is_home: true` 的地点，或 `persona.toml` 的住处没标 `sleepable: true` | 给本人住处的地点同时加上 `"is_home": true` 与 `"sleepable": true` |
+| `PARCEL_STATION_REQUIRED` | 存在快递商品但没有驿站，或某个 `accepts_parcels: true` 的驿站类型没有绑定任何地点内容 | 声明至少一个 `"accepts_parcels": true` 地点，并为它的 `kind` 写至少一条地点内容 |
+| `APP_ROLE_BINDING_INVALID` / `APP_UNBOUND` | 内容 app 写了 `actions` 或 `travel_method_ids`，地点、商品、内容引用了功能 app，或功能/内容 app 没有任何绑定来源 | 划清功能 app 与内容 app 的边界，删掉内容 app 上的功能字段，确保每个 app 至少有一条有效绑定 |
+| `APP_NAME_COLLIDES_LOCATION` | 某个 app 的 `name` 与某个地点的显示名重名 | 修改 app 或地点的显示名使其区分开 |
+| `GOODS_BINDING_MISSING` / `GOODS_BINDING_SIDE_EXCLUSIVE` / `GOODS_BINDING_DANGLING` | 商品容器缺失、同时绑定地点与 app，或 `store_kinds` 指向不存在的地点类型 | 只保留 `store_kinds` 或 `app_ids` 其中一侧非空，并确保类型有实际地点 |
+| `CONTENT_CONTAINER_MISSING` / `CONTENT_CONTAINER_SIDE_EXCLUSIVE` / `CONTENT_BINDING_DANGLING` | 内容容器缺失、同时绑定地点与 app，或顶层及前提的 `location_kinds` 指向不存在的地点类型 | 只保留 `location_kinds` 或 `app_ids` 其中一侧非空，并核对地点 `kind` 拼写 |
+| `CONTENT_PREREQUISITE_INVALID` / `CONTENT_SERIES_INVALID` / `CONTENT_SUMMARY_TOO_LONG` / `CONTENT_SOURCE_URL_MISSING` | 地点内容误写 `prerequisite` 或前提全空、同系列各集属性不一致、摘要超 `200` 字或 `real` 来源缺 `url` | 删掉地点内容上的前提，对齐同系列容器/前提/`consumes_state`/`memory_category`，缩短摘要或补齐 `url` |
+| `CALLBACK_STATE_UNREGISTERED` / `CALLBACK_FOOTPRINT_EMPTY` / `CALLBACK_NOTIFY_MISMATCH` | 回调引用了未登记状态、足迹链步骤或 app 池为空，或 `notify` 与效果类型不配对 | 状态行放前部先声明，足迹池非空升序，并让 `StateReminder` 配 `state_delta`、`VisibleHint` 配 `footprint_chain` |
+| `MAP_DISTANCE_CONTRADICTED` / `MAP_ROUTE_TOO_LONG` | 某条直达边长于绕行总长，或全图最远两点用最慢方式在雪天一天走不到 | 缩短矛盾边长或调整绕行边，缩小跨越过大的距离或提高最慢出行方式速度 |
+| `CONTENT_EMPTY_WITH_MEDIA_TASTES`（警告） | 没有任何内容 app 绑定内容，但 `persona.toml` 写了媒体口味或带“看、刷、听”的习惯 | 警告不阻断运行；按需要为媒体 app 补内容，或精简人设媒体习惯 |
+| `LOCATION_NAME_SUSPICIOUS`（警告） | 地点显示名包含经纬度或 `sim-01` 类标识符 | 警告不阻断运行；改成自然的真实地名以防人物对话生硬 |
 
 <a name="resources-固定规则怎样落到手机时间线"></a>
 ## 固定规则怎样落到手机时间线
@@ -215,12 +471,12 @@ uv run python -m tools.analysis.memory_categories --package <包目录> [--outpu
 
 | 规则 | 对手机时间线的影响 | 定义在哪 |
 | --- | --- | --- |
-| 外卖的预计送达是购买开始的那一秒加送达用时：600 秒备货，再加店铺到收货地点的距离按每秒 5 米走完的时间，不受天气影响。购买拖到预计送达之后才付款的，付款那一秒送达 | 店离得远，外卖就晚：13.2 公里要 54 分钟，11:49 下单 12:43 才到。想让午饭在饭点前到，就让卖午饭的店离公司近，并在 map.jsonl 里声明这段距离 | [交换引擎](../design/02-exchange-engine.md)「收货与费用」；[模拟引擎](../design/04-simulation-engine.md)「购买、付款与收货」 |
-| 「订单已发货」通知在付款之后、送达之前发出，时刻取付款到送达这段时间的十分之一处 | 它可能早于 600 秒备货结束，这是规则如此：付款后 22 分钟送达的一单，付款后 2 分 12 秒就显示已发货 | [模拟引擎](../design/04-simulation-engine.md)「购买、付款与收货」的通知表 |
-| 人物购买时可以在 prefer 里写想用的 app。此刻营业、卖这件商品的店里有登记了这个 app 的，就在这些店里选一家、经它下单，可以因此换到更远的店；没有时照原规则选店，下单 app 按店铺和当地日期抽取。只在 app 里卖的快递商品，prefer 在商品登记的 app 之内就用它，否则按商品和当地日期抽取 | 人设里写「用美团外卖点午餐」时，要让卖午餐的店在 app_ids 里登记美团外卖，否则订单会落到这家店登记的别的 app 上。习惯里 app 名的写法见[编写 persona.toml](personas.md)「关系、习惯与口味」 | [模拟引擎](../design/04-simulation-engine.md)「购买、付款与收货」；[配置](../design/08-configuration.md)「唯一种子与随机键」 |
-| 人停在卖这件商品的地点时一律到店购买，不看 prefer；这个地点已打烊时这次购买被拒，不会改成外卖 | 这时手机上没有下单 app，至多最后 10 到 20 秒是支付 app；抽到直付时一个 app 都没有 | [模拟引擎](../design/04-simulation-engine.md)「购买、付款与收货」 |
-| 出发时没有别的 app 在用、也没有正在下的单，导航就从出发那一秒起在前台，不会晚于出发才打开；路上用别的 app 或下单时让出，那项活动停下后有一半机会回到前台。带着正在用的 app 或正在下的单出发时（与出发同一次回复里开始的也算），导航要等它停下才可能出现。到达那一秒导航关闭 | 「出门五分钟后才打开导航」这类行数据集安排不出来。出行方式没有绑定任何导航 app 时，这一趟没有导航记录 | [模拟引擎](../design/04-simulation-engine.md)「出行、内容与查询」 |
-| 没有登记任何内容的内容平台不能单独打开，只在下单和查询时出现 | 这类 app 在手机上只有下单的那几分钟和查询的 5 到 10 分钟，没有「打开看看」的时段。人设里的写法见[编写 persona.toml](personas.md)「关系、习惯与口味」 | [资源引擎](../design/03-resource-engine.md)「app、内容与候选呈现」；[模拟引擎](../design/04-simulation-engine.md)「动作、名称与并行」 |
-| 用内容 app 时放完一条自动接下一条，接另一部系列或另一条独立内容只在 pushable 为 true 的内容里挑；一次使用到人物结束它、或没有可接的内容才停 | 时间线上一次使用是一整段，里面一条接一条，每条照自己的时长；一个 app 里没看过的可推送内容越多，一段越长。打卡、电话、聊天、邮件、天气这类内容写成 pushable 为 true，就可能被接在同一个 app 的别的内容后面 | [模拟引擎](../design/04-simulation-engine.md)「出行、内容与查询」 |
-| 用 app_ids 绑定的内容，title 要写成这个 app 里会出现的一条内容的标题。引擎不检查标题 | 时间线上这一行写成 app 名加书名号里的标题，例如「使用哔哩哔哩《散步装备准备》」。标题写成一个动作，读的人会以为人物在做这件事；推送的标题和简介同理 | [记录引擎](../design/05-recording-engine.md)「显示写法与检查工具」 |
-| 食品和零食在收到的那一刻吃掉，饮料和商品在收到的那一刻用掉，没有库存 | 「买明天的食材」不能靠库存表达：食材写成食品或零食，一送到就被当成一顿吃掉。想让人物在家吃一顿不花钱的饭，用上文写了 completion_effects.food 的地点内容；想让做饭要先买食材，用上文的 consumes_state，食材的类别写 goods | [交换引擎](../design/02-exchange-engine.md)「收货与费用」 |
+| 外卖的预计送达是购买开始的那一秒加送达用时：`600` 秒备货，再加店铺到收货地点的距离按每秒 `5` 米走完的时间，不受天气影响。购买拖到预计送达之后才付款的，付款那一秒送达 | 店离得远，外卖就晚：`13.2` 公里要 `54` 分钟，`11:49` 下单 `12:43` 才到。想让午饭在饭点前到，就让卖午饭的店离公司近，并在 `map.jsonl` 里声明这段距离 | [交换引擎](../design/02-exchange-engine.md)「收货与费用」；[模拟引擎](../design/04-simulation-engine.md)「购买、付款与收货」 |
+| 「订单已发货」通知在付款之后、送达之前发出，时刻取付款到送达这段时间的十分之一处 | 它可能早于 `600` 秒备货结束，这是规则如此：付款后 `22` 分钟送达的一单，付款后 `2` 分 `12` 秒就显示已发货 | [模拟引擎](../design/04-simulation-engine.md)「购买、付款与收货」的通知表 |
+| 人物购买时可以在 `prefer` 里写想用的 app。此刻营业、卖这件商品的店里有登记了这个 app 的，就在这些店里选一家、经它下单，可以因此换到更远的店；没有时照原规则选店，下单 app 按店铺和当地日期抽取。只在 app 里卖的快递商品，`prefer` 在商品登记的 app 之内就用它，否则按商品和当地日期抽取 | 人设里写「用美团外卖点午餐」时，要让卖午餐的店在 `app_ids` 里登记美团外卖，否则订单会落到这家店登记的别的 app 上。习惯里 app 名的写法见[编写 persona.toml](personas.md)「关系、习惯与口味」 | [模拟引擎](../design/04-simulation-engine.md)「购买、付款与收货」；[配置](../design/08-configuration.md)「唯一种子与随机键」 |
+| 人停在卖这件商品的地点时一律到店购买，不看 `prefer`；这个地点已打烊时这次购买被拒，不会改成外卖 | 这时手机上没有下单 app，至多最后 `10` 到 `20` 秒是支付 app；抽到直付时一个 app 都没有 | [模拟引擎](../design/04-simulation-engine.md)「购买、付款与收货」 |
+| 出发时没有别的 app 在用、也没有正在下的单，导航就从出发那一秒起在前台，不会晚于出发才打开；路上用别的 app 或下单时让出，那项活动停下后有一半机会回到前台。带着正在用的 app 或正在下的单出发时（与出发同一次回复里开始的也算），导航要等它停下才可能出现。到达那一秒导航关闭 | 「出门五分钟后才打开导航」这类行为数据集安排不出来。出行方式没有绑定任何导航 app 时，这一趟没有导航记录 | [模拟引擎](../design/04-simulation-engine.md)「出行、内容与查询」 |
+| 没有登记任何内容的内容 app 不能单独打开，只在下单和查询时出现 | 这类 app 在手机上只有下单的那几分钟和查询的 `5` 到 `10` 分钟，没有「打开看看」的时段。人设里的写法见[编写 persona.toml](personas.md)「关系、习惯与口味」 | [资源引擎](../design/03-resource-engine.md)「app、内容与候选呈现」；[模拟引擎](../design/04-simulation-engine.md)「动作、名称与并行」 |
+| 用内容 app 时放完一条自动接下一条，接另一部系列或另一条独立内容只在 `pushable` 为 `true` 的内容里挑；一次使用到人物结束它、或没有可接的内容才停 | 时间线上一次使用是一整段，里面一条接一条，每条照自己的时长；一个 app 里没看过的可推送内容越多，一段越长。打卡、电话、聊天、邮件、天气这类内容写成 `pushable` 为 `true`，就可能被接在同一个 app 的别的内容后面 | [模拟引擎](../design/04-simulation-engine.md)「出行、内容与查询」 |
+| 用 `app_ids` 绑定的内容，`title` 要写成这个 app 里会出现的一条内容的标题。引擎不检查标题 | 时间线上这一行写成 app 名加书名号里的标题，例如「使用哔哩哔哩《散步装备准备》」。标题写成一个动作，读的人会以为人物在做这件事；推送的标题和简介同理 | [记录引擎](../design/05-recording-engine.md)「显示写法与检查工具」 |
+| 食品和零食在收到的那一刻吃掉，饮料和商品在收到的那一刻用掉，没有库存 | 「买明天的食材」不能靠库存表达：食材写成食品或零食，一送到就被当成一顿吃掉。想让人物在家吃一顿不花钱的饭，用上文写了 `completion_effects.food` 的地点内容；想让做饭要先买食材，用上文的 `consumes_state`，食材的类别写 `goods` | [交换引擎](../design/02-exchange-engine.md)「收货与费用」 |
