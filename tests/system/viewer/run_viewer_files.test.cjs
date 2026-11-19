@@ -91,9 +91,9 @@ test('directory collection retains nested paths and first assets without opening
   const ignored = Array.from({length: 130}, (_, index) => lazy(`unused-${index}`, null));
   const handles = [directoryHandle('execution', [directoryHandle('export', [
     lazy('events.jsonl', eventFile), directoryHandle('assets', [...ignored, lazy(sha, firstAsset)]),
-  ]), directoryHandle('as2', [directoryHandle('agents', [directoryHandle('agent_0002', [
+  ]), directoryHandle('agents', [directoryHandle('agent_0002', [
     fileHandle('MEMORY.md', '人物总结'),
-  ])])])]), lazy(sha, droppedFile(sha, 'second'))];
+  ])])]), lazy(sha, droppedFile(sha, 'second'))];
   const dropped = await view.run('collectDropped')([], handles);
   assert.deepEqual(calls, []);
   assert.equal(dropped.events[0].path, 'execution/export/events.jsonl');

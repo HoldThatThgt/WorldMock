@@ -9,7 +9,7 @@ from typing import Any, Literal, get_args
 
 
 
-#: 主观快照的键集：四个基本键；本规格交付之前的历史运行里，就寝反思的快照另带来源 source=reflection，质量报告与行为工具仍接受。
+#: 主观快照恰为四个基本键。
 
 
 
@@ -37,19 +37,16 @@ MEMORY_DIGEST_TEXT_LIMITS = MappingProxyType({"day": 250, "month": 800, "year": 
 SUBJECTIVE_TYPES = frozenset({"commitment", "relationship", "preference", "goal", "conflict",
                               "resolution", "identity", "routine", "reflection"})
 
-#: 普通快照必须恰含四个字段，反思可另携系统来源。
+#: 主观快照恰为四个基本键。
 SUBJECTIVE_SNAPSHOT_FIELDS = frozenset({"id", "type", "text", "epistemic_status"})
 
 
 
 def valid_subjective_snapshot(item: Any) -> bool:
-    """@brief 校验实际主观条目快照，独立反思来源属于合法形状。"""
+    """@brief 校验实际主观条目快照：主观快照恰为四个基本键。"""
     if not isinstance(item, Mapping):
         return False
-    keys = set(item)
-    valid_keys = keys == SUBJECTIVE_SNAPSHOT_FIELDS or (
-        keys == SUBJECTIVE_SNAPSHOT_FIELDS | {"source"} and item["source"] == "reflection")
-    return (valid_keys and isinstance(item.get("id"), str) and bool(item["id"])
+    return (set(item) == SUBJECTIVE_SNAPSHOT_FIELDS and isinstance(item.get("id"), str) and bool(item["id"])
             and item.get("type") in SUBJECTIVE_TYPES and isinstance(item.get("text"), str)
             and bool(item["text"]) and item.get("epistemic_status") == "subjective")
 

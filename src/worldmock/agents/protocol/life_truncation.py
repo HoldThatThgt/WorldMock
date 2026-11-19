@@ -4,7 +4,7 @@
 from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
-from worldmock.agents.protocol.life_feedback import HostFeedback, host_feedback, report_content
+from worldmock.agents.protocol.life_feedback import ProtocolFeedback, host_feedback, report_content
 from worldmock.state.interaction.errors import ErrorItem, ErrorReport, host_report
 
 
@@ -36,7 +36,7 @@ def _truncation_report() -> ErrorReport:
 
 
 
-def truncation_feedback() -> HostFeedback:
+def truncation_feedback() -> ProtocolFeedback:
     """@brief 真实截断回合的纠错：经 host_feedback 写一条错误日志，证据文字带英文说明。"""
     return host_feedback(_truncation_report(), TRUNCATION_DETAIL)
 

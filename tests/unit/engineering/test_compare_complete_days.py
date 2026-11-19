@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 import scripts.compare_complete_days as complete_days
+from scripts.bootstrap_environment import environment_python
 
 SIGNATURE = {"persona_sha256": "1" * 64, "config_sha256": "2" * 64, "environment_identity": {"map_sha256": "3" * 64},
              "seed": 20260105, "summary": {"artifacts": {"events.jsonl": "4" * 64, "quality.json": "5" * 64},
@@ -16,11 +17,13 @@ SIGNATURE = {"persona_sha256": "1" * 64, "config_sha256": "2" * 64, "environment
 
 
 def _root(path: Path, lock: bytes = b"lock") -> Path:
-    """@brief 一个最小检出：两份依赖锁、恢复出的 AS2 包目录与录制入口。"""
+    """@brief 一个最小检出：两份依赖锁、引导出来的解释器位置上的空文件与录制入口。"""
     (path / "requirements").mkdir(parents=True)
     (path / "uv.lock").write_bytes(lock)
     (path / "requirements" / "lock.txt").write_bytes(b"requirements")
-    (path / complete_days.AS2_SOURCE).mkdir(parents=True)
+    python = environment_python(path / ".venv")
+    python.parent.mkdir(parents=True)
+    python.write_bytes(b"")
     (path / complete_days.RECORDER).parent.mkdir(parents=True)
     (path / complete_days.RECORDER).write_text("", encoding="utf-8")
     return path
@@ -28,11 +31,10 @@ def _root(path: Path, lock: bytes = b"lock") -> Path:
 
 @pytest.fixture
 def roots(tmp_path, monkeypatch):
-    """@brief 两个检出，AS2 各从自己导入；录制写出预备好的签名。"""
+    """@brief 两个检出，各有自己引导出来的解释器；录制写出预备好的签名。"""
     base, head = _root(tmp_path / "base"), _root(tmp_path / "head")
     signatures = {"base": {"activity": SIGNATURE, "callback": SIGNATURE},
                   "head": {"activity": copy.deepcopy(SIGNATURE), "callback": copy.deepcopy(SIGNATURE)}}
-    monkeypatch.setattr(complete_days, "as2_location", lambda root, environment: [root / complete_days.AS2_SOURCE])
 
     def record(root, case_root):
         case_root.mkdir(parents=True)
@@ -70,10 +72,38 @@ def test_different_signatures_without_rules_give_different(roots, monkeypatch):
     assert report["kinds"]["callback"] == {"differing": [], "equal": True, "runs": None}
 
 
-def test_dependency_lock_mismatch_is_refused(tmp_path, caplog):
-    base, head = _root(tmp_path / "base"), _root(tmp_path / "head", lock=b"other")
-    code, _ = _main(base, head, tmp_path / "work")
-    assert code == 2 and "different dependency locks" in caplog.text
+def test_different_dependency_locks_are_compared(roots):
+    base, head, _, work = roots
+    (head / "uv.lock").write_bytes(b"other")
+    code, report = _main(base, head, work)
+    assert code == 0 and report["verdict"] == "equal"
+
+
+def test_root_without_its_own_environment_is_refused(roots, caplog):
+    base, head, _, work = roots
+    environment_python(head / ".venv").unlink()
+    code, report = _main(base, head, work)
+    assert code == 2 and report is None and "has no bootstrapped environment at" in caplog.text
+
+
+def test_each_side_records_with_its_own_environment_python(tmp_path, monkeypatch):
+    """不替换 record_side：两侧的录制命令各用这一侧引导出来的解释器，子进程只从这一侧的 src 与根目录导入。"""
+    base, head = _root(tmp_path / "base").resolve(), _root(tmp_path / "head").resolve()
+    calls = []
+
+    def run(command, cwd, env, stdout, stderr, timeout):
+        """@brief 记下录制命令，写出相等的签名文件。"""
+        calls.append((command[0], Path(cwd), env["PYTHONPATH"].split(complete_days.os.pathsep)))
+        output = Path(command[command.index("--output") + 1])
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps({"activity": SIGNATURE, "callback": SIGNATURE}), encoding="utf-8")
+        return complete_days.subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(complete_days.subprocess, "run", run)
+    code, report = _main(base, head, tmp_path / "work")
+    assert code == 0 and report["verdict"] == "equal"
+    assert calls == [(str(environment_python(root / ".venv")), root, [str(root / "src"), str(root)])
+                     for root in (base, head)]
 
 
 def test_root_without_recorder_is_refused(roots, caplog):
@@ -81,13 +111,6 @@ def test_root_without_recorder_is_refused(roots, caplog):
     (head / complete_days.RECORDER).unlink()
     code, _ = _main(base, head, work)
     assert code == 2 and "no behaviour recorder (tests/life/behaviour_day.py)" in caplog.text
-
-
-def test_root_whose_as2_resolves_elsewhere_is_refused(roots, monkeypatch, caplog, tmp_path):
-    base, head, _, work = roots
-    monkeypatch.setattr(complete_days, "as2_location", lambda root, environment: [tmp_path / "elsewhere"])
-    code, _ = _main(base, head, work)
-    assert code == 2 and "imports AS2 from" in caplog.text
 
 
 def test_an_unexpected_failure_exits_2_not_as_different(roots, monkeypatch, caplog):

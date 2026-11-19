@@ -1,7 +1,7 @@
 """真实宿主把只用于下单和查询的 app 写进 target 的调用当场纠错：不登记世界请求、时钟不动、人物在同一次决策里重写
 （docs/design/04-simulation-engine.md「动作、名称与并行」）。
 
-真实引擎、LifeEnv 与 LifeAgent，只替换模型传输；夹具环境 2026 年 1 月 5 日 08:00 人在家。
+真实引擎与 LifeAgent，只替换模型传输；夹具环境 2026 年 1 月 5 日 08:00 人在家。
 """
 
 from __future__ import annotations

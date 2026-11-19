@@ -7,7 +7,7 @@ from __future__ import annotations
 import logging
 
 import pytest
-from agentsociety2.society import DirectToolCall
+from worldmock.state.decisions.round import DirectToolCall
 
 from tests.life.conftest import (
     MAIN_TOOL,

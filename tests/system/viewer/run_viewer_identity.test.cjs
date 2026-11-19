@@ -138,8 +138,8 @@ function identityRun() {
     warning('LOCATION_NAME_SUSPICIOUS', null, '地点名带坐标')]});
   const run = directoryHandle('run', [fileHandle('manifest.json', manifest),
     directoryHandle('assets', frozenCatalog().files.map(file => fileHandle(file.name, file.text))),
-    directoryHandle('as2', [directoryHandle('agents', [directoryHandle('agent_0001', [
-      fileHandle('MEMORY.md', '今天把纪要交了。')])])])]);
+    directoryHandle('agents', [directoryHandle('agent_0001', [
+      fileHandle('MEMORY.md', '今天把纪要交了。')])])]);
   return {rows, options: {timezone: 'Asia/Tokyo', world, frozen: manifest, files: [], directories: [run],
     lineEdits: [[15, '"energy_kcal":1230,', '"energy_kcal":1230.0,']]}};
 }

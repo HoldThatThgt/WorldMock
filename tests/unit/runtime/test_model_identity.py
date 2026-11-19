@@ -25,7 +25,7 @@ def test_model_identity_freezes_explicit_endpoint_and_separate_retry_budgets():
 
 def test_stage_identity_freezes_actual_capacity_and_all_validation_budgets():
     """只有行动阶段，真实输出上限约束请求；全部独立预算保留原值。"""
-    from custom.agents.life_agent import ACTION_MAX_TOKENS
+    from worldmock.agents.life_agent import ACTION_MAX_TOKENS
 
     frozen = inputs()
     identity = stage_model_identity(frozen.config.model, frozen.model_metadata)

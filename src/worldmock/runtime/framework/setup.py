@@ -1,86 +1,26 @@
-"""@brief 配置进程、冻结运行身份与准备人物输入的唯一职责。"""
+"""@brief 冻结运行身份与准备人物输入的唯一职责。"""
 from __future__ import annotations
 import hashlib
-import importlib.util
-import json
 import logging
 import os
 import subprocess
-import sys
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+import worldmock
 from worldmock.configuration.inputs.environment import EnvironmentInputs
 from worldmock.foundation.errors import IntegrityError
 from worldmock.configuration.inputs.models import ModelConfig, ModelMetadata
 from worldmock.configuration.inputs.warnings import content_empty_warnings, location_name_warnings
 from worldmock.state.identity import ModelIdentity
-from worldmock.configuration.model.model_metadata import credential_value
 
 logger = logging.getLogger(__name__)
 
 
-_AS2_PACKAGE = "agentsociety2"
-#: 固定基线与补丁共同生成的实际 AS2 源码身份。
-AS2_LOCKED_SOURCE_SHA256 = "0a7b9b06fe5bbf70836fefe407eceb830b2bc6acaa8c81db98176ee3c99709ba"
-_AS2_IDENTITY_ERROR = "AS2 runtime identity differs from the locked source"
-
-
-def _configure_process(project_root: Path, config: ModelConfig) -> None:
-    """@brief 核对锁定源码后，按唯一运行配置与环境变量凭据配置原生模型客户端。"""
-    root = Path(project_root).resolve()
-    if not (root / "custom" / "agents" / "life_agent.py").is_file():
-        logger.error("WorldMock project root is incomplete")
-        raise FileNotFoundError("WorldMock project root is incomplete")
-    require_locked_as2()
-    secret = credential_value(config)
-    variables = {
-        "WORKSPACE_PATH": str(root),
-        "AGENTSOCIETY_LLM_API_KEY": secret,
-        "AGENTSOCIETY_LLM_API_BASE": config.base_url,
-        "AGENTSOCIETY_LLM_MODEL": config.requested_model,
-        "AGENTSOCIETY_CODER_LLM_API_KEY": secret,
-        "AGENTSOCIETY_CODER_LLM_API_BASE": config.base_url,
-        "AGENTSOCIETY_CODER_LLM_MODEL": config.requested_model,
-        "AGENTSOCIETY_EMBEDDING_MODEL": "",
-        "LITELLM_LOCAL_MODEL_COST_MAP": "True",
-        "AGENTSOCIETY_LLM_REQUEST_TIMEOUT": "300",
-        "MEM0_TELEMETRY": "False",
-        "ANONYMIZED_TELEMETRY": "False",
-    }
-    os.environ.update(variables)
-    _prepend_pythonpath(root)
-    _require_loaded_config(config)
-
-
-def _prepend_pythonpath(root: Path) -> None:
-    """@brief 让本进程与 Ray 工作进程都从当前精确检出导入 custom 与 worldmock。
-
-    工作进程读 PYTHONPATH，项目根与 src 排在最前；本进程只补项目根：不在 sys.path 时插到下标 0，已在其中时不动、
-    不挪位置，重复调用不重复插入。src 不加，worldmock 此时已经导入。
-    """
-    current = [item for item in os.environ.get("PYTHONPATH", "").split(os.pathsep) if item]
-    required = [str(root), str(root / "src")]
-    os.environ["PYTHONPATH"] = os.pathsep.join(dict.fromkeys([*required, *current]))
-    if str(root) not in sys.path:
-        sys.path.insert(0, str(root))
-
-
-def _require_loaded_config(config: ModelConfig) -> None:
-    """@brief 已加载客户端配置必须与显式端点及模型一致。"""
-    from agentsociety2.config.config import Config
-
-    expected = (config.base_url, config.requested_model)
-    actual = ((Config.LLM_API_BASE, Config.LLM_MODEL), (Config.CODER_LLM_API_BASE, Config.CODER_LLM_MODEL))
-    if any(value != expected for value in actual) or Config.EMBEDDING_MODEL:
-        logger.error("AgentSociety2 was imported before the required model configuration")
-        raise RuntimeError("AgentSociety2 was imported before the required model configuration")
-
-
 def _model_identity(config: ModelConfig) -> ModelIdentity:
     """@brief 冻结显式模型端点、独立预算与当前提示和工具身份，不包含凭据。"""
-    from custom.agents.life_agent import ACTION_THINKING, ACTION_TOOL_CHOICE, life_tool_schema_sha256
+    from worldmock.agents.life_agent import ACTION_THINKING, ACTION_TOOL_CHOICE, life_tool_schema_sha256
     from worldmock.agents.prompt.life_prompt import life_prompt_sha256
 
     return ModelIdentity(provider=config.provider, base_url=config.base_url, requested_model=config.requested_model,
@@ -92,7 +32,7 @@ def _model_identity(config: ModelConfig) -> ModelIdentity:
 def stage_model_identity(config: ModelConfig, metadata: ModelMetadata,
                          same_second_continuation: bool = True) -> dict[str, Any]:
     """@brief 冻结行动阶段、实际服务容量及每个独立输出校验预算。"""
-    from custom.agents.life_agent import ACTION_MAX_TOKENS, ACTION_THINKING, ACTION_TOOL_CHOICE
+    from worldmock.agents.life_agent import ACTION_MAX_TOKENS, ACTION_THINKING, ACTION_TOOL_CHOICE
 
     identity = config.model_dump(mode="json", exclude={"api_key_env"})
     identity.update({"max_react_turns": config.max_react_turns, "strict": True, "reasoning_effort": None,
@@ -104,55 +44,19 @@ def stage_model_identity(config: ModelConfig, metadata: ModelMetadata,
     return validate_stage_model_identity(identity)
 
 
-def runtime_code_sha256(project_root: Path) -> str:
-    """@brief 哈希 src 与 custom 下全部 Python 源码、根目录两份依赖文件与实际导入的 AS2 包（docs/design/09-io-formats.md
+def project_root() -> Path:
+    """@brief 由已导入的 worldmock 包位置推出项目根：包目录 src/worldmock 往上两级；不读命令行、当前目录或环境变量。"""
+    return Path(worldmock.__file__).resolve().parents[2]
+
+
+def runtime_code_sha256() -> str:
+    """@brief 哈希项目根 src 下全部 Python 源码与根目录的 pyproject.toml、uv.lock（docs/design/09-io-formats.md
     「输入与模型身份」）；src 下其他类型的文件不进代码身份。
-
-    AS2 文件以 agentsociety2/<相对路径> 为标签，与安装位置无关；AS2 未通过锁定核对时拒绝给出代码身份。
     """
-    root = Path(project_root).resolve()
-    files = [(path.relative_to(root).as_posix(), path)
-             for directory in (root / "src", root / "custom") for path in directory.rglob("*.py")]
+    root = project_root()
+    files = [(path.relative_to(root).as_posix(), path) for path in (root / "src").rglob("*.py")]
     files.extend((name, root / name) for name in ("pyproject.toml", "uv.lock"))
-    return _labeled_sha256([*files, *require_locked_as2()])
-
-
-def require_locked_as2() -> list[tuple[str, Path]]:
-    """@brief 核对实际导入的 AS2 包与固定基线加补丁的源码摘要，返回其（标签, 路径）文件表。
-
-    包目录为空、导入失败或摘要不符时以 IntegrityError 拒绝；读取或哈希 AS2 文件时的任何失败（条目缺失、
-    不安全或不可读）同样按摘要不符拒绝，只用规格的唯一拒绝文案。run、resume、replay 与 validate 共用。
-    """
-    files = _as2_source_files()
-    try:
-        digest = _labeled_sha256(files)
-    except (IntegrityError, OSError) as error:
-        raise IntegrityError(_AS2_IDENTITY_ERROR) from error
-    if digest != AS2_LOCKED_SOURCE_SHA256:
-        raise IntegrityError(_AS2_IDENTITY_ERROR)
-    return files
-
-
-def _as2_source_files() -> list[tuple[str, Path]]:
-    """@brief 列出实际导入的 AS2 包目录下除 __pycache__ 外的全部文件，标签为 agentsociety2/<相对路径>。
-
-    包目录取 importlib.util.find_spec 解析出的唯一目录；解析失败、不是唯一包目录或目录为空即拒绝。
-    """
-    try:
-        spec = importlib.util.find_spec(_AS2_PACKAGE)
-    except (ImportError, ValueError) as error:
-        raise IntegrityError(_AS2_IDENTITY_ERROR) from error
-    locations = list(spec.submodule_search_locations or ()) if spec is not None else []
-    if len(locations) != 1:
-        raise IntegrityError(_AS2_IDENTITY_ERROR)
-    package = Path(locations[0]).resolve()
-    files = [(f"agentsociety2/{path.relative_to(package).as_posix()}", path)
-             for path in package.rglob("*")
-             if "__pycache__" not in path.relative_to(package).parts
-             and (path.is_symlink() or not path.is_dir())]
-    if not files:
-        raise IntegrityError(_AS2_IDENTITY_ERROR)
-    return files
+    return _labeled_sha256(files)
 
 
 def _labeled_sha256(files: list[tuple[str, Path]]) -> str:
@@ -170,23 +74,23 @@ def _labeled_sha256(files: list[tuple[str, Path]]) -> str:
     return digest.hexdigest()
 
 
-def _git_state(project_root: Path) -> tuple[str | None, bool | None]:
+def _git_state(root: Path) -> tuple[str | None, bool | None]:
     """@brief 返回项目根所在 Git 检出的（HEAD 提交, 是否有未提交改动）；非 Git 检出或 git 失败时二者为 None。
 
     未提交标志取 git status --porcelain 是否非空（显式含未跟踪文件，不含忽略文件）；二者只记录，不参与恢复比对。
     """
-    head = _git_output(project_root, "rev-parse", "HEAD")
+    head = _git_output(root, "rev-parse", "HEAD")
     if head is None:
         return None, None
-    status = _git_output(project_root, "status", "--porcelain", "--untracked-files=normal")
+    status = _git_output(root, "status", "--porcelain", "--untracked-files=normal")
     if status is None:
         return None, None
     return head.strip().decode("ascii"), bool(status.strip())
 
 
-def _git_output(project_root: Path, *arguments: str) -> bytes | None:
+def _git_output(root: Path, *arguments: str) -> bytes | None:
     """@brief 在项目根执行一条只读 git 命令并返回标准输出；git 不可用或命令失败时返回 None。"""
-    command = ["git", "-C", str(project_root), *arguments]
+    command = ["git", "-C", str(root), *arguments]
     try:
         result = subprocess.run(command, capture_output=True, check=False,
                                 env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"})
@@ -197,7 +101,7 @@ def _git_output(project_root: Path, *arguments: str) -> bytes | None:
 
 def creation_inputs(inputs: EnvironmentInputs,
                     same_second_continuation: bool = True) -> tuple[tuple[dict[str, Any], ...], list[dict]]:
-    """@brief 由人设表直接构造唯一人物卡片，生成原生工作区输入及真实目录输入警告；不调用模型。"""
+    """@brief 由人设表直接构造唯一人物卡片，生成真实目录输入警告；不调用模型。"""
     from worldmock.configuration.persona.persona_card import persona_card, persona_card_struct
     from worldmock.configuration.persona.persona_text import render_card
 
@@ -208,10 +112,7 @@ def creation_inputs(inputs: EnvironmentInputs,
                     "persona_card": render_card(card), "persona_card_struct": persona_card_struct(card),
                     "model_identity": stage_model_identity(inputs.config.model, inputs.model_metadata,
                                                             same_second_continuation)})
-    config = {"enable_memory": True, "enable_todo_list": False,
-              "max_react_turns": inputs.config.model.max_react_turns, "disabled_skill_ids": [],
-              "default_activated_skill_ids": []}
-    specs = ({"id": persona.agent_id, "profile": profile, "config": config},)
+    specs = ({"id": persona.agent_id, "profile": profile},)
     return specs, input_warnings(inputs)
 
 
@@ -236,7 +137,7 @@ def validate_manifest_stage_identity(manifest: Mapping[str, Any]) -> dict[str, A
 
 def validate_stage_model_identity(identity: dict[str, Any]) -> dict[str, Any]:
     """@brief 校验唯一行动阶段与实际容量、预算；端点及模型来自运行声明。"""
-    from custom.agents.life_agent import ACTION_MAX_TOKENS, ACTION_THINKING, ACTION_TOOL_CHOICE
+    from worldmock.agents.life_agent import ACTION_MAX_TOKENS, ACTION_THINKING, ACTION_TOOL_CHOICE
     from pydantic import ValidationError
 
     if not isinstance(identity, dict):

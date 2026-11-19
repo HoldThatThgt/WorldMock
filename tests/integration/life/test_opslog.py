@@ -6,8 +6,9 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from agentsociety2.agent.base import MemoryUpdateEvidence, ModelCallEvidence
-from agentsociety2.society import DirectToolCall
+from worldmock.recording_engine.events.memory_evidence import MemoryUpdateEvidence
+from worldmock.state.decisions.round import DirectToolCall
+from worldmock.state.model.exchange import ModelCallEvidence
 
 from tests.life.conftest import (
     action_identity,

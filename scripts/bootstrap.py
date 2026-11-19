@@ -15,17 +15,14 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from scripts.bootstrap_environment import create_environment, install_requirements, install_source, write_receipt
-from scripts.bootstrap_sources import restore_as2
 
 
 def bootstrap(root: Path, profile: str, wheelhouse: Path | None = None, use_uv: bool = False) -> dict:
-    """@brief 先核对 AS2 源码，再按唯一哈希锁安装 WorldMock 环境。"""
-    as2_digest = restore_as2(root)
+    """@brief 按唯一哈希锁建环境，再以可编辑方式安装 WorldMock，最后写环境收据。"""
     python = create_environment(root / ".venv", use_uv)
     install_requirements(python, root / "requirements/lock.txt", wheelhouse, use_uv)
-    install_source(python, root / "vendor/agentsociety2/packages/agentsociety2", use_uv)
     install_source(python, root, use_uv)
-    return write_receipt(root, profile, {"as2_source_sha256": as2_digest})
+    return write_receipt(root, profile)
 
 
 def main() -> int:

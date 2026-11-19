@@ -1,6 +1,6 @@
 """生产代码风格常驻门禁（docs/design/01-architecture.md「工程门禁」/GAP-5）。
 
-检查范围：src/worldmock 与 custom 全部生产 .py（测试文件不扫）。规则：
+检查范围：src/worldmock 与 tools/analysis 全部生产 .py（测试文件不扫）。规则：
 行宽 ≤120 字符、生产函数 ≤50 行且 ≤5 参（下划线私有同受约束，方法不计
 self/cls）、文件 ≤2000 行、生产函数 docstring 含中文（Doxygen 口径）。
 
@@ -14,7 +14,7 @@ import re
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
-SCAN_ROOTS = ("src/worldmock", "custom", "tools/analysis")
+SCAN_ROOTS = ("src/worldmock", "tools/analysis")
 MAX_LINE_WIDTH = 120
 MAX_FUNCTION_LINES = 50
 MAX_PARAMETERS = 5

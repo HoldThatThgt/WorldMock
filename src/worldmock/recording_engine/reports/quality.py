@@ -12,16 +12,15 @@ from worldmock.state.model.exchange import (
     request_tool_names,
 )
 from worldmock.foundation.time.intervals import valid_interval, body_settlements
-from worldmock.recording_engine.events.memory_evidence import MEMORY_WRITE_POINTS
+from worldmock.recording_engine.events.memory_evidence import MEMORY_UPDATE_KEYS, MEMORY_WRITE_POINTS
 from worldmock.state.model.memory import valid_subjective_snapshots
 from worldmock.foundation.serialization import is_sha256
 import logging
 import math
 import re
 from collections import Counter, defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any
-from zoneinfo import ZoneInfo
 
 from worldmock.foundation.errors import IntegrityError
 from worldmock.recording_engine.reports.errand_metrics import conclusion_memories, errand_metrics
@@ -43,7 +42,6 @@ from worldmock.state.world.kinds import ActionStatus
 _ACTION_STATUSES = tuple(status.value for status in ActionStatus)
 _ACTIVITY_STATUSES = ("active", "paused", "completed", "cancelled", "failed", "truncated")
 _INTERRUPTED_STATUSES = {"cancelled", "failed", "truncated"}
-#: 记忆写入点闭集（memory_updated.data.trigger 的取值与顺序）：结束活动与就寝反思。
 #: 协议错误与运行故障文本中表示记忆的词：记忆本身，以及结束工具里记忆与看法的两个字段名（memories、views）。
 _MEMORY_ERROR_WORDS = ("memory", "memories", "views")
 #: 输出截断按用途分列时，无 purpose 的请求的分组名。
@@ -104,7 +102,7 @@ def build_quality_report(events: list[Event], activities: list[dict], manifest: 
         **app_usage_quality(rows, manifest["window"]["timezone"]),
         "conversion_efficiency": _efficiency_quality(events),
         "decision_rhythm": _decision_rhythm_quality(events),
-        "memory_references": _memory_quality(events, manifest["window"]["timezone"]),
+        "memory_references": _memory_quality(events),
         "model_usage": _model_quality(events),
         "acceleration": _acceleration(events, manifest),
         "lineage": _lineage_quality(manifest),
@@ -389,23 +387,20 @@ def _wake_category_distribution(events: list[Event]) -> dict:
     return dict(sorted(counts.items()))
 
 
-def _memory_quality(events: list[Event], timezone_name: str) -> dict:
+def _memory_quality(events: list[Event]) -> dict:
     """@brief 按写入点（trigger）核对系统登记的记忆来源、持久 episode 身份与观察事实窗口。
 
-    写入点只有结束活动（activity_conclusion，对应同一决策已登记的 conclude_activity）与就寝反思（reflection，
-    只凭事件独立重算：当天第一次睡醒、归属前一天、排在观察之前且只登记一次；
-    docs/design/05-recording-engine.md「事件与来源」）。本地日按运行清单的窗口时区分。
-    就寝反思的登记只出现在本规格交付之前的历史运行里，新运行中为零。
+    写入点只有结束活动（activity_conclusion，对应同一决策已登记的 conclude_activity；
+    docs/design/05-recording-engine.md「事件与来源」）；每条更新都核对键集合、观察与事实窗口。
     """
     state = {
-        "known": defaultdict(set), "conclusions": {}, "requests": set(), "wakes": defaultdict(set),
-        "reflected": set(), "zone": ZoneInfo(timezone_name),
+        "known": defaultdict(set), "conclusions": {}, "requests": set(),
         "concluded": set(), "problems": [], "write_points": 0, "episodes": 0, "update_events": 0,
         "events": {}, "windows": {},
     }
     inspectors = {"observation": _inspect_memory_observation, "action_requested": _inspect_conclusion_request,
                   "model_response": _inspect_memory_response, "memory_updated": _inspect_memory_update,
-                  "run_failed": _inspect_memory_failure, "activity_progress": _inspect_sleep_wake}
+                  "run_failed": _inspect_memory_failure}
     for event in events:
         inspector = inspectors.get(event.event_type)
         if inspector is not None:
@@ -474,29 +469,6 @@ def _inspect_memory_observation(event: Event, state: dict) -> None:
     state["windows"][key] = (event.event_id, {item["source_event_id"] for item in facts})
 
 
-def _inspect_sleep_wake(event: Event, state: dict) -> None:
-    """@brief 记下每个人物真实睡醒的时刻：环境写下的活动进度，快照是已完成的睡眠。"""
-    activity = event.data.get("activity")
-    if (event.source_kind == "environment" and isinstance(activity, dict) and activity.get("kind") == "sleep"
-            and activity.get("status") == "completed" and type(activity.get("ended_at")) is int):
-        state["wakes"][event.agent_id].add(activity["ended_at"])
-
-
-def _reflection_sourced(event: Event, key: tuple, state: dict) -> bool:
-    """@brief 就寝反思登记的来源只凭事件重算：有对应的睡醒、是当天第一次睡醒、归属前一天、排在本决策的观察之前，
-    并且该人物在这一时刻只登记这一次。就寝反思的登记只出现在本规格交付之前的历史运行里，新运行中为零。"""
-    filed, moment = event.data.get("reflection"), (event.agent_id, event.occurred_at)
-    repeated = moment in state["reflected"]
-    state["reflected"].add(moment)
-    if not isinstance(filed, dict):
-        return False
-    wakes, zone = state["wakes"][event.agent_id], state["zone"]
-    today = datetime.fromtimestamp(event.occurred_at, zone).date()
-    earlier = any(wake < event.occurred_at and datetime.fromtimestamp(wake, zone).date() == today for wake in wakes)
-    return (event.occurred_at in wakes and not earlier and not repeated and key not in state["windows"]
-            and filed.get("date") == (today - timedelta(days=1)).isoformat())
-
-
 def _verified_source_matches(source: Event | None, fact: dict, observation: Event) -> bool:
     """@brief 观察中的事实必须与该人物更早提交的规范来源逐字对应。"""
     if source is None or source.event_seq >= observation.event_seq:
@@ -527,8 +499,8 @@ def _inspect_memory_update(event: Event, state: dict) -> None:
     state["update_events"] += 1
     key = (event.agent_id, event.decision_id)
     window = state["windows"].get(key)
-    if data.get("reflection") is None and (window is None or data.get("observation_event_id") != window[0]
-                                           or set(data.get("verified_event_ids", [])) != window[1]):
+    if (window is None or data.get("observation_event_id") != window[0]
+            or set(data.get("verified_event_ids", [])) != window[1]):
         _add_memory_problem(state, "invalid_memory_update_source_window", event.event_id, event.agent_id, [])
     _check_write_points(event, key, state)
 
@@ -544,7 +516,7 @@ def _valid_write_points(data: dict, event: Event) -> bool:
 
 
 def _check_write_points(event: Event, key: tuple, state: dict) -> None:
-    """@brief 每个写入点都要有对应登记：结束活动对应同一决策的 conclude_activity，反思对应当天第一次睡醒。
+    """@brief 每个写入点都要有对应登记：结束活动对应同一决策的 conclude_activity。
 
     写入了条目却没有任何写入点同样找不到来源。
     """
@@ -556,14 +528,14 @@ def _check_write_points(event: Event, key: tuple, state: dict) -> None:
             state["concluded"].add(key)
         else:
             missing = True
-    if ("reflection" in trigger or data.get("reflection") is not None) and not _reflection_sourced(event, key, state):
-        missing = True
     if missing:
         _add_memory_problem(state, "memory_update_without_source", event.event_id, event.agent_id, [])
 
 
 def _valid_memory_update_payload(data: dict) -> bool:
-    """@brief 核对封闭操作、文件身份与主观快照的严格对应。"""
+    """@brief 核对恰为十一个键、封闭操作、文件身份、来源观察与主观快照的严格对应；写入前摘要可为 null。"""
+    if set(data) != set(MEMORY_UPDATE_KEYS):
+        return False
     created, merged, episodes = (data.get(name) for name in
                                  ("created_episode_ids", "merged_episode_ids", "episodes"))
     if any(not isinstance(value, list) or any(not isinstance(item, str) or not item for item in value)
@@ -579,32 +551,18 @@ def _valid_memory_update_payload(data: dict) -> bool:
         return False
     if data.get("operation") == "refresh_summary" and data.get("memory_before_sha256") == data.get("memory_sha256"):
         return False
-    if any(not is_sha256(data.get(name))
-           for name in ("memory_before_sha256", "memory_sha256", "episodes_sha256", "state_sha256")):
+    before = data.get("memory_before_sha256")
+    if ((before is not None and not is_sha256(before))
+            or any(not is_sha256(data.get(name)) for name in ("memory_sha256", "episodes_sha256"))):
         return False
-    if type(data.get("consolidated")) is not bool or not _valid_update_binding(data):
+    observation = data.get("observation_event_id")
+    if not isinstance(observation, str) or not observation:
         return False
     verified = data.get("verified_event_ids")
     if (not isinstance(verified, list) or any(not isinstance(item, str) or not item for item in verified)
             or len(verified) != len(set(verified))):
         return False
     return valid_subjective_snapshots(episodes, identities)
-
-
-
-
-
-
-
-
-def _valid_update_binding(data: dict) -> bool:
-    """@brief 来源观察与就寝反思归属二选一：步尾登记绑定非空的观察，反思登记的观察为空并带归属日期与所属睡眠。
-    就寝反思的登记只出现在本规格交付之前的历史运行里，新运行中为零。"""
-    observation, filed = data.get("observation_event_id"), data.get("reflection")
-    if filed is None:
-        return isinstance(observation, str) and bool(observation)
-    return (observation is None and isinstance(filed, dict) and set(filed) == {"date", "sleep_activity_id"}
-            and all(isinstance(value, str) and value for value in filed.values()))
 
 
 def _inspect_memory_failure(event: Event, state: dict) -> None:

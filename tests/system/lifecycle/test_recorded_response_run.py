@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -185,6 +186,41 @@ def test_recorded_response_run_reproduces_a_restarted_recording(source, tmp_path
     ordered = _command("scripts/recorded_response_run.py", "raw-order", "--base", work, "--head", work, "--report",
                        tmp_path / "order.json")
     assert ordered.returncode == 0, ordered.stdout + ordered.stderr
+
+
+def test_planned_restart_failure_records_the_original_model_error(source):
+    """@brief 来源第一段经真实命令行、运行宿主、人物、模型客户端与本机 HTTP 在 400 拒绝处停下：status.json、
+    中止与运行失败事件、运维日志写的都是模型客户端抛出的原异常，没有包装文字。"""
+    run = source / "one"
+    status_text = (run / "status.json").read_text(encoding="utf-8")
+    status = json.loads(status_text)
+    assert (status["status"], status["phase"], status["error_type"]) == ("failed", "stopped", "LLMDispatchError")
+    assert re.match(r"^LLMDispatchError: Failed to get valid response after 1 attempts in \d+\.\d s\. "
+                    r"Last error type: BadRequestError\. Error chain: BadRequestError", status["error_message"])
+    events = _events(run)
+    failures = [event for event in events if event["event_type"] == "run_failed"]
+    aborts = [event for event in events if event["event_type"] == "environment_event"
+              and event["data"]["kind"] == "decision_round_aborted"]
+    assert len(failures) == 1 and len(aborts) == 1
+    failed, aborted = failures[0]["data"], aborts[0]["data"]
+    assert failed["error_type"] == "RuntimeError"
+    assert failed["error"] == aborted["error"]
+    assert re.match(r"^LLMDispatchError\('Failed to get valid response after 1 attempts in \d+\.\d s\. "
+                    r"Last error type: BadRequestError\. Error chain: BadRequestError.*'\)$", failed["error"])
+    assert failed["round_id"] == aborted["round_id"]
+    lines = [line for path in sorted((run / "logs").glob("ops-*.jsonl"))
+             for line in path.read_text(encoding="utf-8").splitlines()]
+    records = [json.loads(line) for line in lines]
+    assert [record["detail"] for record in records if record["code"] == "DECISION_ROUND_ABORTED"] == [
+        "Decision round aborted after 0 actions: " + failed["error"]]
+    assert [record["detail"] for record in records if record["code"] == "RUN_CRASHED"] == [
+        "Run crashed: " + status["error_message"]]
+    assert not any(record["code"] == "RUN_FAILED" for record in records)
+    with sqlite3.connect(run / "footprints.sqlite") as connection:
+        bodies = [row[0] for row in connection.execute("SELECT body FROM events ORDER BY event_seq")]
+    connection.close()
+    for text in [status_text, *lines, *bodies]:
+        assert "Agent decision failed: " not in text and "RayTaskError" not in text
 
 
 def test_one_changed_system_character_stops_the_run_at_that_call(source, tmp_path):

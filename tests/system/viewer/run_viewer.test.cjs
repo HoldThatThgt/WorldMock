@@ -1142,6 +1142,20 @@ test('memory page shows stored episode text without requiring a directory upload
   assert.ok(view.summary(1).includes('2 段记忆'));
 });
 
+test('a memory update summary reads the operation and episode counts only', async t => {
+  const view = await viewer([
+    event('memory_updated', {operation: 'append_episodes', created_episode_ids: ['m_000001'],
+      merged_episode_ids: ['m_000002'], consolidated: true, episodes: [
+      {id: 'm_000001', type: 'routine', text: '早上吃了包子。'},
+      {id: 'm_000002', type: 'routine', text: '中午吃了面。'},
+    ]}),
+  ]);
+  t.after(() => view.close());
+  // 概要只取操作与两组条目编号；事件里即使带 consolidated: true 也不显示「已巩固」。
+  assert.equal(view.summary(1), '记忆更新 · 追加记忆片段 · 2 段记忆');
+  assert.deepEqual(Object.keys(view.state.summaries.get(1)), ['op', 'created', 'merged']);
+});
+
 test('activity lanes preserve simultaneous actions and pauses using settled intervals', async t => {
   const first = 'action-a', second = 'wait-b';
   const action = {action: 'interact', app_id: null, content_id: null};
@@ -1263,8 +1277,8 @@ test('the run manifest is bound to the export\'s run, the run directory copy is 
     directoryHandle('labelkit-input', [fileHandle('manifest.json',
       {schema_version: 1, run_id: 'viewer-test-run', agent_id: 1})]),
     fileHandle('manifest.json', child),
-    directoryHandle('as2', [directoryHandle('agents', [directoryHandle('agent_0001', [
-      fileHandle('MEMORY.md', '今天把纪要交了。')])])]),
+    directoryHandle('agents', [directoryHandle('agent_0001', [
+      fileHandle('MEMORY.md', '今天把纪要交了。')])]),
   ]);
   const parent = droppedFile('manifest.json', runManifest({input_warnings: []}, 'parent-run'));
   const resumed = [event('observation', {}, {run_id: 'parent-run'}), event('observation', {})];

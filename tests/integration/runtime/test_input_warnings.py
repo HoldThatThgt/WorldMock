@@ -4,7 +4,7 @@ import json
 import pytest
 
 from tests.frozen_inputs import fixture_metadata
-from tests.integration.runtime.current_contract_fixtures import ROOT, aligned_process, inputs, metadata_service
+from tests.integration.runtime.current_contract_fixtures import inputs, metadata_service
 from tests.life.conftest import advance_next, do_at, stage_day_plan
 from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
 from tests.life.environment_runtime import act
@@ -63,20 +63,19 @@ def test_actual_input_warnings_are_frozen_and_exported(engine_factory, tmp_path)
 
 
 def test_new_run_writes_each_input_warning_to_the_manifest_options_and_the_operations_log(tmp_path, monkeypatch):
-    """真实新建入口：警告随人物工作区输入一起算出，放进引擎的新建选项，并各写一条运维日志；运行不因警告失败。"""
-    from worldmock.runtime.lifecycle.runner import RunRequest, _prepare_new_run, _society_specs
+    """真实新建入口：警告随人物工作区输入一起算出，放进引擎的新建选项（恰为三个键），并各写一条运维日志；运行不因警告失败。"""
+    from worldmock.runtime.lifecycle.runner import RunRequest, _creation_options, _prepare_new_run
 
     root = _warned_environment(tmp_path)
     frozen = load_environment(root, metadata_loader=fixture_metadata)
     metadata_service(monkeypatch, frozen)
-    aligned_process(monkeypatch, frozen)
-    prepared = _prepare_new_run(RunRequest(ROOT, root, tmp_path / "run", "warned", "warned"))
-    specs = _society_specs(prepared)
-    options = prepared.env_kwargs["create_options"]
+    prepared = _prepare_new_run(RunRequest(root, tmp_path / "run", "warned", "warned"))
+    options = _creation_options(prepared)
+    assert list(options) == ["same_second_continuation", "input_warnings", "persona_habit_responses"]
     assert [row["code"] for row in options["input_warnings"]] == [
         "CONTENT_EMPTY_WITH_MEDIA_TASTES", "LOCATION_NAME_SUSPICIOUS"]
     assert options["persona_habit_responses"] == {1: ["公园慢跑半小时", "读几页小说"]}
-    assert "world_dynamics" not in options and specs[0]["id"] == 1
+    assert "world_dynamics" not in options and options["same_second_continuation"] is True
     logged = [json.loads(line) for path in sorted((tmp_path / "run/logs").glob("*"))
               for line in path.read_text(encoding="utf-8").splitlines()]
     frozen = [row for row in logged if row["detail"] == "Input warning frozen into the run manifest"]

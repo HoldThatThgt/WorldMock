@@ -27,7 +27,6 @@ class _RecordedTime(datetime):
 
 def deterministic_day_runtime(monkeypatch) -> None:
     """@brief 仅在完整日测试内固定记录身份与计时，不修改生产代码。"""
-    import agentsociety2.agent.person as person
     import worldmock.recording_engine.storage.checkpoint as checkpoint
     import worldmock.recording_engine.events.models as models
     import worldmock.recording_engine.storage.store as store
@@ -38,7 +37,6 @@ def deterministic_day_runtime(monkeypatch) -> None:
         monkeypatch.setattr(module, "uuid4", fixed_uuid)
     monkeypatch.setattr(store, "datetime", _RecordedTime)
     monkeypatch.setattr(store, "time", SimpleNamespace(monotonic=lambda: 0.0))
-    monkeypatch.setattr(person, "datetime", _RecordedTime)
 
 
 #: 行为签名只屏蔽的代码身份字段（运行清单与导出清单里冻结的运行清单）。

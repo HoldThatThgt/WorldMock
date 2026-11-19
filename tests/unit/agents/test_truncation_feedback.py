@@ -5,7 +5,7 @@ import json
 import logging
 
 from worldmock.agents.protocol import life_truncation
-from worldmock.agents.protocol.life_feedback import FEEDBACK_INSTRUCTION, feedback_content, report_content
+from worldmock.agents.protocol.life_feedback import FEEDBACK_INSTRUCTION, report_content
 from worldmock.state.interaction.errors import ErrorItem, host_report
 
 
@@ -18,7 +18,7 @@ def test_reimporting_the_truncation_module_writes_no_error_log_and_keeps_the_fix
     assert module.TRUNCATION_CONTENT == before
     with caplog.at_level(logging.ERROR):
         feedback = module.truncation_feedback()
-    assert module.TRUNCATION_CONTENT == feedback_content(feedback)
+    assert module.TRUNCATION_CONTENT == report_content(feedback.report)
     assert [record.getMessage() for record in caplog.records] == [
         f"Life tool protocol rejected: OUTPUT_TRUNCATED: {module.TRUNCATION_DETAIL}"]
 

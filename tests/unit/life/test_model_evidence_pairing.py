@@ -6,10 +6,10 @@ from dataclasses import replace
 
 import pytest
 
-from agentsociety2.agent.base import ModelCallEvidence
 from tests.life.conftest import context
 from tests.life.environment_runtime import events
 from worldmock.foundation.errors import ProtocolError
+from worldmock.state.model.exchange import ModelCallEvidence
 
 #: 测试用的实际请求：一条用户消息。
 REQUEST = {"messages": [{"role": "user", "content": "x"}]}

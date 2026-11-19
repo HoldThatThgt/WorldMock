@@ -1,9 +1,14 @@
-"""@brief 按职责保存现有定义与纯计算。"""
+"""@brief 按职责保存现有定义与纯计算：请求用途、行动请求判定、人物模型调用证据与 assistant 消息形状。
+
+来源：本模块部分代码改写自 AgentSociety2 2.8.7（上游提交 670c94ff），按 Apache-2.0 使用，许可全文见 LICENSES/AgentSociety2-Apache-2.0.txt。
+"""
 
 
 from __future__ import annotations
 from collections.abc import Mapping
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Literal
+from worldmock.state.decisions.round import DecisionContext
 from worldmock.state.interaction.actions import START_TOOLS
 
 
@@ -14,7 +19,7 @@ PLAN_DAY_PURPOSE = "plan_day"
 MEMORY_DIGEST_PURPOSE = "memory_digest"
 
 
-#: 行动请求才开放的世界请求工具（start_main_activity）；只读问答、记忆巩固与反思的请求都不带它。
+#: 行动请求才开放的世界请求工具（start_main_activity）。
 _ACTION_TOOL = START_TOOLS[0]
 
 
@@ -22,8 +27,7 @@ _ACTION_TOOL = START_TOOLS[0]
 def is_action_request(request: Any) -> bool:
     """@brief 行动请求的唯一判定：没有 purpose、tools 含 start_main_activity 且 thinking 开启。
 
-    与存储侧 SQL 谓词同义（docs/design/06-agent.md「宿主模型协议」）；工作验收、零点计划与日、月、年回顾带 purpose，
-    只读问答、记忆巩固与反思不带 start_main_activity。
+    与存储侧 SQL 谓词同义（docs/design/06-agent.md「宿主模型协议」）；工作验收、零点计划与日、月、年回顾带 purpose。
     """
     if not isinstance(request, dict) or request.get("purpose") is not None:
         return False
@@ -54,3 +58,34 @@ def request_tool_names(request: Any) -> list[str]:
     tools = request.get("tools") if isinstance(request, Mapping) else None
     return [item["function"].get("name") for item in tools if isinstance(item, Mapping)
             and isinstance(item.get("function"), Mapping)] if isinstance(tools, list) else []
+
+
+
+@dataclass(frozen=True, slots=True)
+class ModelCallEvidence:
+    """@brief 一次人物模型调用的请求、响应或失败证据；引擎按属性读取。"""
+
+    context: DecisionContext
+    call_id: str
+    phase: Literal["request", "response", "failure"]
+    attempt: int
+    request: dict[str, Any]
+    response: dict[str, Any] | None = None
+    error: str | None = None
+    transport_attempts: tuple[dict[str, Any], ...] = ()
+
+
+
+def wire_tool_call(identity: Any, name: Any, arguments: Any) -> dict[str, Any]:
+    """@brief 一个原生工具调用的发送形状：键依次为 id、type、function（name、arguments），参数缺省为 "{}"。"""
+    return {"id": str(identity or ""), "type": "function",
+            "function": {"name": str(name or ""), "arguments": str(arguments or "{}")}}
+
+
+
+def assistant_message(content: Any, tool_calls: list[dict[str, Any]], reasoning: Any) -> dict[str, Any]:
+    """@brief 回传给后续请求的 assistant 消息：键依次为 role、content、tool_calls，思考为真值时追加 reasoning_content。"""
+    message: dict[str, Any] = {"role": "assistant", "content": content, "tool_calls": tool_calls}
+    if reasoning:
+        message["reasoning_content"] = reasoning
+    return message

@@ -104,7 +104,7 @@ def _sleep_through(engine, activity_id: str) -> int:
 
 def _observe_and_conclude(engine, label: str, activity_id: str) -> dict:
     """睡醒那一秒取一次观察并给刚结束的睡眠收尾，返回这次观察。"""
-    from agentsociety2.society import DirectToolCall
+    from worldmock.state.decisions.round import DirectToolCall
 
     decision = context(engine, label)
     engine.begin_decision_round([decision])

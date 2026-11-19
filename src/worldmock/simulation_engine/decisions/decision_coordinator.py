@@ -1,10 +1,7 @@
 """@brief DecisionCoordinator 的独立生活运行职责。"""
 
 from __future__ import annotations
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from agentsociety2.society import DecisionContext, DirectToolCall
+from worldmock.state.decisions.round import DecisionContext, DirectToolCall
 from worldmock.simulation_engine.world.world_updates import _failure_draft
 from worldmock.simulation_engine.world.world_updates import _put_agent
 from worldmock.simulation_engine.world.world_updates import _request_sha
@@ -145,9 +142,9 @@ class DecisionCoordinator:
         return receipt
 
     def commit_decision_round(self, round_id: str) -> list[ActionResult]:
-        """@brief 完整轮次按冻结顺序结算，一次提交当前世界与结果；每个决策只返回它第一条动作的结果。
+        """@brief 完整轮次按冻结顺序结算，一次提交当前世界与结果；返回本轮全部动作的结果，组按人物的冻结次序、组内按登记次序。
 
-        一个决策可以登记两条开始动作：两条结果都落库，返回值仍是每个决策一条，与框架核对的决策上下文条数一致。
+        一个决策可以登记两条开始动作：两条结果都落库，也都返回。
         提交之前比较提交前后的世界一次：导航在不在前台、购买里截断的前台区间和停留进出事件都由此得出。
         """
         current = self.require_round(round_id)
@@ -162,7 +159,7 @@ class DecisionCoordinator:
             for pending, result in zip(group, settled, strict=True):
                 self._ops_action(pending, result)
                 staged = _remember_action(staged, pending, result)
-            results.append(settled[0])
+            results.extend(settled)
             drafts.extend(action_drafts)
         staged, settled = errands.settle(staged, drafts)
         drafts.extend(settled)
@@ -252,10 +249,8 @@ class DecisionCoordinator:
 
     def validate_context(self, context: "DecisionContext") -> None:
         """@brief 拒绝运行、时刻、人物或世界版本过期的宿主上下文。"""
-        from agentsociety2.society import DecisionContext
-
         if not isinstance(context, DecisionContext):
-            raise ProtocolError("Context must use the AgentSociety2 DecisionContext type")
+            raise ProtocolError("Context must use the DecisionContext type")
         if context.run_id != self.context.state.run_id or context.agent_id not in self.context.state.agents:
             raise ProtocolError("Decision context run or agent is invalid")
         if int(context.observed_at.timestamp()) != self.context.state.current_time:
@@ -265,8 +260,6 @@ class DecisionCoordinator:
 
     def _validate_call(self, call: "DirectToolCall") -> None:
         """@brief 拒绝任意字典请求、错误工具类型、非当前决策轮和不由本决策身份形成的动作身份。"""
-        from agentsociety2.society import DirectToolCall
-
         if not isinstance(call, DirectToolCall) or self.round is None:
             raise ProtocolError("Direct tool call requires an open decision round")
         if call.tool_name == "recall_task_summary":

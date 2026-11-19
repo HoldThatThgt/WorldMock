@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -10,8 +11,6 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-
-from scripts.bootstrap_sources import file_sha256
 
 PROFILE_ENV = "WORLDMOCK_ENVIRONMENT_PROFILE"
 MISSING_NODE = "Node.js with working node:sqlite is unavailable for the dev environment profile"
@@ -28,6 +27,12 @@ _NODE_SQLITE_PROBE = (
     "item.value AS expanded FROM probe, json_each(probe.body, '$.values') AS item\").all(); "
     "assert.deepEqual(rows.map(row => [row.extracted, row.expanded]), [[7, 7]]); database.close();"
 )
+
+
+def file_sha256(path: Path) -> str:
+    """@brief 返回文件原始字节的 SHA-256。"""
+    with path.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
 def environment_python(directory: Path) -> Path:
@@ -157,7 +162,7 @@ def require_profile(status: dict, profile: str) -> None:
         raise RuntimeError("Required release components are missing: " + ", ".join(status["missing_components"]))
 
 
-def write_receipt(root: Path, profile: str, sources: dict) -> dict:
+def write_receipt(root: Path, profile: str) -> dict:
     """@brief 保存不含机器绝对路径、身份或凭据的固定环境收据。"""
     status = component_status(root)
     require_profile(status, profile)
@@ -170,7 +175,7 @@ def write_receipt(root: Path, profile: str, sources: dict) -> dict:
     receipt = {"schema_version": "environment-1", "profile": profile,
                "python_version": identity["version"], "python_implementation": identity["implementation"],
                "python_version_file_sha256": file_sha256(root / ".python-version"),
-               "dependency_locks": locks, **sources, **status, "passed": not status["missing_components"]}
+               "dependency_locks": locks, **status, "passed": not status["missing_components"]}
     destination = root / ".work/environment-receipt.json"
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_bytes((json.dumps(receipt, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))

@@ -22,7 +22,7 @@ from tests.life.conftest import (
     travel,
     use_app,
 )
-from agentsociety2.society import DirectToolCall
+from worldmock.state.decisions.round import DirectToolCall
 from worldmock.simulation_engine.activities.lifecycle.activity_control import open_activities
 from worldmock.state.world.kinds import ActivityStatus
 from worldmock.state.world.world import active_activities

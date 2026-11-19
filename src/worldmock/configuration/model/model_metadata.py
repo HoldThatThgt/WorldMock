@@ -8,13 +8,16 @@ import logging
 import os
 import time
 from collections.abc import Callable, Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
 import requests
 from pydantic import ValidationError
 
 from worldmock.configuration.inputs.models import ModelConfig, ModelMetadata
+
+if TYPE_CHECKING:
+    from worldmock.configuration.model.model_client import ModelClient
 
 _LOGGER = logging.getLogger(__name__)
 #: 元数据读取整次重试的等待秒数（至多五次读取）。
@@ -129,33 +132,19 @@ def _metadata_invalid() -> None:
 
 
 class IndependentModelClient:
-    """@brief 业务模型请求共用已配置客户端，身份与预算来自冻结运行配置。"""
+    """@brief 零点计划与回顾的业务入口：经整次运行共用的模型客户端发送；请求隔离，响应序列化为可持久化字典。"""
 
-    def __init__(self, model_identity: dict, purpose: str):
-        """@brief 建立与冻结模型身份一致的客户端，不寻找第二份配置。"""
-        from agentsociety2.config import build_client_for_role
-        from worldmock.foundation.errors import ProtocolError
-
-        client = build_client_for_role("default")
-        if (client.model_name != model_identity["requested_model"]
-                or client.base_url != model_identity["base_url"]):
-            raise ProtocolError(f"{purpose} client identity disagrees with the run manifest")
-        self.client = client
+    def __init__(self, model_client: ModelClient, model_identity: Mapping[str, Any], purpose: str):
+        """@brief 记下整次运行共用的模型客户端、冻结身份里的模型名与用途；不核对、不保存身份。"""
+        self.client = model_client
         self.model_name = model_identity["requested_model"]
         self.purpose = purpose
-        self.model_identity = model_identity
 
     async def call(self, request: dict) -> dict:
-        """@brief 请求使用同一 dispatcher 的两个独立重试计数器，响应必须可持久化。"""
+        """@brief 把请求的深拷贝交给模型客户端发送，调用方的请求不被改动；响应必须可持久化。"""
         from worldmock.foundation.errors import ProtocolError
 
-        arguments = copy.deepcopy(request)
-        arguments["max_retries"] = self.model_identity["max_retries"]
-        arguments["transport_max_retries"] = self.model_identity["transport_max_retries"]
-        metadata = ModelMetadata.model_validate(self.model_identity["model_metadata"])
-        if "max_tokens" in arguments:
-            arguments["max_tokens"] = min(arguments["max_tokens"], metadata.max_output_tokens)
-        response = await self.client.call(**arguments)
+        response = await self.client.call(copy.deepcopy(request))
         if hasattr(response, "model_dump"):
             payload = response.model_dump(mode="json")
         elif isinstance(response, dict):

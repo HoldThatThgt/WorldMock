@@ -1,37 +1,31 @@
 """人物一侧的记忆不再调用模型（docs/design/06-agent.md「宿主模型协议」、docs/design/05-recording-engine.md「事件与来源」）：
-当天第一次睡醒那一步与其他步骤相同，只发行动请求；memory_updated 只有步尾登记，环境拒绝来源观察为空或 consolidated 为真的
-证据；Life 扩展通道只剩 read_query；巩固、睡醒反思与 due_reflection 的代码都已删除。
+当天第一次睡醒那一步与其他步骤相同，只发行动请求；memory_updated 只有步尾登记，数据恰为十一个键，人物第一条的写入前摘要
+为 null；环境拒绝来源观察为空、带五键快照、写入前摘要既非 null 也非摘要、或视图没变的摘要刷新的证据；回合循环失败的
+决策不做步尾保存；生活引擎没有 due_reflection，只读查询经 read_query。
 
-真实宿主运行（tests/integration/host_run_fixtures.py）：真实引擎、SQLite、LifeEnv 与直接导入的 LifeAgent，脚本模型只答
-行动请求，收到别的请求当场失败。
+真实宿主运行（tests/integration/host_run_fixtures.py）：真实引擎、SQLite、记忆存储与直接导入的 LifeAgent，引擎就是
+人物拿到的句柄；脚本模型只答行动请求，收到别的请求当场失败。
 """
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
+import sqlite3
 from dataclasses import replace
 
 import pytest
 
-os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
-from agentsociety2.agent.person import PersonAgent  # noqa: E402
-from custom.agents.life_agent import LifeAgent  # noqa: E402
-from custom.envs.life_env import LifeEnv  # noqa: E402
 from tests.engine_fixture import engine_factory  # noqa: E402,F401
 from tests.integration.host_run_fixtures import _evening, host_run, memory, tool_names  # noqa: E402
 from tests.life.conftest import MAIN_TOOL, stage_day_plan  # noqa: E402
-from worldmock.agents.memory import life_memory  # noqa: E402
-from worldmock.agents.memory.life_memory import WorldMockMemoryRuntime  # noqa: E402
-from worldmock.agents.memory.life_memory_store import WorldMockMemoryStore  # noqa: E402
 from worldmock.agents.prompt import prompt_capacity  # noqa: E402
 from worldmock.foundation.errors import ProtocolError  # noqa: E402
-from worldmock.runtime.framework.read_query import LifeEnvActor, LifeEnvProxy  # noqa: E402
+from worldmock.recording_engine.events.memory_evidence import MEMORY_UPDATE_KEYS  # noqa: E402
 from worldmock.simulation_engine.engine import LifeEngine  # noqa: E402
-from worldmock.simulation_engine.evidence.model import ModelEvidenceRecorder  # noqa: E402
-from worldmock.simulation_engine.observation.layers import memory_layer  # noqa: E402
 from worldmock.state.model.exchange import is_action_request  # noqa: E402
 
 #: 两次收尾各写的六条互不相似的记忆。
@@ -47,19 +41,20 @@ def _fixed_context_window(monkeypatch) -> None:
 
 async def _woken(engine_factory, tmp_path, recorder=None):
     """周一 20:00 开始：做两次测试休息，每次收尾写六条重要度 0.7 的记忆（合计 12 条、重要度 8.4，超过已退役的两道阈值），
-    再睡 480 分钟到当天第一次睡醒，并完成那一步的决策（给这段睡眠收尾）。recorder 给出时包住 LifeEnv 的记忆登记。"""
+    再睡 480 分钟到当天第一次睡醒，并完成那一步的决策（给这段睡眠收尾）。recorder 给出时包住引擎的记忆登记：
+    人物调用 engine.record_memory_update 时先交给替身检查，再照常登记。"""
     engine = engine_factory(mutate=_evening)
     stage_day_plan(engine, submitted=True)
     run = await host_run(engine, tmp_path / "people" / "agent_0001")
     if recorder is not None:
-        original = run.environment.record_memory_update
+        original = engine.record_memory_update
 
-        async def record(evidence):
+        def record(evidence):
             """先交给替身检查，再照常登记。"""
             recorder(engine, evidence)
-            await original(evidence)
+            original(evidence)
 
-        run.environment.record_memory_update = record
+        engine.record_memory_update = record
     for notes in _NOTES:
         await run.start("interact", "家", "测试休息")
         await run.conclude(*(memory(text, importance=0.7) for text in notes))
@@ -71,41 +66,59 @@ async def _woken(engine_factory, tmp_path, recorder=None):
 
 async def test_first_wake_up_of_the_day_sends_only_action_requests(engine_factory, tmp_path):
     """当天第一次睡醒那一步与其他步骤相同：脚本模型收到的每个请求的工具都含 start_main_activity；库里不带 purpose 的
-    model_request 都是行动请求，其余只有零点的 plan_day 与 memory_digest；主观摘要为空，MEMORY.md 写「暂无人物自述」。"""
+    model_request 都是行动请求，其余只有零点的 plan_day 与 memory_digest；MEMORY.md 的人物自述写「暂无人物自述」。"""
     engine, run = await _woken(engine_factory, tmp_path)
     assert run.model.requests and all(MAIN_TOOL in tool_names(request) for _, request in run.model.requests)
     requests = [event.data for event in run.events("model_request")]
     assert all(is_action_request(data["request"]) for data in requests if data.get("purpose") is None)
     assert {data["purpose"] for data in requests if data.get("purpose") is not None} == {"plan_day", "memory_digest"}
-    store = run.agent._memory_runtime.store
-    assert store.read_subjective_summary() == ""
-    assert "> 暂无人物自述。" in store.memory_md_path.read_text(encoding="utf-8")
+    view = (tmp_path / "people" / "agent_0001" / "MEMORY.md").read_text(encoding="utf-8")
+    assert view.endswith("## 人物自述（未经核验）\n> 暂无人物自述。\n")
 
 
 async def test_memory_updates_are_step_tail_registrations_only(engine_factory, tmp_path):
-    """每条 memory_updated 都是步尾登记：来源观察是本决策的观察，reflection 为 null，consolidated 为假，写入点是 [] 或
-    ["activity_conclusion"]；同一决策至多一条；快照恰为四个基本键。"""
+    """每条 memory_updated 都是步尾登记：数据恰为 MEMORY_UPDATE_KEYS 的十一个键（没有 consolidated、reflection、
+    state_sha256），来源观察是本决策的观察，写入点是 [] 或 ["activity_conclusion"]；同一决策至多一条；快照恰为四个基本键。"""
     engine, run = await _woken(engine_factory, tmp_path)
     updates = run.events("memory_updated")
     assert len(updates) >= 2
     observations = {event.decision_id: event.event_id for event in run.events("observation")}
     for event in updates:
         data = event.data
+        assert len(MEMORY_UPDATE_KEYS) == 11 and set(data) == set(MEMORY_UPDATE_KEYS)
+        assert not {"consolidated", "reflection", "state_sha256"} & set(data)
         assert data["observation_event_id"] == observations[event.decision_id]
-        assert data["reflection"] is None and data["consolidated"] is False
         assert data["trigger"] in ([], ["activity_conclusion"])
         assert all(set(item) == {"id", "type", "text", "epistemic_status"} for item in data["episodes"])
     assert len({event.decision_id for event in updates}) == len(updates)
 
 
+async def test_first_memory_update_of_the_agent_has_a_null_previous_view_digest(engine_factory, tmp_path):
+    """人物的第一条 memory_updated 写入前摘要为 null（工作区里还没有 MEMORY.md）；此后每条都等于本人上一条的
+    memory_sha256，最后一条的 memory_sha256 是工作区里 MEMORY.md 的摘要。"""
+    engine, run = await _woken(engine_factory, tmp_path)
+    updates = [event.data for event in run.events("memory_updated")]
+    assert updates[0]["memory_before_sha256"] is None
+    assert all(later["memory_before_sha256"] == earlier["memory_sha256"]
+               for earlier, later in zip(updates, updates[1:]))
+    view = (tmp_path / "people" / "agent_0001" / "MEMORY.md").read_bytes()
+    assert updates[-1]["memory_sha256"] == hashlib.sha256(view).hexdigest()
+
+
 def _refused(field: str, value):
-    """替身检查：把本次的真实步尾证据改写一个键交给引擎，必须被拒且库里不多一条事件。"""
+    """替身检查：把本次的真实步尾证据改写一个键交给引擎，必须被拒且库里不多一条事件；value 可以是由证据算出改写值的函数，
+    算出 None 表示这条证据不适用、不检查。返回的检查函数在属性 checked 里记下实际检查的条数。"""
     def check(engine, evidence) -> None:
+        changed = value(evidence) if callable(value) else value
+        if callable(value) and changed is None:
+            return
         before = engine.context.store.last_event_seq
         with pytest.raises(ProtocolError, match="^Memory update evidence is invalid$"):
-            engine.record_memory_update(replace(evidence, **{field: value}))
+            LifeEngine.record_memory_update(engine, replace(evidence, **{field: changed}))
         assert engine.context.store.last_event_seq == before
+        check.checked += 1
 
+    check.checked = 0
     return check
 
 
@@ -117,31 +130,63 @@ async def test_memory_update_evidence_without_an_observation_is_rejected(engine_
     assert "Memory update evidence rejected" in caplog.text
 
 
-async def test_consolidated_memory_update_evidence_is_rejected(engine_factory, tmp_path, caplog):
-    """同上，改成 consolidated 为真。"""
+async def test_a_five_key_snapshot_in_memory_update_evidence_is_rejected(engine_factory, tmp_path, caplog):
+    """同上，把带条目的证据的每条快照加上第五个键 source=reflection：五键快照不再是合法快照，整条证据被拒。"""
+    def five_keys(evidence):
+        """带条目的证据改成五键快照；没有条目的证据不适用。"""
+        return tuple({**item, "source": "reflection"} for item in evidence.episodes) or None
+
+    check = _refused("episodes", five_keys)
     with caplog.at_level(logging.ERROR):
-        await _woken(engine_factory, tmp_path, _refused("consolidated", True))
+        await _woken(engine_factory, tmp_path, check)
+    assert check.checked >= 2
     assert "Memory update evidence rejected" in caplog.text
 
 
+@pytest.mark.parametrize("value", ["not-a-digest", "", "A" * 64])
+async def test_memory_update_evidence_with_a_malformed_previous_view_digest_is_rejected(engine_factory, tmp_path,
+                                                                                         caplog, value):
+    """同上，把每条步尾证据的写入前摘要改成既不是 null 也不是六十四位小写十六进制的值：整条证据被拒，事件序号不变。"""
+    check = _refused("memory_before_sha256", value)
+    with caplog.at_level(logging.ERROR):
+        await _woken(engine_factory, tmp_path, check)
+    assert check.checked >= 1
+    assert "Memory update evidence rejected" in caplog.text
+
+
+async def test_a_summary_refresh_whose_view_did_not_change_is_rejected(engine_factory, tmp_path, caplog):
+    """同上，把 refresh_summary 证据的写入前摘要改成等于写入后摘要（视图没变）：没有新建与合并的条目又没有改动视图的
+    刷新不是合法证据，整条被拒；这次运行的第一个决策就产生 refresh_summary。"""
+    check = _refused("memory_before_sha256",
+                     lambda evidence: evidence.memory_sha256 if evidence.operation == "refresh_summary" else None)
+    with caplog.at_level(logging.ERROR):
+        await _woken(engine_factory, tmp_path, check)
+    assert check.checked >= 1
+    assert "Memory update evidence rejected" in caplog.text
+
+
+async def test_a_failed_decision_saves_no_step_and_registers_no_memory_update(engine_factory, tmp_path, monkeypatch):
+    """回合循环失败的决策不做步尾保存：模型答出的世界请求在登记时工具服务抛出，人物抛出带工具阶段码的 RuntimeError；
+    库里没有 memory_updated，工作区里既没有 MEMORY.md 也没有 memory/episodes.jsonl（第一次步尾保存之前工作区为空）。"""
+    engine = engine_factory(mutate=_evening)
+    stage_day_plan(engine, submitted=True)
+    workspace = tmp_path / "people" / "agent_0001"
+    run = await host_run(engine, workspace)
+
+    def submit(call):
+        """登记世界请求时工具服务失败。"""
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(engine, "submit_action", submit)
+    with pytest.raises(RuntimeError, match="^TOOL_SERVICE_FAILED"):
+        await run.start("interact", "家", "测试休息")
+    assert len(run.model.requests) == 1
+    assert run.events("memory_updated") == []
+    assert not (workspace / "MEMORY.md").exists()
+    assert not (workspace / "memory" / "episodes.jsonl").exists()
+
+
 def test_life_channel_offers_only_read_query():
-    """Life 扩展通道的 actor、代理、LifeEnv 与生活引擎都没有 due_reflection；前三者有 read_query。"""
-    for owner in (LifeEnvActor, LifeEnvProxy, LifeEnv, LifeEngine):
-        assert not hasattr(owner, "due_reflection")
-    for owner in (LifeEnvActor, LifeEnvProxy, LifeEnv):
-        assert callable(getattr(owner, "read_query", None))
-
-
-def test_retired_memory_paths_are_gone():
-    """巩固、睡醒反思与 8000 字窗口的私有方法与常量都已删除；LifeAgent 不覆写 AS2 的记忆模型入口。"""
-    for name in ("wake_reflection", "_run_reflection", "_validated_reflection", "_consolidation_due",
-                 "_consolidate_subjective", "_reflection_episodes", "_reflection_messages"):
-        assert not hasattr(WorldMockMemoryRuntime, name)
-    for name in ("_PENDING_THRESHOLD", "_IMPORTANCE_THRESHOLD", "_REFLECTION_SOURCE", "_SUBJECTIVE_PROMPT"):
-        assert not hasattr(life_memory, name)
-    assert not hasattr(WorldMockMemoryStore, "unconsolidated_view")
-    assert not hasattr(LifeAgent, "_wake_reflection") and not hasattr(LifeAgent, "_memory_call_id")
-    assert LifeAgent._dispatch_memory_llm is PersonAgent._dispatch_memory_llm
-    assert not hasattr(ModelEvidenceRecorder, "_reflection_registration")
-    for name in ("MEMORY_WINDOW_CHARS", "_reflections", "_fit"):
-        assert not hasattr(memory_layer, name)
+    """生活引擎没有 due_reflection；人物的只读查询经 LifeEngine.read_query。"""
+    assert not hasattr(LifeEngine, "due_reflection")
+    assert callable(getattr(LifeEngine, "read_query", None))

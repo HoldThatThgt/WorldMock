@@ -19,8 +19,7 @@ from worldmock.runtime.monitoring.status import failure_message, observed_model_
 
 def build_parser() -> argparse.ArgumentParser:
     """@brief 公开明确的新建、恢复、只读查询和足迹导出命令。"""
-    parser = argparse.ArgumentParser(prog="worldmock", description="Auditable AS2 life simulation")
-    parser.add_argument("--project-root", type=Path, default=Path(__file__).resolve().parents[2])
+    parser = argparse.ArgumentParser(prog="worldmock", description="Auditable life simulation")
     commands = parser.add_subparsers(dest="command", required=True)
     validate = commands.add_parser("validate", help="validate the complete environment inputs")
     validate.add_argument("--environment", type=Path, required=True)
@@ -82,22 +81,21 @@ def _dispatch(arguments) -> dict:
 
 
 def _run_command(arguments) -> dict:
-    """@brief 新建或恢复都使用真实 AS2 入口，只在完整返回后标记完成；回执的 token_stats 由运行库里已落盘的模型响应
-    累计（此时环境进程与 Ray 都已关闭）。"""
+    """@brief 新建或恢复都走真实运行入口，只在完整返回后标记完成；回执的 token_stats 由运行库里已落盘的模型响应累计
+    （此时运行已经结束）。"""
     from worldmock.runtime.lifecycle.runner import ResumeRequest, RunRequest, resume_world, run_world
 
-    root, output = arguments.project_root.resolve(), arguments.output.resolve()
+    output = arguments.output.resolve()
     environment = arguments.environment.absolute()
     if output.exists():
         raise IntegrityError("Run destination already exists")
     try:
         if arguments.command == "run":
             identity = uuid4().hex
-            request = RunRequest(root, environment, output, identity, identity,
-                                 arguments.same_second_continuation == "on")
+            request = RunRequest(environment, output, identity, identity, arguments.same_second_continuation == "on")
             result = asyncio.run(run_world(request))
         else:
-            request = ResumeRequest(root, environment, arguments.parent.resolve(), arguments.checkpoint, output)
+            request = ResumeRequest(environment, arguments.parent.resolve(), arguments.checkpoint, output)
             result = (_run_replay(request, arguments.intervention) if arguments.command == "replay"
                       else asyncio.run(resume_world(request)))
         receipt = json.loads(json.dumps(dataclasses.asdict(result), default=str))

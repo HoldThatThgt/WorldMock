@@ -31,7 +31,7 @@ flowchart LR
 <a name="evaluation-协议门禁-gates"></a>
 ### 协议门禁
 
-保留观察重复、清醒共同身体边界的静默比例、主观记忆重复与示例身份残留门禁。
+保留观察重复、清醒共同身体边界的静默比例与主观记忆重复门禁。
 证据缺失不能当作通过，事实认证按[记录引擎](05-recording-engine.md)重算。
 
 <a name="evaluation-报告项-reports"></a>
@@ -132,7 +132,7 @@ flowchart LR
 - 错误：工具自己查出的输入问题抛 `EvaluationError("memory_pilot_input", <英文句子>)`；认证失败是 `validate_export` 抛出的
   `IntegrityError`（`WorldMockError` 的子类）。两种异常构造时都已写错误日志；命令行捕获二者后返回 1，不另写日志。
 - 模块只导入标准库、`tools.analysis.errors`、`tools.analysis.behavior.metrics`、`validate_export`、`WorldMockError` 与
-  `worldmock.state` 下的共享取值；导入后不加载 `worldmock.simulation_engine`、`worldmock.agents`、`worldmock.runtime` 与 `custom`
+  `worldmock.state` 下的共享取值；导入后不加载 `worldmock.simulation_engine`、`worldmock.agents` 与 `worldmock.runtime`
   下的任何模块，所以 M11 在结构上独立于运行时的回顾守卫。回顾类别键 `food`、`work`、`life` 到饮食、工作、生活的对照
   `DIGEST_KEYS` 是回顾事件的形状，在本模块另写。
 
@@ -144,7 +144,7 @@ flowchart LR
 | 决策 `d` | 一条 `decision_started`：`decision_id`、时刻 `t_d`、日期 `D_d = local(t_d)` |
 | 决策的回合请求 | `decision_id == d` 且 `data.purpose` 缺失或为 null 的 `model_request`，按 `event_seq` 排列；对应的 `model_response` 按 `caused_by` 找到 |
 | 首个请求、新快照、续接 | 回合请求里 `event_seq` 最小的一条；它的 `messages` 恰为两条时是新快照，多于两条时是续接 |
-| 回合数 | 回合请求 `call_id` 里 `:model:NNNN:` 的不同 `NNNN` 的个数（截断重试是同一回合） |
+| 回合数 | 回合请求 `call_id` 里 `:model:NNNN:` 的不同 `NNNN` 的个数（每次模型调用都分配新的 NNNN，截断重试与纠错回合也不例外） |
 | 决策的观察 `O_d` | `decision_id == d` 的 `observation` 事件 |
 | 世界请求、受理与结果 | `decision_id == d` 的 `action_requested`；它的受理是 `caused_by` 含它的 `action_accepted`（活动快照为 `data.activity`）；它的结果是 `caused_by` 含它的 `action_result` 中 `event_seq` 最小的一条，凡说「结果为 completed」都只看这一条的 `data.status`；被拒是 `caused_by` 含它的 `action_rejected` |
 | 提交末序号 `C_j` | 决策 `j` 的 `action_result` 中 `event_seq` 最小的一条记为 `s`，`C_j` 是从 `s` 起 `state_version_before` 与 `state_version_after` 都与 `s` 相同的连续事件里最大的 `event_seq`（与 `store.commit_last_seq` 同一算法）；没有 `action_result` 的决策没有 `C_j` |

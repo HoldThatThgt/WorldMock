@@ -79,11 +79,9 @@ def _set_arrays(payload: dict) -> list[list[str]]:
 def _subprocess_env(root: Path, seed: int) -> dict[str, str]:
     """绑定隔离 checkout 和明确 Python 哈希种子。"""
     environment = dict(os.environ)
-    vendor = root / "vendor" / "agentsociety2" / "packages" / "agentsociety2"
     environment.update(
         PYTHONHASHSEED=str(seed),
-        PYTHONPATH=os.pathsep.join((str(root / "src"), str(vendor), str(root))),
-        WORKSPACE_PATH=str(root),
+        PYTHONPATH=os.pathsep.join((str(root / "src"), str(root))),
         LITELLM_LOCAL_MODEL_COST_MAP="True",
     )
     return environment

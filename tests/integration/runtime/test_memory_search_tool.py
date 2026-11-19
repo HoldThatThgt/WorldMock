@@ -1,9 +1,9 @@
-"""search_memory 的工具面与宿主派发（docs/design/06-agent.md「提示与工具」「检索记忆」）：生活决策八个原生工具、只读问答只开放
-finish；检索经 LifeEnv.read_query 当场回答，不写模型证据以外的事件；每次决策至多派发三次，第 4 次起宿主当场回答
+"""search_memory 的工具面与宿主派发（docs/design/06-agent.md「提示与工具」「检索记忆」）：生活决策八个原生工具；
+检索经 LifeEngine.read_query 当场回答，不写模型证据以外的事件；每次决策至多派发三次，第 4 次起宿主当场回答
 MEMORY_SEARCH_LIMIT；参数错误不计数、环境拒绝照样计数；失败结果的明细路径改写到实际调用位置；检索不能当世界请求提交，它的
 tool 消息不是续接消息；三个 memory_* 工具已删除。
 
-真实引擎、SQLite、LifeEnv 与直接导入的 LifeAgent，只替换外部模型传输。
+真实引擎、SQLite 与直接导入的 LifeAgent，只替换外部模型传输。
 """
 
 from __future__ import annotations
@@ -15,19 +15,17 @@ from types import SimpleNamespace
 
 import pytest
 
-os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
-from agentsociety2.agent.base import ReactLoopRequest  # noqa: E402
-from agentsociety2.society import DirectToolCall  # noqa: E402
-import custom.agents.life_agent as life_agent  # noqa: E402
+import worldmock.agents.life_agent as life_agent  # noqa: E402
 from tests.engine_fixture import engine_factory  # noqa: E402,F401
-from tests.integration.runtime.current_contract_fixtures import ScriptedModel, environment, person  # noqa: E402
+from tests.integration.runtime.current_contract_fixtures import ScriptedModel, person  # noqa: E402
 from tests.integration.runtime.test_life_agent_protocol import _prepared  # noqa: E402
 from tests.life.conftest import MAIN_TOOL, advance_until_ready, context, main_arguments  # noqa: E402
 from worldmock.agents.prompt import prompt_capacity  # noqa: E402
 from worldmock.agents.protocol.life_continuation import _earlier_changes  # noqa: E402
 from worldmock.foundation.errors import ProtocolError  # noqa: E402
+from worldmock.state.decisions.round import DirectToolCall  # noqa: E402
 from worldmock.state.interaction.errors import HOST_ERROR_CODES  # noqa: E402
 from worldmock.state.interaction.requests import SearchMemoryRequest  # noqa: E402
 
@@ -79,36 +77,30 @@ def _rest(call_id: str = "call-rest") -> _Reply:
 
 
 def _recording(engine) -> tuple:
-    """真实 LifeEnv，包一层记录 read_query 的每次调用与回答。"""
-    env, calls = environment(engine), []
-    original = env.read_query
+    """真实 LifeEngine，包一层记录 read_query 的每次调用与回答；返回引擎与记录表。"""
+    calls = []
+    original = engine.read_query
 
-    async def read_query(decision, tool, request):
-        """记录后转交真实 LifeEnv。"""
-        answer = await original(decision, tool, request)
+    def read_query(decision, tool, request):
+        """记录后转交真实 LifeEngine。"""
+        answer = original(decision, tool, request)
         calls.append((tool, request, answer))
         return answer
 
-    env.read_query = read_query
-    return env, calls
+    engine.read_query = read_query
+    return engine, calls
 
 
-async def _decide(engine, env, label: str, responses: list, readonly: bool = False) -> SimpleNamespace:
-    """开一轮、走一次真实 ReAct 循环；生活决策随后结算。返回模型请求、循环结果与观察记录。"""
+async def _decide(engine, env, label: str, responses: list) -> SimpleNamespace:
+    """开一轮、走一次真实回合循环，随后结算。返回模型请求、登记的世界请求与人物。"""
     frozen = context(engine, label)
     engine.begin_decision_round([frozen])
     model = ScriptedModel(responses)
     agent = person(env, frozen, model)
-    if readonly:
-        request = ReactLoopRequest(0, frozen.observed_at, [], "今天过得怎么样？", True)
-    else:
-        observed = await env.observe(frozen)
-        request = ReactLoopRequest(0, frozen.observed_at, [{"turn": 0, "action": "observe", "ok": True,
-                                                            "data": observed}])
-    result = await agent.run_react_loop(request)
-    if not readonly:
-        engine.commit_decision_round(label)
-    return SimpleNamespace(requests=model.requests, result=result, observations=request.observations, agent=agent)
+    observed = env.observe(frozen)
+    result = await agent.run_turns(frozen, observed)
+    engine.commit_decision_round(label)
+    return SimpleNamespace(requests=model.requests, result=result, agent=agent)
 
 
 def _tools(request: dict) -> list[str]:
@@ -132,21 +124,8 @@ async def test_life_tool_surface_has_eight_tools_in_fingerprint_and_request_orde
     assert life_agent.life_action_tool_names() == set(_FINGERPRINT_ORDER) - {"search_memory"}
 
 
-async def test_readonly_questions_offer_only_finish(engine_factory):
-    """只读问答每个回合只开放 finish；只读回复调用 search_memory 按未开放的工具纠错，环境没有收到调用。"""
-    engine = engine_factory()
-    env, calls = _recording(engine)
-    run = await _decide(engine, env, "readonly", [_search("call-readonly"),
-                                                  _Reply(("call-finish", "finish", {"answer": "还不错。"}))],
-                        readonly=True)
-    assert run.result == "还不错。"
-    assert [_tools(request) for request in run.requests] == [["finish"], ["finish"]]
-    assert [item["error_code"] for item in _tool_messages(run.requests[1])] == ["TOOL_CALL_REQUIRED"]
-    assert calls == []
-
-
 async def test_search_memory_goes_through_read_query_and_leaves_only_model_events(engine_factory):
-    """先检索再开始活动：环境收到 ("search_memory", SearchMemoryRequest)，下一次请求里的 tool 消息就是 LifeEnv.read_query
+    """先检索再开始活动：环境收到 ("search_memory", SearchMemoryRequest)，下一次请求里的 tool 消息就是 LifeEngine.read_query
     的回答；这次观察与 action_requested 之间只有决策开始与模型往来的事件。"""
     engine = engine_factory()
     env, calls = _recording(engine)
@@ -202,16 +181,13 @@ async def test_environment_rejected_searches_count_toward_the_limit(engine_facto
     assert _tool_messages(run.requests[4])[3] == _LIMIT
 
 
-async def test_search_dispatch_without_an_environment_fails_closed():
-    """没有接上环境时合法的检索在派发处明确失败，计数不变；已达上限时同一调用不需要环境，ok 为假的 MEMORY_SEARCH_LIMIT。"""
+def test_search_past_the_limit_is_answered_without_the_engine():
+    """已达上限时合法的检索不送引擎，当场以 ok 为假的 MEMORY_SEARCH_LIMIT 回答。"""
     agent = _prepared()
-    assert agent._env is None and agent._life_memory_searches == 0
-    with pytest.raises(RuntimeError, match="^Environment is not initialized$"):
-        await agent.dispatch_react_tool("search_memory", _TODAY)
-    assert agent._life_memory_searches == 0
-    agent._life_memory_searches = life_agent.MEMORY_SEARCHES_PER_DECISION
-    result = await agent.dispatch_react_tool("search_memory", _TODAY)
-    assert result.ok is False and result.data == _LIMIT and json.loads(result.observation) == _LIMIT
+    agent._memory_searches = life_agent.MEMORY_SEARCHES_PER_DECISION
+    result = agent._dispatch("search_memory", _TODAY)
+    assert result.ok is False and result.data == _LIMIT
+    assert agent.engine.queries == []
 
 
 async def test_argument_errors_do_not_count_as_searches(engine_factory):
@@ -228,15 +204,14 @@ async def test_argument_errors_do_not_count_as_searches(engine_factory):
 async def test_rejected_search_paths_point_to_the_real_call(engine_factory):
     """同一回复里第二个检索写 2026-02-30：它的 tool 消息明细路径改写到 tool_calls[1]，结果 ok 为假。"""
     engine = engine_factory()
-    env, _ = _recording(engine)
+    env, calls = _recording(engine)
     run = await _decide(engine, env, "paths", [_Reply(
         ("call-ok", "search_memory", _TODAY),
         ("call-bad", "search_memory", {"category": "饮食", "time": "2026-02-30", "keyword": None})), _rest()])
     refused = _tool_messages(run.requests[1])[1]
     assert refused["error_code"] == "MEMORY_TIME_INVALID"
     assert refused["items"][0]["path"] == ["tool_calls", 1, "function", "arguments", "time"]
-    searched = [item for item in run.observations if item["action"] == "search_memory"]
-    assert [item["ok"] for item in searched] == [True, False]
+    assert ["error_code" not in answer for _, _, answer in calls] == [True, False]
 
 
 def test_search_memory_cannot_be_submitted_as_a_world_action(engine_factory):

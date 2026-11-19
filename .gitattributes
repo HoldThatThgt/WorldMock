@@ -6,4 +6,4 @@ catalog/** text=auto eol=lf
 *.jsonl text eol=lf
 uv.lock text eol=lf
 requirements/*.txt text eol=lf
-patches/** -text -whitespace
+LICENSES/** -text

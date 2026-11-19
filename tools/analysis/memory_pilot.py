@@ -3,8 +3,8 @@
 口径的唯一说明在 docs/design/07-evaluation.md「分层记忆试点指标」。load_export 先调用 validate_export 认证导出，认证
 通过后只读 manifest.json、events.jsonl、purchases.jsonl、quality.json 与 assets/<sha256>；不读运行目录与人物工作区，
 除命令行 --output 指定的报告外不写任何文件，同一导出两次计算逐字节相同。本模块只导入标准库、tools.analysis 的两个模块、
-validate_export、WorldMockError 与 worldmock.state 的共享取值，不加载 worldmock.simulation_engine、worldmock.agents、
-worldmock.runtime 与 custom 下的任何模块，所以 M11 在结构上独立于运行时守卫。
+validate_export、WorldMockError 与 worldmock.state 的共享取值，不加载 worldmock.simulation_engine、worldmock.agents 与
+worldmock.runtime 下的任何模块，所以 M11 在结构上独立于运行时守卫。
 """
 
 from __future__ import annotations

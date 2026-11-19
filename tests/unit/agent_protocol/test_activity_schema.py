@@ -9,18 +9,16 @@ from typing import Any
 
 import pytest
 
-os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
-os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
-from agentsociety2.agent.base import ReactDecision, ReactLoopRequest
 from jsonschema import Draft202012Validator
 from pydantic import ValidationError
 
-from custom.agents.life_agent import LifeAgent
+from worldmock.agents.life_agent import LifeAgent
+from worldmock.agents.protocol.life_feedback import ProtocolFeedback
+from worldmock.agents.protocol.react_loop import ReactDecision
 from worldmock.agents.prompt.life_prompt import TOOL_DESCRIPTIONS
 from tests.integration.runtime.test_life_agent_protocol import (
-    _OBSERVED_AT,
     _REST,
     _WAIT,
     _WAIT_CHOICE,
@@ -30,10 +28,10 @@ from tests.integration.runtime.test_life_agent_protocol import (
     _memory,
     _observations,
     _offer,
+    _prepared,
     _visible_object,
     _with_activities,
 )
-from tests.integration.runtime.current_contract_fixtures import profile
 from worldmock.simulation_engine.activities.lifecycle.activity_control import PHASE_ACTIVE
 from worldmock.state.interaction.requests import QUERY_MODELS, REQUEST_MODELS
 from worldmock.state.interaction.schema import deepseek_strict_schema
@@ -53,17 +51,15 @@ def _prepared_agent(revise: bool = False) -> LifeAgent:
     _with_activities(data, (_WAIT, PHASE_ACTIVE))
     if revise:
         data["todo_layer"]["day_plan"] = {"date": "2026-01-05", "goals": []}
-    agent = LifeAgent()
-    agent._profile = profile()
-    agent._name = "林舟"
-    agent.prepare_react_loop(ReactLoopRequest(0, _OBSERVED_AT, observations))
+    agent = _prepared(data)
+    agent.turn_tools(16, False)
     return agent
 
 
 def _function(name: str) -> dict[str, Any]:
     """取得模型本轮真正可见的函数声明。"""
     agent = _prepared_agent(revise=name == "revise_day_plan")
-    return next(item["function"] for item in agent.build_react_tool_schemas(readonly=False)
+    return next(item["function"] for item in agent.turn_tools(16, False)
                 if item["function"]["name"] == name)
 
 
@@ -116,9 +112,9 @@ def test_all_action_tools_use_closed_strict_schemas_from_one_model() -> None:
         assert schema["required"] == base["required"]
 
 
-def _host_error(tool: str, arguments: dict) -> str:
-    """宿主按本轮私有绑定对名称的本地校验结果（空串即通过）。"""
-    return _prepared_agent().validate_react_decisions([ReactDecision("", tool, arguments, "")], False)
+def _host_error(tool: str, arguments: dict) -> ProtocolFeedback | None:
+    """宿主按本轮私有绑定对名称的本地校验结果（None 即通过）。"""
+    return _prepared_agent()._validate([ReactDecision(tool, arguments, "")])
 
 
 def test_start_tools_declare_the_model_schema_and_take_readable_frozen_names() -> None:
@@ -135,12 +131,12 @@ def test_start_tools_declare_the_model_schema_and_take_readable_frozen_names() -
         assert "$ref" not in json.dumps(schema) and "$defs" not in json.dumps(schema)
         assert list(Draft202012Validator(schema).iter_errors(valid)) == []
         REQUEST_MODELS[tool].model_validate(valid)
-        assert _host_error(tool, valid) == ""
+        assert _host_error(tool, valid) is None
         retired = {"items": [{"action": "interact", "target": "自己家"}]}
         assert list(Draft202012Validator(schema).iter_errors(retired))
         assert _host_error(tool, retired).report.error_code == "ARGUMENTS_INVALID"
-    group = [ReactDecision("", MAIN_TOOL, _WAIT_CHOICE, ""), ReactDecision("", SIDE_TOOL, _WORK_CHOICE, "")]
-    assert _prepared_agent().validate_react_decisions(group, False) == ""
+    group = [ReactDecision(MAIN_TOOL, _WAIT_CHOICE, ""), ReactDecision(SIDE_TOOL, _WORK_CHOICE, "")]
+    assert _prepared_agent()._validate(group) is None
     private = [(MAIN_TOOL, main_arguments("interact", "internal:task:1", _REST), ("target",), "internal:task:1"),
                (MAIN_TOOL, main_arguments("interact", "自己家", "rest-visible"), ("detail",), "rest-visible"),
                (SIDE_TOOL, side_arguments("interact", "work-visible"), ("target", 0), "work-visible")]
@@ -177,7 +173,7 @@ def test_activity_control_schemas_use_paired_readable_activity_and_summary(name:
     valid = _control_payload(name, [(_WAIT, "我还想等一会儿。")])
     assert list(Draft202012Validator(schema).iter_errors(valid)) == []
     REQUEST_MODELS[name].model_validate(valid)
-    assert _host_error(name, valid) == ""
+    assert _host_error(name, valid) is None
     assert _host_error(name, _control_payload(name, [("别的活动", "继续。")])).report.error_code == "NAME_NOT_FOUND"
     for invalid in ({"items": [], "errands": []}, _control_payload(name, [(_WAIT, "a"), (_WAIT, "b")]),
                     _control_payload(name, [(_WAIT, " ")]), {"items": [{"activity_name": _WAIT}], "errands": []},
@@ -230,7 +226,7 @@ def test_control_summaries_are_limited_to_500_characters_by_the_local_check(name
     boundary, over = (_control_payload(name, [(_WAIT, "长" * length)]) for length in (500, 501))
     assert list(Draft202012Validator(schema).iter_errors(over)) == []
     REQUEST_MODELS[name].model_validate(boundary)
-    assert _host_error(name, boundary) == ""
+    assert _host_error(name, boundary) is None
     with pytest.raises(ValidationError, match="within 500 characters"):
         REQUEST_MODELS[name].model_validate(over)
     error = _host_error(name, over)
@@ -255,13 +251,13 @@ def test_control_tool_fields_carry_format_and_source_descriptions(name: str) -> 
 
 def test_recall_uses_readable_activity_name_and_retired_world_tools_are_absent() -> None:
     """回看绑定真实活动名称，旧消息、工作提交与闹钟工具不再提供。"""
-    names = {entry["function"]["name"] for entry in _prepared_agent().build_react_tool_schemas(readonly=False)}
+    names = {entry["function"]["name"] for entry in _prepared_agent().turn_tools(16, False)}
     assert {"start_activity", "submit_work", "send_message", "set_alarm", "finish"}.isdisjoint(names)
     assert len(names) == 8 and {MAIN_TOOL, SIDE_TOOL} <= names
     recall = _function("recall_task_summary")["parameters"]
     assert set(recall["properties"]) == {"task_name"}
     for name in (_WAIT,):
-        assert _host_error("recall_task_summary", {"task_name": name}) == ""
+        assert _host_error("recall_task_summary", {"task_name": name}) is None
     for name in ("同事", "自己家（1月4日 18:00 起）"):
         assert _host_error("recall_task_summary", {"task_name": name}) .report.error_code == "NAME_NOT_FOUND"
 
@@ -270,7 +266,7 @@ def test_revise_day_plan_schema_inlines_goal_with_required_nullable_remind_time(
     """人物工具面没有 plan_day；修订的目标内联意图、文字与两个必填可空的场景本地 HH:MM——提醒 remind_time 与大致时刻
     around_time（docs/design/04-simulation-engine.md ），不向模型索要时长或内部时刻（时间与能量规格第四章「计划与提醒」）。"""
     agent = _prepared_agent(revise=True)
-    tools = {item["function"]["name"] for item in agent.build_react_tool_schemas(readonly=False)}
+    tools = {item["function"]["name"] for item in agent.turn_tools(16, False)}
     assert "revise_day_plan" in tools and "plan_day" not in tools
     schema = _function("revise_day_plan")["parameters"]
     assert set(schema["properties"]) == {"goals"}
@@ -336,9 +332,9 @@ def test_conclusion_memory_and_view_nested_schemas_remain_strict() -> None:
     assert list(Draft202012Validator(conclude).iter_errors(payload)) == []
     REQUEST_MODELS["conclude_activity"].model_validate(payload)
     agent = _prepared_agent()
-    agent.build_react_tool_schemas(readonly=False)
-    assert agent.validate_react_decisions(
-        [ReactDecision("", "conclude_activity", payload, "")], False) == ""
+    agent.turn_tools(16, False)
+    assert agent._validate(
+        [ReactDecision("conclude_activity", payload, "")]) is None
 
 
 

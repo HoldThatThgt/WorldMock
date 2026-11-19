@@ -1,10 +1,9 @@
-"""记忆层的机器形状：Schema 接受条目、计数行、近三天格子与只读空记忆层，拒绝未知键、坏计数行与旧形状。"""
+"""记忆层的机器形状：Schema 接受条目、计数行、近三天格子与空记忆层，拒绝未知键、坏计数行与旧形状。"""
 
 import copy
 
 import pytest
 
-from worldmock.agents.prompt.life_prompt import empty_memory_layer
 from worldmock.agents.prompt.prompt_schemas import validate_layer
 from worldmock.simulation_engine.observation.memory.layout import assemble_layer
 
@@ -17,8 +16,8 @@ LAYER = assemble_layer("2026-10-08", {"饮食": [{"日期": "2026-10-07", "星�
 
 
 def test_memory_layer_schema_accepts_entries_count_lines_and_the_empty_layer():
-    """Schema 接受只读空记忆层，也接受带两条条目、一行计数行和一个近三天格子的记忆层。"""
-    validate_layer(empty_memory_layer())
+    """Schema 接受空记忆层，也接受带两条条目、一行计数行和一个近三天格子的记忆层。"""
+    validate_layer(assemble_layer(None, {}, []))
     validate_layer(LAYER)
 
 

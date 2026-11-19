@@ -1,6 +1,6 @@
 """@brief 日、月、年回顾的输入、提示、工具、守卫、结果、证据草稿与登记草稿（docs/design/06-agent.md「日、月、年回顾」）。
 
-回顾是运行时在零点为每个人物做的独立后台任务（worldmock.runtime.lifecycle.runner.settle_pending_memory_digests），不经人物、
+回顾是运行时在零点为每个人物做的独立后台任务（worldmock.runtime.lifecycle.midnight.settle_pending_memory_digests），不经人物、
 不是决策：本模块给出哪些期次要生成、每期的输入（日回顾是那天全部条目的全文按饮食、工作、生活切分并连续编号；月回顾是那个月
 的日回顾、年回顾是那一年的月回顾，各加代码算出的次数统计）、中文固定模板（模块常量，由 code_sha256 覆盖）、唯一严格工具
 submit_memory_digest、逐类的格式与长度守卫（正文非空、正文长度、依据非空、依据归属）与重试时附回的英文问题、带
@@ -344,15 +344,15 @@ _TIERS: Mapping[str, tuple[Callable[[_Scope], list[DigestPeriod]],
 
 
 def prepare_digest_request(inputs: DigestInputs, model_name: str, metadata: ModelMetadata) -> dict[str, Any]:
-    """@brief 一期回顾的请求：中文固定模板、紧凑不排序的 JSON 用户消息、唯一严格工具，思考关闭、底层不重试。
+    """@brief 一期回顾的请求：中文固定模板、紧凑不排序的 JSON 用户消息、唯一严格工具，思考关闭；只含交给模型客户端的六个键。
 
     容量预检：整次请求（含输出预留）超过窗口的 85% 时写错误日志并抛 RuntimeError，这是运行故障，输入不裁剪、不留证据。
     """
     messages = [{"role": "system", "content": DIGEST_PROMPTS[inputs.period.tier]},
                 {"role": "user", "content": json.dumps(inputs.payload, ensure_ascii=False, separators=(",", ":"))}]
-    request = {"model": model_name, "messages": messages, "stream": False, "tools": [memory_digest_tool()],
+    request = {"model": model_name, "messages": messages, "tools": [memory_digest_tool()],
                "tool_choice": "required", "max_tokens": min(MEMORY_DIGEST_MAX_TOKENS, metadata.max_output_tokens),
-               "max_retries": 0, "extra_body": {"thinking": {"type": "disabled"}}}
+               "extra_body": {"thinking": {"type": "disabled"}}}
     if request_token_count(request) > CONTEXT_THRESHOLD * model_context_length(model_name, metadata):
         _LOGGER.error("Memory digest request exceeds the model context")
         raise RuntimeError("memory digest request capacity exceeded")

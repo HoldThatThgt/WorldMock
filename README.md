@@ -1,7 +1,7 @@
 <a name="readme-worldmock"></a>
 # WorldMock
 
-WorldMock 用 AgentSociety 2 与配置的 OpenAI 兼容模型服务驱动数字人的日常生活，把观察、决策、行动、状态变化和结果写成
+WorldMock 自有的决策循环借助配置的 OpenAI 兼容模型服务驱动数字人的日常生活，把观察、决策、行动、状态变化和结果写成
 连续、可追溯的数字足迹。WorldMock 负责模拟、记录、完整足迹导出和行为统计。
 WorldMock-Dataset 提供环境素材与制作工具；LabelKit-DataSet 负责足迹整理、LabelKit 模型任务、训练数据加载和规则测试数据。
 
@@ -28,7 +28,7 @@ flowchart LR
 ```text
 WorldMock/
 ├── .github/                    GitHub 自动检查的固定入口
-├── custom/
+├── src/worldmock/
 │   ├── resource_engine/        目录登记、只读对象与地图
 │   ├── exchange_engine/        固定规则、分录与纯计算
 │   ├── simulation_engine/      世界、动作、活动、调度与观察
@@ -36,35 +36,34 @@ WorldMock/
 │   ├── state/                  共享状态、请求、结果与字段判定
 │   ├── agents/                 人物提示、记忆与模型协议
 │   ├── configuration/          完整输入与模型元数据
-│   ├── runtime/                实际框架装配与运行生命周期
+│   ├── runtime/                运行装配、决策循环与运行生命周期
 │   └── foundation/             基础模型、文件、时间与序列化
 ├── tests/                      测试与人工最小环境；共享配置在 tests/conftest.py
 ├── scripts/                    环境引导、工程门禁与文档构建
 ├── tools/                      运行查看器等人工检查工具
-├── patches/                    固定 AgentSociety 2 源码与补丁
+├── LICENSES/                   移植代码的上游许可原文（AgentSociety2，Apache-2.0）
 ├── requirements/               固定依赖锁
 └── docs/                       当前合同、设计、手册与历史证据
 ```
 
-`custom/` 的两个类必须在文件内实际定义，框架按文件扫描注册；内部辅助代码由安装包管理。
 环境素材和数据加工工程分别在所属数据仓维护，通过正式文件交接。
 
 <a name="readme-安装"></a>
 ## 安装
 
-使用 `.python-version` 固定的 CPython 3.12.13、Git 与具有 SQLite 能力的 Node，并准备中文图表字体。
-引导从固定源码与补丁重建 AgentSociety 2，只安装 WorldMock 和 AgentSociety 2：
+使用 `.python-version` 固定的 CPython 3.12.13 与具有 SQLite 能力的 Node。
+引导按哈希锁 `requirements/lock.txt` 安装依赖，再以可编辑方式安装 WorldMock：
 
 ```sh
 python scripts/bootstrap.py --profile release
 ```
 
 Windows 可用 `py -3.12`，其他系统可用 `python3.12`。`--wheelhouse` 指定离线制品目录；
-`--use-uv` 显式选择 uv。`release` 要求 Node 和中文字体齐全，`dev` 记录缺失且不能取得完整放行。
+`--use-uv` 显式选择 uv。`release` 要求 Node 齐全，`dev` 记录缺失且不能取得完整放行。
 环境收据位于 `.work/environment-receipt.json`；安装和激活步骤见[运行配置](docs/manual/runtime.md)。
 
 模型凭据的格式与读取方式见[填写模型凭据](docs/manual/runtime.md)，凭据不加入版本控制。
-每个平台的重建与运行能力须由对应实际回执证明。
+每个平台按哈希锁重建环境与运行的能力须由对应实际回执证明。
 
 <a name="readme-实验与数据"></a>
 ## 实验与数据

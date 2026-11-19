@@ -14,6 +14,7 @@ import pytest
 
 from tests.life.conftest import fixture_goods, memory_digest_response
 from worldmock.configuration.inputs.models import ModelMetadata
+from worldmock.configuration.model.model_client import REQUEST_KEYS
 from worldmock.simulation_engine.evidence import memory_digest
 from worldmock.simulation_engine.evidence.memory_digest import (
     DAY_DIGEST_PROMPT,
@@ -133,15 +134,17 @@ def test_submit_memory_digest_tool_and_schema_are_pinned():
 
 @pytest.mark.parametrize("output,cap", [(32000, 8000), (4096, 4096)])
 def test_request_caps_output_and_disables_thinking(output, cap):
-    """请求的全部键与值：系统消息是这一级的模板，用户消息是紧凑、不排序的 JSON，输出上限取 8000 与元数据上限中较小的。"""
+    """请求恰为交给模型客户端的六个键、按 REQUEST_KEYS 的次序，没有 stream 与重试次数；系统消息是这一级的模板，用户消息
+    是紧凑、不排序的 JSON，输出上限取 8000 与元数据上限中较小的。"""
     inputs = _inputs(life=[_LIFE])
     request = prepare_digest_request(inputs, "test-model", _metadata(output=output))
     content = json.dumps(inputs.payload, ensure_ascii=False, separators=(",", ":"))
-    assert request == {"model": "test-model",
-                       "messages": [{"role": "system", "content": DAY_DIGEST_PROMPT},
-                                    {"role": "user", "content": content}],
-                       "stream": False, "tools": [memory_digest_tool()], "tool_choice": "required",
-                       "max_tokens": cap, "max_retries": 0, "extra_body": {"thinking": {"type": "disabled"}}}
+    assert tuple(request) == REQUEST_KEYS
+    assert "stream" not in request and "max_retries" not in request
+    assert request["model"] == "test-model"
+    assert request["messages"] == [{"role": "system", "content": DAY_DIGEST_PROMPT}, {"role": "user", "content": content}]
+    assert request["tools"] == [memory_digest_tool()] and request["tool_choice"] == "required"
+    assert request["max_tokens"] == cap and request["extra_body"] == {"thinking": {"type": "disabled"}}
     assert content.startswith('{"人物卡片":') and '{"编号":"n1","时刻":"20:00","核验"' in content
     assert ": " not in content and ", " not in content
 

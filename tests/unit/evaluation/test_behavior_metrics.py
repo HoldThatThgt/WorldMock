@@ -648,23 +648,6 @@ def test_memory_repetition_gate_values() -> None:
     assert gate["value"] is None and gate["pass"] is False
 
 
-def test_memory_md_identity_residue_gate() -> None:
-    """@brief 含示例身份或示例 AOI 编号即失败；干净文本通过；未提供按不通过处理。"""
-    dirty = {1: "李凡是后端工程师。\n- Marketing analyst at AOI 500038964"}
-    gate = behavior_metrics_report([_event("run_ended", _clock(0, 23))],
-                                   memory_md_texts=dirty)[CODE_A]["gates"]["memory_md_identity_residue"]
-    assert gate["value"] == 1 and gate["pass"] is False
-    assert gate["matched_agents"] == {"1": ["aoi 500038964", "marketing analyst"]}
-
-    clean = {1: "李凡是后端工程师，住在张江。", 2: "王茜是产品经理。"}
-    gate = behavior_metrics_report([_event("run_ended", _clock(0, 23))],
-                                   memory_md_texts=clean)[CODE_A]["gates"]["memory_md_identity_residue"]
-    assert gate["value"] == 0 and gate["pass"] is True
-
-    absent = _report([_event("run_ended", _clock(0, 23))])["gates"]["memory_md_identity_residue"]
-    assert absent["value"] is None and absent["pass"] is False
-
-
 def test_missing_metric_evidence_is_reported_unknown_and_gates_fail_closed() -> None:
     """@brief 不完整的合成指标输入保持未知，不补造静默、记忆或身份测量；不带工作安排评估输入时工作负荷与作息偏离为 null
     并写说明。"""
@@ -680,15 +663,19 @@ def test_missing_metric_evidence_is_reported_unknown_and_gates_fail_closed() -> 
     assert report["schema_version"] == "behavior-metrics-4"
     own = [key for key in report["reports"] if key != "external_constraints"]
     assert own[-2:] == ["memory_digest_repetition", "memory_digest_identity_residue"]
+    assert list(report["gates"]) == ["observation_repetition", "silent_boundary_ratio", "memory_repetition_ratio",
+                                     "external_constraint_block_count"]
     assert report["gates"]["observation_repetition"]["pass"] is True
-    for key in ("silent_boundary_ratio", "memory_repetition_ratio", "memory_md_identity_residue"):
+    for key in ("silent_boundary_ratio", "memory_repetition_ratio"):
         assert report["gates"][key]["value"] is None
         assert report["gates"][key]["pass"] is False
     assert report["reports"]["decision_prompt_token_median"]["value"] is None
     assert report["reports"]["wake_reason_distribution"]["counts"] == {}
     notes = "".join(report["notes"])
-    for keyword in ("decision_offered", "wake_reasons", "主观记忆快照", "MEMORY.md", "prompt token"):
+    for keyword in ("decision_offered", "wake_reasons", "主观记忆快照", "prompt token"):
         assert keyword in notes
+    with pytest.raises(TypeError):
+        behavior_metrics_report(events, memory_md_texts={1: "李凡是后端工程师"})
     assert report["reports"]["early_arrival_minutes"]["value"] is None
     assert (report["reports"]["workload"], report["reports"]["routine_deviation"]) == (None, None)
     assert "未提供工作安排评估输入，workload 与 routine_deviation 为 null" in report["notes"]
@@ -718,10 +705,8 @@ def test_same_input_produces_byte_identical_report() -> None:
         *_receipt_events(5, "noodle", _clock(0, 9)),
         _memory([{"text": "今天上班写了很多代码", "kind": "episode"}]),
     ]
-    first = behavior_metrics_report(events, locations={},
-                                    memory_md_texts={1: "李凡是后端工程师"})
-    second = behavior_metrics_report(events, locations={},
-                                     memory_md_texts={1: "李凡是后端工程师"})
+    first = behavior_metrics_report(events, locations={})
+    second = behavior_metrics_report(events, locations={})
     assert canonical_json(first) == canonical_json(second)
 
 

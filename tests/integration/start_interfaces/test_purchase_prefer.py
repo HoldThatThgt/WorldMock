@@ -12,10 +12,9 @@ from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
-from agentsociety2.agent.base import ReactDecision, ReactLoopRequest
 
 from tests.footprints.recording import artifact_rows, export_completed
-from tests.integration.runtime.current_contract_fixtures import ScriptedModel, environment, person
+from tests.integration.runtime.current_contract_fixtures import ScriptedModel, person
 from tests.integration.runtime_fixtures import write_agent_workspace
 from tests.life.conftest import (
     SIDE_TOOL,
@@ -40,6 +39,7 @@ from worldmock.state.interaction.requests import StartSideActivityRequest
 from worldmock.agents.prompt.prompt_schemas import validate_layer
 from worldmock.foundation.randomness import random_stream
 from worldmock.agents.prompt.tool_groups import compact_tool_layer
+from worldmock.agents.protocol.react_loop import ReactDecision
 
 ZONE = ZoneInfo("Asia/Shanghai")
 FIRST_DAY = "2026-01-05"
@@ -133,9 +133,10 @@ def _host(engine):
     decision = context(engine, "host")
     engine.begin_decision_round([decision])
     observed = engine.observe(decision)
-    agent = person(environment(engine), decision, ScriptedModel([]))
-    agent.prepare_react_loop(ReactLoopRequest(0, decision.observed_at, [
-        {"turn": 0, "action": "observe", "ok": True, "data": observed}]))
+    agent = person(engine, decision, ScriptedModel([]))
+    agent._context = decision
+    agent._prepare(observed)
+    agent.turn_tools(16, False)
     return agent
 
 
@@ -146,7 +147,7 @@ def _host(engine):
 def test_host_and_environment_refuse_the_same_prefer_shapes(engine_factory, arguments, why):
     """缺 prefer 与打开 app 带 prefer：宿主报 ARGUMENTS_INVALID，绕过宿主直接登记得 ACTION_REQUEST_INVALID；
     明细都定位到 prefer，原因相同；什么都没有开始，时钟没有动。"""
-    error = _host(engine_factory()).validate_react_decisions([ReactDecision("", SIDE_TOOL, arguments, "")], False)
+    error = _host(engine_factory())._validate([ReactDecision(SIDE_TOOL, arguments, "")])
     [item] = error.report.items
     assert error.report.error_code == "ARGUMENTS_INVALID" and item.why == why
     assert list(item.path[-2:]) == ["arguments", "prefer"] and error.report.reason == why
@@ -165,7 +166,7 @@ def test_host_and_environment_refuse_the_same_prefer_shapes(engine_factory, argu
 def test_any_non_blank_prefer_the_host_lets_through_is_accepted(engine_factory, prefer):
     """宿主放行的任何非空 prefer，认得出认不出，环境都受理。"""
     arguments = {"action": "purchase", "target": ["柠檬茶"], "prefer": prefer}
-    assert _host(engine_factory()).validate_react_decisions([ReactDecision("", SIDE_TOOL, arguments, "")], False) == ""
+    assert _host(engine_factory())._validate([ReactDecision(SIDE_TOOL, arguments, "")]) is None
     _bought(engine_factory(), "tea", "柠檬茶", prefer=prefer)
 
 
