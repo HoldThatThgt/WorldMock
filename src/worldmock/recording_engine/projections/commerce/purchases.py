@@ -80,6 +80,7 @@ def _receipt(order: dict, event: dict, provided, applied) -> dict:
     return {"fact_kind": "receipt", "agent_id": event["agent_id"], "order_id": order["order_id"],
             "received_at": order["received_at"],
             "goods_id": order["goods_id"], "category": order["category"], "quantity": order["quantity"],
+            **{key: event["data"][key] for key in ("store_id", "quality") if key in event["data"]},
             "provided": provided, "applied": applied, "source_event_id": event["event_id"]}
 
 

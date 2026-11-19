@@ -2,7 +2,7 @@
 
 
 from __future__ import annotations
-from worldmock.recording_engine.projections.presentation.display_wording import goods_items
+from worldmock.recording_engine.projections.presentation.display_wording import delivery_delay_phrase, goods_items
 from worldmock.recording_engine.events.models import EventDraft
 from worldmock.state.world.orders import DeliveryState
 from worldmock.state.world.world import WorldState
@@ -44,7 +44,7 @@ def payment_notice(orders: tuple[DeliveryState, ...], paid: EventDraft, catalog)
 
 
 def shipping_schedule(trip: list[DeliveryState], sequence: int, payment_event_id: str) -> ScheduledEvent:
-    """@brief 一趟配送的发货通知排程：到期时刻在付款到到达之间的十分之一处，身份与到达排程取同一条记录。
+    """@brief 一趟配送的发货通知排程：取付款到公开预计送达的十分之一，身份与到达排程取同一条记录。
 
     :param trip: 这一趟已付款的记录，按记录身份升序。
     :param payment_event_id: 所属订单的付款事件身份。
@@ -76,7 +76,7 @@ def delivered_notices(state: WorldState, arrival: EventDraft, catalog) -> list[E
     delivered = tuple(order for order in orders if order.status == "delivered")
     if not delivered:
         return []
-    summary = f"{goods_text(delivered, catalog)}已送达"
+    summary = f"{goods_text(delivered, catalog)}已送达{delivery_delay_phrase(arrival.data)}"
     return [_order_notice(delivered, (ORDER_DELIVERED, summary), arrival.occurred_at, arrival.event_id)]
 
 

@@ -1,6 +1,7 @@
 """@brief 固定交换算子的收货、金额与时长边界证明。"""
 
 from decimal import localcontext
+from unittest.mock import Mock
 
 import pytest
 
@@ -8,11 +9,14 @@ from worldmock.exchange_engine.commerce import operators
 from worldmock.exchange_engine.commerce.operators import (
     delivery_fee_fen,
     delivery_seconds,
+    delivery_weather_delay_seconds,
     evaluate_goods_receipt,
     evaluate_purchase,
     evaluate_travel_fare,
+    goods_quality,
     travel_seconds,
 )
+from worldmock.exchange_engine.definitions.constants import WEATHER_FACTORS
 
 
 @pytest.mark.parametrize("category,quantity,expected", [
@@ -36,6 +40,34 @@ def test_travel_and_delivery_round_up_with_fare_minimum():
     assert evaluate_travel_fare(500, 200, 1) == 500
     assert evaluate_travel_fare(500, 200, 2501) == 501
     assert evaluate_purchase(2800, 3) == 8400
+
+
+@pytest.mark.parametrize("weather,delay", [
+    ("sunny", 0), ("cloudy", 0), ("light_rain", 149), ("heavy_rain", 360), ("snow", 560)])
+def test_weather_lengthens_only_delivery_travel_and_rounds_only_the_final_delay(weather, delay):
+    factor = WEATHER_FACTORS[weather]
+    with localcontext(prec=1):
+        assert delivery_weather_delay_seconds(4200, factor) == delay
+        assert delivery_weather_delay_seconds(0, factor) == 0
+    assert delivery_weather_delay_seconds(2100, WEATHER_FACTORS["heavy_rain"]) == 180
+    assert delivery_weather_delay_seconds(1, WEATHER_FACTORS["heavy_rain"]) == 1
+    assert delivery_weather_delay_seconds(4201, WEATHER_FACTORS["heavy_rain"]) == 361
+
+
+@pytest.mark.parametrize("factor", [0, -1, 1.01, True, None])
+def test_weather_delay_rejects_invalid_factor(factor, caplog):
+    with pytest.raises(ValueError):
+        delivery_weather_delay_seconds(4200, factor)
+    assert caplog.messages and all(message.isascii() for message in caplog.messages)
+
+
+@pytest.mark.parametrize("sample,quality", [(-2, "坏"), (2.499999, "坏"), (2.5, "中"),
+                                           (3.499999, "中"), (3.5, "好"), (8, "好")])
+def test_receipt_quality_grades_one_unclamped_normal_draw(sample, quality):
+    stream = Mock()
+    stream.gauss.return_value = sample
+    assert goods_quality(4.25, stream) == quality
+    stream.gauss.assert_called_once_with(4.25, 1)
 
 
 def test_decimal_precision_does_not_change_settlement():

@@ -165,17 +165,18 @@ def test_a_delivery_in_the_same_second_is_received_after_the_meal(engine_factory
     root = meal_environment(tmp_path / "meal")
     probe = engine_factory(root, mutate=body(2300.0))
     quote = quote_goods(probe.context.inputs, probe.context.state, 1, "beef-noodles", None)
-    set_content(root, "c-rest", duration_seconds=quote.expected_at - probe.context.state.current_time)
+    set_content(root, "c-rest", duration_seconds=quote.expected_at + (quote.weather_delay_seconds + 1) // 2
+                - probe.context.state.current_time)
     engine = engine_factory(root, mutate=body(2300.0))
     _, (rest, ordered) = act_group(engine, "dinner", do_at("家", "测试休息"), purchase("牛肉面"))
     assert (rest.status, ordered.status) == ("in_progress", "in_progress"), (rest.error_code, ordered.error_code)
     [order] = engine.context.state.deliveries.values()
-    assert order.expected_at == engine.context.state.activities[rest.activity_id].planned_end_at
-    reach(engine, order.expected_at)
+    assert order.arrival_due_at() == engine.context.state.activities[rest.activity_id].planned_end_at
+    reach(engine, order.arrival_due_at())
     [done] = finished(engine, rest.activity_id)
     [received] = [row for row in events(engine, "environment_event") if row.data.get("kind") == "goods_received"]
-    before, _ = expected_food(engine, order.expected_at)
-    assert done.occurred_at == received.occurred_at == order.expected_at and done.event_seq < received.event_seq
+    before, _ = expected_food(engine, order.arrival_due_at())
+    assert done.occurred_at == received.occurred_at == order.arrival_due_at() and done.event_seq < received.event_seq
     assert food_evidence(done)["applied"] == pytest.approx(CAP - before) and food_evidence(done)["applied"] < 540
     assert (received.data["applied"], received.data["resource_flows"]) == (0.0, [])
     assert energy_now(engine) == CAP

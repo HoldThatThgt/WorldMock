@@ -75,7 +75,8 @@ def _order(context, offer, identity: tuple, payment: tuple) -> DeliveryState:
         group_key=key, payment_duration_seconds=seconds, quantity=1, unit_price_fen=goods.price_fen,
         delivery_fee_fen=fee, total_price_fen=goods.price_fen + fee, destination_id=offer.destination_id,
         delivery_address_id=offer.delivery_address_id, fulfillment=offer.fulfillment, created_at=created_at,
-        expected_at=offer.expected_at, status="pending", path=offer.path, trip_id=offer.trip_id,
+        expected_at=offer.expected_at, weather_delay_seconds=offer.weather_delay_seconds,
+        status="pending", path=offer.path, trip_id=offer.trip_id,
         distance_meters=offer.distance_meters, prep_seconds=offer.prep_seconds)
 
 
@@ -89,7 +90,7 @@ def delivery_events(state: WorldState, orders: tuple[DeliveryState, ...],
     """@brief 已付款的外卖和快递按一趟配送各排一条发货通知和一条到达，起因都是这一趟所属订单的付款事件。
 
     一趟配送是同一个配送组里预计到达时刻相同的记录；各趟按预计到达时刻、配送组键升序排列，
-    到达的到期时刻取预计到达与付款时刻中较晚的一个。排程序号从现有最大序号加一开始，先按趟的顺序分给各趟的
+    实际到期时刻计入外卖的全部天气延长且不早于付款。排程序号从现有最大序号加一开始，先按趟的顺序分给各趟的
     发货通知排程，再按同样的顺序分给各趟的到达排程，所以同一秒到期时发货通知先于到达处理。
     payments 给出每条已付款记录所属订单的付款事件身份。
     """
@@ -102,7 +103,7 @@ def delivery_events(state: WorldState, orders: tuple[DeliveryState, ...],
     shipped = [shipping_schedule(trip, first + index, payments[trip[0].order_id])
                for index, trip in enumerate(trips)]
     arrivals = [ScheduledEvent(scheduled_id=f"delivery-{trip[0].order_id}",
-        kind=ScheduledKind.DELIVERY_ARRIVAL, due_at=max(trip[0].expected_at, trip[0].paid_at),
+        kind=ScheduledKind.DELIVERY_ARRIVAL, due_at=trip[0].arrival_due_at(),
         sequence=first + len(trips) + index, agent_id=trip[0].agent_id,
         data={"order_ids": [order.order_id for order in trip]}, caused_by=[payments[trip[0].order_id]])
         for index, trip in enumerate(trips)]

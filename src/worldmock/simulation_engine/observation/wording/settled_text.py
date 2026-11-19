@@ -84,6 +84,8 @@ def record_lines(context: LayerContext, record: dict, sources: list[Event]) -> l
         return _tool_lines(context, sources)
     if kind == "delivery":
         return [f"{_clock(context, record['occurred_at'])} {record['order']}：{record['message']}"]
+    if kind == "receipt":
+        return [f"{_clock(context, record['occurred_at'])} {receipt_phrase(record)}"]
     if kind == "errand_completed":
         return [f"{_clock(context, record['occurred_at'])} 办成「{record['errand']}」"]
     return []
@@ -201,6 +203,17 @@ def purchase_sentence(context: LayerContext, order: dict[str, Any]) -> str:
 
 
 
+def receipt_fields(catalog: Any, data: Mapping[str, Any]) -> dict[str, str]:
+    """@brief 以已收货记录与冻结目录给出这一份实际卖出的商铺、商品与品质。"""
+    return {"store": catalog.locations[data["store_id"]].display_name,
+            "product": catalog.goods[data["goods_id"]].name, "quality": data["quality"]}
+
+
+def receipt_phrase(fields: Mapping[str, str]) -> str:
+    """@brief 从同一份公开收货事实生成核验文字。"""
+    return f"{fields['store']} · {fields['product']}：这份品质{fields['quality']}"
+
+
 def experience_sentence(context: LayerContext, fact: dict[str, Any]) -> str:
     """@brief 已核验经历只写实际到达、本人收货或内容消费；到达句用所走出行方式的名称。
 
@@ -215,6 +228,9 @@ def experience_sentence(context: LayerContext, fact: dict[str, Any]) -> str:
         denied = "，但没能进去" if fact["access_status"] == "denied" else ""
         return f"{clock_phrase(fact['occurred_at'], now, zone)} {mode}到了{place}{denied}"
     if fact["kind"] == "received":
+        if "quality" in fact:
+            detail = receipt_phrase(receipt_fields(context.catalog, fact))
+            return f"{clock_phrase(fact['occurred_at'], now, zone)} {detail}"
         goods = context.catalog.goods[fact["goods_id"]]
         return f"{clock_phrase(fact['occurred_at'], now, zone)} 收到{goods.name} {portion_phrase(fact['quantity'])}"
     if fact["kind"] != "played":

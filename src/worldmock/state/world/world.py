@@ -18,7 +18,7 @@ from worldmock.state.decisions.state import SameMomentPresentation, StoredAction
 from worldmock.state.logging import _LOGGER
 
 #: 世界状态结构版本：版本不符的检查点与导出直接拒绝，不迁移。
-WORLD_SCHEMA_VERSION = 15
+WORLD_SCHEMA_VERSION = 16
 
 
 

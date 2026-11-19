@@ -71,7 +71,7 @@ def test_function_app_names_are_read_and_observation_names_are_never_used(engine
     finish_activity(engine, bought, label)
     (order,) = engine.context.state.deliveries.values()
     assert order.payment_app_id == "alipay"
-    reach(engine, order.expected_at)
+    reach(engine, order.arrival_due_at())
     store = engine.context.store
     with inspect_run._connect(store.run_dir) as conn:
         inspect_run.cmd_events(conn, argparse.Namespace(run_dir=store.run_dir, type="environment_event", agent=1,

@@ -15,7 +15,7 @@ def deliver_order(state: WorldState, context, order_id: str) -> ReceiptOutcome:
         return ReceiptOutcome(state, order, ())
     if order.paid_at is None:
         raise BusinessRuleError("ORDER_NOT_PAID")
-    if state.current_time < order.expected_at:
+    if state.current_time < order.arrival_due_at():
         raise BusinessRuleError("DELIVERY_NOT_DUE")
     if order.fulfillment == FulfillmentKind.STATION_PICKUP:
         order = order.model_copy(update={"status": "ready_for_pickup", "arrived_at": state.current_time}, deep=True)

@@ -220,9 +220,11 @@ def query_details(snapshot: Mapping[str, Any], inputs) -> dict:
 def _shown(row: Mapping[str, Any], inputs, place: str) -> dict:
     """@brief 答案一行的人读形式：显示名、途径与原因的中文、金额短语与带时区的时刻。"""
     catalog, zone = inputs.catalog, inputs.config.timezone
+    store = catalog.locations[row["store_id"]] if row["store_id"] is not None else None
     return {"product": catalog.goods[row["goods_id"]].name,
             "route": None if row["route"] is None else ROUTE_NAMES[row["route"]],
-            "store": None if row["store_id"] is None else catalog.locations[row["store_id"]].display_name,
+            "store": None if store is None else store.display_name,
+            **({"rating": store.rating} if store is not None else {}),
             "apps": [catalog.apps[key].name for key in row["app_ids"]], "price": money_phrase(row["price_fen"]),
             "delivery_fee": None if row["delivery_fee_fen"] is None else money_phrase(row["delivery_fee_fen"]),
             "expected_at": None if row["expected_at"] is None else iso_time(row["expected_at"], zone),

@@ -414,7 +414,7 @@ def test_accepted_trip_over_the_declared_distance_takes_the_documented_time_in_e
     (4500, 4500, "cafe", "柠檬茶", 1500)])
 def test_delivery_store_and_expected_arrival_follow_the_declared_distances(
         engine_factory, tmp_path, cafe_m, noodle_m, store, goods, seconds):
-    """外卖从声明距离最近的店送出，时长是备餐 600 秒加距离除以 5 米每秒，不乘天气系数。
+    """外卖从声明距离最近的店送出，公开预计是晴天基准加本次小雨总延长的一半。
 
     两家店只差 3 米、折算到同一秒送达时仍取距离更短的一家；距离相同才取较小的地点身份。
     """
@@ -430,12 +430,14 @@ def test_delivery_store_and_expected_arrival_follow_the_declared_distances(
     quote = quote_goods(engine.context.inputs, state, 1, goods_id, None)
     assert (quote.store_id, quote.destination_id, quote.fulfillment) == (store, "office", "delivery")
     assert quote.distance_meters == catalog.shortest_m(store, "office")
-    assert quote.expected_at - state.current_time == seconds == 600 + -(-quote.distance_meters // 5)
+    assert seconds == 600 + -(-quote.distance_meters // 5)
+    delay = -(-(quote.distance_meters * 3) // 85)
+    assert quote.expected_at - state.current_time == seconds + delay // 2
     _, result = act(engine, "declared-delivery", purchase(goods))
     assert result.status == "in_progress", result.error_code
     order = next(iter(engine.context.state.deliveries.values()))
     assert (order.store_id, order.destination_id) == (store, "office")
-    assert order.expected_at - state.current_time == seconds
+    assert order.expected_at - state.current_time == seconds + delay // 2
 
 
 #: 一套与夹具不同的数据集出行方式：身份次序、名称、速度、价格和体力档位都各不相同。

@@ -462,11 +462,14 @@ def _terminal_details(engine, activity) -> dict:
     return public_result(rows[-1].data, engine.context.inputs, {})["details"]
 
 
-def test_query_finishing_at_local_midnight_answers_after_the_day_plan(engine_factory):
-    """计划结束恰为本地零点的查询照常做完带答案；零点计划登记之后人物得到决策，唤醒原因是 planned_end。"""
+@pytest.mark.parametrize("at_stop", [False, True], ids=["new-day", "run-stop"])
+def test_query_finishing_at_local_midnight_uses_the_new_days_weather(engine_factory, at_stop):
+    """零点做完的查询按新一天的天气报价。到运行终点时也完成查询，其余零点在日计划登记后继续决策。"""
+    from worldmock.simulation_engine.commerce.purchase.purchase_offers import quote_goods
+
     def late(persona, config):
         config["start_time"] = datetime(2026, 1, 5, 23, 0, tzinfo=ZONE)
-        config["stop_time"] = datetime(2026, 1, 6, 8, 0, tzinfo=ZONE)
+        config["stop_time"] = datetime(2026, 1, 6, 0 if at_stop else 8, 0, tzinfo=ZONE)
 
     midnight = int(datetime(2026, 1, 6, tzinfo=ZONE).timestamp())
     engine = engine_factory(mutate=late)
@@ -477,6 +480,19 @@ def test_query_finishing_at_local_midnight_answers_after_the_day_plan(engine_fac
         advance_next(engine)
     done = engine.context.state.activities[activity.activity_id]
     assert done.status == "completed" and done.concluded_at == midnight and "answer" in done.data
+    state = engine.context.state
+    assert state.weather_by_date == {"2026-01-05": "light_rain", "2026-01-06": "snow"}
+    (weather,) = [row for row in events(engine, "environment_event") if row.data.get("kind") == "weather"]
+    assert (weather.occurred_at, weather.data["local_date"], weather.data["condition"]) == (
+        midnight, "2026-01-06", "snow")
+    (row,) = [row for row in done.data["answer"]["rows"]
+              if row["goods_id"] == "lemon-tea" and row["store_id"] == "noodle-1"]
+    now = quote_goods(engine.context.inputs, state, 1, "lemon-tea", "meituan")
+    assert row["expected_at"] == now.expected_at == midnight + 1273
+    if at_stop:
+        assert state.current_time == state.end_time and not engine.scheduling_state().ready_agent_ids
+        assert "2026-01-06" not in state.agents[1].plan_submitted_dates
+        return
     assert [row for row in events(engine, "environment_event") if row.data.get("kind") == "day_plan_generated"]
     assert "2026-01-06" in engine.context.state.agents[1].plan_submitted_dates
     assert engine.scheduling_state().ready_agent_ids == (1,)

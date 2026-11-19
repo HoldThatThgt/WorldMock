@@ -55,8 +55,8 @@ def test_delivery_received_in_the_settled_second_stays_out_of_the_body_settlemen
     assert ordered.status == "in_progress", ordered.error_code
     finish_activity(engine, ordered, "noodles")
     [order] = engine.context.state.deliveries.values()
-    reach(engine, order.expected_at)
-    settled, received = settlement_and_receipt_at(engine, order.expected_at)
+    reach(engine, order.arrival_due_at())
+    settled, received = settlement_and_receipt_at(engine, order.arrival_due_at())
     assert_receipt_kept_out(engine, settled, received)
 
 
@@ -113,8 +113,8 @@ def test_discomfort_pulse_is_billed_against_the_settled_body_not_the_received_dr
     _, ordered = act(engine, "tea", purchase("柠檬茶"))
     assert ordered.status == "in_progress", ordered.error_code
     [order] = engine.context.state.deliveries.values()
-    reach(engine, order.expected_at)
-    settled, received = settlement_and_receipt_at(engine, order.expected_at)
+    reach(engine, order.arrival_due_at())
+    settled, received = settlement_and_receipt_at(engine, order.arrival_due_at())
     balanced(settled)
     flows = settled.data["resource_flows"]
     shared = sum(flow["amount"] if flow["direction"] == "source" else -flow["amount"]

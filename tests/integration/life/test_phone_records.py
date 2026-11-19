@@ -402,7 +402,7 @@ def test_phone_records_never_reach_any_prompt_layer(engine_factory, tmp_path):
     assert len(phone_events(engine, "app_foreground")) == 2 and len(notices(engine)) == 4
     system, before, observed = user_prompt(engine, "before-records")
     # 进度层和记忆层讲的是人物自己做的事和真实收货；支付 app、通知标题和记录种类都不出现。收尾之后进度层没有那条购买
-    # 记录，「冰美式」只在送达记录里。
+    # 记录，「冰美式」可见于到达与这一份收货品质。
     for layer in ("progress_layer", "memory_layer", "todo_layer", "environment_layer"):
         text = str(observed[layer])
         assert not [word for word in ("支付宝", "高德地图", "订单已下单", "支付成功", "订单已发货", "订单已送达",
@@ -410,7 +410,7 @@ def test_phone_records_never_reach_any_prompt_layer(engine_factory, tmp_path):
     assert not [record for record in observed["progress_layer"]["events"] if record["type"] == "tool_call"
                 and record["tool"] == "start_side_activity"]
     assert [record["type"] for record in observed["progress_layer"]["events"] if "冰美式" in str(record)] == [
-        "delivery"]
+        "delivery", "receipt"]
     # 同一世界再写入四种记录各一条：人物的各层提示逐字节不变。
     state, now = engine.context.state, engine.context.state.current_time
     cause = phone_events(engine, "purchase_payment")[0].event_id
@@ -442,7 +442,7 @@ def test_phone_records_and_export_follow_the_ordering_app_written_in_prefer(engi
     (order,) = engine.context.state.deliveries.values()
     assert (order.store_id, order.app_id) == ("cafe", "eleme")
     finish_activity(engine, bought, "tea")
-    reach(engine, order.expected_at)
+    reach(engine, order.arrival_due_at())
     assert [row[0] for row in foreground(engine, bought.activity_id) if row[1] == "ordering"] == ["eleme"]
     senders = {title: app for _, title, app, _ in notices(engine)}
     assert {title: senders[title] for title in ("订单已下单", "订单已发货", "订单已送达")} == {

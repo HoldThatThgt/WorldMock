@@ -136,6 +136,8 @@ class Location(DeepFrozenModel):
     name: NonEmptyString
     branch_label: NonEmptyString | None = None
     kind: NonEmptyString
+    #: 实际售货地点自己的评分，其他地点省略。
+    rating: int | float | None = None
     app_ids: tuple[NonEmptyString, ...]
     is_home: StrictBool = False
     accepts_parcels: StrictBool = False
@@ -144,6 +146,14 @@ class Location(DeepFrozenModel):
 
     #: 显式营业声明必须是对象，缺省才表示全天营业。
     _declared_schedule = field_validator("opens", mode="before")(require_declared_schedule)
+
+    @field_validator("rating", mode="before")
+    @classmethod
+    def require_store_rating(cls, value):
+        """@brief 商铺评分允许整数和小数，范围含两端；只有省略字段才表示没有评分。"""
+        if not 1 <= require_finite_number(value, "rating") <= 5:
+            reject_value("Store rating must be between 1 and 5.")
+        return value
 
     @property
     def display_name(self) -> str:

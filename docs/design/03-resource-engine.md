@@ -30,7 +30,7 @@ flowchart LR
 | --- | --- | --- | --- |
 | `manifest.json` | 必需 | `format_version: 6`、环境身份和版本、`rules_version: 6`、每个存在的目录 JSONL 的路径、摘要和字节数，以及 `catalog_content_sha256` | 加载失败 |
 | `app-catalog.jsonl` | 必需 | app 身份、名称、角色，以及功能 app 的购买绑定与出行方式绑定，可选的记忆类别覆盖 `memory_category` | 加载失败 |
-| `location.jsonl` | 必需 | 全部实际地点、显示名、自由类型、内容 app、住宿和驿站资格、营业安排 | 加载失败 |
+| `location.jsonl` | 必需 | 全部实际地点、显示名、自由类型、内容 app、住宿和驿站资格、营业安排、实际售卖商品的商铺评分 | 加载失败 |
 | `merchant-catalog.jsonl` | 必需 | 商品身份、名称、四类商品、固定价格、地点类型或内容 app 绑定 | 加载失败 |
 | `content-catalog.jsonl` | 必需 | 内容身份、标题、时长、体力消耗、推送与自动接续资格、心理缓解档位、摘要与容器；绑定到 app 的内容可以另写前提 `prerequisite`；绑定到地点类型的内容可以另写凭状态 `consumes_state` 与完成效果 `completion_effects`；任何内容都可以另写记忆类别覆盖 `memory_category` | 加载失败 |
 | `callbacks.jsonl` | 可选 | 状态声明和触发规则 | 没有状态，没有规则 |
@@ -392,6 +392,10 @@ app 行只有 `app_id`、`name`、`role` 和功能 app 的两个绑定字段，�
 类别只有 `snack`、`meal`、`drink`、`goods`；价格全店同价，无库存、供给上限或动态报价。
 `store_kinds` 与 `app_ids` 缺省空数组，恰有一侧非空。地点侧展开到全部逐字匹配地点；
 app 侧只出现在 app 商品索引，不虚构店铺。任何类别都可绑定任何实际地点类型。
+地点类型匹配至少一件商品的 `store_kinds` 时，每家分店都必须在自己的地点行填写 `rating`，取 1 至 5 的有限 JSON 数值，两端均可取，允许小数。
+登记检查在商品绑定校验之后执行。商铺缺分、分数越界、写成字符串、布尔值或 `null`，均报 `ENVIRONMENT_NUMBER_INVALID`。
+其余地点省略该字段，填写评分报 `ENVIRONMENT_KIND_INVALID`。只代收快递的驿站省略，同时售卖商品的驿站填写自己的评分。
+仅绑定内容 app 的快递商品沿用原有商品行。评分归实际商铺，用于查询展示和收货抽样，不参与选店排序。
 商品实际收货效果和履约见[模拟引擎](04-simulation-engine.md)。
 
 <a name="resource-engine-按类型共享菜单"></a>

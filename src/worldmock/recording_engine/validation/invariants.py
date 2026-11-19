@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
+from typing import get_args
 
 from pydantic import ValidationError
 
 from worldmock.foundation.errors import IntegrityError
 from worldmock.exchange_engine.definitions.body_constants import RESOURCE_METAS
+from worldmock.exchange_engine.definitions.types import GoodsQuality
 from worldmock.recording_engine.projections.activities.app_usage import _app_binding
 from worldmock.recording_engine.projections.commerce.purchases import event_orders, orders_by_id
 from worldmock.exchange_engine.conditions.activity_rules import APP_BOUND_ACTIONS
@@ -167,7 +169,9 @@ def _push_references(rows: list[dict], sources: dict[str, dict]) -> None:
 def _order_invariants(events: list[dict], rows: list[dict], state: dict, sources: dict[str, dict]) -> None:
     """@brief 每张真实订单恰一购买，到站不收货，真正收到才有唯一收货效果。"""
     orders = orders_by_id(events)
-    if orders != state.get("deliveries", {}):
+    checkpoint = {key: _validated_order(value) for key, value in state.get("deliveries", {}).items()}
+    if orders != {key: order.public_snapshot() for key, order in checkpoint.items()}:
+        _LOGGER.error("Export order events disagree with the final checkpoint")
         raise IntegrityError("Export order events disagree with the final checkpoint")
     by_kind = defaultdict(list)
     received = defaultdict(list)
@@ -180,12 +184,13 @@ def _order_invariants(events: list[dict], rows: list[dict], state: dict, sources
         kind = event["data"].get("kind")
         if kind in {"delivery_arrival", "goods_received"} and _account_changes(event):
             raise IntegrityError("Order arrival and receipt cannot change account balances")
+        if kind == "delivery_arrival":
+            _arrival_delay(event, checkpoint)
         if kind == "goods_received":
             received[event["data"]["order_id"]].append(event)
     if set(received) - set(orders):
         raise IntegrityError("Goods receipt references an unknown order")
     for identity, order in orders.items():
-        _validate_order_shape(order)
         purchase = by_kind[("purchase", identity)]
         if len(purchase) != 1 or purchase[0]["agent_id"] != order["agent_id"]:
             raise IntegrityError("Every order requires exactly one purchase owned by its payer")
@@ -193,11 +198,27 @@ def _order_invariants(events: list[dict], rows: list[dict], state: dict, sources
         _pickup_invariants(order, by_kind[("pickup_ready", identity)], sources)
 
 
-def _validate_order_shape(order: dict) -> None:
-    """@brief 当前严格订单模型认证份数、三种状态及全部运输时刻。"""
+def _arrival_delay(event: dict, orders: dict[str, DeliveryState]) -> None:
+    """@brief 核对每趟到达的公开秒数确实来自该趟实际到达及冻结的报价。"""
+    data = event["data"]
+    recorded = {key: data[key] for key in ("weather_delay_seconds", "late_by_seconds") if key in data}
+    for row in data["orders"]:
+        order = orders[row["order_id"]]
+        late = event["occurred_at"] - order.expected_at
+        expected = {"weather_delay_seconds": order.weather_delay_seconds, "late_by_seconds": late}
+        if order.fulfillment != "delivery" or late <= 0:
+            expected = {}
+        if recorded != expected or any(type(value) is not int for value in recorded.values()):
+            _LOGGER.error("Delivery delay disagrees with the actual arrival or frozen quote")
+            raise IntegrityError("Delivery delay disagrees with the actual arrival or frozen quote")
+
+
+def _validated_order(order: dict) -> DeliveryState:
+    """@brief 当前严格订单模型认证检查点中的份数、三种状态及全部运输时刻。"""
     try:
-        DeliveryState.model_validate(order)
+        return DeliveryState.model_validate(order)
     except ValidationError as error:
+        _LOGGER.error("Export order violates the current receipt contract: %s", error)
         raise IntegrityError(f"Export order violates the current receipt contract: {error}") from error
 
 
@@ -225,7 +246,20 @@ def _receipt_invariants(order: dict, receipts: list[dict], received: list[dict],
             or receipt["source_event_id"] != event["event_id"]
             or any(receipt[field] != data[field] for field in ("provided", "applied"))):
         raise IntegrityError("Goods received evidence disagrees with the actual recipient or receipt")
+    _receipt_quality(order, data, receipt)
     _receipt_cause(order, event, sources)
+
+
+def _receipt_quality(order: dict, data: dict, receipt: dict) -> None:
+    """@brief 到店与外卖的收货及导出行必须一致指向本单商铺与合法品质，快递保持原有字段。"""
+    if order["fulfillment"] == "station_pickup":
+        valid = all(key not in row for row in (data, receipt) for key in ("store_id", "quality"))
+    else:
+        valid = (data.get("store_id") == receipt.get("store_id") == order["store_id"]
+                 and data.get("quality") == receipt.get("quality") and data.get("quality") in get_args(GoodsQuality))
+    if not valid:
+        _LOGGER.error("Goods receipt store or quality disagrees with its order or source")
+        raise IntegrityError("Goods receipt store or quality disagrees with its order or source")
 
 
 def _receipt_cause(order: dict, event: dict, sources: dict[str, dict]) -> None:

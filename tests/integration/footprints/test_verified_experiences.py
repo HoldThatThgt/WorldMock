@@ -79,8 +79,10 @@ def test_recent_window_only_projects_own_committed_progress_before_observation(s
 
 def test_received_orders_are_distinct_and_projection_is_idempotent(store):
     """@brief 同一商品的两笔真实收货分别保留，重复读取同一事件不重复增加事实。"""
-    events = store.append_evidence([_receipt("first"), _receipt("second")])
+    events = store.append_evidence([_receipt("first", store_id="shop", quality="好"),
+                                    _receipt("second", store_id="shop", quality="坏")])
     facts = project_verified_experiences(events, agent_id=1, cutoff_seq=2)
+    assert [(row["store_id"], row["quality"]) for row in facts] == [("shop", "好"), ("shop", "坏")]
     assert [row["order_id"] for row in facts] == ["first", "second"]
     assert [row["quantity"] for row in facts] == [1, 1]
     assert sum(row["quantity"] for row in facts) == 2
@@ -96,6 +98,19 @@ def test_missing_settlement_evidence_is_an_error_not_a_guessed_fact(store, field
     event = store.append_evidence([draft])[0]
     with pytest.raises(IntegrityError, match="receipt evidence"):
         project_verified_experiences([event], agent_id=1, cutoff_seq=1)
+
+
+@pytest.mark.parametrize("fields", [{"store_id": "shop"}, {"quality": "好"}, {"store_id": None, "quality": "中"},
+                                    {"store_id": "", "quality": "好"}, {"store_id": "shop", "quality": 4}])
+def test_invalid_seller_or_quality_cannot_enter_verified_experiences(store, fields):
+    event = store.append_evidence([_receipt("rated", **fields)])[0]
+    with pytest.raises(IntegrityError, match="store or quality"):
+        project_verified_experiences([event], agent_id=1, cutoff_seq=1)
+    valid = store.append_evidence([_receipt("rated", store_id="shop", quality="中")])[0]
+    [row] = project_verified_experiences([valid], agent_id=1, cutoff_seq=2)
+    damaged = {**{key: value for key, value in row.items() if key not in {"quality", "store_id"}}, **fields}
+    with pytest.raises(IntegrityError):
+        validate_verified_experiences([damaged], agent_id=1, current_time=valid.occurred_at)
 
 
 def test_reference_window_rejects_other_person_and_future_time(store):

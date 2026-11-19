@@ -10,7 +10,9 @@ import itertools
 from jsonschema import Draft202012Validator
 from worldmock.agents.prompt.tool_groups import expand_tool_layer
 
-from typing import Any
+from typing import Any, get_args
+
+from worldmock.exchange_engine.definitions.types import GoodsQuality
 
 from worldmock.recording_engine.projections.presentation.display_wording import TITLE_LIST_LIMIT
 from worldmock.simulation_engine.body import felt
@@ -244,9 +246,13 @@ ENVIRONMENT_LAYER_SCHEMA: dict[str, Any] = {
     }),
 }
 
-#: 购买明细的一行：channel 是下单 app 的全名或「到店」；没有付款的配 price，付了款的配 paid。
+#: 只有实际售货地点有评分，查询和购买共用同一取值域。
+_STORE_RATING = {"type": "number", "minimum": 1, "maximum": 5}
+#: 购买明细的一行：到店与外卖显示成交分店与评分；没有付款的配 price，付了款的配 paid。
 _PURCHASE = _object({"product": _TEXT, "quantity": _TEXT, "channel": _TEXT, "destination": _TEXT,
-                     "expected_at": _TIME, "paid": _TEXT, "price": _TEXT}, optional=("paid", "price"))
+                     "expected_at": _TIME, "store": _TEXT, "rating": _STORE_RATING, "paid": _TEXT, "price": _TEXT},
+                    optional=("store", "rating", "paid", "price"))
+_PURCHASE["dependentRequired"] = {"store": ["rating"], "rating": ["store"]}
 _PURCHASE["oneOf"] = [{"required": ["paid"], "not": {"required": ["price"]}},
                        {"required": ["price"], "not": {"required": ["paid"]}}]
 #: 第一条结果里实际开始的那条内容；在地点做的事 app 为 null。
@@ -257,12 +263,16 @@ _CONTENTS = {"type": "array", "minItems": 1, "maxItems": TITLE_LIST_LIMIT, "item
     "title": _TEXT, "summary": _SUMMARY, "duration": _TEXT, "finished": {"type": "boolean"}})}
 #: contents 多于 TITLE_LIST_LIMIT 行时没写出的行数，至少一行时才写。
 _CONTENTS_OMITTED = {"type": "string", "pattern": r"^还有 [1-9][0-9]* 条没列$"}
-#: 查询答案的一行：九个键都出现；可以下单时 reason 为 null，不可下单时是非空原因。
+#: 查询答案的一行：指向商铺时同时告知评分；可以下单时 reason 为 null，否则是非空原因。
 _QUERY_ROW = _reason_unless(_object({
     "product": _TEXT, "route": {"enum": ["到店", "外卖", "快递", None]}, "store": _NULLABLE_TEXT,
+    "rating": _STORE_RATING,
     "apps": {"type": "array", "uniqueItems": True, "items": _TEXT}, "price": _TEXT,
     "delivery_fee": _NULLABLE_TEXT, "expected_at": {**_TIME, "type": ["string", "null"]},
-    "now": {"enum": ["可以下单", "不可下单"]}, "reason": _NULLABLE_TEXT}), {"now": {"const": "可以下单"}})
+    "now": {"enum": ["可以下单", "不可下单"]}, "reason": _NULLABLE_TEXT}, optional=("rating",)),
+    {"now": {"const": "可以下单"}})
+_QUERY_ROW["allOf"] = [{"if": {"properties": {"store": _TEXT}}, "then": {"required": ["rating"]},
+                        "else": {"not": {"required": ["rating"]}}}]
 #: 查完的答案：app 为 null 时一定列出全部途径；没列出的件数为 0 时不写 omitted。
 _QUERY_ANSWERED = _object({
     "app": _NULLABLE_TEXT, "scope": {"enum": ["只列经这个 app 能买的", "列出全部途径"]},
@@ -307,6 +317,7 @@ PROGRESS_LAYER_SCHEMA: dict[str, Any] = {
                                   "result": _RESULT}),
             _record("delivery", {"order": _TEXT, "status": {"enum": ["pending", "ready_for_pickup", "delivered"]},
                                  "message": _TEXT}),
+            _record("receipt", {"store": _TEXT, "product": _TEXT, "quality": {"enum": list(get_args(GoodsQuality))}}),
             _record("app_push", {"app": _TEXT, "title": _TEXT, "summary": _SUMMARY}),
             _record("callback_reminder", {"app": _TEXT, "text": _TEXT}),
             _record("balance_decreased", {"message": _TEXT}),

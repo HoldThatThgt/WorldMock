@@ -120,7 +120,7 @@ def test_inspector_event_lines_spell_out_the_phone_records(engine_factory, capsy
     assert bought.status == "in_progress", bought.error_code
     finish_activity(engine, bought, "inspect-order")
     (order,) = engine.context.state.deliveries.values()
-    reach(engine, order.expected_at)
+    reach(engine, order.arrival_due_at())
     lines = _events(engine, capsys, type="environment_event", agent=1)
     display = _display(engine)
     activity = engine.context.state.activities[bought.activity_id]
@@ -156,7 +156,7 @@ def test_inspector_clocks_follow_the_run_timezone(engine_factory, capsys, mutate
     _, bought = act(engine, "clock-order", purchase("牛肉面"))
     finish_activity(engine, bought, "clock-order")
     (order,) = engine.context.state.deliveries.values()
-    reach(engine, order.expected_at)
+    reach(engine, order.arrival_due_at())
     local = ZoneInfo(zone)
     recorded = {row.event_seq: row for row in events(engine)}
     lines = _events(engine, capsys)

@@ -32,9 +32,9 @@ def test_actual_takeout_arrival_binds_one_receipt_and_replayed_delivery_emits_no
     assert paid.fulfillment == "delivery" and paid.paid_at is not None and paid.received_at is None
     scheduled = next(item for item in engine.context.state.pending_events if item.kind == "delivery_arrival")
     balance = dict(engine.context.state.accounts)
-    reach(engine, paid.expected_at)
+    reach(engine, scheduled.due_at)
     order = engine.context.state.deliveries[paid.order_id]
-    assert order.status == "delivered" and order.received_at == paid.expected_at
+    assert order.status == "delivered" and order.received_at == scheduled.due_at
     facts = events(engine)
     arrivals = [item for item in facts if item.data.get("kind") == "delivery_arrival"]
     receipts = [item for item in facts if item.data.get("kind") == "goods_received"]

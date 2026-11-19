@@ -11,10 +11,9 @@ from worldmock.simulation_engine.scheduling.callbacks.callbacks import (
     evaluate_callbacks,
     issue_callback_reminders,
 )
-from worldmock.state.world.kinds import ActivityKind
+from worldmock.state.world.kinds import ActivityKind, FulfillmentKind
 from worldmock.state.world.world import WorldState, active_activities
 from worldmock.simulation_engine.commerce.fulfillment.order_notices import delivered_notices, shipped_notice
-from worldmock.simulation_engine.scheduling.clock.weather import generated_weather
 from worldmock.state.planning.events import ScheduledEvent, ScheduledKind
 
 
@@ -51,10 +50,9 @@ def apply_scheduled_effect(state: WorldState, event: ScheduledEvent, context) ->
         return ScheduledOutcome(changed, data, "app_push" if "push_id" in data and not _asleep(state) else None)
     if event.kind == ScheduledKind.WEATHER:
         date = event.data["local_date"]
-        condition = generated_weather(state, date)
-        changed = state.model_copy(update={"weather_by_date": {**state.weather_by_date, date: condition}})
+        condition = state.weather_by_date[date]
         data = {"local_date": date, "condition": condition, "speed_factor": WEATHER_FACTORS[condition]}
-        return ScheduledOutcome(changed, data)
+        return ScheduledOutcome(state, data)
     return ScheduledOutcome(state, dict(event.data))
 
 
@@ -132,10 +130,16 @@ def _deliver_orders(state: WorldState, event: ScheduledEvent, context) -> Schedu
             continue
         outcome = deliver_order(state, context, identity)
         state = outcome.state
-        orders.append(outcome.order.model_dump(mode="json"))
+        orders.append(outcome.order.public_snapshot())
         receipts.extend(outcome.receipts)
-    wake = "delivery_arrival" if orders and not _asleep(state) else None
-    return ScheduledOutcome(state, {"orders": orders} if orders else {}, wake, tuple(receipts))
+    if not orders:
+        return ScheduledOutcome(state, {})
+    head = state.deliveries[orders[0]["order_id"]]
+    data = {"orders": orders}
+    if head.fulfillment == FulfillmentKind.DELIVERY and head.arrived_at > head.expected_at:
+        data.update(weather_delay_seconds=head.weather_delay_seconds,
+                    late_by_seconds=head.arrived_at - head.expected_at)
+    return ScheduledOutcome(state, data, None if _asleep(state) else "delivery_arrival", tuple(receipts))
 
 
 def _asleep(state: WorldState) -> bool:

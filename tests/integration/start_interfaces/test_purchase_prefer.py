@@ -43,9 +43,9 @@ from worldmock.agents.protocol.react_loop import ReactDecision
 
 ZONE = ZoneInfo("Asia/Shanghai")
 FIRST_DAY = "2026-01-05"
-#: 两家能外卖的店送到家的预计送达：一心面馆 600 秒加 2,524 米除以每秒 5 米，三杯咖啡 600 秒加 4,729 米除以每秒 5 米。
-NEAR = int(datetime(2026, 1, 5, 8, 18, 25, tzinfo=ZONE).timestamp())
-FAR = int(datetime(2026, 1, 5, 8, 25, 46, tzinfo=ZONE).timestamp())
+#: 两家能外卖的店送到家的预计送达：一心面馆 2,524 米，三杯咖啡 4,729 米，小雨额外计入 45 秒或 83 秒。
+NEAR = int(datetime(2026, 1, 5, 8, 19, 10, tzinfo=ZONE).timestamp())
+FAR = int(datetime(2026, 1, 5, 8, 27, 9, tzinfo=ZONE).timestamp())
 APP_NAMES = {"bilibili": "哔哩哔哩", "eleme": "饿了么", "meituan": "美团"}
 NEITHER = " Neither start request was started."
 PURCHASE_KEYS = {"fact_kind", "agent_id", "order_id", "goods_id", "category", "store_id", "app_id", "payment_app_id",
@@ -342,8 +342,8 @@ def test_each_goods_routes_on_its_own_under_one_prefer(engine_factory):
     finish_activity(engine, result, "two")
     assert sorted(row.data["amount_fen"] for row in phone_events(engine, "purchase_payment")) == [1700, 3300]
     assert sorted(row[2] for row in notices(engine) if row[1] == "订单已下单") == ["eleme", "meituan"]
-    reach(engine, FAR)
-    assert sorted(row.occurred_at for row in phone_events(engine, "delivery_arrival")) == [NEAR, FAR]
+    reach(engine, FAR + 84)
+    assert sorted(row.occurred_at for row in phone_events(engine, "delivery_arrival")) == [NEAR + 45, FAR + 84]
     plain = engine_factory()
     single = _orders(plain, _bought(plain, "two", "牛肉面", "柠檬茶"))
     assert {(order.store_id, order.app_id, order.group_key) for order in single} == {
@@ -416,7 +416,8 @@ def _channels(engine, label) -> list[tuple]:
     rows = progress_calls(observed, SIDE_TOOL)[0]["result"]["details"]["purchases"]
     for row in rows:
         assert list(row)[:5] == ["product", "quantity", "channel", "destination", "expected_at"]
-        assert list(row)[5:] in (["paid"], ["price"])
+        extras = [] if row["product"] == "平台笔记本" else ["store", "rating"]
+        assert list(row)[5:] in ([*extras, "paid"], [*extras, "price"])
     validate_layer(observed["progress_layer"])
     return [(row["product"], row["channel"], "paid" in row) for row in rows]
 
@@ -491,8 +492,11 @@ def test_goods_row_previews_the_route_without_prefer(engine_factory):
     engine = engine_factory()
     observed, result = act(engine, "tea", purchase("柠檬茶", prefer="饿了么"))
     row = next(item for item in tool_targets(observed)["柠檬茶"]["actions"] if item["action"] == "purchase")
-    assert row["note"] == "运费5 元，预计01月05日 08:18到达"
+    assert row["note"] == "一心面馆（评分 4），运费5 元，预计01月05日 08:19:10到达"
     assert result.status == "in_progress" and _routes(engine, result) == [("lemon-tea", "cafe", "eleme", FAR)]
+    (sold,) = _side_record(engine, "ordered")["result"]["details"]["purchases"]
+    assert (sold["store"], sold["rating"]) == ("三杯咖啡", 4.5)
+    assert "quality" not in sold and "weather_delay_seconds" not in sold
 
 
 def test_copied_candidate_is_accepted_as_written(engine_factory):
@@ -531,8 +535,8 @@ def test_accepted_route_is_frozen_through_a_checkpoint_and_reopened_run(engine_f
         finish_activity(child, result, "tea")
         assert [row.data["amount_fen"] for row in phone_events(child, "purchase_payment")] == [1700]
         assert [(row[1], row[2]) for row in notices(child)][:1] == [("订单已下单", "eleme")]
-        reach(child, FAR)
-        assert [row.occurred_at for row in phone_events(child, "delivery_arrival")] == [FAR]
+        reach(child, FAR + 84)
+        assert [row.occurred_at for row in phone_events(child, "delivery_arrival")] == [FAR + 84]
     finally:
         child.close()
 
@@ -552,5 +556,5 @@ def test_settled_purchase_sentence_keeps_its_wording_without_the_channel(engine_
     paid = datetime.fromtimestamp(order.paid_at, ZONE)
     (entry,) = [item for item in layer["今天"] if any("买柠檬茶1份" in line for line in item.get("核验", ()))]
     assert entry["时刻"] == f"{paid:%H:%M}"
-    assert entry["核验"].count("买柠檬茶1份，17元，预计08:25送到家") == 1
+    assert entry["核验"].count("买柠檬茶1份，17元，预计08:27送到家") == 1
     assert "饿了么" not in memory and "eleme" not in memory

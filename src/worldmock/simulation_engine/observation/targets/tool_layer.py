@@ -203,15 +203,20 @@ def _travel_facts(context: LayerContext, row: dict, action: dict) -> dict:
 def _purchase_facts(context: LayerContext, row: dict) -> dict:
     """@brief 查询只计算稳定报价，不抽取未来购买过程时长；按没有意向的路线预览，实际以购买结果为准。"""
     goods = context.catalog.goods[row["goods_id"]]
-    note = None
+    facts = []
     try:
         offer = quote_goods(context.inputs, context.state, context.agent_id, goods.goods_id, None)
-        arrival = datetime.fromtimestamp(offer.expected_at, ZoneInfo(context.config.timezone))
+        if offer.store_id is not None:
+            store = context.catalog.locations[offer.store_id]
+            facts.append(f"{store.display_name}（评分 {store.rating}）")
         if offer.fulfillment != "pickup":
-            note = f"运费{money_phrase(offer.delivery_fee_fen)}，预计{arrival:%m月%d日 %H:%M}到达"
+            arrival = datetime.fromtimestamp(offer.expected_at, ZoneInfo(context.config.timezone))
+            clock = arrival.strftime("%m月%d日 %H:%M:%S" if arrival.second else "%m月%d日 %H:%M")
+            facts.append(f"运费{money_phrase(offer.delivery_fee_fen)}，预计{clock}到达")
     except BusinessRuleError as error:
         logging.error("Purchase preview is unavailable: %s", error)
-    return {"price": money_phrase(goods.price_fen), "duration": "1–5 分钟", "quantity": "1 件", "note": note}
+    return {"price": money_phrase(goods.price_fen), "duration": "1–5 分钟", "quantity": "1 件",
+            "note": "，".join(facts) if facts else None}
 
 
 def _activity_target(context: LayerContext, activity) -> dict:

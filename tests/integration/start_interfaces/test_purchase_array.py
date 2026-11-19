@@ -56,7 +56,7 @@ def test_same_name_twice_buys_two_portions_in_one_delivery_group(engine_factory)
     assert {(order.store_id, order.app_id, order.destination_id, order.fulfillment.value) for order in orders} == {
         ("noodle-1", "meituan", "home", "delivery")}
     assert len({order.group_key for order in orders}) == 1 and sum(order.total_price_fen for order in orders) == 5700
-    arrival = datetime(2026, 1, 5, 8, 18, 25, tzinfo=_ZONE)
+    arrival = datetime(2026, 1, 5, 8, 19, 10, tzinfo=_ZONE)
     assert {order.expected_at for order in orders} == {int(arrival.timestamp())}
     assert {order.distance_meters for order in orders} == {2524}
     activity = engine.context.state.activities[result.activity_id]

@@ -3,6 +3,7 @@
 from datetime import datetime
 import hashlib
 import json
+import math
 from pathlib import Path
 import shutil
 
@@ -42,6 +43,40 @@ def assert_refused(directory, code):
     with pytest.raises(RegistrationError) as captured:
         load_catalog(directory, 7)
     assert captured.value.code == code
+
+
+@pytest.mark.parametrize("value", [True, "4.5", None, 0, 5.01, float("nan"), float("inf")])
+def test_declared_rating_must_be_a_finite_json_number_between_one_and_five(catalog_directory, value):
+    replace_rows(catalog_directory, "location.jsonl", lambda places: places[0].update(rating=value))
+    code = "ENVIRONMENT_LINE_INVALID" if isinstance(value, float) and not math.isfinite(value) else (
+        "ENVIRONMENT_NUMBER_INVALID")
+    for load in (validate_catalog_files, lambda directory: load_catalog(directory, 7)):
+        with pytest.raises(RegistrationError) as failure:
+            load(catalog_directory)
+        assert failure.value.code == code
+        assert failure.value.detail.startswith("location.jsonl:1")
+
+
+def test_all_selling_branches_have_their_own_rating_and_parcel_stations_can_also_sell(catalog_directory):
+    def rate_branches(places):
+        for place in places:
+            if place["location_id"] in {"noodle-1", "noodle-2", "parcel-station"}:
+                place["rating"] = {"noodle-1": 1, "noodle-2": 5, "parcel-station": 3.75}[place["location_id"]]
+    replace_rows(catalog_directory, "location.jsonl", rate_branches)
+    assert_refused(catalog_directory, "ENVIRONMENT_KIND_INVALID")
+
+    def sell_at_station(goods):
+        tea = next(row for row in goods if row["goods_id"] == "lemon-tea")
+        tea["store_kinds"] = sorted([*tea["store_kinds"], "parcel_station"])
+    replace_rows(catalog_directory, "merchant-catalog.jsonl", sell_at_station)
+    validate_catalog_files(catalog_directory)
+    places = load_catalog(catalog_directory, 7).locations
+    assert [places[key].rating for key in ("noodle-1", "noodle-2", "parcel-station", "home")] == [1, 5, 3.75, None]
+    replace_rows(catalog_directory, "location.jsonl", lambda rows: next(
+        place for place in rows if place["location_id"] == "noodle-2").pop("rating"))
+    for load in (validate_catalog_files, lambda directory: load_catalog(directory, 7)):
+        with pytest.raises(RegistrationError, match="ENVIRONMENT_NUMBER_INVALID.*location.jsonl:4"):
+            load(catalog_directory)
 
 
 def test_content_less_ordering_app_is_registered_without_any_duration(catalog_directory):

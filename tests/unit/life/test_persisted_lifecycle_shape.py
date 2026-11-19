@@ -103,6 +103,21 @@ def test_order_restore_rejects_unpaid_and_time_reversed_receipts(engine_factory,
         _decode(DeliveryState, payload)
 
 
+def test_restoring_an_order_requires_its_own_frozen_weather_shape(engine_factory):
+    engine = engine_factory()
+    _, started = act(engine, "weather-shapes", purchase("牛肉面", "平台笔记本"))
+    assert started.status == "in_progress"
+    snapshots = {row.fulfillment: row.model_dump(mode="json") for row in engine.context.state.deliveries.values()}
+    delivery, parcel = snapshots["delivery"], snapshots["station_pickup"]
+    for invalid in (None, -1, True, "1"):
+        with pytest.raises(ValidationError):
+            _decode(DeliveryState, {**delivery, "weather_delay_seconds": invalid})
+    with pytest.raises(ValidationError, match="weather_delay_seconds"):
+        _decode(DeliveryState, {key: value for key, value in delivery.items() if key != "weather_delay_seconds"})
+    with pytest.raises(ValidationError, match="Only delivery orders"):
+        _decode(DeliveryState, {**parcel, "weather_delay_seconds": 0})
+
+
 @pytest.mark.parametrize("change,message", [
     ({"payment_duration_seconds": 0}, "payment duration disagrees with its payment method"),
     ({"payment_duration_seconds": 9}, "payment duration disagrees with its payment method"),

@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 from worldmock.foundation.errors import IntegrityError
-from worldmock.exchange_engine.definitions.types import GoodsCategory
+from worldmock.exchange_engine.definitions.types import GoodsCategory, GoodsQuality
 from worldmock.recording_engine.events.models import Event
 from worldmock.recording_engine.projections.activities.app_usage import validate_activity_prefix
 
@@ -52,7 +52,10 @@ def _validate_fact(row: Any, agent_id: int, current_time: int) -> None:
     """@brief 核对一条经历的共同身份、截止时间和封闭载荷。"""
     if not isinstance(row, dict) or row.get("kind") not in _KIND_FIELDS:
         _invalid("Observed experience kind is invalid")
-    if set(row) != _COMMON_FIELDS | _KIND_FIELDS[row["kind"]]:
+    fields = _COMMON_FIELDS | _KIND_FIELDS[row["kind"]]
+    if row["kind"] == "received" and ("store_id" in row or "quality" in row):
+        fields |= {"store_id", "quality"}
+    if set(row) != fields:
         _invalid("Observed experience fields are invalid")
     if (type(row["agent_id"]) is not int or row["agent_id"] != agent_id
             or type(row["event_seq"]) is not int or row["event_seq"] <= 0
@@ -87,6 +90,10 @@ def _validate_received_fact(row: dict[str, Any]) -> None:
             or row["category"] not in set(get_args(GoodsCategory))
             or not _finite_number(row["quantity"]) or row["quantity"] <= 0):
         _invalid("Observed goods receipt evidence is invalid")
+    if "store_id" in row or "quality" in row:
+        if (not isinstance(row.get("store_id"), str) or not row["store_id"]
+                or row.get("quality") not in get_args(GoodsQuality)):
+            _invalid("Observed goods receipt evidence has invalid store or quality")
 
 
 def _validate_played_fact(row: dict[str, Any]) -> None:
@@ -190,6 +197,7 @@ def _received(event: Event) -> dict[str, Any]:
     """@brief 收货只取本人 goods_received，订单状态和付款不能代替收货事实。"""
     row = {**_base(event, "received"), **{key: event.data.get(key)
             for key in ("order_id", "goods_id", "category", "quantity")}}
+    row.update({key: event.data[key] for key in ("store_id", "quality") if key in event.data})
     if event.activity_id is not None:
         _invalid("Goods receipt source has an activity identity")
     _validate_received_fact(row)

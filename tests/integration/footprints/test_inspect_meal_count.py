@@ -76,7 +76,7 @@ def test_meal_count_adds_location_meals_to_food_receipts(engine_factory, tmp_pat
     (order,) = engine.context.state.deliveries.values()
     rest = _start_rest(engine)
     until_ended(engine, rest.activity_id)
-    reach(engine, order.expected_at)
+    reach(engine, order.arrival_due_at())
     [received] = [row for row in events(engine, "environment_event") if row.data.get("kind") == "goods_received"]
     done = _finished(engine, rest.activity_id)
     metrics, meals, lines = _rerun(engine, capsys)

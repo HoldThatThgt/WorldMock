@@ -101,7 +101,7 @@ def parse_catalog_model(payload: object, model: type[_Model]) -> _Model:
         return model.model_validate(payload)
     except ValidationError as error:
         failures = error.errors(include_url=False)
-        numeric = {"price_fen", "duration_seconds", "length_m", "size_bytes", "seed", "episode",
+        numeric = {"price_fen", "duration_seconds", "length_m", "size_bytes", "seed", "episode", "rating",
                    "initial", "cap", "delta", "below", "amount_fen", "day",
                    "speed_meters_per_second", "start_price_fen", "price_per_km_fen"}
         if any(failure["type"] == "extra_forbidden" for failure in failures):

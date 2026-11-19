@@ -1,14 +1,18 @@
 """商品报价、购买时间与付款收货的当前行为验证。"""
 
+from collections import Counter
 from dataclasses import replace
 from datetime import datetime, time, timedelta
 import json
 from pathlib import Path
+from statistics import NormalDist
 from types import MappingProxyType, SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
 
+from tests.frozen_inputs import fixture_metadata
+from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
 from worldmock.simulation_engine.activities.lifecycle.activity_control import open_activities
 from worldmock.resource_engine.catalog.models import Goods, Location, OpeningHours
 from worldmock.configuration.inputs.environment import load_environment
@@ -57,7 +61,8 @@ def world(inputs, location="home", balance=200000, random_state="commerce-tests"
         end_time=start + 86400 * 10, run_id="commerce-test", timezone=inputs.config.timezone,
         persona_sha256=inputs.persona_sha256, config_sha256=inputs.config_sha256,
         agents={1: agent}, accounts={"agent:1": balance, "external:scenario": -balance},
-        random_seed=7, random_state=random_state)
+        random_seed=7, random_state=random_state,
+        weather_by_date={inputs.config.start_time.date().isoformat(): "sunny"})
 
 
 def runtime(inputs):
@@ -252,6 +257,76 @@ def test_normal_completion_pays_the_local_order_and_receives_its_goods_once(envi
         assert settle_receipt(replayed, commerce.context, order.order_id).receipts == ()
 
 
+@pytest.mark.parametrize("location,prefer,store,rating,fulfillment", [
+    ("noodle-2", None, "noodle-2", 2, "pickup"), ("noodle-1", None, "noodle-1", 4, "pickup"),
+    ("home", "eleme", "noodle-2", 2, "delivery"), ("home", "meituan", "noodle-1", 4, "delivery"),
+])
+def test_portion_receipts_use_the_selling_branch_and_match_normal_probabilities(
+        tmp_path, location, prefer, store, rating, fulfillment):
+    """同为餐厅的二星、四星店销售同一道菜，分别在店内或两家平台取货。各档频率允许偏差四个百分点。"""
+    root = copy_environment(tmp_path / "rated-branches")
+    places = catalog_rows(root, "location.jsonl")
+    next(place for place in places if place["location_id"] == "noodle-2")["app_ids"] = ["eleme"]
+    write_catalog_rows(root, "location.jsonl", places)
+    inputs = load_environment(root, metadata_loader=fixture_metadata)
+    commerce = runtime(inputs)
+    original = world(inputs, location)
+    accepted, activity = commerce.prepare_purchase(original, pending(), ("beef-noodles",), prefer)
+    (order,) = activity_orders(accepted, activity)
+    assert (order.store_id, order.fulfillment, order.app_id) == (store, fulfillment, prefer)
+    assert inputs.catalog.locations[store].rating == rating
+    paid = order.model_copy(update={"paid_at": activity.planned_end_at})
+    due = original.model_copy(update={"current_time": paid.arrival_due_at()})
+    counts = Counter()
+    total = 1024
+    for index in range(total):
+        order_id = f"order-basket-{index:04d}"
+        portion = paid.model_copy(update={"order_id": order_id})
+        waiting = due.model_copy(update={"deliveries": {order_id: portion}})
+        received = settle_receipt(waiting, commerce.context, order_id)
+        (receipt,) = received.receipts
+        assert receipt.data["store_id"] == store and receipt.data["goods_id"] == "beef-noodles"
+        counts[receipt.data["quality"]] += 1
+        if index == 0:
+            restored = WorldState.model_validate(waiting.model_dump(mode="json"))
+            (again,) = settle_receipt(restored, commerce.context, order_id).receipts
+            assert again.data == receipt.data
+            restored = WorldState.model_validate(received.state.model_dump(mode="json"))
+            assert settle_receipt(restored, commerce.context, order_id).receipts == ()
+    normal = NormalDist(mu=rating, sigma=1)
+    fractions = {"坏": normal.cdf(2.5), "中": normal.cdf(3.5) - normal.cdf(2.5), "好": 1 - normal.cdf(3.5)}
+    assert {grade: count / total for grade, count in counts.items()} == pytest.approx(fractions, abs=0.04)
+
+
+def test_only_the_first_actual_store_receipt_draws_quality(environment, monkeypatch):
+    """报价、取消和重复交付均不取品质流。两份同款只在到手时各取一次。"""
+    from worldmock.simulation_engine.commerce.fulfillment import receipt as receipt_module
+
+    calls = []
+
+    def capture(random_state, key):
+        calls.append(key)
+        return random_stream(random_state, key)
+
+    monkeypatch.setattr(receipt_module, "random_stream", capture)
+    commerce = runtime(environment)
+    state = world(environment, "store")
+    quote_goods(environment, state, 1, "lemon-tea", None)
+    prepared, activity = commerce.prepare_purchase(state, pending(), ("lemon-tea",) * 2, None)
+    cancelled = commerce.cancel_purchase(prepared, activity)
+    assert not commerce.complete_purchase(cancelled, activity)[1]
+    assert not calls
+    ready, completed = finish(operate_phases(prepared, activity), activity)
+    changed, events = commerce.complete_purchase(ready, completed)
+    receipts = [event.data for event in events if event.data["kind"] == "goods_received"]
+    assert len(receipts) == 2
+    keys = [f"goods-quality:{row['order_id']}" for row in receipts]
+    assert calls == keys and len(set(keys)) == 2
+    for row in receipts:
+        assert settle_receipt(changed, commerce.context, row["order_id"]).receipts == ()
+    assert calls == keys
+
+
 def test_completion_insufficient_funds_cancels_entire_purchase_without_charge(environment):
     commerce = runtime(environment)
     state, activity = commerce.prepare_purchase(world(environment, "store"), pending(),
@@ -275,7 +350,13 @@ def test_cancel_before_completion_never_pays_schedules_or_receives(environment):
     assert commerce.complete_purchase(changed, activity)[1] == []
 
 
-def test_courier_arrival_only_ready_then_collect_all_and_no_double_effect(environment):
+def test_courier_arrival_only_ready_then_collect_all_and_no_double_effect(environment, monkeypatch):
+    from worldmock.simulation_engine.commerce.fulfillment import receipt as receipt_module
+
+    def forbidden(*args):
+        pytest.fail("Parcel receipts must not draw store quality.")
+
+    monkeypatch.setattr(receipt_module, "random_stream", forbidden)
     commerce = runtime(environment)
     state, activity = commerce.prepare_purchase(world(environment), pending(), ("online-notebook",), None)
     state = operate_phases(state, activity)
@@ -290,6 +371,7 @@ def test_courier_arrival_only_ready_then_collect_all_and_no_double_effect(enviro
     at_station = arrived.state.model_copy(update={"agents": {1: agent}}, deep=True)
     outcome = collect_parcels(at_station, commerce.context, 1, "parcel-station")
     assert outcome.orders[0].status == "delivered" and len(outcome.receipts) == 1
+    assert "quality" not in outcome.receipts[0].data and "store_id" not in outcome.receipts[0].data
     assert outcome.state.agents[1].body.relaxation_need == pytest.approx(0.5)
     with pytest.raises(PreconditionError, match="PARCEL_NOT_READY"):
         collect_parcels(outcome.state, commerce.context, 1, "parcel-station")
@@ -531,3 +613,43 @@ def test_parcel_reaching_the_station_gets_no_delivered_notice(environment):
     arrival = SimpleNamespace(event_id="arrival-event", occurred_at=order.expected_at, data={
         "orders": [arrived.deliveries[order.order_id].model_dump(mode="json")]})
     assert delivered_notices(arrived, arrival, environment.catalog) == []
+
+
+def test_courier_quote_actual_arrival_and_collection_are_identical_in_sun_and_rain(environment):
+    from worldmock.simulation_engine.scheduling.clock.effects import process_scheduled_events
+
+    results = []
+    for condition in ("sunny", "heavy_rain"):
+        commerce = runtime(environment)
+        state = world(environment, "parcel-station")
+        state.weather_by_date = dict.fromkeys(state.weather_by_date, condition)
+        state, activity = commerce.prepare_purchase(state, pending(), ("online-notebook",), None)
+        state, activity = finish(operate_phases(state, activity), activity)
+        state, _ = commerce.complete_purchase(state, activity)
+        (order,) = activity_orders(state, activity)
+        (arrival,) = arrivals(state)
+        assert order.weather_delay_seconds is None and arrival.due_at == order.expected_at
+        state = state.model_copy(update={"current_time": arrival.due_at}, deep=True)
+        arrived, drafts, _ = process_scheduled_events(state, arrival.due_at, commerce.context)
+        (fact,) = [draft for draft in drafts if draft.data["kind"] == "delivery_arrival"]
+        assert set(fact.data) == {"kind", "scheduled_id", "orders"}
+        assert "weather_delay_seconds" not in fact.data["orders"][0] and "quality" not in fact.data["orders"][0]
+        assert arrived.deliveries[order.order_id].status == "ready_for_pickup"
+        assert not [draft for draft in drafts if draft.data.get("title") == "订单已送达"]
+        final, receipts = commerce.collect_parcels(arrived, 1, "parcel-station")
+        (received,) = [draft for draft in receipts if draft.data["kind"] == "goods_received"]
+        assert "quality" not in received.data and "store_id" not in received.data
+        results.append((order.expected_at, arrival.due_at, final.deliveries[order.order_id], received.data))
+    assert results[0] == results[1]
+
+
+@pytest.mark.parametrize("facts,text", [
+    ({}, ""),
+    ({"weather_delay_seconds": 0, "late_by_seconds": 30}, "。比下单预计晚30秒"),
+    ({"weather_delay_seconds": 3, "late_by_seconds": 2}, "。天气使配送多用了3秒，比下单预计晚2秒"),
+    ({"weather_delay_seconds": 61, "late_by_seconds": 31}, "。天气使配送多用了1分钟1秒，比下单预计晚31秒"),
+])
+def test_delivery_notice_reports_exact_time_for_weather_and_late_payment(facts, text):
+    from worldmock.recording_engine.projections.presentation.display_wording import delivery_delay_phrase
+
+    assert delivery_delay_phrase(facts) == text

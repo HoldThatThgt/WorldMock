@@ -158,7 +158,7 @@ def test_purchase_fact_names_the_ordering_app_but_not_the_payment_app_or_account
     goods_id = next(iter(inputs.catalog.goods))
     order = {"goods_id": goods_id, "quantity": 1, "created_at": 100, "paid_at": 150,
              "total_price_fen": 1234, "destination_id": "home", "expected_at": 200,
-             "fulfillment": "delivery", "app_id": "eleme",
+             "fulfillment": "delivery", "store_id": "cafe", "app_id": "eleme",
              "payment_app_id": "alipay", "group_key": "private-group"}
     ctx = layer_context(inputs)
     sentence = purchase_sentence(ctx, order)
@@ -167,11 +167,11 @@ def test_purchase_fact_names_the_ordering_app_but_not_the_payment_app_or_account
     result = public_result({"occurred_at": 150, "status": "completed", "message": "Purchased",
         "data": {"orders": [order], "resource_changes": {"account:agent:1": -1234}}}, inputs, {})
     (row,) = result["details"]["purchases"]
-    assert list(row) == ["product", "quantity", "channel", "destination", "expected_at", "paid"]
-    assert row["channel"] == "饿了么"
+    assert list(row) == ["product", "quantity", "channel", "destination", "expected_at", "store", "rating", "paid"]
+    assert (row["channel"], row["store"], row["rating"]) == ("饿了么", "三杯咖啡", 4.5)
     for hidden in ("支付宝", "alipay", "eleme", "private", "account", "agent:1"):
         assert hidden not in str(result), hidden
-    local = {**order, "app_id": None, "fulfillment": "pickup", "destination_id": "store"}
+    local = {**order, "app_id": None, "store_id": "store", "fulfillment": "pickup", "destination_id": "store"}
     assert public_result({"occurred_at": 150, "status": "completed", "message": "Purchased",
         "data": {"orders": [local]}}, inputs, {})["details"]["purchases"][0]["channel"] == "到店"
     assert "到店" not in purchase_sentence(ctx, local)
@@ -181,7 +181,7 @@ def test_unpaid_order_is_a_quote_without_a_payment_claim(inputs):
     goods_id = next(iter(inputs.catalog.goods))
     result = public_result({"occurred_at": 100, "status": "in_progress", "message": "Accepted", "data": {
         "orders": [{"goods_id": goods_id, "quantity": 1, "paid_at": None, "total_price_fen": 100,
-                    "destination_id": "home", "expected_at": 200, "app_id": "meituan"}]}}, inputs, {})
+                    "destination_id": "home", "expected_at": 200, "store_id": "noodle-1", "app_id": "meituan"}]}}, inputs, {})
     assert "price" in result["details"]["purchases"][0]
     assert "paid" not in result["details"]["purchases"][0]
     assert result["details"]["purchases"][0]["channel"] == "美团"
@@ -189,10 +189,10 @@ def test_unpaid_order_is_a_quote_without_a_payment_claim(inputs):
 
 def test_parcel_collected_at_the_station_is_carried_as_evidence_but_not_reported_as_a_purchase(inputs):
     bought = {"goods_id": "tissue", "quantity": 1, "paid_at": None, "total_price_fen": 600, "status": "pending",
-              "destination_id": "store", "expected_at": 200, "fulfillment": "pickup", "app_id": None}
+              "destination_id": "store", "expected_at": 200, "store_id": "store", "fulfillment": "pickup", "app_id": None}
     collected = {"goods_id": "online-notebook", "quantity": 1, "paid_at": 60, "total_price_fen": 1200,
                  "status": "delivered", "destination_id": "parcel-station", "expected_at": 90,
-                 "fulfillment": "station_pickup", "app_id": "bilibili"}
+                 "fulfillment": "station_pickup", "store_id": None, "app_id": "bilibili"}
 
     def started(*orders):
         return {"occurred_at": 100, "status": "in_progress", "message": "Activities started",

@@ -15,6 +15,8 @@ from worldmock.simulation_engine.commerce.purchase.purchase_offers import quote_
 
 #: 夹具里家到一心面馆的图上距离对应的配送行程秒数（2,524 米，每秒 5 米，向上取整）。
 RIDE_SECONDS = 505
+#: 夹具首日小雨使这段配送延长 90 秒，报价计入一半。
+QUOTED_WEATHER_SECONDS = 45
 
 
 def replace_constant(monkeypatch, name: str, value) -> None:
@@ -82,7 +84,7 @@ def test_unreplaced_delivery_quote_shipping_and_arrival_are_unchanged(engine_fac
     quote, orders = order["quote"], order["orders"]
     assert (quote.fulfillment, quote.store_id, quote.delivery_fee_fen, quote.prep_seconds) == (
         "delivery", "noodle-1", 500, 600)
-    assert quote.expected_at == order["started"] + 600 + RIDE_SECONDS
+    assert quote.expected_at == order["started"] + 600 + RIDE_SECONDS + QUOTED_WEATHER_SECONDS
     assert "运费5 元" in order["note"]
     assert {key: (item.delivery_fee_fen, item.total_price_fen, item.prep_seconds) for key, item in orders.items()} == {
         "beef-noodles": (500, 3300, 600), "chips": (0, 800, 600)}
@@ -115,11 +117,11 @@ def test_delivery_preparation_time_follows_the_constant_table(engine_factory, mo
     order = delivered_order(engine, "order")
     quote, orders = order["quote"], order["orders"]
     assert (quote.delivery_fee_fen, quote.prep_seconds) == (500, 900)
-    assert quote.expected_at == order["started"] + 900 + RIDE_SECONDS
-    assert "预计01月05日 08:23到达" in order["note"]
+    assert quote.expected_at == order["started"] + 900 + RIDE_SECONDS + QUOTED_WEATHER_SECONDS
+    assert "预计01月05日 08:24:10到达" in order["note"]
     assert {item.prep_seconds for item in orders.values()} == {900}
-    assert {item.expected_at for item in orders.values()} == {order["started"] + 900 + RIDE_SECONDS}
-    reach(engine, quote.expected_at)
+    assert {item.expected_at for item in orders.values()} == {order["started"] + 900 + RIDE_SECONDS + QUOTED_WEATHER_SECONDS}
+    reach(engine, next(iter(orders.values())).arrival_due_at())
     assert {row["order_id"] for row in business(engine, "goods_received")} == {item.order_id for item in orders.values()}
 
 
@@ -146,12 +148,12 @@ def test_food_receipt_applied_is_the_registered_flow_amount(engine_factory):
         _, ordered = act(engine, label, purchase("牛肉面"))
         assert ordered.status == "in_progress", ordered.error_code
         [order] = engine.context.state.deliveries.values()
-        reach(engine, order.expected_at)
+        reach(engine, order.arrival_due_at())
         [row] = business(engine, "goods_received")
         assert row["applied"] == 540.0
         assert row["applied"] == sum(flow["amount"] for flow in row["resource_flows"])
         [settled] = [item for item in business(engine, "body_settlement")
-                     if item["interval_end"] == order.expected_at]
+                     if item["interval_end"] == order.arrival_due_at()]
         energy = settled["body_settlement"]["after"]["energy_kcal"]
         subtracted.append((energy + 540.0) - energy)
     assert any(value != 540.0 for value in subtracted)

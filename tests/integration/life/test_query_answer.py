@@ -103,9 +103,12 @@ def _iso(epoch: int) -> str:
 
 
 def _line(product, route, store, apps, price, fee=None, expected=None, reason=None) -> dict:
-    """人物读到的答案的一行：九个键；reason 为空时是「可以下单」。"""
-    return {"product": product, "route": route, "store": store, "apps": apps, "price": price, "delivery_fee": fee,
-            "expected_at": expected, "now": "可以下单" if reason is None else "不可下单", "reason": reason}
+    """人物查询具体分店时见到该店的评分；快递和无店行沿用原有字段。"""
+    row = {"product": product, "route": route, "store": store, "apps": apps, "price": price, "delivery_fee": fee,
+           "expected_at": expected, "now": "可以下单" if reason is None else "不可下单", "reason": reason}
+    if store is not None:
+        row["rating"] = {"三杯咖啡": 4.5, "一心面馆": 4, "二味小炒": 2, "四季便利": 3.5}[store]
+    return row
 
 
 def test_goods_sold_only_in_an_app_can_be_queried_by_name(engine_factory):
@@ -127,13 +130,13 @@ def test_answer_reads_the_world_at_the_finishing_second(engine_factory, tmp_path
 
 def test_every_open_store_selling_the_goods_gives_one_row(engine_factory):
     """人在家查询「柠檬茶」、prefer 为 null：恰四行。一心面馆与三杯咖啡各一条外卖行，可以下单，可用的 app 是各自登记的
-    全部 app，运费 5 元，预计送达是做完时刻加 1,105 秒与 1,546 秒，较近的排前；二味小炒与四季便利各一条到店行排在后面，
+    全部 app，运费 5 元，预计送达是做完时刻加 1,150 秒与 1,629 秒，较近的排前；二味小炒与四季便利各一条到店行排在后面，
     不可下单，原因逐字，没有 app、运费与送达。"""
     done, answer = _asked(engine_factory(), "tea", "柠檬茶")
     assert answer["scope"] == "列出全部途径" and "omitted" not in answer
     assert answer["rows"] == [
-        _line("柠檬茶", "外卖", "一心面馆", ["美团"], "12 元", "5 元", _iso(done.ended_at + 1105)),
-        _line("柠檬茶", "外卖", "三杯咖啡", ["饿了么", "美团"], "12 元", "5 元", _iso(done.ended_at + 1546)),
+        _line("柠檬茶", "外卖", "一心面馆", ["美团"], "12 元", "5 元", _iso(done.ended_at + 1150)),
+        _line("柠檬茶", "外卖", "三杯咖啡", ["饿了么", "美团"], "12 元", "5 元", _iso(done.ended_at + 1629)),
         _line("柠檬茶", "到店", "二味小炒", [], "12 元", reason=NO_APP),
         _line("柠檬茶", "到店", "四季便利", [], "12 元", reason=NO_APP)]
 
@@ -208,9 +211,9 @@ def test_usable_prefer_lists_only_what_its_app_can_deliver(engine_factory, tmp_p
     engine = engine_factory(mutate=_at("公司"))
     done, answer = _asked(engine, "meal", "食品", prefer="美团")
     assert (answer["app"], answer["scope"]) == ("美团", "只列经这个 app 能买的")
-    assert answer["rows"] == [_line("牛肉面", "外卖", "一心面馆", ["美团"], "28 元", "5 元", _iso(done.ended_at + 799))]
+    assert answer["rows"] == [_line("牛肉面", "外卖", "一心面馆", ["美团"], "28 元", "5 元", _iso(done.ended_at + 816))]
     done, named = _asked(engine, "meal-and-rice", "食品", "饭团", prefer="美团")
-    assert named["rows"] == [_line("牛肉面", "外卖", "一心面馆", ["美团"], "28 元", "5 元", _iso(done.ended_at + 799)),
+    assert named["rows"] == [_line("牛肉面", "外卖", "一心面馆", ["美团"], "28 元", "5 元", _iso(done.ended_at + 816)),
                              _line("饭团", None, None, [], "10 元", reason="这个 app 里没有")]
     root = _edited(tmp_path, "noodle-closed", _closed("noodle-1"), "location.jsonl")
     _, closed = _asked(engine_factory(root, mutate=_at("公司")), "meal", "食品", prefer="美团")

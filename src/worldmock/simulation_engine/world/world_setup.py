@@ -40,10 +40,9 @@ def _initial_state(inputs: EnvironmentInputs, run_id: str) -> WorldState:
         random_seed=inputs.config.seed,
         random_state=hashlib.sha256(f"random:{inputs.config.seed}".encode()).hexdigest(),
     )
-    from worldmock.simulation_engine.scheduling.clock.weather import generated_weather, local_weather_date
+    from worldmock.simulation_engine.scheduling.clock.weather import register_daily_weather
 
-    date = local_weather_date(state)
-    state.weather_by_date[date] = generated_weather(state, date)
+    register_daily_weather(state)
     names = {identity: place.display_name for identity, place in inputs.catalog.locations.items()}
     return sessions.open_stay(state, persona.agent_id, names)
 

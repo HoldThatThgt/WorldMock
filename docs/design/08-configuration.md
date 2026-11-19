@@ -215,6 +215,7 @@ flowchart LR
 | 下单 app | 只在人物的意向用不上时取。店铺商品选中的店没有登记意向 app 时用 `order-app:{store_id}:{local_date}`，同一家店同一本地日抽到同一个 app；绑定在 app 上的商品在意向 app 不在商品登记的 app 之内时用 `order-app:{goods_id}:courier:{local_date}`。意向用得上时下单 app 就是意向 app，不抽取 |
 | 快递天数 | `courier-days:{goods_id}:{app_id}:{local_date}`，二、三、四、五天等概率；`app_id` 是最终的下单 app，意向用得上时就是意向 app |
 | 快递费 | `courier-fee:{goods_id}:{app_id}`，零或五百分等概率，跨日期稳定；`app_id` 是最终的下单 app，意向用得上时就是意向 app |
+| 到手商品的品质 | `goods-quality:{order_id}`，每份到店或外卖商品在首次真实收货时取一次流，用标准库的 `Random.gauss` 抽样。分档见[交换引擎](02-exchange-engine.md)「收货与费用」 |
 | 查询时长 | `query-duration:{action_id}`，`action_id` 是开始这次查询的那条动作；三百至六百整数秒，两端都能取到，受理时抽一次，恢复和重放读活动上的值 |
 | 查询所在的 app | `query-app:{action_id}`；只在 `prefer` 用不上、且有下单 app 卖所查商品至少一件时取流，候选按 `app_id` 升序，等概率取一个；`prefer` 用得上或没有候选时不抽 |
 | 内容选择 | `{activity_id}:{draw_index}`，只用于内容 app：打开时 `draw_index` 为 0；一次 app 使用每自动接续一条加一，接下一集或另一部系列不抽，接一条没看过的独立内容时用加一后的键抽一次；在地点点名内容单元不抽随机数 |

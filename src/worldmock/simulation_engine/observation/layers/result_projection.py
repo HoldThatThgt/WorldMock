@@ -127,5 +127,8 @@ def _purchase(order: dict[str, Any], inputs: EnvironmentInputs) -> dict[str, Any
            "channel": "到店" if order["app_id"] is None else inputs.catalog.apps[order["app_id"]].name,
            "destination": inputs.catalog.locations[order["destination_id"]].display_name,
            "expected_at": iso_time(order["expected_at"], inputs.config.timezone)}
+    if order["store_id"] is not None:
+        store = inputs.catalog.locations[order["store_id"]]
+        row.update(store=store.display_name, rating=store.rating)
     row["paid" if order["paid_at"] is not None else "price"] = money_phrase(order["total_price_fen"])
     return row

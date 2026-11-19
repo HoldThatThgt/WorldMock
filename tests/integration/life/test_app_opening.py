@@ -188,7 +188,7 @@ def test_coffee_decision_is_refused_then_bought_with_prefer(engine_factory, tmp_
     balance = engine.context.state.accounts["agent:1"]
     observed, refused = act(engine, "coffee-open", use_app("瑞幸咖啡"))
     assert app_lists(observed) == (APP_TARGETS, ["哔哩哔哩", "瑞幸咖啡", "美团"])
-    assert target_actions(observed, "冰美式")["purchase"]["note"] == "运费5 元，预计10月12日 09:01到达"
+    assert target_actions(observed, "冰美式")["purchase"]["note"] == "三杯咖啡（评分 4.5），运费5 元，预计10月12日 09:01到达"
     assert (refused.status, refused.data["items"]) == ("rejected", [order_app_item("瑞幸咖啡", "interact")])
     assert refused.data["reason"] == order_app_why("瑞幸咖啡")
     state = engine.context.state

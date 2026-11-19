@@ -20,7 +20,7 @@ flowchart LR
 | 文件 | 是否必需 | 在世界里管什么 | 省略时怎么表现 | 行排序键 |
 | --- | --- | --- | --- | --- |
 | `manifest.json` | 必需 | 记录版本与在场文件字节摘要 | 无法加载 | 不适用（单个 JSON 对象） |
-| `location.jsonl` | 必需 | 全部实际地点、营业时段、住宿与驿站资格 | 无法加载 | `location_id` 升序 |
+| `location.jsonl` | 必需 | 全部实际地点、商铺评分、营业时段、住宿与驿站资格 | 无法加载 | `location_id` 升序 |
 | `app-catalog.jsonl` | 必需 | 手机上的内容 app 与功能 app | 无法加载 | `app_id` 升序 |
 | `merchant-catalog.jsonl` | 必需 | 商品类别、固定价格与售卖容器 | 无法加载 | `goods_id` 升序 |
 | `content-catalog.jsonl` | 必需 | 地点活动与手机内容、时长与效果 | 无法加载 | `content_id` 升序 |
@@ -102,6 +102,7 @@ flowchart LR
 | `name` | 是 | 非空白字符串，避免坐标或代码编号 | 人物看到和填写的地点名 |
 | `branch_label` | 否 | 非空白字符串或 `null`（缺省 `null`） | 区分同名分店，拼成 `name（branch_label）` |
 | `kind` | 是 | 非空白字符串 | 与商品 `store_kinds`、内容 `location_kinds` 及前提逐字匹配 |
+| `rating` | 售货地点必填，其余省略 | 1 至 5 的数字，允许小数 | 人物能看到这家店的评分，拿到的每份商品按这家店的评分抽品质 |
 | `app_ids` | 是 | 内容 app 的 `app_id` 升序数组（可写 `[]`） | 声明这家店入驻了哪些可接外卖的下单 app |
 | `is_home` | 否 | 布尔（缺省 `false`） | 标记是否为住宿地点，整个目录至少有一处为 `true` |
 | `sleepable` | 否 | 布尔（缺省 `false`） | 标记停留在这里时能否开始睡觉 |
@@ -109,7 +110,7 @@ flowchart LR
 | `opens` | 否 | 对象 `{weekly, exceptions}`；省略代表全天开放 | 限制营业或进入后可开始消费、睡觉的时段 |
 
 ```json
-{"app_ids":["eleme","meituan"],"branch_label":"古镇店","kind":"cafe","location_id":"cafe","name":"三杯咖啡","opens":{"exceptions":{"2026-01-01":[]},"weekly":{"fri":[["08:00","20:00"]],"mon":[["08:00","20:00"]],"sat":[["09:00","21:00"]],"sun":[["09:00","21:00"]],"thu":[["08:00","20:00"]],"tue":[["08:00","20:00"]],"wed":[["08:00","20:00"]]}}}
+{"app_ids":["eleme","meituan"],"branch_label":"古镇店","kind":"cafe","location_id":"cafe","name":"三杯咖啡","rating":4.5,"opens":{"exceptions":{"2026-01-01":[]},"weekly":{"fri":[["08:00","20:00"]],"mon":[["08:00","20:00"]],"sat":[["09:00","21:00"]],"sun":[["09:00","21:00"]],"thu":[["08:00","20:00"]],"tue":[["08:00","20:00"]],"wed":[["08:00","20:00"]]}}}
 {"app_ids":[],"is_home":true,"kind":"home","location_id":"home","name":"家","sleepable":true}
 {"app_ids":[],"kind":"office","location_id":"office","name":"公司","sleepable":true}
 {"accepts_parcels":true,"app_ids":[],"kind":"parcel_station","location_id":"parcel-station","name":"快递驿站"}
@@ -117,6 +118,7 @@ flowchart LR
 
 编写地点时注意几件事：
 
+- 只要有商品的 `store_kinds` 包含该地点的 `kind`，就给这家分店填写评分。只代收件的驿站省略评分，同时售货的驿站填写评分。
 - **`is_home` 和 `sleepable` 互不推导**：`persona.toml` 里 `home_location` 指代的地点不仅要标 `is_home: true`，还必须显式标 `sleepable: true`，否则直接报 `HOME_NOT_SLEEPABLE`。公司、酒店等想允许午休或过夜的地方也可以标 `sleepable: true`。
 - **人物自己的家通常省略 `opens`**：一旦给家声明了 `opens`，打烊时段内人物就不能开始睡觉；想让人物回家后随时能睡，就省略 `opens`（不要写成 `null`）。
 - **营业时段使用半开区间**：`weekly` 的键只能是 `mon` 到 `sun`，缺席的星期整天休息；时段按升序、不重叠排列（如 `["08:00","10:00"]` 含 08:00 不含 10:00，`24:00` 只作当天结束时刻，跨午夜拆成相邻两日）。`exceptions` 按规范 `YYYY-MM-DD` 整日替换当天安排，写 `[]` 表示当天停业。
@@ -214,13 +216,13 @@ flowchart TD
     AtShop -->|"是"| InStore["到店购买：忽略 prefer；营业当场收货，打烊直接拒绝"]
     AtShop -->|"否"| OnRoad{"人此刻在路上吗"}
     OnRoad -->|"是"| RejectRoad["拒绝：人在路上买不了店铺商品"]
-    OnRoad -->|"否"| Takeout["外卖送达：从营业且上线的门店按 prefer 或随机选店，备货600秒加每秒5米配送"]
+    OnRoad -->|"否"| Takeout["从营业且可下单的店里按意向和距离选店，按下单天气预计送达"]
 ```
 
 | 履约路径 | 触发条件 | 收货时机与费用 | 常见设计陷阱 |
 | --- | --- | --- | --- |
 | 到店购买 | 商品写 `store_kinds`，人停在对应门店 | 付款完成当秒收货，无运费 | 人在店门口却刚好打烊时不会降级成外卖，直接报 `LOCATION_CLOSED` |
-| 外卖送达 | 商品写 `store_kinds`，人在别处且门店至少绑定一个内容 app | 付款后 `600` 秒备货加最短距离除以 `5` 米/秒；每配送组固定 `500` 分运费 | 若人物习惯写了“用美团外卖点午餐”，要确保卖午餐的店把 `meituan` 放进 `app_ids` |
+| 外卖送达 | 商品写 `store_kinds`，人在别处且门店至少绑定一个内容 app | 下单起算，备货时长固定，路程受天气影响。实际送达须已付款，每配送组运费 `500` 分 | 若人物习惯写了“用美团外卖点午餐”，要确保卖午餐的店把 `meituan` 放进 `app_ids` |
 | 快递到驿站 | 商品写 `app_ids` | `2` 至 `5` 天到达离家最近的 `accepts_parcels: true` 驿站；运费 `0` 或 `500` 分 | 目录里只要有快递商品就必须至少有一个驿站，且**每个驿站类型都必须有至少一条地点内容**，否则报 `PARCEL_STATION_REQUIRED` |
 
 关于驿站取件的联动规则：引擎没有单独的“取快递动作”，人物必须亲自来到驿站、点名开始任意一条属于该驿站类型的地点内容时，才会把站内全部已到站包裹一并领走；如果本人没有已到站的包裹，在驿站开始任何内容都会被 `PARCEL_NOT_READY` 拒绝。
@@ -408,13 +410,13 @@ flowchart LR
 
 ```json
 {
-  "catalog_content_sha256": "c697ee24e1b06309056a6ca135b9fa2def28357c7602b354b2b3be0eb1a0bd3e",
-  "environment_id": "my-world",
-  "environment_version": "1",
+  "catalog_content_sha256": "56a50acb07b53e88770282599f036d1a6f9d979138ae6e1de13f5d866db0bd68",
+  "environment_id": "artificial-test",
+  "environment_version": "4",
   "files": [
     {"path": "app-catalog.jsonl", "sha256": "991fb532723b932f498107e052f084e380e3b263230abbfe7e00d8680efbda7c", "size_bytes": 542},
     {"path": "content-catalog.jsonl", "sha256": "fc4167feee9dd697c1a320896b05a31d228838ad89d77069a5c690e78327502d", "size_bytes": 4996},
-    {"path": "location.jsonl", "sha256": "acb9518f1b0d1e7e10380e798e6171e69044e2dbbc62d6b593abe469b4771455", "size_bytes": 717},
+    {"path": "location.jsonl", "sha256": "1ef1eb47d1130f57c50fe6587cfa67fdc1b0141d936ec1a2a039e3eab2a372e7", "size_bytes": 765},
     {"path": "merchant-catalog.jsonl", "sha256": "da2bd690cfa439798b6afd7ead121c35645c581fd59e18e05cde7a7c067a91ec", "size_bytes": 851},
     {"path": "travel-method.jsonl", "sha256": "ef3ed0fd547b63c2a668f04a513dd8c4c734266384aca3063413e05e49ce397c", "size_bytes": 415}
   ],
@@ -471,7 +473,7 @@ worldmock validate --environment D:/datasets/my-world
 
 | 规则 | 对手机时间线的影响 | 定义在哪 |
 | --- | --- | --- |
-| 外卖的预计送达是购买开始的那一秒加送达用时：`600` 秒备货，再加店铺到收货地点的距离按每秒 `5` 米走完的时间，不受天气影响。购买拖到预计送达之后才付款的，付款那一秒送达 | 店离得远，外卖就晚：`13.2` 公里要 `54` 分钟，`11:49` 下单 `12:43` 才到。想让午饭在饭点前到，就让卖午饭的店离公司近，并在 `map.jsonl` 里声明这段距离 | [交换引擎](../design/02-exchange-engine.md)「收货与费用」；[模拟引擎](../design/04-simulation-engine.md)「购买、付款与收货」 |
+| 外卖报价计入天气总延长的一半，实际送达计入全部延长，最早在付款时送达 | 商铺到公司的路程为 4.2 公里时，晴天中午 12:00 下单预计 12:24 到。大雨时下单预计 12:27 到，按时付款则在 12:30 送达。可在 `map.jsonl` 中声明实际距离 | [交换引擎](../design/02-exchange-engine.md)「收货与费用」、[模拟引擎](../design/04-simulation-engine.md)「购买、付款与收货」 |
 | 「订单已发货」通知在付款之后、送达之前发出，时刻取付款到送达这段时间的十分之一处 | 它可能早于 `600` 秒备货结束，这是规则如此：付款后 `22` 分钟送达的一单，付款后 `2` 分 `12` 秒就显示已发货 | [模拟引擎](../design/04-simulation-engine.md)「购买、付款与收货」的通知表 |
 | 人物购买时可以在 `prefer` 里写想用的 app。此刻营业、卖这件商品的店里有登记了这个 app 的，就在这些店里选一家、经它下单，可以因此换到更远的店；没有时照原规则选店，下单 app 按店铺和当地日期抽取。只在 app 里卖的快递商品，`prefer` 在商品登记的 app 之内就用它，否则按商品和当地日期抽取 | 人设里写「用美团外卖点午餐」时，要让卖午餐的店在 `app_ids` 里登记美团外卖，否则订单会落到这家店登记的别的 app 上。习惯里 app 名的写法见[编写 persona.toml](personas.md)「关系、习惯与口味」 | [模拟引擎](../design/04-simulation-engine.md)「购买、付款与收货」；[配置](../design/08-configuration.md)「唯一种子与随机键」 |
 | 人停在卖这件商品的地点时一律到店购买，不看 `prefer`；这个地点已打烊时这次购买被拒，不会改成外卖 | 这时手机上没有下单 app，至多最后 `10` 到 `20` 秒是支付 app；抽到直付时一个 app 都没有 | [模拟引擎](../design/04-simulation-engine.md)「购买、付款与收货」 |

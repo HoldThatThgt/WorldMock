@@ -5,8 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from worldmock.foundation.errors import BusinessRuleError, PreconditionError
+from worldmock.foundation.randomness import random_stream
 from worldmock.exchange_engine.definitions.body_constants import RESOURCE_METAS
-from worldmock.exchange_engine.commerce.operators import evaluate_goods_receipt
+from worldmock.exchange_engine.commerce.operators import evaluate_goods_receipt, goods_quality
 from worldmock.recording_engine.events.models import EventDraft
 from worldmock.simulation_engine.scheduling.callbacks.callbacks import reset_on_receipt
 from worldmock.state.world.kinds import ActivityKind, FulfillmentKind
@@ -42,6 +43,10 @@ def settle_receipt(state: WorldState, context, order_id: str) -> ReceiptOutcome:
                                      "received_at": state.current_time}, deep=True)
     owner = state.agents[order.agent_id]
     body, evidence = _receipt_effect(owner.body, order, context)
+    if order.fulfillment in {FulfillmentKind.PICKUP, FulfillmentKind.DELIVERY}:
+        stream = random_stream(state.random_state, f"goods-quality:{order.order_id}")
+        store = context.catalog.locations[order.store_id]
+        evidence.update(store_id=order.store_id, quality=goods_quality(store.rating, stream))
     changed = state.model_copy(update={"deliveries": {**state.deliveries, order_id: order},
         "agents": {**state.agents, owner.agent_id: owner.model_copy(update={"body": body}, deep=True)}}, deep=True)
     draft = EventDraft(event_type="environment_event", occurred_at=state.current_time,
@@ -56,7 +61,7 @@ def _require_receipt(state: WorldState, order: DeliveryState) -> None:
     """@brief 付款和到期是收货必要事实；取件须已到本站。"""
     if order.paid_at is None or order.status == "cancelled":
         raise BusinessRuleError("ORDER_NOT_PAID")
-    if state.current_time < order.expected_at:
+    if state.current_time < order.arrival_due_at():
         raise BusinessRuleError("DELIVERY_NOT_DUE")
     if order.fulfillment == FulfillmentKind.STATION_PICKUP:
         if order.status != "ready_for_pickup":

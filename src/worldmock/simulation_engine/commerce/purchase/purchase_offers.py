@@ -8,10 +8,13 @@ from zoneinfo import ZoneInfo
 
 from worldmock.foundation.errors import BusinessRuleError, PreconditionError
 from worldmock.exchange_engine.definitions.constants import DELIVERY_PREP_SECONDS
-from worldmock.exchange_engine.commerce.operators import delivery_fee_fen, delivery_seconds
+from worldmock.exchange_engine.commerce.operators import (
+    delivery_fee_fen, delivery_seconds, delivery_weather_delay_seconds,
+)
 from worldmock.state.world.kinds import ActivityKind
 from worldmock.state.world.world import WorldState, active_activities
 from worldmock.foundation.randomness import random_stream
+from worldmock.simulation_engine.scheduling.clock.weather import current_weather_factor
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +45,8 @@ class Offer:
     distance_meters: int
     #: 外卖备餐秒数。
     prep_seconds: int
+    #: 外卖本次报价的天气总延长；到店和快递为空。
+    weather_delay_seconds: int | None
 
 
 def present_location(state: WorldState, agent_id: int) -> str | None:
@@ -71,7 +76,7 @@ def quote_goods(inputs, state: WorldState, agent_id: int, goods_id: str, prefer:
         if not inputs.catalog.locations[here].is_open(local):
             raise BusinessRuleError("LOCATION_CLOSED")
         return Offer(goods_id, here, None, here, state.current_time, "pickup", 0, here,
-                     (here,), None, 0, 0)
+                     (here,), None, 0, 0, None)
     if here is None:
         raise PreconditionError("ACTIVITY_PRECONDITION_UNMET", ["delivery_destination"],
                                 public_reason="Place the order after arriving at a location.")
@@ -118,7 +123,7 @@ def order_app(state: WorldState, source: str, apps: tuple[str, ...], prefer: str
 def delivery_offer(inputs, state: WorldState, goods, route: tuple[str, str], here: str) -> Offer:
     """@brief 一家店经定好的下单 app 送到收货地点的外卖报价；保留完整图路线，不因距离长而改为快递。
 
-    运费、预计送达和路径只取决于店和收货地点，app 原样写进报价。不判断营业，也不判断这家店有没有登记这个 app，
+    按店铺和收货地点取距离和路径，按当下天气计算预计送达，app 原样写进报价。不判断营业，也不判断店铺是否登记这个 app，
     由定路线的一方保证。
 
     :param route: 选好的（店铺身份，下单 app 身份）。
@@ -127,9 +132,11 @@ def delivery_offer(inputs, state: WorldState, goods, route: tuple[str, str], her
     catalog = inputs.catalog
     store, app = route
     meters = catalog.shortest_m(store, here)
-    return Offer(goods.goods_id, store, app, here, state.current_time + delivery_seconds(meters),
+    delay = delivery_weather_delay_seconds(meters, current_weather_factor(state))
+    expected = state.current_time + delivery_seconds(meters) + delay // 2
+    return Offer(goods.goods_id, store, app, here, expected,
                  "delivery", delivery_fee_fen(), here, catalog.graph.path(store, here),
-                 f"{store}->{here}:delivery", meters, DELIVERY_PREP_SECONDS)
+                 f"{store}->{here}:delivery", meters, DELIVERY_PREP_SECONDS, delay)
 
 
 def courier_offer(inputs, state: WorldState, goods, app: str) -> Offer:
@@ -144,4 +151,4 @@ def courier_offer(inputs, state: WorldState, goods, app: str) -> Offer:
     fee = random_stream(state.random_state, f"courier-fee:{goods.goods_id}:{app}").choice((0, delivery_fee_fen()))
     station = inputs.catalog.nearest_parcel_station(inputs.home_location_id)
     return Offer(goods.goods_id, None, app, station, int(arrival.timestamp()), "station_pickup", fee,
-                 inputs.home_location_id, (station,), None, 0, 0)
+                 inputs.home_location_id, (station,), None, 0, 0, None)

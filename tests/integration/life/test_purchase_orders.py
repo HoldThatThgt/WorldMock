@@ -169,7 +169,7 @@ def test_two_stores_on_one_content_app_pay_once_and_deliver_two_trips_with_two_f
     trips = scheduled_arrivals(engine)
     assert sorted(row.scheduled_id for row in trips) == [f"delivery-{order.order_id}" for order in orders]
     assert all(row.caused_by == [payment.event_id] for row in trips)
-    reach(engine, max(order.expected_at for order in orders))
+    reach(engine, max(row.due_at for row in trips))
     arrivals = business_events(engine, "delivery_arrival")
     assert sorted([row["order_id"] for row in arrival.data["orders"]] for arrival in arrivals) == [
         [order.order_id] for order in orders]
@@ -529,12 +529,13 @@ def test_takeaway_due_before_the_payment_arrives_in_the_same_advance_that_comple
     activity = engine.context.state.activities[result.activity_id]
     (order,) = records(engine, result)
     assert order.expected_at > activity.planned_end_at
-    tamper_orders(engine, {order.order_id: {"expected_at": activity.planned_end_at - 30}})
+    tamper_orders(engine, {order.order_id: {"expected_at": activity.planned_end_at - 120}})
     reach(engine, activity.planned_end_at)
     (payment,) = business_events(engine, "purchase_payment")
     (arrival,) = business_events(engine, "delivery_arrival")
     (received,) = business_events(engine, "goods_received")
     assert payment.occurred_at == arrival.occurred_at == received.occurred_at == activity.planned_end_at
+    assert arrival.data["late_by_seconds"] == 120 and arrival.data["weather_delay_seconds"] == 90
     assert payment.event_seq < arrival.event_seq < received.event_seq
     assert len({payment.state_version_after, arrival.state_version_after, received.state_version_after}) == 1
     assert arrival.caused_by == [payment.event_id] and received.caused_by == [arrival.event_id]

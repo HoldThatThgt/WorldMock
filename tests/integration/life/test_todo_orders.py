@@ -50,7 +50,7 @@ def test_a_paid_delivery_is_an_order_in_transit_until_it_arrives(engine_factory)
     (row,) = _orders(engine, "paid")
     assert list(row) == ["order", "status", "destination", "expected_at"]
     assert row == _row(engine, paid, "家") and row["status"] == "pending"
-    reach(engine, paid.expected_at)
+    reach(engine, paid.arrival_due_at())
     assert engine.context.state.deliveries[order.order_id].status == "delivered"
     assert _orders(engine, "delivered") == []
 

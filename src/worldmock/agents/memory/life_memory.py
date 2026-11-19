@@ -81,6 +81,8 @@ def _fact_line(fact: dict[str, Any]) -> str:
         detail = f"等待 {fact['duration_seconds']} 秒"
     elif kind == "received":
         detail = f"收到 {fact['goods_id']} {_amount(fact['quantity'])} 份"
+        if "quality" in fact:
+            detail += f"，商铺 {fact['store_id']}，这份品质{fact['quality']}"
     elif kind == "arrived":
         detail = f"到达 {fact['location_id']}，进入状态 {fact['access_status']}"
     elif kind == "played":

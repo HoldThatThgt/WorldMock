@@ -48,6 +48,8 @@ class DeliveryState(StrictModel):
     paid_at: int | None = Field(default=None, ge=0)
     #: 预计到手或到达的时刻：到店记录是购买开始时刻加实际购买时长，外卖和快递是受理时冻结的预计到达。
     expected_at: int = Field(ge=0)
+    #: 外卖受理时冻结的天气总延长；到店和快递为空。
+    weather_delay_seconds: int | None = Field(ge=0, strict=True)
     arrived_at: int | None = Field(default=None, ge=0)
     received_at: int | None = Field(default=None, ge=0)
     status: Literal["cancelled", "pending", "ready_for_pickup", "delivered"]
@@ -55,6 +57,24 @@ class DeliveryState(StrictModel):
     trip_id: str | None
     distance_meters: int = Field(ge=0)
     prep_seconds: int = Field(ge=0)
+
+    def arrival_due_at(self) -> int:
+        """@brief 实际应到时刻计入报价尚未计入的另一半天气延长，且不早于付款。"""
+        remaining = (self.weather_delay_seconds + 1) // 2 if self.weather_delay_seconds is not None else 0
+        due = self.expected_at + remaining
+        return max(due, self.paid_at) if self.paid_at is not None else due
+
+    def public_snapshot(self) -> dict:
+        """@brief 订单结果和进度、到达事件共用的公开快照，只保留受理时给出的预计。"""
+        return self.model_dump(mode="json", exclude={"weather_delay_seconds"})
+
+    @model_validator(mode="after")
+    def validate_delivery_weather(self) -> "DeliveryState":
+        """@brief 外卖必须保存冻结的天气延长，其他履约方式不得带天气延长。"""
+        if (self.fulfillment == FulfillmentKind.DELIVERY) != (self.weather_delay_seconds is not None):
+            _LOGGER.error("Only delivery orders require a frozen weather delay")
+            raise ValueError("Only delivery orders require a frozen weather delay")
+        return self
 
     @model_validator(mode="after")
     def validate_payment_phase(self) -> "DeliveryState":

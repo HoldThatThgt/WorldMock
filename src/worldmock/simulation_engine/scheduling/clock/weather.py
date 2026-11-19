@@ -15,9 +15,10 @@ def local_weather_date(state) -> str:
     return datetime.fromtimestamp(state.current_time, ZoneInfo(state.timezone)).date().isoformat()
 
 
-def generated_weather(state, date: str) -> str:
-    """@brief 同日期同随机根只确定一次天气，恢复不重新抽取。"""
-    return random_stream(state.random_state, f"weather:{date}").choice(tuple(WEATHER_FACTORS))
+def register_daily_weather(state) -> None:
+    """@brief 在新建世界或推进到新一天的候选世界中，登记当天的天气供同秒报价和天气事件读取。"""
+    date = local_weather_date(state)
+    state.weather_by_date[date] = random_stream(state.random_state, f"weather:{date}").choice(tuple(WEATHER_FACTORS))
 
 
 def current_weather(state) -> str:

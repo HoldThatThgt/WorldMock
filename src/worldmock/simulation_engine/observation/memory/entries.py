@@ -20,7 +20,7 @@ from worldmock.foundation.errors import IntegrityError
 from worldmock.foundation.time.readable import compact_money_phrase, compact_portion_phrase, entry_clock, local_date
 from worldmock.recording_engine.events.models import Event
 from worldmock.recording_engine.projections.commerce.action_orders import placed_orders
-from worldmock.recording_engine.projections.presentation.display_wording import TITLE_LIST_LIMIT
+from worldmock.recording_engine.projections.presentation.display_wording import TITLE_LIST_LIMIT, delivery_delay_phrase
 from worldmock.recording_engine.storage.store import FootprintStore
 from worldmock.simulation_engine.activities.lifecycle import activity_control
 from worldmock.simulation_engine.observation.memory.categories import (
@@ -43,6 +43,8 @@ from worldmock.simulation_engine.observation.wording.settled_text import (
     app_progress,
     kit_phrase,
     pause_intervals,
+    receipt_fields,
+    receipt_phrase,
     track_kits,
 )
 from worldmock.state.interaction.actions import START_TOOLS
@@ -73,8 +75,8 @@ CLOSING_CLOCK = "24:00"
 #: 四种自述前缀。
 PROGRESS_PREFIX, VIEW_PREFIX, MEMORY_PREFIX, BODY_PREFIX = "进展·", "看法·", "记住：", "正文："
 #: 核验行的种类闭集。
-LINE_KINDS = ("ending", "purchase", "delivery", "pickup", "errand_done", "query", "pause", "start", "rejection",
-              "errand_change", "revise", "fallback", "crossing")
+LINE_KINDS = ("ending", "purchase", "delivery", "pickup", "receipt", "errand_done", "query", "pause", "start",
+              "rejection", "errand_change", "revise", "fallback", "crossing")
 #: 自述项的种类闭集与渲染次序档位（routine 只进全文）。
 SELF_RANKS = {"summary": 0, "progress": 0, "view": 1, "memory": 2, "routine": 2, "body": 3}
 #: 缓存读的本人事件类型。
@@ -460,9 +462,13 @@ def _world_drafts(scope: _Scope) -> list[_Draft]:
     drafts = []
     for event in _between(scope.cached, "environment_event", scope.window):
         kind = event.data.get("kind")
-        if kind == "delivery_arrival" and event.visibility == "agent":
+        if event.visibility != "agent":
+            continue
+        if kind == "delivery_arrival":
             drafts.extend(_arrival_drafts(event))
-        elif kind == COMPLETED_KIND and event.visibility == "agent":
+        elif kind == "goods_received" and "quality" in event.data:
+            drafts.append(_Draft("receipt", (event.event_seq, 0, 0, ""), (event.event_id,), (), event))
+        elif kind == COMPLETED_KIND:
             drafts.append(_Draft("errand_done", (event.event_seq, 0, 0, ""), (event.event_id,), (), event))
     return drafts
 
@@ -650,6 +656,8 @@ def _line_category(scope: _Scope, facts: _Facts, draft: _Draft) -> MemoryCategor
         return facts.categories[draft.activities[0]]
     if draft.kind in {"purchase", "delivery", "pickup"}:
         return goods_category(scope.book, [order["goods_id"] for order in draft.data[1]])
+    if draft.kind == "receipt":
+        return goods_category(scope.book, [draft.data.data["goods_id"]])
     if draft.kind in {"errand_done", "errand_change"}:
         return goods_category(scope.book, [draft.data.data["errand"]["product_id"]])
     if draft.kind == "rejection":
@@ -750,7 +758,16 @@ def _arrival_line(scope: _Scope, facts: _Facts, draft: _Draft) -> tuple[str, str
     event, orders = draft.data
     names = "、".join(dict.fromkeys(scope.book.catalog.goods[order["goods_id"]].name for order in orders))
     prefix = _prefix(scope, event.occurred_at)
-    return _same(f"{prefix}送达{names}" if draft.kind == "delivery" else f"{prefix}{names}已到取货点待取")
+    if draft.kind == "delivery":
+        return _same(f"{prefix}送达{names}{delivery_delay_phrase(event.data)}")
+    return _same(f"{prefix}{names}已到取货点待取")
+
+
+def _receipt_line(scope: _Scope, facts: _Facts, draft: _Draft) -> tuple[str, str, str, tuple[str, ...]]:
+    """@brief 一条收货事件对应一份商品，商铺、商品与品质沿用进度层的公开事实。"""
+    del facts
+    event = draft.data
+    return _same(_prefix(scope, event.occurred_at) + receipt_phrase(receipt_fields(scope.book.catalog, event.data)))
 
 
 def _query_line(scope: _Scope, facts: _Facts, draft: _Draft) -> tuple[str, str, str, tuple[str, ...]]:
@@ -844,8 +861,9 @@ def _crossing_line(scope: _Scope, facts: _Facts, draft: _Draft) -> tuple[str, st
 
 #: 各种核验行的写法，按 LINE_KINDS 的次序逐一对应。
 _WRITERS: dict[str, Callable[[_Scope, _Facts, _Draft], tuple[str, str, str, tuple[str, ...]]]] = dict(zip(LINE_KINDS, (
-    _ending_line, _purchase_line, _arrival_line, _arrival_line, _errand_done_line, _query_line, _pause_line,
-    _start_line, _rejection_line, _errand_change_line, _revise_line, _fallback_line, _crossing_line), strict=True))
+    _ending_line, _purchase_line, _arrival_line, _arrival_line, _receipt_line, _errand_done_line, _query_line,
+    _pause_line, _start_line, _rejection_line, _errand_change_line, _revise_line, _fallback_line, _crossing_line),
+    strict=True))
 
 
 def fit_verified(lines: Sequence[EntryLine]) -> list[str]:

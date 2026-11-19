@@ -119,6 +119,7 @@ def validate_registration(rows: dict) -> None:
     methods = _check_travel_methods(rows["travel_methods"])
     _check_locations(rows, apps)
     _check_goods(rows, apps, kinds)
+    _check_store_ratings(rows)
     _check_contents(rows, apps, kinds, frozenset(row.state for row in rows["callback_states"]))
     _check_apps(rows, methods)
     _check_callbacks(rows, apps, methods)
@@ -177,6 +178,18 @@ def _check_goods(rows, apps, kinds) -> None:
             raise RegistrationError("GOODS_BINDING_SIDE_EXCLUSIVE")
         _check_content_apps(goods.app_ids, apps)
         _check_bindings(goods.store_kinds, kinds, "GOODS_BINDING_DANGLING")
+
+
+def _check_store_ratings(rows: dict) -> None:
+    """@brief 登记完商品绑定后，逐个地点检查有售商品的分店均有自己的评分。"""
+    selling_kinds = {kind for goods in rows["goods"] for kind in goods.store_kinds}
+    for number, place in enumerate(rows["locations"], start=1):
+        if place.kind in selling_kinds and place.rating is None:
+            raise RegistrationError("ENVIRONMENT_NUMBER_INVALID",
+                                    f"location.jsonl:{number} A selling location requires a rating.")
+        if place.kind not in selling_kinds and place.rating is not None:
+            raise RegistrationError("ENVIRONMENT_KIND_INVALID",
+                                    f"location.jsonl:{number} Only selling locations can declare a rating.")
 
 
 def _check_contents(rows, apps, kinds, states: frozenset[str]) -> None:

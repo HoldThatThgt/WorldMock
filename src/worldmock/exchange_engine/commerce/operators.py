@@ -1,7 +1,9 @@
-"""@brief 使用固定规则和精确 Decimal 舍入的六个交换算子。"""
+"""@brief 商品收货、配送和出行的固定数值规则与精确舍入。"""
 
 import math
 from decimal import Decimal, MAX_EMAX, MIN_EMIN, localcontext
+from fractions import Fraction
+from random import Random
 from typing import Any
 
 from worldmock.foundation.models import require_finite_number
@@ -13,7 +15,7 @@ from worldmock.exchange_engine.definitions.constants import (
     GOODS_ENERGY_KCAL,
     GOODS_RELAXATION_RELIEF,
 )
-from worldmock.exchange_engine.definitions.types import GoodsCategory
+from worldmock.exchange_engine.definitions.types import GoodsCategory, GoodsQuality
 
 
 def evaluate_purchase(unit_price_fen: int, quantity: int) -> int:
@@ -72,6 +74,26 @@ def delivery_seconds(distance_m: int | float) -> int:
 def delivery_fee_fen() -> int:
     """@brief 返回每单固定配送费。"""
     return DELIVERY_FEE_FEN
+
+
+def delivery_weather_delay_seconds(distance_m: int, weather_factor: float) -> int:
+    """@brief 仅在路上的时间受天气影响。保留精确分数，全部延长量只在最后上取整一次。"""
+    distance = Fraction(_non_negative(distance_m, "distance_m"))
+    factor = Fraction(_non_negative(weather_factor, "weather_factor"))
+    if not 0 < factor <= 1:
+        reject_value("weather_factor must be greater than 0 and at most 1")
+    speed = Fraction(str(DELIVERY_METERS_PER_SECOND))
+    return math.ceil(distance * (1 - factor) / (speed * factor))
+
+
+def goods_quality(rating: int | float, stream: Random) -> GoodsQuality:
+    """@brief 实际卖出商铺的评分是均值，标准差为一；一次正态抽样只留下这份商品的品质档。"""
+    sample = stream.gauss(rating, 1)
+    if sample < 2.5:
+        return "坏"
+    if sample < 3.5:
+        return "中"
+    return "好"
 
 
 def _non_negative(value: Any, label: str) -> Decimal:

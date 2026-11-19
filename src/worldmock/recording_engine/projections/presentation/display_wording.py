@@ -95,6 +95,23 @@ def display_name(names: DisplayNames, kind: str, identity: Any) -> Any:
     return table[identity]
 
 
+def delivery_delay_phrase(arrival: Mapping) -> str:
+    """@brief 已送达一趟外卖的延误说明，按实际差值分别写出天气延长和晚于预计的时长。"""
+    if "late_by_seconds" not in arrival:
+        return ""
+    facts = []
+    if arrival["weather_delay_seconds"]:
+        facts.append(f"天气使配送多用了{_delay_duration(arrival['weather_delay_seconds'])}")
+    facts.append(f"比下单预计晚{_delay_duration(arrival['late_by_seconds'])}")
+    return "。" + "，".join(facts)
+
+
+def _delay_duration(seconds: int) -> str:
+    """@brief 延误时长保留实际秒数，整分钟只写分钟。"""
+    minutes, rest = divmod(seconds, 60)
+    return (f"{minutes}分钟" if minutes else "") + (f"{rest}秒" if rest else "")
+
+
 def goods_items(goods_ids: Iterable[str], name_of: Callable[[str], str]) -> list[str]:
     """@brief 商品名列表的各项：按商品身份升序，同一商品的几份合写成「名称×份数」。
 

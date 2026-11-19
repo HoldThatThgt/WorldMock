@@ -264,10 +264,10 @@ MUTATIONS = (
         "format_version: Literal[6]", "format_version: Literal[5]",
         ("tests/unit/catalog/test_manifest_version.py"
          "::test_otherwise_complete_package_with_an_old_version_number_is_refused",)),
-    SourceMutation("world_schema_version_still_fourteen", 'worldmock.state.world.world::WORLD_SCHEMA_VERSION',
-        "WORLD_SCHEMA_VERSION = 15", "WORLD_SCHEMA_VERSION = 14",
+    SourceMutation("world_schema_version_still_fifteen", 'worldmock.state.world.world::WORLD_SCHEMA_VERSION',
+        "WORLD_SCHEMA_VERSION = 16", "WORLD_SCHEMA_VERSION = 15",
         ("tests/integration/life/test_state_serialization.py"
-         "::test_world_state_schema_is_fifteen_and_the_previous_version_is_refused",)),
+         "::test_world_state_schema_is_sixteen_and_the_previous_version_is_refused",)),
     SourceMutation("export_schema_version_still_seven", 'worldmock.recording_engine.export.export::EXPORT_SCHEMA_VERSION',
         "EXPORT_SCHEMA_VERSION = 8", "EXPORT_SCHEMA_VERSION = 7",
         ("tests/integration/footprints/test_acs_export.py"

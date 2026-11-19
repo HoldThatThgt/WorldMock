@@ -15,11 +15,11 @@ _CONTENT = {"app": "Keep", "title": "测试慢跑", "summary": "测试慢跑的�
 _DONE = {"title": "备菜", "summary": "备菜的测试用合成摘要。", "duration": "约 20 分钟", "finished": True}
 _UNDONE = {"title": "吃饭", "summary": "", "duration": "约 25 分钟", "finished": False}
 _DELIVERED = {"product": "柠檬茶", "quantity": "1 份", "channel": "饿了么", "destination": "家",
-              "expected_at": "2026-01-05T08:25:00+08:00", "paid": "17 元"}
+              "expected_at": "2026-01-05T08:25:00+08:00", "store": "三杯咖啡", "rating": 4.5, "paid": "17 元"}
 _IN_STORE = {"product": "柠檬茶", "quantity": "1 份", "channel": "到店", "destination": "四季便利",
-             "expected_at": _AT, "price": "12 元"}
+             "expected_at": _AT, "store": "四季便利", "rating": 3.5, "price": "12 元"}
 _ORDERABLE = {"product": "柠檬茶", "route": "外卖", "store": "四季便利", "apps": ["美团外卖"], "price": "12 元",
-              "delivery_fee": "5 元", "expected_at": "2026-01-05T08:25:00+08:00", "now": "可以下单",
+              "rating": 3.5, "delivery_fee": "5 元", "expected_at": "2026-01-05T08:25:00+08:00", "now": "可以下单",
               "reason": None}
 _NOT_ORDERABLE = {"product": "冰美式咖啡", "route": None, "store": None, "apps": [], "price": "22 元",
                   "delivery_fee": None, "expected_at": None, "now": "不可下单", "reason": "这个 app 里没有"}
@@ -75,6 +75,12 @@ def test_result_details_schema_accepts_every_listed_key(details):
 @pytest.mark.parametrize("details", [
     pytest.param({"purchases": [{key: value for key, value in _DELIVERED.items() if key != "channel"}]},
                  id="purchase-without-channel"),
+    pytest.param({"purchases": [{key: value for key, value in _DELIVERED.items() if key != "rating"}]},
+                 id="purchase-store-without-rating"),
+    pytest.param({"query": {**_ANSWERED, "rows": [{**_NOT_ORDERABLE, "rating": 4}]}},
+                 id="query-rating-without-store"),
+    pytest.param({"query": {**_ANSWERED, "rows": [{key: value for key, value in _ORDERABLE.items() if key != "rating"}]}},
+                 id="query-store-without-rating"),
     pytest.param({"contents": []}, id="empty-contents"),
     pytest.param({"contents": [_DONE, _DONE, _DONE, _UNDONE]}, id="four-contents-rows"),
     pytest.param({"contents": [_DONE, _DONE, _DONE], "contents_omitted": "还有 0 条没列"}, id="none-left-out"),

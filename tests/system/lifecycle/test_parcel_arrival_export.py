@@ -149,7 +149,7 @@ def test_parcel_arrival_collection_and_export_are_authenticated(engine_factory, 
     sources, facts = export_completed_run(engine, tmp_path)
     final = engine.context.state.deliveries[order.order_id]
     assert final == collected
-    assert pickup.data["orders"] == [final.model_dump(mode="json")]
+    assert pickup.data["orders"] == [final.public_snapshot()]
     assert_exported_arrival_caused_by_payment(sources, facts, final)
     assert_exported_notices_without_a_delivered_one(tmp_path, final)
     stays = [json.loads(line) for line in (tmp_path / "export/location-stays.jsonl").read_bytes().splitlines()]
@@ -157,8 +157,13 @@ def test_parcel_arrival_collection_and_export_are_authenticated(engine_factory, 
     assert [row["entry_kind"] for row in visits] == ["arrival"] and visits[0]["entered_at"] <= final.received_at
     (receipt,) = order_rows(facts, "receipt", order.order_id)
     assert receipt["received_at"] == final.received_at
+    experiences = (tmp_path / "export/verified-experiences.jsonl").read_text(encoding="utf-8").splitlines()
+    [experience] = [row for raw in experiences if (row := json.loads(raw)).get("order_id") == order.order_id]
+    assert experience["kind"] == "received" and experience["source_event_id"] == receipt["source_event_id"]
+    assert all("quality" not in row and "store_id" not in row for row in (receipt, experience))
     received = sources[receipt["source_event_id"]]
+    assert "quality" not in received["data"] and "store_id" not in received["data"]
     assert received["data"]["kind"] == "goods_received" and received["caused_by"] == [accepted.event_id]
     result = sources[accepted.event_id]
     assert result["event_type"] == "action_result" and result["data"]["status"] == "in_progress"
-    assert result["data"]["data"]["orders"] == [final.model_dump(mode="json")]
+    assert result["data"]["data"]["orders"] == [final.public_snapshot()]

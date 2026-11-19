@@ -22,6 +22,23 @@ def facts(real_export):
     return events, activities, rows("purchases.jsonl"), rows("app-usage.jsonl"), manifest["checkpoint"]["state"]
 
 
+@pytest.mark.parametrize("corruption", ["wrong_store", "missing_quality", "unknown_quality", "other_source_quality"])
+def test_receipt_export_authenticates_the_seller_and_quality_of_each_order(facts, corruption):
+    events, activities, purchases, apps, state = deepcopy(facts)
+    row = next(item for item in purchases if item["fact_kind"] == "receipt")
+    source = next(item["data"] for item in events if item["event_id"] == row["source_event_id"])
+    if corruption == "wrong_store":
+        source["store_id"] = row["store_id"] = "another-store"
+    elif corruption == "missing_quality":
+        del row["quality"], source["quality"]
+    elif corruption == "unknown_quality":
+        source["quality"] = row["quality"] = "5"
+    else:
+        row["quality"] = "坏" if source["quality"] == "好" else "好"
+    with pytest.raises(IntegrityError, match="store or quality"):
+        validate_footprint_facts(events, activities, purchases, apps, state)
+
+
 def test_current_facts_pass_all_invariants(facts):
     validate_footprint_facts(*facts)
 

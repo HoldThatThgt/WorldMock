@@ -65,15 +65,15 @@ def _lived_day(engine):
 
 
 def _arrival_and_receipt(engine):
-    """这一天唯一的到达与收货照改动之前的写法应写成的两句：「<时刻> 步行到了四季便利」（进不去时接「，但没能进去」）与
-    「<时刻> 收到纸巾 1 份」。"""
+    """这一天唯一的到达与收货应写成的两句：「<时刻> 步行到了四季便利」（进不去时接「，但没能进去」）与
+    「<时刻> 四季便利 · 纸巾：这份品质〈档〉」。"""
     now, zone = engine.context.state.current_time, engine.context.config.timezone
     [arrived] = [row for row in events(engine, "activity_progress")
                  if "arrival" in row.data["activity"]["data"] and row.data["activity"]["status"] == "completed"]
     [received] = [row for row in events(engine, "environment_event") if row.data.get("kind") == "goods_received"]
     denied = "，但没能进去" if arrived.data["activity"]["data"]["arrival"]["access_status"] == "denied" else ""
     return [f"{clock_phrase(arrived.occurred_at, now, zone)} 步行到了四季便利{denied}",
-            f"{clock_phrase(received.occurred_at, now, zone)} 收到纸巾 1 份"]
+            f"{clock_phrase(received.occurred_at, now, zone)} 四季便利 · 纸巾：这份品质{received.data['quality']}"]
 
 
 def _content_tails(sentences):
@@ -181,8 +181,8 @@ async def test_invalid_reminder_uses_only_its_validation_budget_and_retains_corr
 
 def test_plan_inputs_word_app_use_and_location_activities_like_the_timeline(engine_factory, tmp_path):
     """用完 app、在地点做完一件事和一个系列之后，零点计划读到的内容经历句是「<起>–<止> 使用哔哩哔哩《……》」「<起>–<止>
-    在家：测试休息」「<起>–<止> 在家：做晚饭《<集>》」，系列逐集一句；不再写「进行《……》」。同一天的到达句与收货句
-    照旧。回顾时段不含生成时刻那一秒，所以收货之后先在店里查一次商品、推进一个边界再取计划输入。"""
+    在家：测试休息」「<起>–<止> 在家：做晚饭《<集>》」，系列逐集一句；不再写「进行《……》」。同一天的到达句与商铺品质收货句各有一条。
+    回顾时段不含生成时刻那一秒，所以收货之后先在店里查一次商品、推进一个边界再取计划输入。"""
     engine = engine_factory(environment_root=_dinner_environment(tmp_path))
     titles = _lived_day(engine)
     _, looked = act(engine, "look", query("纸巾"))
@@ -190,7 +190,7 @@ def test_plan_inputs_word_app_use_and_location_activities_like_the_timeline(engi
     advance_next(engine)
     planned = plan_inputs(engine.context, engine.observations, engine.midnight_rhythm_pending, 1)
     sentences = [sentence for sentence, _ in planned.experiences]
-    assert [sentence for sentence in sentences if "到了" in sentence or "收到" in sentence] == _arrival_and_receipt(engine)
+    assert [sentence for sentence in sentences if "到了" in sentence or "这份品质" in sentence] == _arrival_and_receipt(engine)
     tails = _content_tails([sentence for sentence, _ in planned.experiences])
     watched = [tail for tail in tails if tail.startswith("使用")]
     assert watched and {tail.removeprefix("使用哔哩哔哩《").removesuffix("》") for tail in watched} == titles

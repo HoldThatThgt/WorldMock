@@ -78,7 +78,7 @@ def test_real_delivery_export_links_payment_arrival_and_one_receipt(engine_facto
     paid = next(iter(engine.context.state.deliveries.values()))
     assert paid.paid_at is not None and paid.received_at is None
     accounts = dict(engine.context.state.accounts)
-    reach(engine, paid.expected_at)
+    reach(engine, paid.arrival_due_at())
     assert engine.context.state.accounts == accounts
     run_to_end(engine)
     output = tmp_path / "delivery-export"
@@ -86,18 +86,30 @@ def test_real_delivery_export_links_payment_arrival_and_one_receipt(engine_facto
     snapshot = store.assets.put_json({"completed": True}, {"kind": "test_agent_snapshot"})
     engine.checkpoint({"agent:1": snapshot})
     export_run(store, store.last_event_seq, output)
-    manifest, _ = validate_export(output)
+    manifest, activities = validate_export(output)
     exported_events = artifact_rows(output, "events")
     assert manifest["experiment_completed"] is True
     purchases = [json.loads(row) for row in (output / "purchases.jsonl").read_text(encoding="utf-8").splitlines()]
     bought = next(row for row in purchases if row["fact_kind"] == "purchase")
     receipts = [row for row in purchases if row["fact_kind"] == "receipt"]
     assert len(receipts) == 1 and receipts[0]["order_id"] == bought["order_id"] == paid.order_id
-    assert receipts[0]["received_at"] == paid.expected_at
+    assert receipts[0]["received_at"] == paid.arrival_due_at()
     assert receipts[0]["goods_id"] == bought["goods_id"] == paid.goods_id
     arrival = next(row for row in exported_events if row["data"].get("kind") == "delivery_arrival")
-    assert arrival["data"]["orders"][0]["received_at"] == paid.expected_at
+    assert arrival["data"]["orders"][0]["received_at"] == paid.arrival_due_at()
+    [experience] = [row for row in artifact_rows(output, "verified_experiences") if row["kind"] == "received"]
+    assert experience["quality"] == receipts[0]["quality"] in {"好", "中", "坏"}
+    assert experience["store_id"] == receipts[0]["store_id"] == paid.store_id
+    assert experience["order_id"] == receipts[0]["order_id"] == paid.order_id
     assert not any(row["fact_kind"] == "pickup_ready" for row in purchases)
+    from worldmock.recording_engine.validation.invariants import validate_footprint_facts
+
+    for field in ("weather_delay_seconds", "late_by_seconds"):
+        arrival["data"][field] += 1
+        with pytest.raises(IntegrityError, match="Delivery delay disagrees"):
+            validate_footprint_facts(exported_events, activities, purchases, artifact_rows(output, "app_usage"),
+                                     manifest["checkpoint"]["state"])
+        arrival["data"][field] -= 1
 
 
 def test_clock_in_exports_one_app_use_and_one_content_consumed_row(engine_factory, tmp_path):

@@ -404,7 +404,7 @@ def test_how_to_live_a_day_is_one_resident_section_of_the_life_system_layer() ->
     assert sum("不保存库存" in rule for rule in rules) == 1
     assert "怎样过一天" not in action_system and "你不是AI助手" not in action_system
     for banned in ("评审", "评分", "引擎期望", "budget", "based_on_action_id", "supply_id", "正确答案", "环境期望"):
-        assert banned not in action_system
+        assert banned not in action_system.replace("店铺评分", "")
 
 
 def test_location_norm_is_removed_from_static_tool_and_system_text() -> None:

@@ -46,6 +46,8 @@ REST = main_arguments("interact", "家", "测试休息")
 
 def _evening(persona, config):
     """运行配置：2026-01-05（星期一）21:00 开始，次日 08:00 截止。"""
+    # 十五分钟的休息期间提供实际播报机会，独立于外卖到达的早晚。
+    config["progress_report_interval_seconds"] = 300
     config["start_time"] = datetime.fromisoformat("2026-01-05T21:00:00+08:00")
     config["stop_time"] = datetime.fromisoformat("2026-01-06T08:00:00+08:00")
 

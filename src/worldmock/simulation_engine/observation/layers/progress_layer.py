@@ -18,6 +18,7 @@ from datetime import datetime
 from worldmock.foundation.errors import IntegrityError
 from worldmock.recording_engine.events.models import Event
 from worldmock.recording_engine.storage.store import FootprintStore
+from worldmock.recording_engine.projections.presentation.display_wording import delivery_delay_phrase
 from worldmock.simulation_engine.activities.lifecycle import sessions
 from worldmock.simulation_engine.activities.lifecycle.activity_control import slot_activities
 from worldmock.state.planning.errands import COMPLETED_KIND, REMINDED_KIND
@@ -35,7 +36,7 @@ from worldmock.simulation_engine.observation.layers.result_projection import pub
 from worldmock.simulation_engine.observation.memory.days import day_bound
 from worldmock.simulation_engine.observation.memory.entries import AgentEvents, agent_events, decision_commits
 from worldmock.recording_engine.projections.activities.session_bounds import session_lower
-from worldmock.simulation_engine.observation.wording.settled_text import KitUse, record_lines
+from worldmock.simulation_engine.observation.wording.settled_text import KitUse, receipt_fields, record_lines
 from worldmock.simulation_engine.observation.targets.tool_layer import LayerContext
 
 #: 订单仍在途的状态（相关记录受保护）。
@@ -43,7 +44,7 @@ OPEN_ORDER_STATUSES = frozenset({"pending", "ready_for_pickup"})
 #: 被进度层消费的两种个人事务事件（人物可见）→ 记录类型；其余四种事务事件只供审计与指标，不进进度层。
 _ERRAND_RECORDS = {REMINDED_KIND: "errand_reminder", COMPLETED_KIND: "errand_completed"}
 #: 记忆事实的环境事件种类：它们的事实写进记忆层「今天」的条目，进度层只写序号大于已发布界的。
-FACT_EVENT_KINDS = frozenset({"delivery_arrival", COMPLETED_KIND})
+FACT_EVENT_KINDS = frozenset({"delivery_arrival", "goods_received", COMPLETED_KIND})
 #: 非记忆的环境事件种类：不进今天条目，进度层只写序号大于上一次决策观察（且大于零点界）的。
 NOTICE_EVENT_KINDS = frozenset({REMINDED_KIND, "app_push", "callback_reminder", "balance_decreased"})
 
@@ -222,8 +223,15 @@ def _world_records(context: LayerContext, store: FootprintStore, bounds: tuple[i
         if event.visibility != "agent":
             continue
         if kind in FACT_EVENT_KINDS and event.event_seq > facts_after:
-            records.extend(_delivery_records(context, event) if kind == "delivery_arrival"
-                           else [_errand_record(context, event)])
+            if kind == "delivery_arrival":
+                records.extend(_delivery_records(context, event))
+            elif kind == COMPLETED_KIND:
+                records.append(_errand_record(context, event))
+            elif "quality" in event.data:
+                record = {"occurred_at": iso_time(event.occurred_at, context.config.timezone), "type": "receipt",
+                          **receipt_fields(context.catalog, event.data)}
+                records.append(_Record(record, (event,), _event_key(event.occurred_at, [event]),
+                                       (event.data["order_id"],)))
         elif kind in NOTICE_EVENT_KINDS and event.event_seq > notices_after:
             records.extend(_notice_record(context, event))
     return records
@@ -270,6 +278,8 @@ def _delivery_records(context: LayerContext, event: Event) -> list[_Record]:
         messages = {"pending": "等待送达",
                     "ready_for_pickup": f"已到{places[order['destination_id']]}，请本人领取",
                     "delivered": f"已送到{places[order['destination_id']]}"}
+        if not records and order["status"] == "delivered":
+            messages["delivered"] += delivery_delay_phrase(event.data)
         record = {"occurred_at": iso_time(event.occurred_at, zone), "type": "delivery",
                   "order": order_label(order, names, (zone, now)),
                   "status": order["status"], "message": messages[order["status"]]}

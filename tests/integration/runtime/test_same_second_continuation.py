@@ -1000,7 +1000,7 @@ async def test_chain_events_leave_out_memory_facts_from_the_previous_commit(_eng
     assert bought.status == "in_progress", bought.error_code
     finish_activity(engine, bought, "notebook")
     [order] = engine.context.state.deliveries.values()
-    reach(engine, order.expected_at)
+    reach(engine, order.arrival_due_at())
     _until_free(engine)
     assert engine.context.state.deliveries[order.order_id].status == "ready_for_pickup"
     _, trip = act(engine, "to-station", travel("快递驿站", "驾车"))

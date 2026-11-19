@@ -138,7 +138,7 @@ def receive(engine, *goods):
     _, (rest, bought) = act_group(engine, label, do_at("家", "测试休息"), purchase(*goods))
     assert (rest.status, bought.status) == ("in_progress", "in_progress"), (rest.error_code, bought.error_code)
     orders = engine.context.state.activities[bought.activity_id].data["order_ids"]
-    reach(engine, max(engine.context.state.deliveries[key].expected_at for key in orders))
+    reach(engine, max(engine.context.state.deliveries[key].arrival_due_at() for key in orders))
     assert {engine.context.state.deliveries[key].status for key in orders} == {"delivered"}
     assert advance_until_ready(engine)
     names = [engine.context.state.activities[rest.activity_id].name, *pending_names(engine)]

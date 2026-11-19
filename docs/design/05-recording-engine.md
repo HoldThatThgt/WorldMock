@@ -238,6 +238,8 @@ app_touch、payment_notification 和 order_notification 是系统点事实，不
 
 购买投影保存实际订单商品、门店、平台、付款 app、数量、价格与履约事实。人物写的 `prefer` 原文只在 `action_requested` 事件的请求里，购买工件不为它加字段。
 付款、到站与收货分开；收到的经历只能来自已提交的本人真实收货事件。地点内容的完成效果（含 `food` 补的能量）不是收货，不进购买投影，也不是「收到」这种已核验经历。
+到店与外卖每条 `goods_received` 事件在原有字段上记录实际卖出商铺 `store_id` 与该份商品的 `quality`（好、中、坏）。导出的购买事实中，每条 `receipt` 收货行与 `verified-experiences.jsonl` 中的 `received` 经历行沿用来源事件的这两个字段。快递取件沿用原有字段。核验按 `order_id` 对应已履约订单，检查商铺一致、品质合法、来源事件一致，每份只有一条收货。
+有延误的外卖在一趟配送的 `delivery_arrival` 事件顶层记录天气总延长 `weather_delay_seconds` 和实际比下单预计晚的 `late_by_seconds`。两者是已经发生的秒数。该趟「订单已送达」通知用同一到达事实解释延误一次。外卖的购买与在途订单事件快照只公开下单预计；快递到站沿用原有正文。
 对象的显示名一律取自这次运行冻结的环境目录，不从观察记录里取；日时间线的写法见「显示写法与检查工具」。
 
 ## 显示写法与检查工具
@@ -728,7 +730,7 @@ app 的开关、订单通知和地点停留只进事件与这些工件，不进�
 | 同一时刻只有一个 app 在前台 | 同一人物全部 `app_use` 区间互不重叠、长度为正，导航、下单、支付、查询所在的 app 与人物点名使用的 app 一起查 | `App use intervals overlap or have no positive duration` |
 | 「支付成功」 | 每张已付款订单，支付 app 与下单 app 不全为空时恰一条；发送的 app 是支付 app，直付时是下单 app；金额、记录集合、时刻与起因和这张订单的付款事件一致 | `Payment notification count disagrees with actual payment`、`Payment notification disagrees with its actual purchase payment` |
 | 订单已下单 | 每张带下单 app 的已付款订单恰一条，时刻等于付款时刻，app、记录集合与起因和这张订单一致；未付款的订单没有 | `Order notification count disagrees with actual payment, shipment or delivery`、`Order notification disagrees with its actual order event` |
-| 订单已发货 | 每趟已付款的配送至多一条；发货时刻不晚于导出里最后一条事件的时刻时恰一条；时刻等于付款时刻加「到达排程的到期时刻减付款时刻」的十分之一，向上取整到秒 | 同上两句 |
+| 订单已发货 | 每趟已付款的配送至多一条；发货时刻不晚于导出里最后一条事件的时刻时恰一条；时刻等于付款时刻加「付款至公开预计的非负间隔」的十分之一，向上取整到秒 | 同上两句 |
 | 订单已送达 | 每趟已送达的外卖配送恰一条，时刻等于送达时刻，起因是这一趟的到达事件；快递和到店没有 | 同上两句 |
 | 冻结环境里的 app | 导航的 app 是绑定了该出行方式的功能 app，下单的 app 是内容 app，支付的 app 是绑定了购买的功能 app 或内容 app；「支付成功」的 app 同支付；订单通知的 app 是内容 app | `Foreground app disagrees with its frozen app role or binding`、`Payment notification disagrees with its frozen app`、`Order notification disagrees with its frozen content app` |
 | 停留工件 | `location-stays.jsonl` 与由事件重新投影的结果逐行相同 | `Export location stays disagree with committed events` |

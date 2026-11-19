@@ -19,6 +19,9 @@ def test_actual_basket_preserves_payment_goods_and_receipt_ownership(engine_fact
     sources = {row["event_id"]: row for row in events}
     assert all(sources[row["source_event_id"]]["event_type"] == "action_result" for row in bought)
     assert all(sources[row["source_event_id"]]["data"]["kind"] == "goods_received" for row in received)
+    for row in received:
+        source = sources[row["source_event_id"]]["data"]
+        assert row["quality"] == source["quality"] and row["store_id"] == source["store_id"] == "store"
     assert {row["source_event_id"] for row in bought}.isdisjoint(row["source_event_id"] for row in received)
     assert {row["order_id"] for row in bought} == {row["order_id"] for row in received}
     assert project_purchase_facts(events) == facts

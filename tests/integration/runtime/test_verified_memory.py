@@ -91,7 +91,8 @@ def test_multiple_receipts_keep_goods_and_their_source_references(tmp_path):
         receipts = footprint.append_evidence([EventDraft(
             event_type="environment_event", occurred_at=100, agent_id=1,
             data={"kind": "goods_received", "order_id": f"order-{goods_id}",
-                  "goods_id": goods_id, "category": "meal", "quantity": 1},
+                  "goods_id": goods_id, "category": "meal", "quantity": 1, "store_id": "shop",
+                  "quality": "好" if goods_id == "rice" else "坏"},
         ) for goods_id in ("rice", "soup")])
         facts = project_verified_experiences(receipts, agent_id=1, cutoff_seq=receipts[-1].event_seq)
         store = _store(tmp_path / "memory")
@@ -100,6 +101,7 @@ def test_multiple_receipts_keep_goods_and_their_source_references(tmp_path):
         assert outcome.verified_event_ids == tuple(receipt.event_id for receipt in receipts)
         view = store.memory_md_path.read_text(encoding='utf-8')
         assert all(view.count(receipt.event_id) == 1 for receipt in receipts)
+        assert "rice 1 份，商铺 shop，这份品质好" in view and "soup 1 份，商铺 shop，这份品质坏" in view
         episode = outcome.created_episodes[0]
         evidence = MemoryUpdateEvidence(
             context=None, operation="append_episodes", created_episode_ids=(episode["id"],),

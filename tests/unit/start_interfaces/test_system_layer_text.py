@@ -1,4 +1,4 @@
-"""系统层恰二十二条，逐字、按序钉住；新五条与提案原文逐字节相同，保留的十七条与基线逐字相同；旧文字与已删除的机制不再出现；用途句恰八个键；唤醒表每一行都有系统层的措辞说出；规则引用的记忆层键都在 Schema 里；提示指纹只绑定生活系统层与七层 Schema，随文字改变；系统层正文与工具指纹不变。"""
+"""系统层恰二十二条，逐字、按序钉住；记忆规则与购买规则的现行文字按组核对；旧文字与已删除的机制不再出现；用途句恰八个键；唤醒表每一行都有系统层的措辞说出；规则引用的记忆层键都在 Schema 里；提示指纹只绑定生活系统层与七层 Schema，随文字改变；核对系统层正文与工具指纹。"""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from worldmock.agents.prompt.prompt_schemas import LAYER_SCHEMAS, MEMORY_LAYER_S
 from worldmock.state.interaction.requests import QUERY_MODELS
 from worldmock.state.planning.schedule import WAKE_TRIGGERS
 
-#: 系统层二十二条的逐字定稿，次序即下标；下标 3–14、16–20 十七条与改动之前（原下标 1–12、14–18）逐字相同。
+#: 系统层二十二条的逐字定稿，次序即下标。
 _RULES = (
     ("人设层写你的身份、作息与习惯；记忆层写已经过去的事；待办层写暂停活动、个人事务、在途订单和今日计划；"
      "工具层写此刻的对象、动作、条件与代价；环境层写身体感觉、位置、天气和工作安排；"
@@ -72,7 +72,8 @@ _RULES = (
     ("用内容 app 只是看这个 app 里的内容，不显示商品，也不会下单；看到的内容像菜单或商品介绍，也不等于买了。"
      "只列在 prefer_apps 里的 app 用来下单和查询，不能用 interact 打开。"
      "买东西只有 purchase：你所在的地点就卖这件商品时直接到店买，否则经 app 下单；"
-     "一次买几件时每件各自判断，可能分成几张订单。实际是到店买的还是用了哪个 app，写在购买结果的 channel 里。"),
+     "一次买几件时每件各自判断，可能分成几张订单。实际是到店买的还是用了哪个 app，写在购买结果的 channel 里。"
+     "查到的店铺评分可以用来挑选。拿到商品后才知道这份的品质；收尾时若想写看法，结合这份品质、自己的口味和价格。"),
     ("不知道买什么、在哪买，用 query。查询要 5 到 10 分钟，不能暂停；"
      "答案在查询做完时才写进这次请求的结果，写明是在哪个 app 里查的，中途结束就没有答案。"
      "查询做完自己结束，不用收尾，可以接着下单。查询不下单，要买再用 purchase 写答案里的商品名。"
@@ -178,11 +179,11 @@ def test_new_rules_are_the_proposal_text_byte_for_byte():
         assert hashlib.sha256(rules[index].encode()).hexdigest() == digest, index
 
 
-def test_kept_rules_and_the_whole_list_match_their_digests():
-    """保留的十七条与改动之前同一摘要（只是下标顺移），整份二十二条的摘要也钉住。"""
+def test_action_rules_and_the_whole_list_match_their_digests():
+    """行动规则包括收货后才能判断这一份的品质，按组并以整表核对。"""
     rules = LIFE_SYSTEM_LAYER["rules"]
-    assert _digest([*rules[3:15], *rules[16:21]]) == "f4e25c9f0fdce4b05da6b5fe0d20605734ebcd854715c0a621d448875b2fccc9"
-    assert _digest(rules) == "962509d9b376b0bd44af8208e761429333682ffbae2ac3b2561b284c36ec2e9b"
+    assert _digest([*rules[3:15], *rules[16:21]]) == "d6265a7d76ee1997d4d64e999a4dce8035352d3c927175a2122566119584fbc0"
+    assert _digest(rules) == "e7099a4aaa172c36278be49dc10036d72e93bffcd396fc78806b48bafbc5cc54"
 
 
 def test_wake_sentence_names_every_wake_trigger():
@@ -238,7 +239,7 @@ def test_prompt_fingerprint_binds_only_the_life_system_layer_and_the_layer_schem
     template = {"life": LIFE_SYSTEM_LAYER, "layer_schemas": LAYER_SCHEMAS}
     encoded = json.dumps(template, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
     assert life_prompt_sha256() == hashlib.sha256(encoded).hexdigest()
-    assert life_prompt_sha256() == "cd454d1b18c8a211d8eeb0bb25aaba7ff2ef4b0732c9a2bd7aaa4385a5f67842"
+    assert life_prompt_sha256() == "01c97ec05f1f3325f2c5a3f9420fa59712e5f3ec0c828ae0dd3c72c3906625e0"
     assert life_prompt_sha256() != "1947c112bf46fd262cc159d4163a3831a0aa55d42c70ad7645ffd3ba40524a05"
 
 
@@ -246,5 +247,5 @@ def test_the_life_system_layer_bytes_and_the_tool_fingerprint_are_unchanged():
     """生活决策 system 消息正文的摘要与八个原生工具的工具指纹都与基线相同。"""
     content = system_message()["content"]
     assert hashlib.sha256(content.encode()).hexdigest() == (
-        "6f51d166a9f94a3fc12ff49f461c30ef76250a9458bace868d4a96f67f2cb5db")
+        "cf3bd9d6111e34b77aa219f39bc813ada945643d0a3a799d5b232c13a08401c0")
     assert life_tool_schema_sha256() == "aa0ed7fa01f00558ac94d6e25e71a36d983f25dbb06834c2c31911cffec5bd7e"
