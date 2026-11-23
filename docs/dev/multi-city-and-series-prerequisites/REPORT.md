@@ -26,8 +26,8 @@ flowchart LR
 - **确定性基线与静态门禁**：同步刷新内置单城示例环境（`test-city`、版本 `7`）、[viewer-context.json](../../../tests/fixtures/viewer-context.json)（`test_run_viewer_recording.py` 与 `tests/system/viewer/` `2` 项通过）、以及各经两次独立运行一致后冻结发布的 [dayrun-activity-baseline.json](../../../tests/fixtures/dayrun-activity-baseline.json) 与 [dayrun-callback-baseline.json](../../../tests/fixtures/dayrun-callback-baseline.json)（`test_complete_day_baseline.py` `4` 项通过）；提示词摘要与八个工具声明校验（`test_system_layer_text.py` `10` 项）及风格、导入图与单源工程门禁全部通过。
 - **全量测试、覆盖率与变异测试状态**：
   - 完整门禁首轮运行时，全库共 `6,817` 项测试中 `6,811` 项通过、`0` 错误、`0` 跳过，分支覆盖率达 `96.28%`（高于 `85%` 门槛）；当时仅余 `6` 项新增 `SourceMutation` 用例因捕获异常类型过早绕过断言以及 `Graph.next_hub_toward` 一行未覆盖分支待补齐。
-  - 随后在未改动生产代码的前提下补齐上述 `6` 项断言与 `Graph.next_hub_toward` 分支覆盖，并逐项实测复验通过：相关专项与工程门禁聚焦回归 `147` 项全过，该 `6` 项 `SourceMutation` 独立变异运行均以预期断言失败稳定击杀（`killed_by_gate=True`），[graph.py](../../../src/worldmock/resource_engine/map/graph.py) 目标行已覆盖，`test_multi_city_and_edge_admission.py` 与 `test_graph.py` 共 `18` 项通过，全部改动文件均为 UTF-8 无 BOM 且仅含 LF 换行。
-  - 按合入推送指令，先行将当前代码、文档与测试合并推送至 `main`；包含全量 `6,817+` 测试、带分支覆盖统计与全部 `343` 条逐进程变异检查的完整后台门禁仍在独立工作树内继续运行（截至推送前保持零失败推进），完成后如发现任何尾项问题将另行提交小型修复提交。
+  - 随后在未改动生产代码的前提下补齐上述 `6` 项断言与 `Graph.next_hub_toward` 分支覆盖，在提交 `604361dd8a072dfc84859adbb7f919301da05ce5` 上完成完整门禁验收：全库 `6,817` 项 pytest 测试全部通过（`0` 失败、`0` 错误、`0` 跳过，耗时 `5,986.87 s`），包含全部 `343` 条 `SourceMutation` 源码变异守卫逐条稳定识别；分支覆盖率达 `96.30%`（覆盖 `5,747` 条分支、未覆盖 `221` 条，高于 `85%` 门槛），公共接口未覆盖数为 `0`；Node 查看器测试 `130` 项全过，`documentation_gate.py` 报告 `0 problems`，`build_design_doc.py` 构建设计 HTML（`366,438` 字符）成功，全部改动文件均为 UTF-8 无 BOM 且仅含 LF 换行。
+  - 补记上述终轮实测数字至本报告后，复跑 `scripts/documentation_gate.py`、`tests/unit/engineering/test_documentation_gate.py` 与 `tests/unit/engineering/test_design_doc_build.py` 通过。
 
 ## 无人值守时采用的决定
 
