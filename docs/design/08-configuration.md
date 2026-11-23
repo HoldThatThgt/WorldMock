@@ -186,6 +186,7 @@ flowchart LR
 登记失败的 `reason` 是固定英文原因后接一个空格和详情，没有详情时只有固定原因；
 行号、实际路径、地点对和更短路线等详情都经这一处到达作者。
 成功只返回 `valid`、`environment_id`、`environment_version`。
+完整加载与 `validate --environment ROOT` 在把 `persona.home_location` 解析到住宿地点（须标为 `is_home: true` 与 `sleepable: true`）之后核验驿站准入（`PARCEL_STATION_REQUIRED`）：只有当目录存在至少一件非即时的 app 侧商品（`app_ids` 非空且 `instant` 为假）时，才要求在人物住处所属城市（`home_location.city_id`）内至少登记一个 `accepts_parcels: true` 驿站；仅含店铺商品或 `instant: true` 电子商品的目录不强制要求驿站。任何已声明的 `accepts_parcels: true` 驿站仍须在其地点类型上绑定至少一条地点内容。
 新建运行在纯加载成功后由 `persona.toml` 直接构造人物卡片，不调用模型；恢复和重放在每次运行开始时同样由冻结的 `persona.toml` 构造卡片，不比对人物工作区，
 `persona.toml` 与父运行的一致由运行清单的 `persona_sha256` 核对，见[人物](06-agent.md)「人物身份与画像」。命令行没有单独的人物卡片命令。
 运行输入警告有两种，新建运行时算出、冻结进运行清单的 `input_warnings`、计入质量报告并各写一条运维日志，不使运行失败：
@@ -204,8 +205,8 @@ flowchart LR
 
 | 用途 | 稳定键与取值 |
 | --- | --- |
-| 地图 | `map`，抽取六十四位整数作地图种子；同一个地图种子用于随机树、额外边抽取和边长，声明边不消耗随机数 |
-| 天气 | `weather:{local_date}` |
+| 地图 | `map:{city_id}`，按已登记城市分别抽取六十四位整数作该城地图种子；同一个城市地图种子用于该城内部不少于两个地点时的同城随机树、额外边抽取和边长（单地点城市保持零条内部边，跨城不生成随机边），声明边不消耗随机数 |
+| 天气 | `weather:{city_id}:{local_date}`，按已登记城市分别抽取当日天气 |
 | 睡过头 | `oversleep:{action_id}`，`action_id` 是开始这段睡眠的那条动作；只在这段睡眠开始的时刻往回 24 小时的睡眠合计（不含这段睡眠自己）不足四小时时取流，先抽一位，抽中再抽二十至六十的整数分钟，两端都能取到；每段睡眠只抽一次 |
 | 购买总时长 | `purchase-duration:{action_id}`，六十至三百整数秒，一次请求只抽一次；实际购买时长取它与各张订单付款时长合计中较大的一个 |
 | 支付段时长 | `payment-duration:{action_id}:{payment_order_key}`，每张订单十至二十整数秒，在内容 app 里直付也抽；只有到店订单抽到直付时为零，不抽取 |
@@ -232,12 +233,12 @@ flowchart LR
 同组全部商品配送策略为零才免配送费，否则整组只收五百分。
 
 普通推送事件身份为 `push-{agent_id}-{local_date}T{HH}`；时间事件为 `time-{key}-{due_at}`，
-同一键同一绝对秒一次，夏令时不同绝对秒分别登记。天气使用 `weather-{local_date}`，
-起始日只初始化事实；日历使用 `calendar-{local_date}`。到达排程按一趟配送登记：
+同一键同一绝对秒一次，夏令时不同绝对秒分别登记。天气按已登记城市升序各排一条，使用 `weather-{city_id}-{local_date}`，
+起始日只初始化各城当日事实；日历使用 `calendar-{local_date}`。到达排程按一趟配送登记：
 一趟配送是同一个配送组里预计到达时刻相同的已付款外卖或快递记录，身份是 `delivery-{这一趟里 order_id 最小的记录}`，按字符串比较。
 每趟配送另有一条发货通知排程，身份是 `shipped-{order_id}`，取同一条记录；排程序号先分给各趟的发货排程，再分给各趟的到达排程。
 
-回调受理锚点为 `{action_id}:0`，一条动作只开始一项活动；凭状态的地点内容开始时减 1 用 `{action_id}:consume`，与受理锚点区分；按日动作效果用 `{origin_action_id}:{local_date}`；
+回调受理锚点为 `{action_id}:0`，一条动作只开始一项活动；凭状态的地点内容、声明边或商业住宿开始时减 1 用 `{action_id}:consume`，与受理锚点区分；按日动作效果用 `{origin_action_id}:{local_date}`；
 预排事件使用其 `scheduled_id`；推进唤醒类别用 `wake:{agent_id}:{current_time}`；
 同刻唤醒类别用 `wake:{action_id}`，开始组取第一条动作的身份。阈值触发沿用造成越阈的锚点，不触发级联。
 回调效果与资金账本原因均为 `callback:{rule_id}:{anchor}`，`caused_by` 必须指向真实触发事件。

@@ -9,12 +9,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import replace
 from datetime import date, datetime, timedelta
 
 from worldmock.resource_engine.catalog.models import Catalog, Content, Location, OpeningHours
 from worldmock.simulation_engine.observation.wording.guidance import Refusal, refusal_for_code
 from worldmock.foundation.time.readable import interval_phrases
+from worldmock.state.world.agent import AgentState
 
 #: 登记了内容的 app 此刻没有任何合格内容时的业务拒绝码。
 PREREQUISITE_UNMET_CODE = "CONTENT_PREREQUISITE_UNMET"
@@ -36,11 +38,57 @@ def prerequisite_unmet(content: Content, stay: Location | None, local_moment: da
     if prerequisite is None:
         return ()
     unmet = []
-    if prerequisite.location_kinds and (stay is None or stay.kind not in prerequisite.location_kinds):
+    if prerequisite.city_ids and (stay is None or stay.city_id not in prerequisite.city_ids):
+        unmet.append(LOCATION_UNMET)
+    elif prerequisite.location_kinds and (stay is None or stay.kind not in prerequisite.location_kinds):
         unmet.append(LOCATION_UNMET)
     if prerequisite.opens is not None and not prerequisite.opens.is_open(local_moment):
         unmet.append(TIME_UNMET)
     return tuple(unmet)
+
+
+def content_units(contents: Sequence[Content]) -> tuple[tuple[Content, ...], ...]:
+    """@brief 将内容按完整单元分组：独立内容各自成单元，系列内各集按集号升序归为一单元。"""
+    series: dict[str, list[Content]] = {}
+    singles: list[tuple[Content, ...]] = []
+    for item in sorted(contents, key=lambda row: row.content_id):
+        if item.series is None:
+            singles.append((item,))
+        else:
+            series.setdefault(item.series.title, []).append(item)
+    grouped = [tuple(sorted(items, key=lambda row: (row.series.episode, row.content_id)))
+               for _, items in sorted(series.items())]
+    return (*singles, *grouped)
+
+
+def _completed_rounds(agent: AgentState | None, item: Content) -> int:
+    """@brief 读取一条内容已完成的完整轮数；未提供人物状态或尚无进度记录时为零。"""
+    if agent is None:
+        return 0
+    progress = agent.content_progress.get(item.content_id)
+    return 0 if progress is None else progress.completed_rounds
+
+
+def unit_target_episode(unit: Sequence[Content], agent: AgentState | None) -> Content | None:
+    """@brief 返回一个单元当前的唯一代表集；一次性单元最小完成轮数不少于一轮时已耗尽，返回 None。"""
+    if not unit:
+        return None
+    rounds = {item.content_id: _completed_rounds(agent, item) for item in unit}
+    if not unit[0].repeatable and min(rounds.values()) >= 1:
+        return None
+    return min(unit, key=lambda item: (rounds[item.content_id],
+                                       0 if item.series is None else item.series.episode, item.content_id))
+
+
+def unexhausted_units(contents: Sequence[Content],
+                      agent: AgentState | None) -> tuple[tuple[tuple[Content, ...], Content], ...]:
+    """@brief 在完整单元全集上剔除已耗尽的一次性单元，返回每个剩余单元及其代表集。"""
+    pairs: list[tuple[tuple[Content, ...], Content]] = []
+    for unit in content_units(contents):
+        target = unit_target_episode(unit, agent)
+        if target is not None:
+            pairs.append((unit, target))
+    return tuple(pairs)
 
 
 def time_phrase(opens: OpeningHours, local_date: date) -> str:
@@ -65,44 +113,39 @@ def time_phrase(opens: OpeningHours, local_date: date) -> str:
     return "not available today or in the next seven days"
 
 
-def app_prerequisite_refusal(catalog: Catalog, app_id: str, stay: Location | None,
-                             local_moment: datetime) -> Refusal | None:
-    """@brief 登记了内容的 app 此刻没有任何合格内容时的拒绝；没有登记内容或至少一条合格时为 None。
+def app_prerequisite_refusal(catalog: Catalog, app_id: str, stay: Location | None, local_moment: datetime,
+                             agent: AgentState | None = None) -> Refusal | None:
+    """@brief 登记了内容的 app 此刻没有任何合格内容或全已耗尽时的拒绝；没有内容或至少一条合格时为 None。
 
-    原因逐条内容（按内容身份升序）写一个分句，文字相同的只留第一次出现的，以「; or」相连；下一步指向第一个差地点的
-    分句的地点，都只差时间时取该码的默认下一步。没有改法：这是世界条件造成的拒绝。
+    未耗尽代表集全都不合格时与 app_time_state 取同一批结果，逐条（按内容身份升序）写分句并以「; or 」相连。
     """
-    rows = _unmet_contents(catalog, app_id, stay, local_moment)
+    exhausted, rows = _unmet_contents(catalog, app_id, stay, local_moment, agent)
+    default = refusal_for_code(PREREQUISITE_UNMET_CODE)
+    if exhausted:
+        return replace(default, reason=f"All content in {catalog.apps[app_id].name} has already been finished.")
     if not rows:
         return None
     clauses, places = [], []
     for item, unmet in rows:
-        clause, place = _clause(catalog, item, unmet, local_moment.date())
+        clause, place = _clause(catalog, item, unmet, stay, local_moment.date())
         if clause not in clauses:
             clauses.append(clause)
         if place is not None:
             places.append(place)
     here = "here " if places else ""
     reason = f"Nothing in {catalog.apps[app_id].name} can start {here}now: {'; or '.join(clauses)}."
-    default = refusal_for_code(PREREQUISITE_UNMET_CODE)
     unmet = tuple(member for member in (LOCATION_UNMET, TIME_UNMET)
                   if any(member in failure for _, failure in rows))
     return replace(default, reason=reason, unmet=unmet,
                    next_step=f"Go to {places[0]}." if places else default.next_step)
 
 
-def app_time_state(catalog: Catalog, app_id: str, stay: Location | None, local_moment: datetime) -> str | None:
-    """@brief 工具层内容 app 目标的 state：这个 app 的内容此刻全都不合格时，写了 opens 的每条内容（按内容身份升序）的
-    time_phrase，文字相同的只留第一次出现的，以「; or 」相连；没有登记内容、至少一条合格、或没有一条写了 opens 时为
-    None。
-
-    写的是写了 opens 的内容的开放时间，不只写此刻差时间的内容：只差地点时也写当天的时段。它不看槽位、待收尾与同刻
-    限制，所以动作行的原因被别的消息占着时开放时间照样在目标上。
-
-    :param stay: 人物的停留地点；人在路上时为 None。
-    :param local_moment: 已换算为运行时区的本地时刻。
-    """
-    rows = _unmet_contents(catalog, app_id, stay, local_moment)
+def app_time_state(catalog: Catalog, app_id: str, stay: Location | None, local_moment: datetime,
+                   agent: AgentState | None = None) -> str | None:
+    """@brief 工具层内容 app 目标的 state：全部单元已耗尽时写「无未读内容」，全被阻时写各代表集开放时间。"""
+    exhausted, rows = _unmet_contents(catalog, app_id, stay, local_moment, agent)
+    if exhausted:
+        return "无未读内容"
     phrases = []
     for item, _ in rows:
         if item.prerequisite is not None and item.prerequisite.opens is not None:
@@ -112,13 +155,18 @@ def app_time_state(catalog: Catalog, app_id: str, stay: Location | None, local_m
     return "; or ".join(phrases) or None
 
 
-def _unmet_contents(catalog: Catalog, app_id: str, stay: Location | None,
-                    local_moment: datetime) -> list[tuple[Content, tuple[str, ...]]]:
-    """@brief 「全都不合格」的唯一判定：这个 app 的内容按内容身份升序，每条配上此刻不满足的前提成员；全都不合格时返回
-    这些行，否则（含没有登记内容）返回空列表。拒绝的原因与目标行的 state 都从这里取同一批内容。"""
+def _unmet_contents(catalog: Catalog, app_id: str, stay: Location | None, local_moment: datetime,
+                    agent: AgentState | None = None) -> tuple[bool, list[tuple[Content, tuple[str, ...]]]]:
+    """@brief 在完整单元上剔除已耗尽单元并求剩余代表集；返回是否全耗尽与全被阻时的代表集行。"""
     contents = [catalog.contents[key] for key in sorted(catalog.contents_by_app.get(app_id, ()))]
-    rows = [(item, prerequisite_unmet(item, stay, local_moment)) for item in contents]
-    return rows if rows and all(unmet for _, unmet in rows) else []
+    if not contents:
+        return False, []
+    remaining = unexhausted_units(contents, agent)
+    if not remaining:
+        return True, []
+    targets = sorted((target for _, target in remaining), key=lambda item: item.content_id)
+    rows = [(item, prerequisite_unmet(item, stay, local_moment)) for item in targets]
+    return (False, rows) if all(unmet for _, unmet in rows) else (False, [])
 
 
 def _hours(opens: OpeningHours, day: date) -> str:
@@ -126,18 +174,18 @@ def _hours(opens: OpeningHours, day: date) -> str:
     return ", ".join(interval_phrases(opens.opening_intervals(day)))
 
 
-def _clause(catalog: Catalog, content: Content, unmet: tuple[str, ...], local_date: date) -> tuple[str, str | None]:
-    """@brief 一条不合格内容的分句与它要去的地点；不差地点时地点为 None。
-
-    地点写 kind 属于该内容前提的全部登记地点的显示名，按地点身份升序以「or」相连。只差时间写「it is <时间短语>」；
-    两项都差时，当天有时段写「it requires presence at <地点> during <时段> today」，当天没有时段写
-    「it requires presence at <地点> and is <时间短语>」；时间短语即 time_phrase。
-    """
+def _clause(catalog: Catalog, content: Content, unmet: tuple[str, ...], stay: Location | None,
+            local_date: date) -> tuple[str, str | None]:
+    """@brief 一条不合格内容的分句与它要去的地点；差地点时优先取当前城市匹配地点，否则列合格城市匹配地点。"""
     prerequisite = content.prerequisite
     place = None
     if LOCATION_UNMET in unmet:
-        place = " or ".join(item.display_name for _, item in sorted(catalog.locations.items())
-                            if item.kind in prerequisite.location_kinds)
+        candidates = [item for _, item in sorted(catalog.locations.items())
+                      if (not prerequisite.city_ids or item.city_id in prerequisite.city_ids)
+                      and (not prerequisite.location_kinds or item.kind in prerequisite.location_kinds)]
+        local_matches = [] if stay is None else [item for item in candidates if item.city_id == stay.city_id]
+        shown = local_matches or candidates
+        place = " or ".join(item.display_name for item in shown)
     if TIME_UNMET not in unmet:
         return f"it requires presence at {place}", place
     if place is None:

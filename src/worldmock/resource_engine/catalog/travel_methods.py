@@ -17,6 +17,8 @@ from worldmock.exchange_engine.definitions.constants import (
     WALKING_TRAVEL_METHOD_NAME,
 )
 
+_LOGGER = logging.getLogger(__name__)
+
 #: 工具层对体力档位只有两种说法，不出现身体数值。
 EASY, HARD = "轻松", "费力"
 #: 数据集声明的体力档位在工具层的说法。
@@ -41,18 +43,21 @@ class Method:
     exertion: str
     #: 工具层的说法：「轻松」或「费力」。
     effort: str
+    #: 是否可用于同城自由街区任意起终点；为假时仅限显式列出它的声明边。
+    city_wide: bool = True
 
 
-#: 引擎自带的步行：任何环境包都有，免费，代谢当量键是它自己的身份。
+#: 引擎自带的步行：任何环境包都有，免费，代谢当量键是它自己的身份，同城通用。
 WALKING = Method(WALKING_TRAVEL_METHOD_ID, WALKING_TRAVEL_METHOD_NAME, WALKING_METERS_PER_SECOND, 0, 0,
-                 WALKING_TRAVEL_METHOD_ID, HARD)
+                 WALKING_TRAVEL_METHOD_ID, HARD, True)
 
 
 def travel_methods(catalog: Catalog) -> tuple[Method, ...]:
     """@brief 全部出行方式的有序表：步行在前，数据集定义的方式按身份升序。"""
     rows = sorted(catalog.travel_methods.values(), key=lambda row: row.travel_method_id)
     return (WALKING, *(Method(row.travel_method_id, row.name, row.speed_meters_per_second, row.start_price_fen,
-                              row.price_per_km_fen, row.exertion, _EFFORT[row.exertion]) for row in rows))
+                              row.price_per_km_fen, row.exertion, _EFFORT[row.exertion], row.city_wide)
+                       for row in rows))
 
 
 def travel_method(catalog: Catalog, travel_method_id: str | None) -> Method:
@@ -60,5 +65,5 @@ def travel_method(catalog: Catalog, travel_method_id: str | None) -> Method:
     for method in travel_methods(catalog):
         if method.travel_method_id == travel_method_id:
             return method
-    logging.error("Travel method is not registered: %s", travel_method_id)
+    _LOGGER.error("Travel method is not registered: %s", travel_method_id)
     raise IntegrityError("Travel method is not registered")

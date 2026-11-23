@@ -92,7 +92,7 @@ def test_unknown_object_reports_name_not_found_with_complete_call_candidates(boo
     assert main["written"] == "公司大楼" and main["allowed_values"] == [] and main["expected"] == _OBJECT_EXPECTED
     assert main["why"] == ("No known object named 公司大楼 supports this action; "
                            "changing spelling cannot create an object.")
-    assert main["candidates"] == [{"tool": MAIN_TOOL, "note": "约 5 分钟",
+    assert main["candidates"] == [{"tool": MAIN_TOOL, "note": "约 4 分钟",
                                    "arguments": {"action": "travel", "target": "公司", "detail": "驾车"}}]
     side = _single(resolve_start(book, SIDE_TOOL, use_app("哔哩")))
     assert side["error_code"] == "NAME_NOT_FOUND" and side["path"][-2:] == ["target", 0]

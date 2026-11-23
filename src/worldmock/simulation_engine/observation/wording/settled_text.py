@@ -154,7 +154,7 @@ def track_kits(effects: Iterable[Event], results: Iterable[Event], previous: Kit
             continue
         if data.get("type") == "reset_to_cap":
             latest[data["state"]] = KitUse(data["state"], data["goods_id"], event.occurred_at)
-        elif data.get("type") == "consume_on_start":
+        elif data.get("type") == "consume_on_start" and data.get("content_id") is not None:
             activity_id = starts.get(event.caused_by[0]) if len(event.caused_by) == 1 else None
             if activity_id is None:
                 logging.error("Grocery kit use has no start result: %s", event.event_id)

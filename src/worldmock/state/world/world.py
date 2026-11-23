@@ -2,9 +2,11 @@
 
 
 from __future__ import annotations
+from datetime import date
 from worldmock.foundation.models import StrictModel
 from worldmock.foundation.errors import IntegrityError
 import copy
+from worldmock.exchange_engine.definitions.constants import WEATHER_FACTORS
 from worldmock.exchange_engine.conditions.activity_rules import ACTIVITY_ACTIONS, activity_slot
 from typing import Any, Literal
 from pydantic import Field, field_serializer, field_validator, model_validator
@@ -18,7 +20,7 @@ from worldmock.state.decisions.state import SameMomentPresentation, StoredAction
 from worldmock.state.logging import _LOGGER
 
 #: 世界状态结构版本：版本不符的检查点与导出直接拒绝，不迁移。
-WORLD_SCHEMA_VERSION = 16
+WORLD_SCHEMA_VERSION = 17
 
 
 
@@ -30,21 +32,33 @@ _SHARED_ENTRY_FIELDS = frozenset({"activities", "processed_actions"})
 class WorldState(StrictModel):
     """@brief 提交到 FootprintStore 的完整世界状态。"""
 
-    # 结构版本必填（无缺省）：旧检查点缺该字段即拒绝加载（docs/design/09-io-formats.md「单一状态归属」）。
+    #: 结构版本必填（无缺省）：旧检查点缺该字段即拒绝加载（docs/design/09-io-formats.md「单一状态归属」）。
     schema_version: Literal[WORLD_SCHEMA_VERSION]
+    #: 单调递增的世界版本号。
     version: int = Field(ge=0)
+    #: 当前世界时钟（UTC 纪元秒）。
     current_time: int = Field(ge=0)
+    #: 实验结束时钟上限（UTC 纪元秒）。
     end_time: int = Field(gt=0)
+    #: 运行标识。
     run_id: str = Field(min_length=1)
+    #: 场景运行本地时区名称。
     timezone: str = Field(min_length=1)
+    #: 冻结人物文件的 SHA-256 摘要。
     persona_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    #: 冻结运行配置的 SHA-256 摘要。
     config_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    #: 人物编号到人物状态的映射。
     agents: dict[int, AgentState]
+    #: 账户标识到余额（分）的映射。
     accounts: dict[str, int]
     #: 活动按加入世界的先后保存；JSON 里是按这个先后排列的数组（docs/design/09-io-formats.md「世界、人物与活动」）。
     activities: dict[str, ActivityState] = Field(default_factory=dict)
+    #: 地点停留与在途会话映射。
     sessions: dict[str, SessionState] = Field(default_factory=dict)
+    #: 商品履约订单映射。
     deliveries: dict[str, DeliveryState] = Field(default_factory=dict)
+    #: 已排期的未来系统事件列表。
     pending_events: list[ScheduledEvent] = Field(default_factory=list)
     #: 规则仍会读取的已结算动作：本秒的结果与进行中或暂停活动的开始动作
     #: （docs/design/04-simulation-engine.md「原子性与恢复」）。
@@ -54,11 +68,34 @@ class WorldState(StrictModel):
     presentation_state: dict[int, dict[str, int]] = Field(default_factory=dict)
     #: 按人物暂存的本秒呈现留痕：同一秒各轮沿用该秒首轮的呈现窗口，时钟推进时逐人并入 presentation_state 并清空。
     same_moment_presentation: dict[int, SameMomentPresentation] = Field(default_factory=dict)
-    weather_by_date: dict[str, str] = Field(default_factory=dict)
+    #: 按本地日期与城市索引的每日天气条件（local_date -> {city_id: condition}）。
+    weather_by_date: dict[str, dict[str, str]] = Field(default_factory=dict)
+    #: 运行开始回调是否已执行。
     run_start_callbacks_applied: bool = False
+    #: 运行结束回调是否已执行。
     run_stop_callbacks_applied: bool = False
+    #: 初始随机种子整数。
     random_seed: int
+    #: 当前随机流根状态串。
     random_state: str = Field(min_length=1)
+
+    @field_validator("weather_by_date", mode="before")
+    @classmethod
+    def validate_weather_by_date(cls, value: Any) -> Any:
+        """@brief 核对分城每日天气使用标准 ISO 日期键、非空白城市键与固定天气表条件。"""
+        if not isinstance(value, dict):
+            _LOGGER.error("World weather_by_date must be a mapping")
+            raise ValueError("weather_by_date must be a mapping")
+        for local_date, cities in value.items():
+            try:
+                valid_date = isinstance(local_date, str) and date.fromisoformat(local_date).isoformat() == local_date
+            except ValueError:
+                valid_date = False
+            if not valid_date:
+                _LOGGER.error("Weather date key %s is not a canonical ISO date", local_date)
+                raise ValueError("weather_by_date keys must be canonical ISO dates")
+            _validate_city_weather(local_date, cities)
+        return value
 
     def __deepcopy__(self, memo: dict[int, Any] | None = None) -> "WorldState":
         """@brief 深复制世界：activities 与 processed_actions 换新字典、共享条目，其余字段照常深复制。
@@ -248,6 +285,20 @@ def _expected_activity_claims(activity: ActivityState) -> set[str]:
         raise ValueError("Activity action is missing or unknown")
     return {activity_slot(action, activity.data.get("app_id"))}
 
+
+
+def _validate_city_weather(local_date: str, cities: Any) -> None:
+    """@brief 核对单日分城天气映射使用非空白城市键与固定天气表条件。"""
+    if not isinstance(cities, dict):
+        _LOGGER.error("Weather entry for %s must be a city mapping", local_date)
+        raise ValueError("weather_by_date day entries must be mappings")
+    for city_id, condition in cities.items():
+        if not isinstance(city_id, str) or not city_id.strip():
+            _LOGGER.error("Weather city_id key for %s cannot be blank", local_date)
+            raise ValueError("weather_by_date city_id keys must be non-blank")
+        if not isinstance(condition, str) or condition not in WEATHER_FACTORS:
+            _LOGGER.error("Weather condition %s for %s/%s is invalid", condition, local_date, city_id)
+            raise ValueError("weather_by_date conditions must belong to WEATHER_FACTORS")
 
 
 def validated_payload(state: WorldState) -> dict:

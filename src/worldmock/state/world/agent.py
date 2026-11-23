@@ -3,8 +3,8 @@
 
 from __future__ import annotations
 from worldmock.foundation.models import StrictModel
-from typing import Literal
-from pydantic import Field, field_serializer, model_validator
+from typing import Any, Literal
+from pydantic import Field, field_serializer, field_validator, model_validator
 from worldmock.state.planning.errands import ErrandState
 from worldmock.state.planning.schedule import DayPlan
 
@@ -111,29 +111,69 @@ class NavigationForeground(StrictModel):
 class AgentState(StrictModel):
     """@brief 唯一人物的生活状态与幂等节律簿记。"""
 
+    #: 人物编号。
     agent_id: int = Field(gt=0)
+    #: 人物姓名。
     name: str = Field(min_length=1)
+    #: 当前锚定或停留的地点标识。
     location_id: str = Field(min_length=1)
+    #: 所属资金账户标识。
     balance_account_id: str = Field(min_length=1)
+    #: 当前身体数值状态。
     body: BodyState
+    #: 最近一次身体结算时钟（UTC 纪元秒）。
     body_settled_at: int = Field(ge=0)
+    #: 下一次计划唤醒决策时刻（UTC 纪元秒）。
     next_decision_at: int = Field(ge=0)
+    #: 当前同刻决策已累计的轮数。
     same_moment_rounds: int = Field(default=0, ge=0)
+    #: 当前同刻受限轮阶段。
     same_moment_stage: SameMomentStage = SameMomentStage.OPEN
+    #: 各内容的消费位置与完成轮数映射。
     content_progress: dict[str, ContentProgress] = Field(default_factory=dict)
+    #: 上一次决策发生的时刻（UTC 纪元秒）。
     last_decision_time: int | None = Field(default=None, ge=0)
+    #: 上一次决策时的身体体感分级快照。
     felt_bands_at_last_decision: dict[str, str] = Field(default_factory=dict)
+    #: 待消费的唤醒原因列表。
     pending_wake_reasons: list[str] = Field(default_factory=list)
+    #: 当日计划清单；未提交或已失效时为 None。
     day_plan: DayPlan | None = None
+    #: 已提交过当日计划的本地日期集合。
     plan_submitted_dates: set[str] = Field(default_factory=set)
+    #: 尚未完结的个人事务映射。
     errands: dict[str, ErrandState] = Field(default_factory=dict)
+    #: 身体不适连续开始时刻（UTC 纪元秒）。
     discomfort_started_at: int | None = Field(default=None, ge=0)
+    #: 累计已触发的不适脉冲小时数。
     discomfort_pulse_hours: float = Field(default=0.0, ge=0)
+    #: 回调状态当前整数值映射。
     callback_states: dict[str, int] = Field(default_factory=dict)
+    #: 已执行过的一次性回调键集合。
     callback_once_keys: set[str] = Field(default_factory=set)
+    #: 状态提醒规则上次触发的本地日期映射。
     callback_reminder_days: dict[str, str] = Field(default_factory=dict)
     #: 导航正在前台的那一段；空表示不在前台。它不放进出行活动的私有数据，活动快照是人物可见的。
     navigation_foreground: NavigationForeground | None = None
+    #: 商业住宿地点当前有效退房纪元秒（location_id -> checkout_epoch）。
+    lodging_stays: dict[str, int] = Field(default_factory=dict)
+
+    @field_validator("lodging_stays", mode="before")
+    @classmethod
+    def validate_lodging_stays(cls, value: Any) -> Any:
+        """@brief 核对商业住宿有效期按非空白地点标识与正整数退房纪元秒映射。"""
+        if not isinstance(value, dict):
+            _LOGGER.error("Agent lodging_stays must be a mapping")
+            raise ValueError("lodging_stays must be a mapping")
+        for location_id, checkout_epoch in value.items():
+            if not isinstance(location_id, str) or not location_id.strip():
+                _LOGGER.error("Agent lodging_stays location_id key must be a non-blank string")
+                raise ValueError("lodging_stays location_id keys must be non-blank strings")
+            if type(checkout_epoch) is not int or checkout_epoch <= 0:
+                _LOGGER.error(
+                    "Agent lodging_stays checkout_epoch for %s must be a positive int", location_id)
+                raise ValueError("lodging_stays checkout_epoch values must be positive integers")
+        return value
 
     @field_serializer("plan_submitted_dates", "callback_once_keys", when_used="json")
     def serialize_agent_sets(self, value: set[str]) -> list[str]:

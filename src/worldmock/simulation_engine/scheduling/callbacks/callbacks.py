@@ -17,7 +17,12 @@ from worldmock.resource_engine.catalog.callback_models import (
 )
 from worldmock.foundation.errors import IntegrityError
 from worldmock.recording_engine.events.models import EventDraft
-from worldmock.recording_engine.events.callback_contract import StateDeltaResult, StateResetResult, TransferResult
+from worldmock.recording_engine.events.callback_contract import (
+    StateDeltaResult,
+    StateGainResult,
+    StateResetResult,
+    TransferResult,
+)
 from worldmock.state.world.kinds import ActivityKind
 from worldmock.state.world.world import WorldState, active_activities
 from worldmock.foundation.randomness import random_stream
@@ -253,17 +258,22 @@ def _interval_dates(start: int, end: int, timezone: str) -> list[str]:
 
 
 def reset_on_receipt(state: WorldState, catalog, receipt: EventDraft) -> CallbackOutcome:
-    """@brief 真实收货只将匹配状态置为上限，不清除当天生效记录。"""
+    """@brief 真实收货按重置或累加声明更新匹配状态：reset 置满上限，gain 逐次加一并钳位至上限。"""
     goods_id = receipt.data["goods_id"]
     agent, drafts = state.agents[receipt.agent_id], []
     cause = CallbackCause("event", "goods_received", agent.agent_id, receipt.event_id, receipt.event_id)
     for name, declaration in sorted(catalog.callback_states.items()):
-        if goods_id not in declaration.reset_on_goods:
+        before = agent.callback_states[name]
+        if goods_id in declaration.reset_on_goods:
+            after = declaration.cap
+            payload = StateResetResult(state=name, goods_id=goods_id, before=before, after=after)
+        elif goods_id in declaration.gain_on_goods:
+            after = min(declaration.cap, before + 1)
+            payload = StateGainResult(state=name, goods_id=goods_id, before=before, after=after)
+        else:
             continue
-        before, after = agent.callback_states[name], declaration.cap
         agent = agent.model_copy(update={"callback_states": {**agent.callback_states, name: after}})
         state = _put_agent(state, agent)
-        payload = StateResetResult(state=name, goods_id=goods_id, before=before, after=after)
         drafts.append(_draft(state, cause, payload.model_dump(mode="json")))
     return CallbackOutcome(state, drafts)
 

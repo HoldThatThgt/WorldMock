@@ -23,12 +23,12 @@ def lunch_environment(path):
 
 def test_rainy_lunch_from_menu_to_receipt(engine_factory, tmp_path):
     def heavy_rain(persona, config):
-        config["seed"] = 32
+        config["seed"] = 18
 
     engine = engine_factory(lunch_environment(tmp_path / "lunch"), mutate=heavy_rain)
     noon = int(datetime(2026, 1, 5, 12, tzinfo=ZoneInfo("Asia/Shanghai")).timestamp())
-    # 这个固定身份的查菜单用时 311 秒，使查完和受理购买同在中午十二点。
-    stage_moment(engine, noon - 311)
+    # 这个固定身份的查菜单用时 530 秒，使查完和受理购买同在中午十二点。
+    stage_moment(engine, noon - 530)
     _, menu = act(engine, "menu", query("信阳山笋炒腊肉", prefer="美团"))
     until_ended(engine, menu.activity_id)
     observed, order = act(engine, "lunch", purchase("信阳山笋炒腊肉", prefer="美团"))

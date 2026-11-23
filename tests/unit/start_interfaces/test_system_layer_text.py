@@ -239,8 +239,8 @@ def test_prompt_fingerprint_binds_only_the_life_system_layer_and_the_layer_schem
     template = {"life": LIFE_SYSTEM_LAYER, "layer_schemas": LAYER_SCHEMAS}
     encoded = json.dumps(template, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
     assert life_prompt_sha256() == hashlib.sha256(encoded).hexdigest()
-    assert life_prompt_sha256() == "01c97ec05f1f3325f2c5a3f9420fa59712e5f3ec0c828ae0dd3c72c3906625e0"
-    assert life_prompt_sha256() != "1947c112bf46fd262cc159d4163a3831a0aa55d42c70ad7645ffd3ba40524a05"
+    assert life_prompt_sha256() == "bbc27b8248c9448b19d2932f8e113a8ca39da0464566504d2f502ddae065c863"
+    assert life_prompt_sha256() != "01c97ec05f1f3325f2c5a3f9420fa59712e5f3ec0c828ae0dd3c72c3906625e0"
 
 
 def test_the_life_system_layer_bytes_and_the_tool_fingerprint_are_unchanged():

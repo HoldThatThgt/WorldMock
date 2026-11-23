@@ -13,10 +13,15 @@ from tests.life.environment_runtime import act, events, finish_activity, reach, 
 from worldmock.exchange_engine.definitions import constants
 from worldmock.simulation_engine.commerce.purchase.purchase_offers import quote_goods
 
-#: 夹具里家到一心面馆的图上距离对应的配送行程秒数（2,524 米，每秒 5 米，向上取整）。
-RIDE_SECONDS = 505
-#: 夹具首日小雨使这段配送延长 90 秒，报价计入一半。
-QUOTED_WEATHER_SECONDS = 45
+#: 夹具里公司到一心面馆的图上距离对应的配送行程秒数（1,617 米，每秒 5 米，向上取整）。
+RIDE_SECONDS = 324
+#: 夹具首日小雨使这段配送延长 58 秒，报价计入一半。
+QUOTED_WEATHER_SECONDS = 29
+
+
+def at_office(persona, config):
+    """人物从公司开始，到一心面馆最近，同一篮牛肉面和薯片都在一心面馆成一组。"""
+    persona["initial_location"] = "公司"
 
 
 def replace_constant(monkeypatch, name: str, value) -> None:
@@ -79,7 +84,7 @@ def received(engine, *baskets: tuple[str, ...]) -> dict[str, dict]:
 
 def test_unreplaced_delivery_quote_shipping_and_arrival_are_unchanged(engine_factory):
     """不替换时与修订前逐位相同：外卖运费 500 分、备餐 600 秒，配送组只收一次运费，快递运费是 0 或 500。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=at_office)
     order = delivered_order(engine, "order")
     quote, orders = order["quote"], order["orders"]
     assert (quote.fulfillment, quote.store_id, quote.delivery_fee_fen, quote.prep_seconds) == (
@@ -96,7 +101,7 @@ def test_unreplaced_delivery_quote_shipping_and_arrival_are_unchanged(engine_fac
 
 def test_delivery_fee_follows_the_constant_table(engine_factory, monkeypatch):
     """把 DELIVERY_FEE_FEN 换成 700：外卖报价的运费、订单总价、配送组运费都是 700，快递运费只可能是 0 或 700。"""
-    engine, charged = engine_factory(), engine_factory(mutate=courier_charged)
+    engine, charged = engine_factory(mutate=at_office), engine_factory(mutate=courier_charged)
     replace_constant(monkeypatch, "DELIVERY_FEE_FEN", 700)
     order = delivered_order(engine, "order")
     quote, orders = order["quote"], order["orders"]
@@ -112,13 +117,13 @@ def test_delivery_fee_follows_the_constant_table(engine_factory, monkeypatch):
 
 def test_delivery_preparation_time_follows_the_constant_table(engine_factory, monkeypatch):
     """把 DELIVERY_PREP_SECONDS 换成 900：外卖报价的备餐秒数、预计送达时刻和订单都跟着变，运费不变。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=at_office)
     replace_constant(monkeypatch, "DELIVERY_PREP_SECONDS", 900)
     order = delivered_order(engine, "order")
     quote, orders = order["quote"], order["orders"]
     assert (quote.delivery_fee_fen, quote.prep_seconds) == (500, 900)
     assert quote.expected_at == order["started"] + 900 + RIDE_SECONDS + QUOTED_WEATHER_SECONDS
-    assert "预计01月05日 08:24:10到达" in order["note"]
+    assert "预计01月05日 08:20:53到达" in order["note"]
     assert {item.prep_seconds for item in orders.values()} == {900}
     assert {item.expected_at for item in orders.values()} == {order["started"] + 900 + RIDE_SECONDS + QUOTED_WEATHER_SECONDS}
     reach(engine, next(iter(orders.values())).arrival_due_at())

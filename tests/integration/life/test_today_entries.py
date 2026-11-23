@@ -334,7 +334,7 @@ def _resumed(engine):
     (_planned, None, "测试休息 08:00–08:15"),
     (_cut_short, _every_five, "测试休息 08:00–08:05，提前结束"),
     (_app_concluded, _every_five, "Keep 08:00–08:05"),
-    (_arrived, None, "步行到公司 08:00–08:31"),
+    (_arrived, None, "步行到公司 08:00–08:22"),
     (_overnight, _late, "睡觉 昨23:00–01:00"),
     (_resumed, _every_five, "哔哩哔哩 08:00–08:15（暂停 08:05–08:10）"),
 ], ids=["planned", "concluded-early", "app-concluded", "travel-arrival", "overnight-sleep", "paused-and-resumed"])
@@ -396,10 +396,10 @@ def _in_store(engine):
 
 
 @pytest.mark.parametrize("run,expected", [
-    (lambda engine: _bought(engine, "tea", "柠檬茶", prefer="饿了么"), "买柠檬茶1份，17元，预计08:27送到家"),
-    (lambda engine: _bought(engine, "pair", "柠檬茶", "薯片", prefer="饿了么"), "买薯片、柠檬茶各1份，共25元，预计08:27送到家"),
+    (lambda engine: _bought(engine, "tea", "柠檬茶", prefer="饿了么"), "买柠檬茶1份，17元，预计08:18送到家"),
+    (lambda engine: _bought(engine, "pair", "柠檬茶", "薯片", prefer="饿了么"), "买薯片、柠檬茶各1份，共25元，预计08:18送到家"),
     (lambda engine: _bought(engine, "mixed", "薯片", "薯片", "柠檬茶", prefer="饿了么"),
-     "买薯片、薯片、柠檬茶各1份，共33元，预计08:27送到家"),
+     "买薯片、薯片、柠檬茶各1份，共33元，预计08:18送到家"),
     (_in_store, "买纸巾1份，6元"),
 ], ids=["one-delivered-home", "two-each-one", "two-portions-of-one-goods", "in-store"])
 def test_purchase_lines(engine_factory, run, expected):
@@ -450,7 +450,7 @@ def test_delivery_and_pickup_lines(engine_factory):
     _bought(engine, "tea", "柠檬茶", prefer="饿了么")
     _until_delivered(engine, "wait")
     _settle(engine, "delivered")
-    assert "送达柠檬茶。天气使配送多用了2分钟47秒，比下单预计晚1分钟24秒" in _lines(engine)
+    assert "送达柠檬茶。天气使配送多用了1分钟22秒，比下单预计晚41秒" in _lines(engine)
     engine = engine_factory(mutate=_six_days)
     _bought(engine, "notebook", "平台笔记本")
     (order,) = engine.context.state.deliveries.values()
@@ -538,8 +538,8 @@ def test_line_order_puts_settled_facts_first(engine_factory):
     until_ended(engine, nap.activity_id)
     act(engine, "wake", conclude_request(activity_name(engine, nap.activity_id),
                                          errands=(errand_add("买纸巾", "纸巾"),)), "conclude_activity")
-    assert _lines(engine) == ["08:28 送达柠檬茶。天气使配送多用了2分钟47秒，比下单预计晚1分钟24秒",
-                              "08:28 三杯咖啡 · 柠檬茶：这份品质好", "办成「备好饮料」",
+    assert _lines(engine) == ["08:19 送达柠檬茶。天气使配送多用了1分钟22秒，比下单预计晚41秒",
+                              "08:19 三杯咖啡 · 柠檬茶：这份品质好", "办成「备好饮料」",
                               "睡觉 08:02–09:02", "新增个人事务「买纸巾」"]
 
 
@@ -604,7 +604,7 @@ def test_closing_entry_collects_facts_after_the_last_decision_and_crossing_lines
     started = engine.context.state.activities[nap_id].started_at
     clock = lambda epoch: f"{datetime.fromtimestamp(epoch, ZONE):%H:%M}"
     assert entry_full(entries[-1]) == {"时刻": "24:00", "类别": "饮食、生活", "核验": [
-        f"{clock(arrival.occurred_at)} 送达柠檬茶。天气使配送多用了2分钟47秒，比下单预计晚1分钟24秒",
+        f"{clock(arrival.occurred_at)} 送达柠檬茶。天气使配送多用了1分钟22秒，比下单预计晚41秒",
         f"{clock(arrival.occurred_at)} 三杯咖啡 · 柠檬茶：这份品质好", f"{clock(started)} 开始睡觉，跨过零点"]}
     assert _lines(engine)[0].startswith(f"睡觉 昨{clock(started)}–")
 

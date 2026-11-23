@@ -48,8 +48,8 @@ def _check_locations(persona, catalog) -> None:
     """@brief 唯一人物引用和驿站要求复用纯加载的真实准入。"""
     from worldmock.configuration.inputs.environment import _require_parcel_station, _resolve_persona_locations
 
-    _resolve_persona_locations(persona, catalog)
-    _require_parcel_station(catalog)
+    home, _, _ = _resolve_persona_locations(persona, catalog)
+    _require_parcel_station(catalog, home)
 
 
 def _checked(relative: str, operation, errors: list):

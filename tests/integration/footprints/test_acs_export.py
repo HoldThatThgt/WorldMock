@@ -38,7 +38,7 @@ def test_actual_purchase_content_and_current_artifacts_are_authenticated(real_ex
     manifest, activities = validate_export(real_export)
     events = artifact_rows(real_export, "events")
     assert manifest["schema_version"] == 8
-    assert manifest["checkpoint"]["state"]["schema_version"] == 16
+    assert manifest["checkpoint"]["state"]["schema_version"] == 17
     assert {name: row["path"] for name, row in manifest["artifacts"].items()} == {
         "events": "events.jsonl", "activities": "activities.jsonl",
         "verified_experiences": "verified-experiences.jsonl", "purchases": "purchases.jsonl",
@@ -94,7 +94,7 @@ def test_retired_schema_is_rejected_before_consumption(real_export, version, rea
     if version == "export":
         manifest["schema_version"] = 7
     elif version == "world":
-        manifest["checkpoint"]["state"]["schema_version"] = 13
+        manifest["checkpoint"]["state"]["schema_version"] = 16
     elif version == "five_artifacts":
         del manifest["artifacts"]["location_stays"]
     elif version == "extra_artifact":
@@ -242,11 +242,11 @@ def test_one_order_over_two_delivery_groups_exports_with_a_single_payment(engine
         validate_export(tmp_path / "one-order")
 
 
-@pytest.mark.parametrize("rules_version", [5, 7, "6", True])
+@pytest.mark.parametrize("rules_version", [5, 6, 8, "7", True])
 def test_export_frozen_under_another_rules_version_is_rejected_before_consumption(real_export, rules_version):
     """@brief 冻结运行清单里的规则版本不是当前规则版本时，导出在读取工件之前被拒绝。"""
     manifest, _ = read_export(real_export)
-    assert manifest["frozen_run_manifest"]["environment_identity"]["rules_version"] == 6
+    assert manifest["frozen_run_manifest"]["environment_identity"]["rules_version"] == 7
     manifest["frozen_run_manifest"]["environment_identity"]["rules_version"] = rules_version
     (real_export / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     with pytest.raises(IntegrityError, match="^Export frozen run manifest or environment identity is invalid$"):

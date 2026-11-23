@@ -105,7 +105,7 @@ def test_new_fixture_loads_complete_world_and_seeded_memory_map():
     assert catalog.locations["office"].display_name == "公司"
     assert catalog.nearest_parcel_station("home") == "parcel-station"
     state = hashlib.sha256(b"random:7").hexdigest()
-    expected = generate_map(list(catalog.locations), random_stream(state, "map").getrandbits(64))
+    expected = generate_map(tuple(catalog.locations.values()), state)
     assert catalog.map_data == expected
     assert load_catalog(FIXTURE, 7).map_sha256 == catalog.map_sha256
     assert load_catalog(FIXTURE, 8).map_sha256 != catalog.map_sha256

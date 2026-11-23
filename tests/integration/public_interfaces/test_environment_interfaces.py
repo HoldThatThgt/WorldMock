@@ -19,7 +19,7 @@ def test_catalog_graph_rejects_unknown_query_endpoint(loaded_catalog, endpoint):
         else:
             loaded_catalog.graph.path("home", "unknown-place")
     assert caught.value.code == "ENVIRONMENT_REF_UNKNOWN"
-    assert loaded_catalog.graph.path("home", "office") == ("home", "park", "office")
+    assert loaded_catalog.graph.path("home", "office") == ("home", "store", "office")
 
 
 def test_catalog_file_read_reports_real_byte_read_failure(catalog_dir, monkeypatch):

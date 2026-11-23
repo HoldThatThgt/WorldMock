@@ -251,8 +251,8 @@ def _receipt_invariants(order: dict, receipts: list[dict], received: list[dict],
 
 
 def _receipt_quality(order: dict, data: dict, receipt: dict) -> None:
-    """@brief 到店与外卖的收货及导出行必须一致指向本单商铺与合法品质，快递保持原有字段。"""
-    if order["fulfillment"] == "station_pickup":
+    """@brief 到店与外卖的收货及导出行必须一致指向本单商铺与合法品质，快递与即时电子履约不得带商铺和品质。"""
+    if order["fulfillment"] in {"station_pickup", "instant"}:
         valid = all(key not in row for row in (data, receipt) for key in ("store_id", "quality"))
     else:
         valid = (data.get("store_id") == receipt.get("store_id") == order["store_id"]
@@ -263,23 +263,27 @@ def _receipt_quality(order: dict, data: dict, receipt: dict) -> None:
 
 
 def _receipt_cause(order: dict, event: dict, sources: dict[str, dict]) -> None:
-    """@brief 收货只由真实下单、送达或本人领取结果造成，排期身份不是事件身份。"""
+    """@brief 收货只由真实付款、送达或本人领取结果造成，排期身份不是事件身份。"""
     causes = [sources.get(identity) for identity in event["caused_by"]]
     if len(causes) != 1 or causes[0] is None:
+        _LOGGER.error("Goods receipt requires one true fulfillment cause event")
         raise IntegrityError("Goods receipt requires one true fulfillment cause event")
     cause = causes[0]
-    if order["fulfillment"] == "pickup":
+    if order["fulfillment"] in {"pickup", "instant"}:
         if (cause["event_type"] != "environment_event" or cause["data"].get("kind") != "purchase_payment"
-                or order["order_id"] not in cause["data"]["order_ids"]
+                or order["order_id"] not in cause["data"].get("order_ids", ())
                 or cause["occurred_at"] != order["paid_at"]):
+            _LOGGER.error("Goods receipt cause is not the actual fulfilled order event")
             raise IntegrityError("Goods receipt cause is not the actual fulfilled order event")
     else:
         expected_type = "environment_event" if order["fulfillment"] == "delivery" else "action_result"
         if (cause["event_type"] != expected_type
                 or not any(value["order_id"] == order["order_id"] and value["status"] == "delivered"
                            for value in event_orders(cause))):
+            _LOGGER.error("Goods receipt cause is not the actual fulfilled order event")
             raise IntegrityError("Goods receipt cause is not the actual fulfilled order event")
     if order["fulfillment"] == "station_pickup" and cause["agent_id"] != event["agent_id"]:
+        _LOGGER.error("Parcel receipt must be caused by its recipient collection result")
         raise IntegrityError("Parcel receipt must be caused by its recipient collection result")
 
 
@@ -519,7 +523,7 @@ def _expected_order_notices(orders: dict, purchases: dict[str, str], last: int) 
             continue
         if order["app_id"] is not None:
             placed[purchases.get(identity), order["app_id"]].append(order)
-        if order["fulfillment"] != "pickup":
+        if order["fulfillment"] not in {"pickup", "instant"}:
             trips[purchases.get(identity), order["group_key"], order["expected_at"]].append(order)
     expected = {(ORDER_PLACED, rows[0]["order_id"]): (rows[0]["paid_at"], rows) for rows in placed.values()}
     for rows in trips.values():
@@ -537,7 +541,7 @@ def _order_notifications(events: list[dict], state: dict) -> None:
     """@brief 三种订单通知的条数与内容。
 
     每张带下单 app 的已付款订单恰一条已下单；每趟已到发货时刻的配送恰一条已发货；每趟已送达的外卖恰一条已送达，
-    快递和到店没有。时刻、app、记录集合与起因都和真实的付款或到达事件一致。
+    快递、到店与即时电子履约没有。时刻、app、记录集合与起因都和真实的付款或到达事件一致。
     """
     orders = state.get("deliveries", {})
     expected = _expected_order_notices(orders, _purchase_activities(state), events[-1]["occurred_at"])

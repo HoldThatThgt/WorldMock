@@ -249,11 +249,12 @@ def test_package_with_or_without_optional_catalog_files_is_valid(published_envir
 
 @pytest.mark.parametrize("change,code,reason", [
     ({"rules_version": 5}, "RULES_VERSION_MISMATCH", "The environment was published for a different rules version."),
-    ({"rules_version": 5, "format_version": 4}, "RULES_VERSION_MISMATCH",
+    ({"rules_version": 6}, "RULES_VERSION_MISMATCH", "The environment was published for a different rules version."),
+    ({"rules_version": 6, "format_version": 5}, "RULES_VERSION_MISMATCH",
      "The environment was published for a different rules version."),
 ])
 def test_package_published_for_the_previous_rules_version_is_refused(published_environment, change, code, reason):
-    """@brief 规则版本是 5 的夹具副本：输出 {path, code, reason}，非零退出，原因没有详情时只有固定原因。"""
+    """@brief 规则版本是 5 或 6 的夹具副本：输出 {path, code, reason}，非零退出，原因没有详情时只有固定原因。"""
     path = published_environment / "catalog/manifest.json"
     path.write_bytes(json.dumps({**json.loads(path.read_bytes()), **change}, separators=(",", ":")).encode() + b"\n")
     assert report(published_environment) == [{"path": "catalog", "code": code, "reason": reason}]
@@ -261,7 +262,7 @@ def test_package_published_for_the_previous_rules_version_is_refused(published_e
 
 def test_previous_manifest_format_is_refused_after_the_rules_version_matches(published_environment):
     path = published_environment / "catalog/manifest.json"
-    manifest = {**json.loads(path.read_bytes()), "format_version": 4}
+    manifest = {**json.loads(path.read_bytes()), "format_version": 6}
     path.write_bytes(json.dumps(manifest, separators=(",", ":")).encode() + b"\n")
     error = catalog_error(published_environment, "ENVIRONMENT_KIND_INVALID")
     assert error["reason"].startswith("A declared kind is outside the fixed set. ") and "format_version" in error["reason"]
@@ -398,7 +399,7 @@ def test_declared_distance_beyond_one_day_reports_the_farthest_pair(published_en
     assert report(published_environment) == [{
         "path": "catalog", "code": "MAP_ROUTE_TOO_LONG",
         "reason": "Two places are farther apart than the slowest travel method can cover in one day in the worst "
-                  "weather. cafe -> park is 74517 m, which takes 103496 s at 1.2 m/s in the worst weather; "
+                  "weather. park -> store is 73548 m, which takes 102150 s at 1.2 m/s in the worst weather; "
                   "the limit is 86400 s."}]
 
 

@@ -9,7 +9,7 @@ MAX_EXAMPLES = 3
 
 
 def callable_index(context) -> dict:
-    """@brief 全量可查询商品不受窗口裁剪；prefer_apps 是全部下单 app 的完整名称，按 app_id 升序。
+    """@brief 统计当前所在城市全部在售店铺商品，不受曝光窗口裁剪；prefer_apps 是全部下单 app 完整名称，按身份升序。
 
     prefer_apps 只取决于冻结目录，整次运行每一次观察都相同：不按此刻营业与否筛选，不轮转，不截断；
     没有下单 app 的环境里是空数组。

@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
+from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from pydantic import ValidationError
@@ -34,6 +35,7 @@ from worldmock.exchange_engine.conditions.rejection_codes import HOST_NAME_CODES
 from worldmock.state.interaction.errors import bind_report, host_defaults, items_fix
 from worldmock.simulation_engine.observation.wording.guidance import Refusal, refusal_for_code, refusal_from_error
 from worldmock.simulation_engine.activities.content.interact import InteractivityRuntime
+from worldmock.simulation_engine.activities.content.location_activities import consume_callback_state
 from worldmock.state.decisions.results import ActionResult
 from worldmock.state.world.kinds import ActionStatus, ActivityKind, ActivityStatus
 from worldmock.state.decisions.state import PendingAction
@@ -48,8 +50,13 @@ from worldmock.simulation_engine.body.sleep_plan import assumed_sleep, oversleep
 from worldmock.simulation_engine.commerce.purchase.storefront_runtime import StorefrontRuntime
 from worldmock.simulation_engine.activities.travel.travel import pay_travel_fare, travel_activity_data
 from worldmock.resource_engine.catalog.travel_methods import travel_method
-from worldmock.simulation_engine.scheduling.clock.weather import current_weather_factor
-from worldmock.simulation_engine.world.world_updates import _activity_origin, _put_activity, place_names
+from worldmock.simulation_engine.scheduling.clock.weather import trip_weather_factor
+from worldmock.simulation_engine.world.world_updates import (
+    _activity_origin,
+    _put_activity,
+    _put_agent,
+    place_names,
+)
 
 _LOGGER = logging.getLogger(__name__)
 #: 开始组有两条调用时追加在原因后的一句（前面一个空格）。
@@ -245,15 +252,25 @@ class StartGroups:
         return changed
 
     def _start_sleep(self, state: WorldState, pending: PendingAction, declared: int) -> WorldState:
-        """@brief 受理睡眠时定下唯一的计划结束：写的时长加多睡的时长；多睡的时长每段睡眠只在这里抽一次。
-
-        会不会睡过头按开始睡的这一刻往回 24 小时的睡眠合计判定，刚开始的这一觉不算，写多长都不影响。
-        """
-        slept = sleep_seconds_in_window(state.current_time, self._earlier_sleeps(state, pending.agent_id))
+        """@brief 受理睡眠时定下计划结束、处理商业酒店房晚核销及退房纪元并抽取多睡时长。"""
+        agent = state.agents[pending.agent_id]
+        location = self.context.catalog.locations[agent.location_id]
+        changed = state
+        if (location.sleep_consumes_state is not None
+                and state.current_time >= agent.lodging_stays.get(location.location_id, 0)):
+            changed, draft = consume_callback_state(
+                changed, pending.agent_id, location.sleep_consumes_state, (pending.requested_event_id, None),
+            )
+            self.event_drafts.append(draft)
+            checkout = _lodging_checkout_epoch(state.current_time, state.timezone)
+            refreshed = changed.agents[pending.agent_id]
+            lodging = {**refreshed.lodging_stays, location.location_id: checkout}
+            changed = _put_agent(changed, refreshed.model_copy(update={"lodging_stays": lodging}, deep=True))
+        slept = sleep_seconds_in_window(state.current_time, self._earlier_sleeps(changed, pending.agent_id))
         extra = oversleep_seconds(slept, state.random_state, pending.action_id)
         data = {"declared_duration_seconds": declared, "oversleep_seconds": extra}
         params = ActivityStartParams("sleep", declared + extra, data=data)
-        return self._named(state, pending, params, ACTION_LABELS["sleep"])
+        return self._named(changed, pending, params, ACTION_LABELS["sleep"])
 
     def _earlier_sleeps(self, state: WorldState, agent_id: int) -> list[tuple[int, int]]:
         """@brief 此前各段睡眠的起止：运行开始前的假定睡眠（与身体初值同一假设），加上本人已完成的睡眠。"""
@@ -266,14 +283,25 @@ class StartGroups:
                            and item.status == ActivityStatus.COMPLETED)]
 
     def _start_travel(self, state: WorldState, pending: PendingAction, row: dict) -> WorldState:
-        """@brief 受理行程冻结出行方式、天气、路线和车费，出发时只付款一次；活动名用出行方式的名称。"""
-        method = travel_method(self.context.catalog, row["selected_action"]["travel_method_id"])
-        places = place_names(self.context.catalog)
+        """@brief 受理行程冻结出行方式、天气、路线和车费，若走限定边则扣减状态并记收支，出发只付款一次。"""
+        catalog = self.context.catalog
+        method = travel_method(catalog, row["selected_action"]["travel_method_id"])
+        places = place_names(catalog)
         current = activity_control.open_activities(state, pending.agent_id)
         context = admission.Context(state, pending.agent_id, current, places, {}, self.context.inputs)
         trip = admission.planned_trip(context, row)
         changed, receipt = pay_travel_fare(state, pending.agent_id, trip)
-        data = travel_activity_data(trip, method, current_weather_factor(state))
+        edge = catalog.graph.declared_edge(trip.origin_id, trip.destination_id)
+        if (edge is not None and trip.path == (trip.origin_id, trip.destination_id)
+                and edge.consumes_state is not None):
+            changed, draft = consume_callback_state(
+                changed, pending.agent_id, edge.consumes_state, (pending.requested_event_id, None),
+            )
+            self.event_drafts.append(draft)
+        factor = trip_weather_factor(
+            state, catalog.locations[trip.origin_id].city_id, catalog.locations[trip.destination_id].city_id,
+        )
+        data = travel_activity_data(trip, method, factor)
         params = ActivityStartParams("travel", trip.duration_seconds, row["object_id"], method.travel_method_id, data)
         self.resource_changes[pending.action_id] = dict(receipt["resource_changes"])
         return self._named(changed, pending, params, f"{method.name}前往{row['object']}")
@@ -301,3 +329,11 @@ class StartGroups:
         return ActionResult(action_id=pending.action_id, agent_id=pending.agent_id, status=ActionStatus.IN_PROGRESS,
                             occurred_at=before.current_time, activity_id=activity.activity_id,
                             message="Activities started", data=resolution_data(data, item.resolved, ()))
+
+
+def _lodging_checkout_epoch(now: int, timezone: str) -> int:
+    """@brief 按本地钟面 06:00 日切计算酒店退房纪元：00:00 至 05:59 为当日 12:00，06:00 起为次日 12:00。"""
+    zone = ZoneInfo(timezone)
+    local = datetime.fromtimestamp(now, zone)
+    checkout_date = local.date() if local.hour < 6 else local.date() + timedelta(days=1)
+    return int(datetime.combine(checkout_date, time(12, 0), tzinfo=zone).timestamp())

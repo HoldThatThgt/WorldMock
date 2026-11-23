@@ -62,7 +62,7 @@ def world(inputs, location="home", balance=200000, random_state="commerce-tests"
         persona_sha256=inputs.persona_sha256, config_sha256=inputs.config_sha256,
         agents={1: agent}, accounts={"agent:1": balance, "external:scenario": -balance},
         random_seed=7, random_state=random_state,
-        weather_by_date={inputs.config.start_time.date().isoformat(): "sunny"})
+        weather_by_date={inputs.config.start_time.date().isoformat(): {"test-city": "sunny"}})
 
 
 def runtime(inputs):
@@ -123,14 +123,14 @@ def test_routes_are_fixed_first_and_quoted_by_the_split_offer_functions(environm
     state = world(environment)
     goods = environment.catalog.goods["lemon-tea"]
     chosen = quote_goods(environment, state, 1, "lemon-tea", None)
-    assert (chosen.store_id, chosen.app_id) == ("noodle-1", "meituan")
+    assert (chosen.store_id, chosen.app_id) == ("cafe", "eleme")
     assert delivery_offer(environment, state, goods, (chosen.store_id, chosen.app_id), "home") == chosen
-    far = delivery_offer(environment, state, goods, ("cafe", "eleme"), "home")
-    meters = environment.catalog.shortest_m("cafe", "home")
+    far = delivery_offer(environment, state, goods, ("noodle-1", "meituan"), "home")
+    meters = environment.catalog.shortest_m("noodle-1", "home")
     assert meters > chosen.distance_meters
-    assert (far.store_id, far.app_id, far.distance_meters, far.destination_id) == ("cafe", "eleme", meters, "home")
+    assert (far.store_id, far.app_id, far.distance_meters, far.destination_id) == ("noodle-1", "meituan", meters, "home")
     assert far.expected_at == state.current_time + 600 + -(-meters // 5)
-    assert (far.fulfillment, far.delivery_fee_fen, far.trip_id) == ("delivery", 500, "cafe->home:delivery")
+    assert (far.fulfillment, far.delivery_fee_fen, far.trip_id) == ("delivery", 500, "noodle-1->home:delivery")
     notebook = environment.catalog.goods["online-notebook"].model_copy(update={"app_ids": ("bilibili", "meituan")})
     zone = ZoneInfo(state.timezone)
     day = datetime.fromtimestamp(state.current_time, zone).date()
@@ -478,10 +478,10 @@ def test_completion_needs_the_finished_payment_phase_of_an_order_paid_inside_its
     assert paid.accounts["agent:1"] == 200000 - settled.total_price_fen
 
 
-def paid_purchase(environment, goods, location="home"):
+def paid_purchase(environment, goods, location="home", prefer=None):
     """经真实受理、付款段和完成结算得到已付款世界、购买活动与当次事件。"""
     commerce = runtime(environment)
-    state, activity = commerce.prepare_purchase(world(environment, location), pending(), goods, None)
+    state, activity = commerce.prepare_purchase(world(environment, location), pending(), goods, prefer)
     state = operate_phases(state, activity)
     state, activity = finish(state, activity)
     state, events = commerce.complete_purchase(state, activity)
@@ -565,8 +565,20 @@ def test_shipping_notice_comes_a_tenth_of_the_way_to_arrival_rounded_up_to_the_s
     assert shipping_delay_seconds(interval) == delay
 
 
-def test_goods_list_sorts_by_goods_identity_and_folds_repeated_portions(environment):
-    state, activity, events = paid_purchase(environment, ("lemon-tea", "beef-noodles", "lemon-tea"))
+def _meituan_noodle_environment(tmp_path):
+    """三杯咖啡不下线时更近于家，去掉其美团绑定以便单店组合出牛肉面与柠檬茶。"""
+    root = copy_environment(tmp_path / "noodle-env")
+    rows = catalog_rows(root, "location.jsonl")
+    for row in rows:
+        if row["location_id"] == "cafe":
+            row["app_ids"] = ["eleme"]
+    write_catalog_rows(root, "location.jsonl", rows)
+    return load_environment(root, metadata_loader=fixture_metadata)
+
+
+def test_goods_list_sorts_by_goods_identity_and_folds_repeated_portions(tmp_path):
+    environment = _meituan_noodle_environment(tmp_path)
+    state, activity, events = paid_purchase(environment, ("lemon-tea", "beef-noodles", "lemon-tea"), prefer="meituan")
     orders = activity_orders(state, activity)
     assert goods_names(orders, environment.catalog) == ["牛肉面", "柠檬茶×2"]
     assert goods_text(orders, environment.catalog) == "牛肉面、柠檬茶×2"
@@ -576,8 +588,9 @@ def test_goods_list_sorts_by_goods_identity_and_folds_repeated_portions(environm
     assert state.activities[activity.activity_id].name.startswith("购买牛肉面、柠檬茶×2（")
 
 
-def test_shipped_and_delivered_notices_name_the_trip_and_point_at_their_real_causes(environment):
-    state, activity, events = paid_purchase(environment, ("lemon-tea", "beef-noodles", "lemon-tea"))
+def test_shipped_and_delivered_notices_name_the_trip_and_point_at_their_real_causes(tmp_path):
+    environment = _meituan_noodle_environment(tmp_path)
+    state, activity, events = paid_purchase(environment, ("lemon-tea", "beef-noodles", "lemon-tea"), prefer="meituan")
     (payment,) = [event for event in events if event.data["kind"] == "purchase_payment"]
     orders = activity_orders(state, activity)
     (shipping,) = [row for row in state.pending_events if row.kind == "order_shipped"]
@@ -622,7 +635,7 @@ def test_courier_quote_actual_arrival_and_collection_are_identical_in_sun_and_ra
     for condition in ("sunny", "heavy_rain"):
         commerce = runtime(environment)
         state = world(environment, "parcel-station")
-        state.weather_by_date = dict.fromkeys(state.weather_by_date, condition)
+        state.weather_by_date = {day: {"test-city": condition} for day in state.weather_by_date}
         state, activity = commerce.prepare_purchase(state, pending(), ("online-notebook",), None)
         state, activity = finish(operate_phases(state, activity), activity)
         state, _ = commerce.complete_purchase(state, activity)

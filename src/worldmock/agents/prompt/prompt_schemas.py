@@ -15,6 +15,7 @@ from typing import Any, get_args
 from worldmock.exchange_engine.definitions.types import GoodsQuality
 
 from worldmock.recording_engine.projections.presentation.display_wording import TITLE_LIST_LIMIT
+from worldmock.simulation_engine.activities.query.query_answer import ROUTE_NAMES
 from worldmock.simulation_engine.body import felt
 from worldmock.simulation_engine.observation.targets.callable_index import MAX_EXAMPLES
 from worldmock.simulation_engine.observation.layers.todo_layer import ORDER_ROW_LIMIT
@@ -265,7 +266,7 @@ _CONTENTS = {"type": "array", "minItems": 1, "maxItems": TITLE_LIST_LIMIT, "item
 _CONTENTS_OMITTED = {"type": "string", "pattern": r"^还有 [1-9][0-9]* 条没列$"}
 #: 查询答案的一行：指向商铺时同时告知评分；可以下单时 reason 为 null，否则是非空原因。
 _QUERY_ROW = _reason_unless(_object({
-    "product": _TEXT, "route": {"enum": ["到店", "外卖", "快递", None]}, "store": _NULLABLE_TEXT,
+    "product": _TEXT, "route": {"enum": [*ROUTE_NAMES.values(), None]}, "store": _NULLABLE_TEXT,
     "rating": _STORE_RATING,
     "apps": {"type": "array", "uniqueItems": True, "items": _TEXT}, "price": _TEXT,
     "delivery_fee": _NULLABLE_TEXT, "expected_at": {**_TIME, "type": ["string", "null"]},

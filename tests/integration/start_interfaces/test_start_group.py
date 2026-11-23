@@ -222,7 +222,7 @@ def test_main_failure_starts_neither_call_and_points_at_the_main_call(engine_fac
 
 def test_single_call_rejection_has_no_group_sentence(engine_factory):
     """只有一条调用时不追加组的那一句；占用者不能暂停时下一步只写结束。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_attentive())
     _, trip = act(engine, "go", travel("公司", "步行"))
     assert trip.status == "in_progress" and advance_until_ready(engine)
     name = engine.context.state.activities[trip.activity_id].name
@@ -298,7 +298,7 @@ def test_bypassing_the_host_gets_the_shared_error_shape(engine_factory):
     item = first.data["items"][0]
     assert item["path"] == ["tool_calls", 1, "function", "arguments", "action"]
     assert item["error_code"] == "ACTION_NOT_OFFERED" and item["allowed_values"] == ["travel"]
-    assert item["candidates"][0] == {"tool": MAIN_TOOL, "note": "约 32 分钟",
+    assert item["candidates"][0] == {"tool": MAIN_TOOL, "note": "约 22 分钟",
                                      "arguments": {"action": "travel", "target": "公司", "detail": "步行"}}
     assert first.data["fix"] == "Use one of the object's offered actions." and not names.context.state.activities
 

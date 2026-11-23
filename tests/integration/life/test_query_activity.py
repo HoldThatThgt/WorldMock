@@ -481,14 +481,14 @@ def test_query_finishing_at_local_midnight_uses_the_new_days_weather(engine_fact
     done = engine.context.state.activities[activity.activity_id]
     assert done.status == "completed" and done.concluded_at == midnight and "answer" in done.data
     state = engine.context.state
-    assert state.weather_by_date == {"2026-01-05": "light_rain", "2026-01-06": "snow"}
+    assert state.weather_by_date == {"2026-01-05": {"test-city": "light_rain"}, "2026-01-06": {"test-city": "sunny"}}
     (weather,) = [row for row in events(engine, "environment_event") if row.data.get("kind") == "weather"]
-    assert (weather.occurred_at, weather.data["local_date"], weather.data["condition"]) == (
-        midnight, "2026-01-06", "snow")
+    assert (weather.occurred_at, weather.data["city_id"], weather.data["local_date"], weather.data["condition"]) == (
+        midnight, "test-city", "2026-01-06", "sunny")
     (row,) = [row for row in done.data["answer"]["rows"]
-              if row["goods_id"] == "lemon-tea" and row["store_id"] == "noodle-1"]
+              if row["goods_id"] == "lemon-tea" and row["store_id"] == "cafe"]
     now = quote_goods(engine.context.inputs, state, 1, "lemon-tea", "meituan")
-    assert row["expected_at"] == now.expected_at == midnight + 1273
+    assert row["expected_at"] == now.expected_at == midnight + 1064
     if at_stop:
         assert state.current_time == state.end_time and not engine.scheduling_state().ready_agent_ids
         assert "2026-01-06" not in state.agents[1].plan_submitted_dates

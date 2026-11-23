@@ -113,8 +113,8 @@ def test_other_locations_only_offer_travel_by_each_travel_method(engine_factory)
     assert [(row["action"], row["detail"]) for row in office["actions"]] == [
         ("travel", "步行"), ("travel", "公共交通"), ("travel", "驾车"), ("travel", "打车")]
     assert [(row["price"], row["duration"], row["quantity"], row["note"]) for row in office["actions"]] == [
-        ("0 元", "约 32 分钟", None, "费力"), ("2 元", "约 8 分钟", None, "轻松"),
-        ("5 元", "约 5 分钟", None, "轻松"), ("14 元", "约 5 分钟", None, "轻松")]
+        ("0 元", "约 22 分钟", None, "费力"), ("2 元", "约 5 分钟", None, "轻松"),
+        ("5 元", "约 4 分钟", None, "轻松"), ("14 元", "约 4 分钟", None, "轻松")]
     locations = [row for row in observed["tool_layer"]["targets"] if row["kind"] == "location" and row["name"] != "家"]
     assert locations and all({row["action"] for row in target["actions"]} == {"travel"} for target in locations)
 

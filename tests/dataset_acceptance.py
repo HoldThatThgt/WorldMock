@@ -258,16 +258,16 @@ MUTATIONS = (
         ("tests/integration/footprints/test_acs_export.py"
          "::test_location_stays_artifact_is_compared_with_the_projection_of_the_events",)),
     SourceMutation("rules_version_still_five", 'worldmock.exchange_engine.definitions.constants::RULES_VERSION',
-        "RULES_VERSION = 6", "RULES_VERSION = 5",
+        "RULES_VERSION = 7", "RULES_VERSION = 6",
         ("tests/unit/exchange/test_constants.py::test_fixed_travel_delivery_map_and_push_constants",)),
     SourceMutation("catalog_format_version_still_five", 'worldmock.resource_engine.catalog.models::CatalogManifest',
-        "format_version: Literal[6]", "format_version: Literal[5]",
+        "format_version: Literal[7]", "format_version: Literal[6]",
         ("tests/unit/catalog/test_manifest_version.py"
          "::test_otherwise_complete_package_with_an_old_version_number_is_refused",)),
     SourceMutation("world_schema_version_still_fifteen", 'worldmock.state.world.world::WORLD_SCHEMA_VERSION',
-        "WORLD_SCHEMA_VERSION = 16", "WORLD_SCHEMA_VERSION = 15",
+        "WORLD_SCHEMA_VERSION = 17", "WORLD_SCHEMA_VERSION = 16",
         ("tests/integration/life/test_state_serialization.py"
-         "::test_world_state_schema_is_sixteen_and_the_previous_version_is_refused",)),
+         "::test_world_state_schema_is_seventeen_and_the_previous_version_is_refused",)),
     SourceMutation("export_schema_version_still_seven", 'worldmock.recording_engine.export.export::EXPORT_SCHEMA_VERSION',
         "EXPORT_SCHEMA_VERSION = 8", "EXPORT_SCHEMA_VERSION = 7",
         ("tests/integration/footprints/test_acs_export.py"
@@ -645,9 +645,10 @@ MUTATIONS = (
         "return None, False",
         ("tests/integration/life/test_query_activity.py::test_unusable_prefer_lets_the_environment_draw_the_app",)),
     SourceMutation("delivery_lists_only_the_nearest_store", 'worldmock.simulation_engine.activities.query.query_answer::_store_rows',
-        "stores = _stores(moment.inputs.catalog, goods)",
-        "stores = [key for key in _stores(moment.inputs.catalog, goods) if not moment.inputs.catalog.apps_by_store[key]"
-        " or key == min((item for item in _stores(moment.inputs.catalog, goods)"
+        "stores = _stores(moment.inputs.catalog, goods, moment.here)",
+        "stores = [key for key in _stores(moment.inputs.catalog, goods, moment.here)"
+        " if not moment.inputs.catalog.apps_by_store[key]"
+        " or key == min((item for item in _stores(moment.inputs.catalog, goods, moment.here)"
         " if moment.inputs.catalog.apps_by_store[item]),"
         " key=lambda item: moment.inputs.catalog.shortest_m(item, moment.here), default=None)]",
         ("tests/integration/life/test_query_answer.py::test_every_open_store_selling_the_goods_gives_one_row",)),
@@ -775,7 +776,7 @@ MUTATIONS = (
          "tests/integration/life/test_running_series_row.py"
          "::test_running_series_row_names_the_episode_and_the_meal_episode")),
     SourceMutation("series_pause_refusal_says_it_ends", 'worldmock.simulation_engine.activities.lifecycle.activity_control::_continues_with_next_episode',
-        "return next_episode(catalog, agent, content, rounds) is not None", "return False",
+        "return next_episode(catalog, agent, content, rounds, (stay, local_moment)) is not None", "return False",
         ("tests/unit/life/test_series_pause_wording.py"
          "::test_a_location_series_with_a_next_episode_gets_the_continuing_refusal",
          "tests/integration/life/test_series_pause_refusal.py"
@@ -786,8 +787,9 @@ MUTATIONS = (
          "tests/integration/life/test_closed_app_state.py"
          "::test_row_and_refusal_name_an_opening_on_the_seventh_day_or_none_within_seven_days")),
     SourceMutation("closed_app_state_ignores_eligible_contents", 'worldmock.simulation_engine.observation.wording.content_prerequisite::app_time_state',
-        "rows = _unmet_contents(catalog, app_id, stay, local_moment)",
-        "rows = [(catalog.contents[key], ()) for key in sorted(catalog.contents_by_app.get(app_id, ()))]",
+        "exhausted, rows = _unmet_contents(catalog, app_id, stay, local_moment, agent)",
+        "exhausted, rows = False, [(catalog.contents[key], ()) "
+        "for key in sorted(catalog.contents_by_app.get(app_id, ()))]",
         ("tests/unit/life/test_next_opening.py::test_app_time_state_is_null_while_some_content_can_start",
          "tests/integration/life/test_closed_app_state.py"
          "::test_clock_in_app_state_names_todays_hours_or_the_next_opening")),
@@ -1432,4 +1434,171 @@ MUTATIONS = (
         ("tests/unit/engineering/test_compare_complete_days.py"
          "::test_each_side_records_with_its_own_environment_python",)),
     # ---- 自有决策循环结束 ----
+    # ---- 多城市、限定边、即时电子履约、收货增量与分集前提（规则版本 7）----
+    SourceMutation("mapgen_mixes_intercity_nodes_in_single_tree", 'worldmock.resource_engine.map.mapgen::generate_edges',
+        "for city_id, city_nodes in _grouped_locations(locations):",
+        'for city_id, city_nodes in [("all", nodes)]:',
+        ("tests/unit/catalog/test_multi_city_and_edge_admission.py"
+         "::test_per_city_mapgen_seed_isolation_and_single_node_city",
+         "tests/unit/catalog/test_multi_city_and_edge_admission.py"
+         "::test_generate_map_never_creates_intercity_edges_and_respects_declared_bypass")),
+    SourceMutation("mapgen_ignores_city_id_seed_salt", 'worldmock.resource_engine.map.mapgen::_city_random_edges',
+        'seed = random_stream(random_state, f"map:{city_id}").getrandbits(64)',
+        'seed = random_stream(random_state, "map").getrandbits(64)',
+        ("tests/unit/catalog/test_multi_city_and_edge_admission.py"
+         "::test_per_city_mapgen_seed_isolation_and_single_node_city",
+         "tests/unit/catalog/test_mapgen.py::test_frozen_tree_extra_edge_and_length_stream")),
+    SourceMutation("graph_uses_free_network_when_city_wide_false", 'worldmock.resource_engine.map.graph::Graph.shortest_route',
+        "if city_wide and self._city_by_node[origin] == self._city_by_node[destination]:",
+        "if self._city_by_node[origin] == self._city_by_node[destination]:",
+        ("tests/unit/catalog/test_multi_city_and_edge_admission.py"
+         "::test_graph_intercity_bfs_hub_tiebreak_and_method_isolation",)),
+    SourceMutation("graph_skips_city_bfs_in_hub_guidance", 'worldmock.resource_engine.map.graph::Graph.next_hub_toward',
+        "candidate = (city_hops[next_city], walk_m, dep_hub, remote_hub)",
+        "candidate = (0, walk_m, dep_hub, remote_hub)",
+        ("tests/unit/catalog/test_multi_city_and_edge_admission.py"
+         "::test_graph_intercity_bfs_hub_tiebreak_and_method_isolation",)),
+    SourceMutation("free_city_subgraph_disconnection_ignored",
+        'worldmock.resource_engine.registration.admission::_check_free_city_limits',
+        "if set(graph.free_shortest_paths(city_nodes[0])) != set(city_nodes):", "if False:",
+        ("tests/unit/catalog/test_multi_city_and_edge_admission.py::test_dual_track_validate_route_limit",)),
+    SourceMutation("gated_edge_route_limit_unchecked",
+        'worldmock.resource_engine.registration.admission::_check_gated_edge_limits',
+        "for edge in graph.gated_edges():", "for edge in ():",
+        ("tests/unit/catalog/test_multi_city_and_edge_admission.py::test_dual_track_validate_route_limit",)),
+    SourceMutation("intercity_free_edge_or_walking_accepted",
+        'worldmock.resource_engine.registration.admission::_check_one_edge',
+        "if cross_city:", "if False:",
+        ("tests/unit/catalog/test_multi_city_and_edge_admission.py"
+         "::test_map_jsonl_and_gain_on_goods_registration_refusals",)),
+    SourceMutation("overlap_reset_and_gain_goods_accepted",
+        'worldmock.resource_engine.registration.admission::_check_callbacks',
+        "if set(state.reset_on_goods) & set(state.gain_on_goods):", "if False:",
+        ("tests/unit/catalog/test_multi_city_and_edge_admission.py"
+         "::test_map_jsonl_and_gain_on_goods_registration_refusals",)),
+    SourceMutation("series_repeatable_mismatch_accepted",
+        'worldmock.resource_engine.registration.admission::_check_series',
+        "if first[4] != content.repeatable:", "if False:",
+        ("tests/unit/catalog/test_multi_city_and_edge_admission.py"
+         "::test_content_prerequisite_city_ids_and_series_repeatable_rules",)),
+    SourceMutation("instant_only_catalog_requires_parcel_station",
+        'worldmock.resource_engine.registration.admission::_check_locations',
+        'if any(goods.app_ids and not goods.instant for goods in rows["goods"]) and not any(',
+        'if any(goods.app_ids for goods in rows["goods"]) and not any(',
+        ("tests/unit/catalog/test_multi_city_and_edge_admission.py"
+         "::test_parcel_station_is_optional_for_instant_only_and_must_match_home_city",)),
+    SourceMutation("remote_parcel_station_satisfies_home_city",
+        'worldmock.configuration.inputs.environment::_require_parcel_station',
+        "if not any(station.city_id == home_city for station in stations):", "if not stations:",
+        ("tests/unit/catalog/test_multi_city_and_edge_admission.py"
+         "::test_parcel_station_is_optional_for_instant_only_and_must_match_home_city",)),
+    SourceMutation("tool_layer_portal_suffix_dropped",
+        'worldmock.simulation_engine.observation.targets.tool_layer::_portal_suffix',
+        "if not edges:", "if True:",
+        ("tests/integration/life/test_intercity_travel_and_hotel.py"
+         "::test_tool_layer_city_isolation_portal_suffix_and_city_wide_false",)),
+    SourceMutation("non_adjacent_intercity_travel_not_guided",
+        'worldmock.simulation_engine.actions.admission::_route_refusal',
+        "if origin_loc.city_id != dest_loc.city_id and edge is None:", "if False:",
+        ("tests/integration/life/test_intercity_travel_and_hotel.py"
+         "::test_non_direct_intercity_refusal_uses_progressive_hub_guidance",)),
+    SourceMutation("gated_edge_opens_ignored",
+        'worldmock.simulation_engine.actions.admission::_gated_edge_refusal',
+        "if edge.opens is not None and not edge.opens.is_open(moment):", "if False:",
+        ("tests/integration/life/test_intercity_travel_and_hotel.py"
+         "::test_gated_edge_opens_and_consumes_state_with_travel_callback_cause",)),
+    SourceMutation("gated_edge_consumes_state_ignored",
+        'worldmock.simulation_engine.actions.admission::_gated_edge_refusal',
+        "if edge.consumes_state is not None and agent.callback_states[edge.consumes_state] < 1:", "if False:",
+        ("tests/integration/life/test_intercity_travel_and_hotel.py"
+         "::test_gated_edge_opens_and_consumes_state_with_travel_callback_cause",)),
+    SourceMutation("intercity_conclude_allowed_mid_trip",
+        'worldmock.simulation_engine.activities.lifecycle.activity_control::intercity_conclude_refusal',
+        "if origin_city == destination.city_id:", "if True:",
+        ("tests/integration/life/test_intercity_travel_and_hotel.py"
+         "::test_intercity_conclude_activity_forbidden_while_intracity_allowed",)),
+    SourceMutation("intercity_weather_uses_origin_only",
+        'worldmock.simulation_engine.scheduling.clock.weather::trip_weather_factor',
+        "return min(city_weather_factor(state, origin_city), city_weather_factor(state, destination_city))",
+        "return city_weather_factor(state, origin_city)",
+        ("tests/integration/life/test_intercity_travel_and_hotel.py"
+         "::test_intercity_weather_uses_min_factor_freezes_and_switches_environment",)),
+    SourceMutation("hotel_checkout_ignores_0600_daycut",
+        'worldmock.simulation_engine.actions.start_group::_lodging_checkout_epoch',
+        "checkout_date = local.date() if local.hour < 6 else local.date() + timedelta(days=1)",
+        "checkout_date = local.date() + timedelta(days=1)",
+        ("tests/integration/life/test_intercity_travel_and_hotel.py"
+         "::test_hotel_lodging_stays_0600_daycut_reuse_nap_and_second_home",)),
+    SourceMutation("hotel_reuse_deducts_state_again",
+        'worldmock.simulation_engine.actions.start_group::StartGroups._start_sleep',
+        "and state.current_time >= agent.lodging_stays.get(location.location_id, 0)):",
+        "and True):",
+        ("tests/integration/life/test_intercity_travel_and_hotel.py"
+         "::test_hotel_lodging_stays_0600_daycut_reuse_nap_and_second_home",)),
+    SourceMutation("sleep_guidance_skips_checked_in_tier",
+        'worldmock.simulation_engine.actions.admission::_sleep_guidance',
+        "if checked_in:", "if False:",
+        ("tests/integration/life/test_intercity_travel_and_hotel.py"
+         "::test_sleep_guidance_follows_same_city_five_tier_priority_and_cross_city_fallback",)),
+    SourceMutation("delivery_ignores_city_filter",
+        'worldmock.simulation_engine.commerce.purchase.purchase_offers::quote_goods',
+        "and inputs.catalog.locations[key].city_id == current_city)", ")",
+        ("tests/integration/life/test_instant_fulfillment_and_gain.py"
+         "::test_instant_tool_preview_query_route_and_city_commerce_isolation",)),
+    SourceMutation("instant_not_settled_on_payment",
+        'worldmock.simulation_engine.commerce.purchase.storefront_runtime::StorefrontRuntime._pay_order',
+        "if order.fulfillment not in {FulfillmentKind.PICKUP, FulfillmentKind.INSTANT}:",
+        "if order.fulfillment != FulfillmentKind.PICKUP:",
+        ("tests/integration/life/test_instant_fulfillment_and_gain.py"
+         "::test_mixed_instant_and_station_pickup_same_app_basket_settlement",
+         "tests/integration/life/test_instant_fulfillment_and_gain.py"
+         "::test_gain_on_receipt_increments_and_clamps_versus_reset_to_cap")),
+    SourceMutation("instant_scheduled_for_shipping_and_arrival",
+        'worldmock.simulation_engine.commerce.purchase.basket::delivery_events',
+        "if order.paid_at is not None and order.fulfillment not in {FulfillmentKind.PICKUP, FulfillmentKind.INSTANT}:",
+        "if order.paid_at is not None and order.fulfillment != FulfillmentKind.PICKUP:",
+        ("tests/integration/life/test_instant_fulfillment_and_gain.py"
+         "::test_mixed_instant_and_station_pickup_same_app_basket_settlement",)),
+    SourceMutation("gain_on_receipt_not_clamped_to_cap",
+        'worldmock.simulation_engine.scheduling.callbacks.callbacks::reset_on_receipt',
+        "after = min(declaration.cap, before + 1)", "after = before + 1",
+        ("tests/integration/life/test_instant_fulfillment_and_gain.py"
+         "::test_gain_on_receipt_increments_and_clamps_versus_reset_to_cap",)),
+    SourceMutation("instant_export_allows_forged_quality",
+        'worldmock.recording_engine.validation.invariants::_receipt_quality',
+        'if order["fulfillment"] in {"station_pickup", "instant"}:',
+        'if order["fulfillment"] == "station_pickup":',
+        ("tests/integration/life/test_instant_fulfillment_and_gain.py"
+         "::test_instant_export_invariants_and_tamper_rejection",)),
+    SourceMutation("content_select_ignores_full_unit_representative",
+        'worldmock.simulation_engine.activities.content.content_select::eligible_contents',
+        "item = unit_target_episode(unit, agent)\n        if item is None:\n            continue\n"
+        "        if not prerequisite_unmet(item, stay, moment):\n            kept.extend(unit)",
+        "kept.extend(entry for entry in unit if not prerequisite_unmet(entry, stay, moment)"
+        " and (entry.repeatable or (0 if entry.content_id not in agent.content_progress"
+        " else agent.content_progress[entry.content_id].completed_rounds) == 0))",
+        ("tests/integration/life/test_series_prerequisites_and_repeatable.py"
+         "::test_full_unit_target_episode_suspends_on_locked_episode_and_unlocks",)),
+    SourceMutation("unit_target_episode_ignores_repeatable_exhaustion",
+        'worldmock.simulation_engine.observation.wording.content_prerequisite::unit_target_episode',
+        "if not unit[0].repeatable and min(rounds.values()) >= 1:", "if False:",
+        ("tests/integration/life/test_series_prerequisites_and_repeatable.py"
+         "::test_exhausted_repeatable_app_displays_no_unread_and_refuses_while_local_city_clause_leads",
+         "tests/integration/life/test_series_prerequisites_and_repeatable.py"
+         "::test_location_repeatable_unit_locked_and_pause_under_three_minutes_matches_next_episode")),
+    SourceMutation("prerequisite_skips_city_ids",
+        'worldmock.simulation_engine.observation.wording.content_prerequisite::prerequisite_unmet',
+        "if prerequisite.city_ids and (stay is None or stay.city_id not in prerequisite.city_ids):", "if False:",
+        ("tests/integration/life/test_series_prerequisites_and_repeatable.py"
+         "::test_full_unit_target_episode_suspends_on_locked_episode_and_unlocks",)),
+    SourceMutation("exhausted_app_state_hides_no_unread",
+        'worldmock.simulation_engine.observation.wording.content_prerequisite::app_time_state',
+        'if exhausted:\n        return "无未读内容"', 'if False:\n        return "无未读内容"',
+        ("tests/integration/life/test_series_prerequisites_and_repeatable.py"
+         "::test_exhausted_repeatable_app_displays_no_unread_and_refuses_while_local_city_clause_leads",)),
+    SourceMutation("location_locked_refusal_misses_repeatable_check",
+        'worldmock.simulation_engine.activities.content.location_activities::locked_refusal',
+        "if unit_target_episode(contents, agent) is None:", "if False:",
+        ("tests/integration/life/test_series_prerequisites_and_repeatable.py"
+         "::test_location_repeatable_unit_locked_and_pause_under_three_minutes_matches_next_episode",)),
 )

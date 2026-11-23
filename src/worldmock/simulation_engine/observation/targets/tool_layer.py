@@ -24,7 +24,7 @@ from worldmock.simulation_engine.body.felt import sleep_debt_phrase
 from worldmock.simulation_engine.observation.wording.guidance import Refusal
 from worldmock.simulation_engine.activities.content.location_activities import running_series_note, unit_facts
 from worldmock.state.world.activity import ActivityState
-from worldmock.state.world.kinds import ActivityStatus
+from worldmock.state.world.kinds import ActivityStatus, FulfillmentKind
 from worldmock.simulation_engine.commerce.purchase.purchase_offers import quote_goods
 from worldmock.foundation.time.readable import duration_phrase, interval_phrases, money_phrase
 from worldmock.resource_engine.catalog.travel_methods import travel_method
@@ -125,31 +125,75 @@ def annotated_bindings(context: LayerContext) -> list[dict]:
 
 
 def tool_layer(context: LayerContext, index: dict) -> dict:
-    """@brief 目标顺序保持地点、商品、内容 app、活动；context.bindings 必须是 annotated_bindings 的结果。"""
-    targets = [_binding_target(context, row) for row in context.bindings]
+    """@brief 目标顺序保持地点、商品、内容 app、活动；地点仅暴露当前城市地点及一步直达异地枢纽。"""
+    targets = [_binding_target(context, row) for row in context.bindings if _target_visible(context, row)]
     targets.extend(_activity_target(context, item) for item in context.state.activities.values()
                    if item.agent_id == context.agent_id and (item.status == ActivityStatus.ACTIVE
                    or activity_control.is_pending_conclusion(item)))
     return {"layer": "工具层", "targets": targets, "callable_index": index}
 
 
+def _target_visible(context: LayerContext, row: dict) -> bool:
+    """@brief 工具层只显示当前所在城市的地点，以及从当前停留或锚定地点一步直达的异地枢纽。"""
+    if row["kind"] != "location":
+        return True
+    origin = context.state.agents[context.agent_id].location_id
+    destination = row["object_id"]
+    graph = context.catalog.graph
+    if graph.city_of(destination) == graph.city_of(origin):
+        return True
+    return destination in dict(graph.intercity_edges_from(origin))
+
+
+def _visible_actions(context: LayerContext, row: dict) -> list[dict]:
+    """@brief 过滤地点行下当前不可沿该路线使用的出行方式；其余动作保持原顺序。"""
+    if row["kind"] != "location":
+        return row["actions"]
+    destination = row["object_id"]
+    return [action for action in row["actions"] if action["action"] != "travel"
+            or _travel_visible(context, destination, action["travel_method_id"])]
+
+
+def _travel_visible(context: LayerContext, destination_id: str, method_id: str) -> bool:
+    """@brief 出行方式可见当且仅当从当前地点到目的地点按方式隔离规则存在有效路线。"""
+    origin = context.state.agents[context.agent_id].location_id
+    method = travel_method(context.catalog, method_id)
+    return context.catalog.graph.shortest_route(origin, destination_id, method_id, method.city_wide) is not None
+
+
+def _portal_suffix(context: LayerContext, location_id: str) -> str:
+    """@brief 本城地点连有跨城声明边时附加可达异地枢纽与许可方式后缀，按目的地点身份与方式身份升序。"""
+    edges = context.catalog.graph.intercity_edges_from(location_id)
+    if not edges:
+        return ""
+    routes = []
+    for destination_id, edge in edges:
+        methods = "、".join(travel_method(context.catalog, key).name for key in sorted(edge.travel_method_ids or ()))
+        routes.append(f"{context.catalog.locations[destination_id].display_name}（{methods}）")
+    return f"；城际可达：{'、'.join(routes)}"
+
+
 def _binding_target(context: LayerContext, row: dict) -> dict:
     """@brief 公共行不带内部身份、类别推断、app 路由或支付渠道；凭状态而未开放的单元（私有绑定 locked 为真）不列出。
 
-    目标的 state：地点行写当天的营业时段（中文）；内容 app 行是 content_prerequisite.app_time_state，内容此刻全都不合格
-    时写开放时间，停留地点与本地时刻与副调用准入相同；商品行为 None。本地时刻在开头按运行时区算一次，两种行共用。
+    目标的 state：地点行写当天的营业时段（中文），当前城市枢纽另附城际可达后缀；内容 app 行是
+    content_prerequisite.app_time_state，全部耗尽或全都不合格时写状态；商品行为 None。
     """
+    row = {**row, "actions": _visible_actions(context, row)}
     kind = "product" if row["kind"] == "supply" else row["kind"]
     local = datetime.fromtimestamp(context.state.current_time, ZoneInfo(context.config.timezone))
+    agent = context.state.agents[context.agent_id]
     state = None
     if row["kind"] == "location":
         location = context.catalog.locations[row["object_id"]]
         intervals = location.opening_intervals(local.date())
         state = "全天营业" if location.opens is None else "、".join(interval_phrases(intervals)) or "今日休息"
+        if location.city_id == context.catalog.graph.city_of(agent.location_id):
+            state += _portal_suffix(context, location.location_id)
     elif row["kind"] == "app":
         stay = admission.present_location(context.state, context.agent_id)
         state = app_time_state(context.catalog, row["object_id"],
-                               None if stay is None else context.catalog.locations[stay], local)
+                               None if stay is None else context.catalog.locations[stay], local, agent)
     return {"name": row["object"], "kind": kind, "phase": None, "state": state,
             "actions": [_action_row(context, row, action) for action in row["actions"] if not action.get("locked")],
             "tools": []}
@@ -209,7 +253,9 @@ def _purchase_facts(context: LayerContext, row: dict) -> dict:
         if offer.store_id is not None:
             store = context.catalog.locations[offer.store_id]
             facts.append(f"{store.display_name}（评分 {store.rating}）")
-        if offer.fulfillment != "pickup":
+        if offer.fulfillment == FulfillmentKind.INSTANT:
+            facts.append("运费0元，付款即收货")
+        elif offer.fulfillment != FulfillmentKind.PICKUP:
             arrival = datetime.fromtimestamp(offer.expected_at, ZoneInfo(context.config.timezone))
             clock = arrival.strftime("%m月%d日 %H:%M:%S" if arrival.second else "%m月%d日 %H:%M")
             facts.append(f"运费{money_phrase(offer.delivery_fee_fen)}，预计{clock}到达")

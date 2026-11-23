@@ -12,17 +12,28 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+import logging
 from math import ceil
 
+from worldmock.foundation.errors import IntegrityError
+from worldmock.recording_engine.events.callback_contract import ConsumeOnStartResult
+from worldmock.recording_engine.events.models import EventDraft
 from worldmock.resource_engine.catalog.models import Catalog, Content
 from worldmock.state.interaction.actions import binding_action
-from worldmock.simulation_engine.activities.content.content_select import content_units, representative
+from worldmock.simulation_engine.observation.wording.content_prerequisite import (
+    content_units,
+    unit_target_episode,
+)
+from worldmock.simulation_engine.activities.content.content_select import representative
 from worldmock.simulation_engine.observation.wording.guidance import Refusal
+from worldmock.simulation_engine.world.world_updates import _put_agent
 from worldmock.state.world.kinds import ActivityKind, ActivityStatus
 from worldmock.state.world.activity import ActivityState
 from worldmock.state.world.agent import AgentState, ContentProgress
 from worldmock.state.world.world import WorldState
 from worldmock.foundation.time.readable import duration_phrase
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,29 +73,63 @@ def unit_binding(unit: Unit, locked: bool) -> dict:
 
 
 def unit_locked(contents: Sequence[Content], agent: AgentState) -> bool:
-    """@brief 凭状态的单元未开放：内容写了 consumes_state（系列各集写的相同，登记时已核过，取第一条）而本人这个回调状态
-    此刻小于 1。开放与否只看本人此刻的状态值，与这个单元是否被暂停的活动占着无关。"""
+    """@brief 凭状态或一次性已完成的单元对本人未开放：一次性且最低轮数不小于 1，或写了 consumes_state 且该状态小于 1。"""
+    if unit_target_episode(tuple(contents), agent) is None:
+        return True
     state = contents[0].consumes_state
     return state is not None and agent.callback_states[state] < 1
 
 
-def locked_refusal(catalog: Catalog, agent: AgentState, action: Mapping) -> Refusal | None:
-    """@brief 未开放：单元凭状态而本人这个状态小于 1 时拒绝，否则为 None；受理与工具层（经同一套准入）共用它。
+def state_unavailable_reason(catalog: Catalog, state_name: str, subject: str) -> str:
+    """@brief 按回调状态的重置与累加商品生成状态不可用提示原因，供地点内容、限定边与酒店共用。"""
+    declaration = catalog.callback_states[state_name]
+    goods = sorted(set(declaration.reset_on_goods) | set(declaration.gain_on_goods))
+    if not goods:
+        return f"{subject} is not available now."
+    names = " or ".join(catalog.goods[key].name for key in goods)
+    return f"{subject} is not available now; receiving {names} makes it available."
 
-    原因写单元名；状态的 reset_on_goods 非空时再写收到哪些商品能开放它，商品名按 goods_id 升序以 or 相连。
-    这是世界条件造成的拒绝，没有下一步与改法；未满足条件是 callback_state。
+
+def state_unavailable_refusal(catalog: Catalog, state_name: str, subject: str) -> Refusal:
+    """@brief 生成统一回调状态不足的 ACTIVITY_PRECONDITION_UNMET 拒绝，无额外下一步与改法。"""
+    return Refusal("ACTIVITY_PRECONDITION_UNMET", state_unavailable_reason(catalog, state_name, subject),
+                   unmet=("callback_state",))
+
+
+def consume_callback_state(state: WorldState, agent_id: int, state_name: str,
+                           request_content: tuple[str, str | None]) -> tuple[WorldState, EventDraft]:
+    """@brief 开始动作时扣减 1 点回调状态并构造 consume_on_start 草稿（地点内容、限定边与酒店共用）。"""
+    request_event_id, content_id = request_content
+    agent = state.agents[agent_id]
+    before = agent.callback_states[state_name]
+    after = before - 1
+    if after < 0:
+        _LOGGER.error("Consumed state %s fell below zero", state_name)
+        raise IntegrityError("Consumed state fell below zero")
+    changed_agent = agent.model_copy(
+        update={"callback_states": {**agent.callback_states, state_name: after}}, deep=True,
+    )
+    payload = ConsumeOnStartResult(state=state_name, content_id=content_id, before=before, after=after)
+    draft = EventDraft(
+        event_type="environment_event", occurred_at=state.current_time, agent_id=agent_id,
+        source_kind="environment", visibility="system", caused_by=[request_event_id],
+        data=payload.model_dump(mode="json"),
+    )
+    return _put_agent(state, changed_agent), draft
+
+
+def locked_refusal(catalog: Catalog, agent: AgentState, action: Mapping) -> Refusal | None:
+    """@brief 未开放：一次性单元已读完，或凭状态而本人这个状态小于 1 时拒绝，否则为 None；受理与工具层共用它。
 
     :param action: 单元在私有绑定里的动作行（detail 与 content_ids）。
     """
-    contents = [catalog.contents[key] for key in action["content_ids"]]
+    contents = tuple(catalog.contents[key] for key in action["content_ids"])
     if not unit_locked(contents, agent):
         return None
-    goods = sorted(catalog.callback_states[contents[0].consumes_state].reset_on_goods)
-    reason = f"{action['detail']} is not available now."
-    if goods:
-        names = " or ".join(catalog.goods[key].name for key in goods)
-        reason = f"{action['detail']} is not available now; receiving {names} makes it available."
-    return Refusal("ACTIVITY_PRECONDITION_UNMET", reason, unmet=("callback_state",))
+    if unit_target_episode(contents, agent) is None:
+        return Refusal("ACTIVITY_PRECONDITION_UNMET", f"{action['detail']} has already been finished.",
+                       unmet=("content_repeatable",))
+    return state_unavailable_refusal(catalog, contents[0].consumes_state, action["detail"])
 
 
 def next_content(contents: Sequence[Content], agent: AgentState) -> tuple[Content, float]:

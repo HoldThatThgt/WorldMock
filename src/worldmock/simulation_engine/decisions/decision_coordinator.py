@@ -356,13 +356,11 @@ class DecisionCoordinator:
         return drafts
 
     def _consumed_on_start(self, draft: EventDraft, received: EventDraft) -> EventDraft:
-        """@brief 开始时减 1 的草稿改指这次开始调用的受理结果，并把回调原因
-        CallbackCause("action", "interact", 人物, 受理结果, "<action_id>:consume") 登记进 context.callback_causes：
-        提交前比较状态越过阈值、以这条效果为来源时沿用它的锚点，锚点以 :consume 结尾，与动作回调的 <action_id>:0 区分
-        （docs/design/04-simulation-engine.md「回调事务」）。"""
+        """@brief 开始时减 1 的草稿改指受理结果，并按实际动作种类登记 CallbackCause。"""
         from worldmock.simulation_engine.scheduling.callbacks.callbacks import CallbackCause
 
-        cause = CallbackCause("action", "interact", draft.agent_id, received.event_id,
+        action_kind = received.data["data"]["activities"][0]["kind"]
+        cause = CallbackCause("action", action_kind, draft.agent_id, received.event_id,
                               f"{received.action_id}:consume")
         self.context.callback_causes[draft.event_id] = cause
         return draft.model_copy(update={"caused_by": [cause.source_event_id]})

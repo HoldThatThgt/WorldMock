@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
+import logging
 from zoneinfo import ZoneInfo
 
 from worldmock.foundation.errors import BusinessRuleError, PreconditionError
@@ -11,10 +12,12 @@ from worldmock.exchange_engine.definitions.constants import DELIVERY_PREP_SECOND
 from worldmock.exchange_engine.commerce.operators import (
     delivery_fee_fen, delivery_seconds, delivery_weather_delay_seconds,
 )
-from worldmock.state.world.kinds import ActivityKind
+from worldmock.state.world.kinds import ActivityKind, FulfillmentKind
 from worldmock.state.world.world import WorldState, active_activities
 from worldmock.foundation.randomness import random_stream
-from worldmock.simulation_engine.scheduling.clock.weather import current_weather_factor
+from worldmock.simulation_engine.scheduling.clock.weather import city_weather_factor
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,21 +59,22 @@ def present_location(state: WorldState, agent_id: int) -> str | None:
 
 
 def quote_goods(inputs, state: WorldState, agent_id: int, goods_id: str, prefer: str | None) -> Offer:
-    """@brief 按绑定侧与真实现场定一件商品的路线并报价，不消费未来请求身份。
-
-    判断次序：快递类商品、人停在卖它的地点（到店）、人在路上、外卖。意向只改变外卖从哪些店里选和下单 app
-    是抽的还是意向 app；到店与三种拒绝都不看意向。
+    """@brief 按绑定侧、所在城市与真实现场定一件商品的路线并报价，不消费未来请求身份。
 
     :param prefer: 已认出的意向 app 身份；没有意向时为 None（工具层预览写 None）。
     """
     goods = inputs.catalog.goods.get(goods_id)
     if goods is None:
+        _LOGGER.error("Requested goods %s does not exist in catalog", goods_id)
         raise BusinessRuleError("SUPPLY_NOT_FOUND")
     if goods.app_ids:
-        return courier_offer(inputs, state, goods, order_app(state, f"{goods_id}:courier", goods.app_ids, prefer))
+        return _app_offer(
+            inputs, state, agent_id, goods, order_app(state, f"{goods_id}:courier", goods.app_ids, prefer))
     here = present_location(state, agent_id)
+    current_city = inputs.catalog.locations[state.agents[agent_id].location_id].city_id
     stores = tuple(key for key in sorted(inputs.catalog.goods_by_store)
-                   if goods_id in inputs.catalog.goods_by_store[key])
+                   if goods_id in inputs.catalog.goods_by_store[key]
+                   and inputs.catalog.locations[key].city_id == current_city)
     local = datetime.fromtimestamp(state.current_time, ZoneInfo(inputs.config.timezone))
     if here in stores:
         if not inputs.catalog.locations[here].is_open(local):
@@ -93,8 +97,28 @@ def quote_goods(inputs, state: WorldState, agent_id: int, goods_id: str, prefer:
     return delivery_offer(inputs, state, goods, (store, app), here)
 
 
+def _app_offer(inputs, state: WorldState, agent_id: int, goods, app: str) -> Offer:
+    """@brief 按 instant 声明在即时电子履约报价与驿站快递报价之间分流。"""
+    if goods.instant:
+        return instant_offer(state, agent_id, goods, app)
+    return courier_offer(inputs, state, goods, app)
+
+
+def instant_offer(state: WorldState, agent_id: int, goods, app: str) -> Offer:
+    """@brief 即时电子商品报价：零运费、无门店与无路径，下单付款完成当秒即收货。"""
+    destination = present_location(state, agent_id) or state.agents[agent_id].location_id
+    return Offer(
+        goods.goods_id, None, app, destination, state.current_time, FulfillmentKind.INSTANT.value,
+        0, destination, (), None, 0, 0, None,
+    )
+
+
 def _require_store(inputs, state: WorldState, agent_id: int, stores: tuple[str, ...]) -> None:
-    """@brief 没有营业远程渠道时说明最近实际有售地点。"""
+    """@brief 当前城市没有营业远程渠道时说明同城最近有售地点或当前城市无门店。"""
+    if not stores:
+        _LOGGER.error("No stores in the current city sell the requested store goods")
+        raise PreconditionError("ACTIVITY_PRECONDITION_UNMET", ["required_location_id"],
+                                public_reason="No stores in the current city sell this item.")
     origin = state.agents[agent_id].location_id
     nearest = min(stores, key=lambda key: (inputs.catalog.shortest_m(origin, key), key))
     name = inputs.catalog.locations[nearest].display_name
@@ -132,7 +156,8 @@ def delivery_offer(inputs, state: WorldState, goods, route: tuple[str, str], her
     catalog = inputs.catalog
     store, app = route
     meters = catalog.shortest_m(store, here)
-    delay = delivery_weather_delay_seconds(meters, current_weather_factor(state))
+    city_id = catalog.locations[store].city_id
+    delay = delivery_weather_delay_seconds(meters, city_weather_factor(state, city_id))
     expected = state.current_time + delivery_seconds(meters) + delay // 2
     return Offer(goods.goods_id, store, app, here, expected,
                  "delivery", delivery_fee_fen(), here, catalog.graph.path(store, here),

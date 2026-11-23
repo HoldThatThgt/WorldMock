@@ -42,7 +42,7 @@ def _initial_state(inputs: EnvironmentInputs, run_id: str) -> WorldState:
     )
     from worldmock.simulation_engine.scheduling.clock.weather import register_daily_weather
 
-    register_daily_weather(state)
+    register_daily_weather(state, inputs.catalog)
     names = {identity: place.display_name for identity, place in inputs.catalog.locations.items()}
     return sessions.open_stay(state, persona.agent_id, names)
 

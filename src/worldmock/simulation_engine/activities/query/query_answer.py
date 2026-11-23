@@ -21,13 +21,20 @@ from zoneinfo import ZoneInfo
 from worldmock.state.world.activity import ActivityState
 from worldmock.state.world.world import WorldState
 from worldmock.simulation_engine.commerce.purchase.order_apps import selling_app_ids
-from worldmock.simulation_engine.commerce.purchase.purchase_offers import courier_offer, delivery_offer, order_app
+from worldmock.simulation_engine.commerce.purchase.purchase_offers import (
+    courier_offer,
+    delivery_offer,
+    instant_offer,
+    order_app,
+)
 from worldmock.foundation.time.readable import iso_time, money_phrase
 
 #: 一次查询至多列出的商品件数（固定常数，不读配置）。
 QUERY_PRODUCT_LIMIT = 20
 #: 途径的机器取值（沿用 FulfillmentKind）→ 人物读到的中文名；「到店」与购买结果 channel 里的是同一个词。
-ROUTE_NAMES = MappingProxyType({"pickup": "到店", "delivery": "外卖", "station_pickup": "快递"})
+ROUTE_NAMES = MappingProxyType({
+    "pickup": "到店", "delivery": "外卖", "station_pickup": "快递", "instant": "即时到账",
+})
 #: 不可下单的六个原因码 → 人物读到的固定文字；{place} 填人物所在地点的显示名。
 REASON_TEXTS = MappingProxyType({
     "location_closed": "这家店此刻已打烊",
@@ -112,10 +119,11 @@ def _product_rows(moment: _Moment, goods_id: str) -> list[dict]:
     goods = catalog.goods[goods_id]
     if moment.app is not None and moment.app not in selling_app_ids(catalog, (goods_id,)):
         # 指名的商品意向 app 不卖：一行「这个 app 里没有」；人物所在的地点卖它时到店行另外照列。
-        local = [_store_row(moment, goods, moment.here, True)] if moment.here in _stores(catalog, goods) else []
+        stores = _stores(catalog, goods, moment.here)
+        local = [_store_row(moment, goods, moment.here, True)] if moment.here in stores else []
         rows = [*local, _row(goods, (None, None), (), "not_sold_on_app")]
     elif goods.app_ids:
-        rows = [_courier_row(moment, goods)]
+        rows = [_instant_row(moment, goods) if goods.instant else _courier_row(moment, goods)]
     else:
         rows = _store_rows(moment, goods)
     if not rows:
@@ -123,14 +131,16 @@ def _product_rows(moment: _Moment, goods_id: str) -> list[dict]:
     return rows
 
 
-def _stores(catalog, goods) -> list[str]:
-    """@brief 卖这件店铺商品的地点：类型在商品的 store_kinds 里，按地点身份升序。"""
-    return [key for key in sorted(catalog.locations) if catalog.locations[key].kind in goods.store_kinds]
+def _stores(catalog, goods, here: str) -> list[str]:
+    """@brief 当前城市卖这件店铺商品的地点：类型在 store_kinds 且与人物同城，按地点身份升序。"""
+    current_city = catalog.locations[here].city_id
+    return [key for key in sorted(catalog.locations)
+            if catalog.locations[key].kind in goods.store_kinds and catalog.locations[key].city_id == current_city]
 
 
 def _store_rows(moment: _Moment, goods) -> list[dict]:
-    """@brief 店铺商品：卖它的每个地点各给一行或不列（别处已打烊、或答案限定意向 app 而这家没登记它）。"""
-    stores = _stores(moment.inputs.catalog, goods)
+    """@brief 店铺商品：卖它的当前城市每个地点各给一行或不列。"""
+    stores = _stores(moment.inputs.catalog, goods, moment.here)
     present = moment.here in stores
     rows = (_store_row(moment, goods, store, present) for store in stores)
     return [row for row in rows if row is not None]
@@ -156,6 +166,14 @@ def _store_row(moment: _Moment, goods, store: str, present: bool) -> dict | None
     # 外卖报价的运费与预计送达与下单 app 无关：传这家店登记的 app 里身份最小的一个，限定意向时就是意向 app。
     offer = delivery_offer(moment.inputs, moment.state, goods, (store, apps[0]), moment.here)
     return _row(goods, ("delivery", store), apps, None, offer)
+
+
+def _instant_row(moment: _Moment, goods) -> dict:
+    """@brief 只在 app 里卖的即时电子商品恰一行即时到账：零运费且当日当秒立即可收货。"""
+    app = order_app(moment.state, f"{goods.goods_id}:courier", goods.app_ids, moment.app)
+    apps = goods.app_ids if moment.app is None else (moment.app,)
+    offer = instant_offer(moment.state, next(iter(moment.state.agents)), goods, app)
+    return _row(goods, ("instant", None), apps, None, offer)
 
 
 def _courier_row(moment: _Moment, goods) -> dict:

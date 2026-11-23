@@ -35,7 +35,7 @@ def test_pure_catalog_loading_does_not_import_runtime_engine():
 
 CALLBACK_ROW = b'{"cap":3,"initial":1,"reset_on_goods":[],"state":"stock"}\n'
 MAP_ROW = b'{"a":"home","b":"office","length_m":12600}\n'
-FIXTURE_MAP_SHA256 = "017bbcfedf78e142ac0310242e504655142c92796fb8395c8ccc4a11a3afedf5"
+FIXTURE_MAP_SHA256 = "c4d0e3f83e4b7684c8bc2a113b4becf8260b3621729a8e9b1ff2d69362a4289a"
 
 
 METHOD_ROW = ('{"exertion":"moderate","name":"骑车","price_per_km_fen":0,"speed_meters_per_second":4.5,'
@@ -65,7 +65,7 @@ def test_each_optional_file_loads_absent_empty_or_with_rows(catalog_dir, callbac
     if distances:
         assert catalog.shortest_m("home", "office") == 12600 and catalog.map_sha256 != FIXTURE_MAP_SHA256
     else:
-        assert catalog.shortest_m("home", "office") == 1957 and catalog.map_sha256 == FIXTURE_MAP_SHA256
+        assert catalog.shortest_m("home", "office") == 1353 and catalog.map_sha256 == FIXTURE_MAP_SHA256
 
 
 def small_catalog(directory, location_ids, declared=None):
@@ -73,7 +73,8 @@ def small_catalog(directory, location_ids, declared=None):
     directory.mkdir()
     for name in ("app-catalog.jsonl", "content-catalog.jsonl", "merchant-catalog.jsonl"):
         (directory / name).write_bytes(b"")
-    rows = [{"app_ids": [], "kind": "place", "location_id": key, "name": key} for key in sorted(location_ids)]
+    rows = [{"app_ids": [], "city_id": "test-city", "kind": "place", "location_id": key, "name": key}
+            for key in sorted(location_ids)]
     rows[0]["is_home"] = True
     (directory / "location.jsonl").write_bytes(b"".join(canonical_json(row) + b"\n" for row in rows))
     if declared is not None:
@@ -81,7 +82,7 @@ def small_catalog(directory, location_ids, declared=None):
             canonical_json({"a": a, "b": b, "length_m": meters}) + b"\n" for a, b, meters in declared))
     (directory / "manifest.json").write_bytes(canonical_json({
         "catalog_content_sha256": "0" * 64, "environment_id": "map-limit", "environment_version": "1",
-        "files": [], "format_version": 6, "rules_version": 6}) + b"\n")
+        "files": [], "format_version": 7, "rules_version": 7}) + b"\n")
     refresh_manifest_identity(directory)
     return directory
 

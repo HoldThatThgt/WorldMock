@@ -18,10 +18,15 @@ class DeliveryState(StrictModel):
     payment_started_at、payment_ended_at）在同一张订单的记录上取值相同；group_key 相同的记录是一个配送组。
     """
 
+    #: 商品履约记录唯一标识。
     order_id: str = Field(min_length=1)
+    #: 下单人物编号。
     agent_id: int = Field(gt=0)
+    #: 所购商品标识。
     goods_id: str = Field(min_length=1)
+    #: 商品类别。
     category: GoodsCategory
+    #: 实体店铺标识；快递与即时电子履约为空。
     store_id: str | None
     #: 下单的内容 app；到店当场买为空。同一次购买里取值相同的记录是一张订单。
     app_id: str | None
@@ -35,27 +40,41 @@ class DeliveryState(StrictModel):
     payment_started_at: int | None = Field(default=None, ge=0)
     #: 付款段真实走完的时刻；付款时长为 0 的订单恒为空，被截断的付款段也为空。
     payment_ended_at: int | None = Field(default=None, ge=0)
+    #: 本条记录对应的商品份数（固定为 1）。
     quantity: int = Field(strict=True, ge=1, le=1)
+    #: 商品单价（分）。
     unit_price_fen: int = Field(gt=0)
     #: 运费：每个配送组的第一条记录承担整组运费，其余为 0。
     delivery_fee_fen: int = Field(ge=0)
+    #: 本条记录应付总额（单价加分摊运费，分）。
     total_price_fen: int = Field(ge=0)
+    #: 末端收货或取件地点标识。
     destination_id: str = Field(min_length=1)
+    #: 配送或快递参考地址标识。
     delivery_address_id: str = Field(min_length=1)
+    #: 履约方式（外卖、到店、快递或即时电子履约）。
     fulfillment: FulfillmentKind
+    #: 创建报价记录的时刻（UTC 纪元秒）。
     created_at: int = Field(ge=0)
     #: 真实扣款时刻：一次购买的全部记录同时写入，等于购买完成的时刻。
     paid_at: int | None = Field(default=None, ge=0)
-    #: 预计到手或到达的时刻：到店记录是购买开始时刻加实际购买时长，外卖和快递是受理时冻结的预计到达。
+    #: 预计到手或到达的时刻：到店与即时电子履约记录是购买开始时刻加实际购买时长，外卖和快递是受理时冻结的预计到达。
     expected_at: int = Field(ge=0)
-    #: 外卖受理时冻结的天气总延长；到店和快递为空。
+    #: 外卖受理时冻结的天气总延长；到店、快递和即时电子履约为空。
     weather_delay_seconds: int | None = Field(ge=0, strict=True)
+    #: 实际到达收货点或可取点时刻（UTC 纪元秒）。
     arrived_at: int | None = Field(default=None, ge=0)
+    #: 本人实际收货完成时刻（UTC 纪元秒）。
     received_at: int | None = Field(default=None, ge=0)
+    #: 履约状态（已取消、待履约、到站待取或已送达）。
     status: Literal["cancelled", "pending", "ready_for_pickup", "delivered"]
+    #: 配送路径地点序列；即时电子履约为空元组。
     path: tuple[str, ...]
+    #: 关联配送行程标识；非外卖为空。
     trip_id: str | None
+    #: 配送路径距离（米）。
     distance_meters: int = Field(ge=0)
+    #: 门店备餐秒数。
     prep_seconds: int = Field(ge=0)
 
     def arrival_due_at(self) -> int:
@@ -114,4 +133,18 @@ class DeliveryState(StrictModel):
         if self.status == "ready_for_pickup" and self.fulfillment != FulfillmentKind.STATION_PICKUP:
             _LOGGER.error("Only station pickup orders may be ready for pickup")
             raise ValueError("Only station pickup orders may be ready for pickup")
+        return self
+
+    @model_validator(mode="after")
+    def validate_instant_fulfillment(self) -> "DeliveryState":
+        """@brief 即时电子履约不得带商铺或运费，已收货时到达、收货与付款必须同一秒。"""
+        if self.fulfillment != FulfillmentKind.INSTANT:
+            return self
+        if self.store_id is not None or self.delivery_fee_fen != 0:
+            _LOGGER.error("Instant order cannot carry a store_id or delivery fee")
+            raise ValueError("Instant order cannot carry a store_id or delivery fee")
+        if self.status == "delivered" and (
+                self.arrived_at != self.paid_at or self.received_at != self.paid_at):
+            _LOGGER.error("Instant delivered order requires arrived_at, received_at and paid_at to match")
+            raise ValueError("Instant delivered order requires arrived_at, received_at and paid_at to match")
         return self

@@ -108,7 +108,7 @@ class TimeAdvanceCoordinator:
         staged = flush_presentation(stage_presentation(self.context.state, self.observations.pending_presentation))
         staged = staged.model_copy(update={"current_time": target_epoch}, deep=True)
         if reminders.is_local_midnight(target_epoch, staged.timezone):
-            register_daily_weather(staged)
+            register_daily_weather(staged, self.context.catalog)
         staged = same_moment.reset_same_moment(staged)
         staged = prune_processed_actions(staged)
         (drafts, results) = self._advance_activities(staged, target_epoch)

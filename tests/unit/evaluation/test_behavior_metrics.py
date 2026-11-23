@@ -428,7 +428,7 @@ def test_early_arrival_uses_actual_daily_opening() -> None:
                                   "data": {"arrival": {"location_id": "home"}}}),
     ]
     from worldmock.resource_engine.catalog.models import Location, OpeningHours
-    office = Location(location_id="office", name="Office", kind="office", app_ids=(),
+    office = Location(location_id="office", name="Office", kind="office", city_id="test-city", app_ids=(),
         opens=OpeningHours(weekly={"mon": (("08:00", "18:00"),)}))
     report = _report(events, locations={"office": office})
     early = report["reports"]["early_arrival_minutes"]

@@ -11,8 +11,8 @@ PROJECT = Path(__file__).resolve().parents[3]
 
 #: 每个脚本日的种子，以及夹具没有地图声明时由这个种子生成的地图摘要；地图摘要变了，就是「没有声明时地图不变」没有守住。
 FROZEN_IDENTITY = {
-    "activity": (20260105, "04645c19cfa4576bfe988cca8c41182d5fd67c67ceea1f671e247e130882a8c8"),
-    "callback": (20260106, "a54b9d8d1ad1f70b2dbc0500d74392c6c8b120698d2b24c5bbc78fff1e9daa7e"),
+    "activity": (20260105, "cead9626f7bf1565d97bbdc2fd5e863b1e40c5c09509f8ca08760af7f84354ca"),
+    "callback": (20260106, "f8f3093ae7e3fd0f03658098a471154160a74aec70ab0eeb2e7f052126f796ba"),
 }
 
 
@@ -34,4 +34,4 @@ def test_frozen_baseline_keeps_its_seed_generated_map_and_current_environment_id
     assert frozen["seed"] == seed
     assert identity["map_sha256"] == map_sha256
     assert (identity["environment_id"], identity["environment_version"], identity["rules_version"]) == (
-        "artificial-test", "4", 6)
+        "artificial-test", "4", 7)

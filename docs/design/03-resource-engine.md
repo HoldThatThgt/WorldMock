@@ -6,16 +6,16 @@
 
 资源引擎读取环境包中的发布目录，校验身份、字段、容器绑定、声明的距离和回调声明，建立只读索引与内存地图。
 人物和运行配置由环境加载器读取；资源引擎不读取语料、保存活动进度、执行回调或修改资金。
-地图的输入有三样：全部登记地点、数据集在 `map.jsonl` 里声明的距离、运行种子。
+地图的输入有三样：全部登记地点（含必填的城市归属 `city_id`）、数据集在 `map.jsonl` 里声明的距离及可选边限制、运行种子。
 
 ```mermaid
 flowchart LR
     Package[环境包] --> Manifest[清单与真实字节身份]
     Manifest --> Rows[严格 JSONL 行]
-    Rows --> Registration[对象、容器、营业安排、声明的距离与回调登记]
+    Rows --> Registration[对象、容器、营业安排、声明边与回调登记]
     Registration --> Catalog[只读目录索引]
-    Seed[运行种子] --> Map[确定性内存地图]
-    Registration -- 地点与声明的距离 --> Map
+    Seed[运行种子] --> Map[确定性分城内存地图]
+    Registration -- 地点与声明边 --> Map
     Catalog --> Engine[模拟引擎]
     Map --> Engine
 ```
@@ -28,26 +28,26 @@ flowchart LR
 
 | 文件 | 是否必需 | 登记内容 | 不存在时 |
 | --- | --- | --- | --- |
-| `manifest.json` | 必需 | `format_version: 6`、环境身份和版本、`rules_version: 6`、每个存在的目录 JSONL 的路径、摘要和字节数，以及 `catalog_content_sha256` | 加载失败 |
+| `manifest.json` | 必需 | `format_version: 7`、环境身份和版本、`rules_version: 7`、每个存在的目录 JSONL 的路径、摘要和字节数，以及 `catalog_content_sha256` | 加载失败 |
 | `app-catalog.jsonl` | 必需 | app 身份、名称、角色，以及功能 app 的购买绑定与出行方式绑定，可选的记忆类别覆盖 `memory_category` | 加载失败 |
-| `location.jsonl` | 必需 | 全部实际地点、显示名、自由类型、内容 app、住宿和驿站资格、营业安排、实际售卖商品的商铺评分 | 加载失败 |
-| `merchant-catalog.jsonl` | 必需 | 商品身份、名称、四类商品、固定价格、地点类型或内容 app 绑定 | 加载失败 |
-| `content-catalog.jsonl` | 必需 | 内容身份、标题、时长、体力消耗、推送与自动接续资格、心理缓解档位、摘要与容器；绑定到 app 的内容可以另写前提 `prerequisite`；绑定到地点类型的内容可以另写凭状态 `consumes_state` 与完成效果 `completion_effects`；任何内容都可以另写记忆类别覆盖 `memory_category` | 加载失败 |
-| `callbacks.jsonl` | 可选 | 状态声明和触发规则 | 没有状态，没有规则 |
-| `map.jsonl` | 可选 | 声明的两地距离 | 没有声明，地图全部随机生成 |
-| `travel-method.jsonl` | 可选 | 数据集定义的出行方式 | 只有引擎自带的步行 |
+| `location.jsonl` | 必需 | 全部实际地点、所属城市 `city_id`、显示名、自由类型、内容 app、住宿（含可选 `sleep_consumes_state`）和驿站资格、营业安排、实际售卖商品的商铺评分 | 加载失败 |
+| `merchant-catalog.jsonl` | 必需 | 商品身份、名称、四类商品、固定价格、地点类型或内容 app 绑定，以及线上商品可选的即时电子履约标记 `instant` | 加载失败 |
+| `content-catalog.jsonl` | 必需 | 内容身份、标题、时长、体力消耗、推送与自动接续资格、心理缓解档位、摘要与容器；可选是否可重复消费 `repeatable`；绑定到 app 的内容可以另写前提 `prerequisite`（含 `city_ids`、`location_kinds` 与 `opens`）；绑定到地点类型的内容可以另写凭状态 `consumes_state` 与完成效果 `completion_effects`；任何内容都可以另写记忆类别覆盖 `memory_category` | 加载失败 |
+| `callbacks.jsonl` | 可选 | 状态声明（`reset_on_goods` 与可选 `gain_on_goods`）和触发规则 | 没有状态，没有规则 |
+| `map.jsonl` | 可选 | 声明的两地距离与可选边限制（`travel_method_ids`、`consumes_state` 与 `opens`） | 没有声明，分城内部全随机生成（不跨城建边） |
+| `travel-method.jsonl` | 可选 | 数据集定义的出行方式与可选的同城通用标记 `city_wide` | 只有引擎自带的步行 |
 
-规则版本 `RULES_VERSION` 是 6，目录格式 `format_version` 是 6；这两个号只在本节维护。
+规则版本 `RULES_VERSION` 是 `7`，目录格式 `format_version` 是 `7`；这两个号只在本节维护，直接拒绝规则版本 `6` 的环境包。
 
 内容行与 app 行的 `memory_category` 取「饮食」「工作」「生活」之一，省略表示按推导规则；它只用于记忆的类别（[人物](06-agent.md#agent-记忆的类别)「记忆的类别」的规则 0），不参与索引、准入、结算、名称解析和任何提示层。
-写成 `null` 由行模型拒绝；同一系列各集必须写同一个值或都不写，系列检查在比较 `consumes_state` 之后比较它。
+写成 `null` 由行模型拒绝；同一系列各集必须写同一个值或都不写，系列检查在比较 `consumes_state` 之后比较它，接着再比较 `repeatable`。
 
 四个必需文件名是 `catalog.identity` 的 `REQUIRED_CATALOG_FILES`，三个可选文件名是 `OPTIONAL_CATALOG_FILES`，其余模块只引用这两个常量。
 可选文件「存在」指 `catalog/` 下有这个名字的目录条目，不论类型；存在的条目必须是普通文件，链接和目录由安全文件边界拒绝。
 可选文件允许零字节。零字节表示零行，加载出的目录、地图和运行行为与文件不存在完全相同；两者只在清单文件表和目录摘要上不同。
 文件名一律用连字符，`travel_method.jsonl`、`map.json`、`callback.jsonl` 等其他名字都是包外条目。
 
-不发布生成的地图；`map.jsonl` 只声明距离。没有目录动作、地点实例数量、环境规则副本、脚本或运输时长。
+不发布生成的地图；`map.jsonl` 只声明两地距离与可选边限制，没有目录动作、地点实例数量、环境规则副本、脚本或运输时长。
 未知字段不忽略、不翻译；旧格式直接拒绝。
 
 <a name="resource-engine-jsonl-行读取"></a>
@@ -81,10 +81,10 @@ app、地点显示名、商品名分别在所属文件唯一。app 名不得与�
 这项检查按文件行序逐行进行，排在该行的容器、引用、摘要、来源和系列检查之后。
 绑定到 app 的内容标题不参与名称解析，也不检查唯一。
 
-内容前提分两步校验，加载与纯校验都执行。行解析时由严格行模型检查 `prerequisite` 及其成员的形状，失败详情以 `content-catalog.jsonl:<行号>` 开头。
+内容前提分两步校验，加载与纯校验都执行。行解析时由严格行模型检查 `prerequisite` 及其成员（`city_ids`、`location_kinds`、`opens`）的形状与可选 `repeatable` 的严格布尔类型，失败详情以 `content-catalog.jsonl:<行号>` 开头。
 登记核对在内容逐行校验里进行，排在该行的容器、引用、摘要和来源检查之后、系列检查之前，按下面的次序先遇到的先报：
-写在地点内容上、两个成员都没写、`location_kinds` 的重复与排序、`location_kinds` 悬空、`opens` 的时段写法。
-同一系列各集的前提是否相同属于系列检查。
+写在地点内容上、三个成员都没写（`city_ids` 与 `location_kinds` 均为空且未写 `opens`）、`city_ids` 的重复与排序、`city_ids` 悬空、`location_kinds` 的重复与排序、`location_kinds` 悬空、`opens` 的时段写法。
+绑定到 app 的系列不再要求同一系列各集的 `prerequisite` 完全相同（地点内容系列仍不得声明前提），系列检查继续核对容器绑定、集号唯一、`consumes_state`、`memory_category` 与 `repeatable` 在同系列各集间一致。
 
 地点内容的凭状态 `consumes_state` 与完成效果 `completion_effects` 同样分两步。行解析时由严格行模型检查形状：
 两个字段或完成效果的成员写成 `null`、类型不对、`consumes_state` 空白、`completion_effects` 不是对象或含未知成员、成员不是所属档位表里的档位名，
@@ -121,124 +121,129 @@ app、地点显示名、商品名分别在所属文件唯一。app 名不得与�
 | `ENVIRONMENT_FILE_UNLISTED` | 清单缺少必需 JSONL，或存在的可选文件未登记；详情是没有登记的文件名 |
 | `ENVIRONMENT_IDENTITY_MISMATCH` | 安全文件边界失败，或实际文件表、字节摘要和清单不一致 |
 | `ENVIRONMENT_LINE_INVALID` | 某行不是恰好一个 JSON 对象，含 `map.jsonl` 与 `travel-method.jsonl` 的行 |
-| `ENVIRONMENT_ID_DUPLICATE` | 身份、名称或引用列表重复，含内容前提的 `location_kinds`；`map.jsonl` 同一对地点出现两行；出行方式的身份或名称重复、使用保留身份 `walking` 或自带名称「步行」；同一地点类型下单元名重复时详情为 `content-catalog.jsonl:<先登记一行的行号> and content-catalog.jsonl:<当前行的行号> give location kind <类型> the same activity name <先登记的单元名>.` |
-| `ENVIRONMENT_REF_UNKNOWN` | app、商品等对象引用未登记；`map.jsonl` 的端点不是登记地点；功能 app 或回调规则引用的出行方式既没有登记、也不是 `walking`；地点内容的 `consumes_state` 不是登记的状态 |
-| `ENVIRONMENT_KIND_INVALID` | 未知字段、非法闭集值、坏字符串或布尔、未排序列表、非法营业时段；`map.jsonl` 的端点不满足 `a < b` 或行未排序；`travel-method.jsonl` 的行未按身份升序；功能 app 的 `actions` 出现 `purchase` 以外的值；回调的出行触发缺少 `travel_method_id`，或其他动作触发带了它。内容前提写成 `null`、不是对象或含未知键，`location_kinds` 不是字符串数组、有空白项或未按升序，前提的 `opens` 写成 `null`、形状不符或时段写法不合法，都属于这一项；两种 `null` 的详情分别是 `A declared content prerequisite must be an object.` 与 `A declared opening schedule must be an object.`，后一句地点行与内容前提共用。app 行写了已删除的 `browse_duration_seconds` 按未知字段处理，详情以 `app-catalog.jsonl:<行号>` 开头、含字段名和 `Extra inputs are not permitted`。app 内容写了 `consumes_state` 或 `completion_effects`；`consumes_state` 类型不对、空白或写成 `null`；`completion_effects` 不是对象、写成 `null`、为空、有未知成员，或成员的档位不在表内（含 `none`、数字和 `null`），都属于这一项；三种 `null` 的详情分别带 `A declared consumed state must be a state name.`、`A declared completion effect must be an object.` 与 `A declared completion effect tier must be a tier name.`，登记核对的两句详情见上文的次序表。内容行或 app 行的 `memory_category` 写成 `null`（详情带 `A declared memory category must be a category name.`）或闭集外的值（空串、别的词、数字、数组）也属于这一项 |
+| `ENVIRONMENT_ID_DUPLICATE` | 身份、名称或引用列表重复，含内容前提的 `city_ids` 与 `location_kinds`、`map.jsonl` 的 `travel_method_ids`、`callbacks.jsonl` 的 `gain_on_goods`；`map.jsonl` 同一对地点出现两行；出行方式的身份或名称重复、使用保留身份 `walking` 或自带名称「步行」；同一地点类型下单元名重复时详情为 `content-catalog.jsonl:<先登记一行的行号> and content-catalog.jsonl:<当前行的行号> give location kind <类型> the same activity name <先登记的单元名>.` |
+| `ENVIRONMENT_REF_UNKNOWN` | app、商品等对象引用未登记；`location.jsonl` 的 `sleep_consumes_state` 不是登记的状态；`map.jsonl` 的端点不是登记地点、`travel_method_ids` 引用的出行方式既未登记也不是 `walking`、或 `consumes_state` 不是登记的状态；`callbacks.jsonl` 的 `gain_on_goods` 或 `reset_on_goods` 引用未登记商品；功能 app 或回调规则引用的出行方式既没有登记、也不是 `walking`；地点内容的 `consumes_state` 不是登记的状态 |
+| `ENVIRONMENT_KIND_INVALID` | 未知字段、非法闭集值、坏字符串或布尔、未排序列表、非法营业时段；`location.jsonl` 的 `city_id` 缺失、空白、非字符串或 `null`，或 `sleep_consumes_state` 写成 `null`、空白、非字符串、或声明在 `sleepable: false` 或 `is_home: true` 的地点上；`travel-method.jsonl` 的行未按身份升序或 `city_wide` 写成 `null` 或非布尔；`map.jsonl` 的端点不满足 `a < b` 或行未排序、`travel_method_ids`/`consumes_state`/`opens` 写成 `null`、跨城边缺失 `travel_method_ids` 或为空或包含 `walking`、未声明 `travel_method_ids` 的自由边携带 `consumes_state` 或 `opens`、`travel_method_ids` 写成 `[]`、含空白项、未升序或含非法值；`merchant-catalog.jsonl` 的 `instant` 写成 `null`、非布尔或声明在店铺商品（`store_kinds` 非空）上；`callbacks.jsonl` 的 `gain_on_goods` 写成 `null`、含空白项、未升序或与同一状态的 `reset_on_goods` 存在重叠商品；功能 app 的 `actions` 出现 `purchase` 以外的值；回调的出行触发缺少 `travel_method_id`，或其他动作触发带了它。内容前提写成 `null`、不是对象或含未知键，`city_ids` 或 `location_kinds` 不是字符串数组、有空白项或未按升序，前提的 `opens` 写成 `null`、形状不符或时段写法不合法，内容 `repeatable` 写成 `null` 或非布尔，都属于这一项；其中前提与营业时段 `null` 的详情分别是 `A declared content prerequisite must be an object.` 与 `A declared opening schedule must be an object.`，后一句地点行与内容前提及边 `opens` 共用。app 行写了已删除的 `browse_duration_seconds` 按未知字段处理，详情以 `app-catalog.jsonl:<行号>` 开头、含字段名和 `Extra inputs are not permitted`。app 内容写了 `consumes_state` 或 `completion_effects`；`consumes_state` 类型不对、空白或写成 `null`；`completion_effects` 不是对象、写成 `null`、为空、有未知成员，或成员的档位不在表内（含 `none`、数字和 `null`），都属于这一项；三种 `null` 的详情分别带 `A declared consumed state must be a state name.`、`A declared completion effect must be an object.` 与 `A declared completion effect tier must be a tier name.`，登记核对的两句详情见上文的次序表。内容行或 app 行的 `memory_category` 写成 `null`（详情带 `A declared memory category must be a category name.`）或闭集外的值（空串、别的词、数字、数组）也属于这一项 |
 | `ENVIRONMENT_NUMBER_INVALID` | 严格整数类型或范围不符；`map.jsonl` 的 `length_m` 缺失、不是严格整数或小于 1；出行方式的速度不是大于 0 的有限数值，或两个价格不是不小于 0 的严格整数 |
 | `HOME_LOCATION_REQUIRED` | 没有显式住宿地点，或人物住处未解析到住宿地点 |
 | `HOME_NOT_SLEEPABLE` | 人物住处没有标 `sleepable`；原因 `The persona home must be marked sleepable.`，详情 `persona.home_location` |
-| `PARCEL_STATION_REQUIRED` | app 侧商品需要驿站但未登记，或驿站类型没有地点内容 |
+| `PARCEL_STATION_REQUIRED` | 目录存在非即时线上商品（`app_ids` 非空且 `instant` 为假）而未登记任何驿站，或在环境加载时主常住地所在城市（`home_location.city_id`）内没有任何驿站；或已声明的驿站类型没有绑定地点内容 |
 | `APP_ROLE_BINDING_INVALID` | 内容 app 带有 `actions` 或 `travel_method_ids` 字段（空数组也算），或地点、商品、内容、提醒引用功能 app；原因 `Only function apps may bind actions or travel methods, and only content apps may be referenced by locations, goods or contents.` |
 | `APP_UNBOUND` | 内容 app 没有有效内容来源，或功能 app 的 `actions` 与 `travel_method_ids` 都为空；原因 `An app must have content, or an action or travel method binding, for its role.` |
 | `APP_NAME_COLLIDES_LOCATION` | app 名与地点显示名碰撞 |
 | `GOODS_BINDING_MISSING`、`GOODS_BINDING_SIDE_EXCLUSIVE`、`GOODS_BINDING_DANGLING` | 商品容器缺失、两侧同时绑定、类型没有实际地点 |
 | `CONTENT_CONTAINER_MISSING`、`CONTENT_CONTAINER_SIDE_EXCLUSIVE` | 内容容器缺失、两侧同时绑定 |
-| `CONTENT_BINDING_DANGLING` | 内容写的地点类型没有任何登记地点声明，顶层绑定与内容前提的 `location_kinds` 都算；原因 `A content names a location kind that no registered location declares.`，前提悬空时详情为 `<content_id> prerequisite names <kind>.` |
-| `CONTENT_PREREQUISITE_INVALID` | 内容前提写在绑定到地点类型的内容上，或 `location_kinds` 为空且没写 `opens`；原因 `A content prerequisite must belong to an app content and declare location kinds, opening hours, or both.`，详情分别是 `<content_id> is a location content.` 与 `<content_id> declares neither location kinds nor opening hours.` |
-| `CONTENT_SERIES_INVALID` | 同系列容器不同、集号重复，各集的内容前提不完全相同，各集的 `consumes_state` 不同，或各集的 `memory_category` 不同；原因 `Episodes of a series must share one container binding and one prerequisite and have unique episode numbers.`，前提不同时详情为 `<series.title> episodes declare different prerequisites.`，`consumes_state` 不同时详情为 `<series.title> episodes declare different consumed states.`，`memory_category` 不同时详情为 `<series.title> episodes declare different memory categories.` |
+| `CONTENT_BINDING_DANGLING` | 内容写的地点类型没有任何登记地点声明（顶层绑定与内容前提的 `location_kinds` 都算），或内容前提的 `city_ids` 出现没有任何登记地点声明的城市身份；原因 `A content names a location kind that no registered location declares.`（或城市前提悬空详情 `<content_id> prerequisite names <city_id>.`），前提类型悬空时详情为 `<content_id> prerequisite names <kind>.` |
+| `CONTENT_PREREQUISITE_INVALID` | 内容前提写在绑定到地点类型的内容上，或 `city_ids` 与 `location_kinds` 均为空且没写 `opens`；原因覆盖地点类型或开放时段或城市前提缺失 |
+| `CONTENT_SERIES_INVALID` | 同系列容器不同、集号重复，各集的 `consumes_state` 不同，各集的 `memory_category` 不同，或各集的 `repeatable` 不同；绑定到 app 的系列不再要求各集 `prerequisite` 相同，仅地点内容系列保持无前提约束 |
 | `CONTENT_SUMMARY_TOO_LONG`、`CONTENT_SOURCE_URL_MISSING` | 摘要超过 200 字符或真实来源缺少 URL |
 | `CALLBACK_STATE_UNREGISTERED`、`CALLBACK_FOOTPRINT_EMPTY`、`CALLBACK_NOTIFY_MISMATCH` | 回调状态未知、足迹为空、提醒与效果不配对 |
-| `MAP_DISTANCE_CONTRADICTED` | 某条声明边的两端经其他声明边有一条严格更短的路线，详情指出行号、声明值、更短的路线和它的总长 |
-| `MAP_ROUTE_TOO_LONG` | 生成后的地图上，最远的一对地点用最慢的出行方式在最差天气下走不到一天之内；需要种子，纯校验不做 |
-| `MAP_TOO_SMALL`、`MAP_EDGE_INVALID`、`MAP_DISCONNECTED` | 内存地图节点不足、边非法或不连通 |
+| `MAP_DISTANCE_CONTRADICTED` | 某条同城自由声明边的两端经其他自由声明边有一条严格更短的路线，详情指出行号、声明值、更短的路线和它的总长 |
+| `MAP_ROUTE_TOO_LONG` | 同城自由街区子图内最远地点对在 `{walking, city_wide: true}` 最慢方式与最差天气（`0.6`）下超过一天上限，或任一声明了 `travel_method_ids` 的边在其允许最慢方式与最差天气（`0.6`）下单边用时超过一天上限；需要种子，纯校验不做 |
+| `MAP_TOO_SMALL`、`MAP_EDGE_INVALID`、`MAP_DISCONNECTED` | 全图节点不足两个、边非法，或全图及分城自由街区连通性不成立 |
 
 <a name="resource-engine-图与地点关系准入"></a>
 ## 地点与营业安排
 
-每行声明一个实际地点，必填 `location_id`、`name`、`kind`、`app_ids`。`kind` 是非空白严格字符串，
-与商品 `store_kinds`、内容 `location_kinds` 逐字符相等匹配，不按名称归一或旧类型推断资格。
+每行声明一个实际地点，必填 `location_id`、`city_id`、`name`、`kind`、`app_ids`。
+`city_id` 是非空白严格字符串，单城环境包同样必填；缺失、空白、非字符串或写成 `null` 报 `ENVIRONMENT_KIND_INVALID`。同 `city_id` 的地点共享同城街区成图、本地外卖与商业查询范围、睡眠就近引导及分城每日天气；全目录已登记的城市集合即为所有地点 `city_id` 的去重集合。
+`kind` 是非空白严格字符串，与商品 `store_kinds`、内容 `location_kinds` 逐字符相等匹配，不按名称归一或旧类型推断资格。
 可选 `branch_label` 缺省为 null；显示名为名称，或「名称（分店标签）」。同名分店必须提供不同标签。
 可选严格布尔 `is_home`、`accepts_parcels`、`sleepable` 缺省 false，资格只按标记判断；
 写 null、数字或字符串按字段类型错误拒绝。
 `sleepable` 表示人物停留在这个地点时能否开始睡眠，与 `is_home` 互不推导；`is_home` 仍只表示住处。
+目录允许在多座城市同时声明多个 `is_home: true` 且 `sleepable: true` 的地点作为各城的免费自有住处。
+可选字段 `sleep_consumes_state` 为非空白字符串，省略时为 `None`（不凭状态），引用 `callbacks.jsonl` 已登记状态；它只允许声明在 `sleepable: true` 且 `is_home: false` 的商业住宿地点（酒店或旅舍），在 `sleepable: false` 或 `is_home: true` 地点声明、或显式写成 `null`、空白、非字符串均报 `ENVIRONMENT_KIND_INVALID`，引用未登记状态报 `ENVIRONMENT_REF_UNKNOWN`。
 人物自己的家必须标 `sleepable`：环境加载器在人物住处解析到住宿地点之后检查这一个地点，引擎不替数据集补标，
 目录里其他住宿地点不查，只做目录登记校验、不读人设时也不查。
-目录至少有一个住宿地点；驿站类型必须有地点内容。全部地点参与供给、名称检查、出行和寻路。
+目录至少有一个 `is_home: true` 住宿地点。任何声明了 `accepts_parcels: true` 的驿站地点必须绑定地点内容（否则报 `PARCEL_STATION_REQUIRED`）；只有当目录存在至少一件非即时线上商品（`app_ids` 非空且 `instant` 为假）时，才要求目录登记驿站，并在环境加载时要求主常住地所在城市（`home_location.city_id`）内至少有一个合法驿站（否则报 `PARCEL_STATION_REQUIRED`）。全部地点参与名称检查，寻路与视野按同城隔离与跨城声明边边界执行。
 
 `opens` 缺省表示全天营业；显式声明必须是对象，不能是 null。
 完整形状为 `{weekly: {mon..sun: [[HH:MM, HH:MM], ...]}, exceptions: {YYYY-MM-DD: [...]}}`。
 `weekly` 必填，`exceptions` 可省略；缺失星期关闭，特殊日期完全替换该日每周时段，空数组表示关闭。
 时段按开始时间升序、不重叠、使用半开区间；`24:00` 只作为结束，跨午夜拆到两日。
 
-营业时段对象 `OpeningHours`（`{weekly, exceptions}`）的求值、校验和文字写法各只有一份，地点行的 `opens` 与内容前提的 `opens` 共用。
+营业时段对象 `OpeningHours`（`{weekly, exceptions}`）的求值、校验和文字写法各只有一份，地点行的 `opens`、声明边的 `opens` 与内容前提的 `opens` 共用。
 
 | 归属 | 规则 |
 | --- | --- |
 | `OpeningHours.opening_intervals(本地日期)` | 日期的 ISO 写法出现在 `exceptions` 里时返回该日声明的时段，整日替换，可以为空；否则返回 `weekly` 中该星期的时段，没写的星期为空 |
 | `OpeningHours.is_open(本地时刻)` | 把已换算到运行时区的本地时刻的小时和分钟折成当日分钟数，秒不参与；存在某个时段使「起点 ≤ 分钟数 < 终点」即为真，`24:00` 按 1440 计。09:59:59 算在 `08:00–10:00` 内，10:00:00 不算 |
 | `Location.opening_intervals`、`Location.is_open` | 只处理「没写 `opens` 即全天」，其余委托给 `OpeningHours`；购买报价、受理、工具层和评估仍调用地点的这两个接口 |
-| `require_declared_schedule` | 显式 `null` 的拒绝，挂在地点行与内容前提两个 `opens` 字段上，详情统一为 `A declared opening schedule must be an object.` |
-| `catalog.admission` 的时段校验 | 星期名、规范日期与时刻、有序不重叠，对地点行与内容前提的 `opens` 各调用一次 |
+| `require_declared_schedule` | 显式 `null` 的拒绝，挂在地点行、声明边与内容前提的 `opens` 字段上，详情统一为 `A declared opening schedule must be an object.` |
+| `catalog.admission` 的时段校验 | 星期名、规范日期与时刻、有序不重叠，对地点行、声明边与内容前提的 `opens` 各调用一次 |
 | `life.readable.interval_phrases` | 每个时段写成 `HH:MM–HH:MM`（中间是 U+2013）；工具层地点行用「、」连接，内容前提的拒绝原因用 `, ` 连接 |
 
 <a name="resource-engine-加权连通图与路线"></a>
 ## 加权连通图与路线
 
-地图节点恰为全部登记地点，至少两个。无向端点规范为 `a < b`，不允许自环或重复，图必须连通。
-数据集可以在可选文件 `map.jsonl` 里声明两地的距离：声明的两地直接相连，距离就是声明值；
-其余的边随机生成并保证全图连通，但不得让任何声明的距离被更短的路线绕过。
+地图节点恰为全部登记地点，全图至少两个节点（单节点中转城允许内部零边，只要全目录不少于两个地点且全图整体连通）。无向端点规范为 `a < b`，不允许自环或重复，全图必须连通。
+数据集可以在可选文件 `map.jsonl` 里声明两地的距离与可选边限制：声明的两地直接相连，距离就是声明值；
+随机连通边与额外边**只在每座城市内部**按城市独立生成，永远不会在不同 `city_id` 之间生成跨城随机边，也不得让任何该城内的声明距离被更短的路线绕过。
 
-`map.jsonl` 每行是一条声明边，行模型是 `MapEdge`，只有三个字段，多余的键拒绝，文件可以零行。
+`map.jsonl` 每行是一条声明边，行模型是 `MapEdge`，多余的键拒绝，文件可以零行。除三个必填字段外，可声明三个可选限制字段（省略代表不启用，显式写成 `null` 报 `ENVIRONMENT_KIND_INVALID`）：
 
 | 字段 | 约束 | 含义 |
 | --- | --- | --- |
 | `a` | 非空白字符串；登记的 `location_id`；按字符串比较严格小于 `b` | 一个端点 |
 | `b` | 非空白字符串；登记的 `location_id` | 另一个端点 |
-| `length_m` | 不小于 1 的严格整数，不设固定上限，只受一天上限约束 | 两地的距离，单位米，往返共用 |
+| `length_m` | 不小于 1 的严格整数，不设固定上限，受对应轨道一天上限约束 | 两地的距离，单位米，往返共用 |
+| `travel_method_ids` | 可选数组，省略时为 `None`（未声明，显式 `null` 拒绝）；非空且元素为 `travel-method.jsonl` 已登记方式身份或 `walking`，升序去重；跨城边（两端 `city_id` 不同）**必填非空且不得包含 `walking`** | 限制该边仅允许这些出行方式作为单边直达通行；省略时表示普通同城自由街区距离声明 |
+| `consumes_state` | 可选非空白字符串，省略时为 `None`（显式 `null` 拒绝）；须引用 `callbacks.jsonl` 已登记状态名；仅允许声明了 `travel_method_ids` 的边携带 | 出发受理时校验该状态不小于 `1` 并在开始时扣减 `1` |
+| `opens` | 可选 `OpeningHours` 对象（`{weekly, exceptions}`），省略时为 `None`（显式 `null` 拒绝）；复用 `_check_opening_hours` 校验；仅允许声明了 `travel_method_ids` 的边携带 | 限制允许受理出发的日期与发车检票时段 |
 
 行按 `(a, b)` 升序，同一对地点只能出现一次；端点写 `location_id`，不写显示名。
 声明的地点对之间不需要彼此连通，也不需要覆盖全部地点。
-行解析之后依次检查：每行 `a < b`；两个端点都已登记；同一对不重复；行已排序；声明之间不互相矛盾。
+行解析之后依次检查：每行 `a < b`；两个端点都已登记；同一对不重复；行已排序；跨城边必填非空 `travel_method_ids` 且不含 `walking`；自由边（省略 `travel_method_ids`）不携带 `consumes_state` 与 `opens`；`travel_method_ids` 非空有序去重且方式已登记（含 `walking`）、`consumes_state` 已登记、`opens` 合法；自由声明边之间互不矛盾。
 这些检查不需要种子，加载与纯校验都执行，失败详情以 `map.jsonl:<行号>` 开头。
 
-互相矛盾的声明这样判定：用全部地点作节点、全部声明边作边建一张只含声明边的图，按文件行序逐行取 `a` 到 `b` 的最短距离；
-距离严格小于该行的 `length_m` 就报 `MAP_DISTANCE_CONTRADICTED`，报第一条不成立的行，详情里的路线取 `Graph.path` 的结果。
+互相矛盾的声明这样判定：用全部地点作节点、全部未声明 `travel_method_ids` 的自由声明边作边建一张只含自由声明边的图，按自由声明边行序逐行取 `a` 到 `b` 的最短距离；
+距离严格小于该行的 `length_m` 就报 `MAP_DISTANCE_CONTRADICTED`，按顺序报最先遇到的不成立行，详情里的路线取 `Graph.path` 的结果。
 绕行总长等于声明值不算矛盾。作者的改法只有一种：让直达的距离不超过绕行的总长。
 
-地图只在加载时在内存里生成。使用运行种子先派生 `sha256("random:{seed}")`，再从独立 `map` 随机流取 64 位地图种子；
-随机树指 `nx.random_labeled_tree(地点数, seed=地图种子)` 的边映射回地点身份后的地点对。
+地图只在加载时在内存里按 `city_id` 分城生成。使用运行种子先派生 `sha256("random:{seed}")`，再为每个不少于两个地点的城市从独立随机流 `map:{city_id}` 取 64 位城市地图种子；
+每个城市的随机树指 `nx.random_labeled_tree(该城地点数, seed=城市地图种子)` 的边映射回该城升序地点身份后的地点对。只有一个地点的单节点城市保留零条内部边，不取随机流；跨城声明边直接合并入图。
 
 ```mermaid
-flowchart TD
-    D[声明边入图] --> T[随机树的边按端点升序逐条看]
-    T --> J{两端已经连通吗}
-    J -- 是 --> X[丢掉]
-    J -- 否 --> K[保留为连通边]
-    K --> S[抽额外边并给全部随机边赋长度]
-    S --> C{额外边让某个声明的距离出现更短路线吗}
-    C -- 会 --> Y[丢掉且不补]
-    C -- 不会 --> Z[保留]
-    Z --> R[一天上限检查]
+flowchart LR
+    Locs["按 city_id 分组地点集合"] --> CheckSize{"该城地点数至少两个吗"}
+    CheckSize -- "是" --> IntraTree["用种子流 map:{city_id} 生成该城随机树与 200-2000 m 补边, 不绕过该城任何声明边"]
+    CheckSize -- "否 (单节点城)" --> KeepZero["该城内部保留 0 条边"]
+    IntraTree --> Merge["合并各城内部边与全部声明边 (含跨城边)"]
+    KeepZero --> Merge
+    Merge --> GlobalConn["validate_map 校验节点不少于两个且全图整体连通"]
+    GlobalConn --> TrackA["同城自由街区轨: 逐城校验自由图在 walking 与 city_wide true 最慢方式雪天不超过 86,400 s"]
+    TrackA --> TrackB["声明限制边轨: 逐条校验带 travel_method_ids 的边在其允许最慢方式雪天不超过 86,400 s"]
 ```
 
 | 步骤 | 做什么 |
 | --- | --- |
-| 1 | 地点身份升序排成节点序列，不足两个报 `MAP_TOO_SMALL` |
-| 2 | 声明边全部入图，长度取声明值 |
-| 3 | 随机树的地点对按 `(a, b)` 升序逐条看：两端此刻还不连通就保留为连通边并合并两部分，已经连通就丢掉 |
-| 4 | 候选集合是全部无序地点对减去随机树的全部地点对（保留的和丢掉的都减去）再减去声明的地点对，按 `(a, b)` 升序 |
-| 5 | 以 `random.Random(地图种子)` 从候选中 `sample` 抽取额外边，条数为 `floor((n-1)/2)` 与候选个数中较小的一个 |
-| 6 | 连通边和抽到的额外边合在一起按 `(a, b)` 升序，用同一个随机流依次各抽一个 200 到 2000 米的整数长度 |
-| 7 | 当前图为声明边加连通边；额外边按 `(a, b)` 升序逐条加入，加入后只要有任何一条声明边两端的最短距离严格小于声明值就丢掉，丢掉的不补抽 |
-| 8 | 输出节点序列和按 `(a, b)` 升序的全部边，经 `validate_map` 自检后做一天上限检查 |
+| 1 | 全图地点身份升序排成节点序列，全图总节点不足两个报 `MAP_TOO_SMALL`；按 `city_id` 升序分组各地点 |
+| 2 | 对地点数至少两个的每个城市，以该城升序地点及城内**自由声明边（未声明 `travel_method_ids`）**为初始自由连通分量，以 `map:{city_id}` 派生 64 位种子建随机树、按 `(a, b)` 升序跳过已有声明对并合并尚未连通的自由树边 |
+| 3 | 该城候选集合是该城全部无序地点对减去该城随机树全部地点对再减去该城全部声明地点对（含自由与限制边），按 `(a, b)` 升序；以 `random.Random(城市种子)` 从候选中 `sample` 抽取额外边，条数为 `floor((城内地点数-1)/2)` 与候选个数中较小的一个 |
+| 4 | 该城保留的随机连通边与抽到的额外边合在一起按 `(a, b)` 升序，用同一个城市随机流依次各抽一个 200 到 2000 米的整数长度 |
+| 5 | 在该城自由声明边、同城限制声明边与随机连通边的基础上，额外边按 `(a, b)` 升序逐条加入，加入后只要有任何一条该城声明边（包括自由声明边与同城限制声明边）两端的最短距离严格小于声明值就丢掉且不补抽 |
+| 6 | 地点数恰好为一个的单节点城市保留 `0` 条内部边、不抽随机树与额外边；永远不在不同 `city_id` 之间生成任何随机边 |
+| 7 | 合并全部声明边与各城内部生成的随机边并按 `(a, b)` 升序，经 `validate_map` 校验全图连通后执行双轨 `validate_route_limit` 检查 |
 
-由此得到三条性质：全图连通；每条声明边两端的最短距离恰等于声明值；
-相同的地点集合、相同的声明边（解析后的值，不看行内空白和键序）和相同的种子得到相同的地图。
-额外边在总长恰好相等时保留，这时 `Graph.path` 可能返回经过中间地点的那条等长路线，用时和车费不受影响。
+由此得到核心性质：全图整体连通；同城内不存在跨城随机边虫洞；每条声明边在其城市内不被更短随机路线绕过；
+相同的地点与 `city_id` 分组、相同的 `map.jsonl` 声明边和相同的种子得到逐字节相同的地图。
+额外边在总长恰好相等时保留，这时同城自由路径可能返回经过中间地点的那条等长路线，用时和车费不受影响。
 
-连通边和额外边的长度是 200 到 2000 米的整数（`MAP_EDGE_LENGTH_M`）；声明边是不小于 1 米的整数，不设 2000 米上限。
-一天上限是对生成后的整张图做的唯一一处检查，保证运行中任何一次出行的用时都不超过 `TRAVEL_MAX_SECONDS`（86,400 秒）：
-取最慢速度（自带步行的 1.2 米/秒与 `travel-method.jsonl` 各行速度中最小的一个）和天气系数表里最小的系数，
-再取图上最短距离最大的一对地点（距离相同时取 `(a, b)` 最小的一对），用出行用时算子算用时，大于上限就报 `MAP_ROUTE_TOO_LONG`。
-只有步行，或数据集定义的方式都不比步行慢时，这等于任意两地的最短距离不超过 62,208 米；
-数据集定义了更慢的方式时上限按它算，例如 0.5 米/秒对应 25,920 米。
-检查需要生成后的地图，所以只在带种子的加载里做，纯校验不做。
+随机连通边和额外边的长度是 200 到 2000 米的整数（`MAP_EDGE_LENGTH_M`）；声明边是不小于 1 米的整数，不设 2000 米上限。
+`validate_route_limit` 执行双轨一天上限检查，均以最差天气系数 `0.6` 对照 `TRAVEL_MAX_SECONDS`（86,400 秒）：
+- **同城自由街区轨**：对每个不少于两个地点的城市，提取该城地点与**未声明 `travel_method_ids`** 的城内自由边组成自由街区子图，校验自由街区子图在该城内连通，且其最长最短路径用自带 `walking`（1.2 米/秒）与全部 `city_wide: true` 出行方式中最慢速度乘最差天气 `0.6` 计算用时不超过 `86,400 s`（只有 `walking` 或方式不比步行慢时，同城自由最短距离不超过 `62,208 m`；存在更慢的 `city_wide: true` 方式时按它折算）。
+- **声明限制边轨**：对每一条声明了 `travel_method_ids` 的边（含全部跨城边与同城限制边），以其 `travel_method_ids` 所列方式中最慢速度乘最差天气 `0.6` 计算单边直达用时，须不超过 `86,400 s`（使得京泰 450 km 高铁与京乌 2,500 km 航线在各自允许方式下合法通过，而不影响同城步行上限）。
+两轨中任一不满足均报 `MAP_ROUTE_TOO_LONG`（自由街区子图自身不连通报 `MAP_DISCONNECTED`）。检查需要生成后的地图，所以只在带种子的加载里做，纯校验不做。
 
-`map_sha256` 是整张生成结果的摘要：对 `{"edges": [{"a", "b", "length_m"}, …], "nodes": […]}` 的规范 JSON 加一个 LF 求 SHA-256，
-声明边与随机边一视同仁。它取决于地点身份集合、声明边的值和运行种子，不取决于 `travel-method.jsonl`，也不取决于 `map.jsonl` 的行内空白和键序。
-没有 `map.jsonl` 或文件零行时声明边为空：随机树的边全部保留，额外边一条也不丢，生成的边和 `map_sha256` 只由地点集合和种子决定。
+`map_sha256` 是整张生成结果的摘要：由 `map_bytes` 输出 `{"edges": [...], "nodes": [...]}` 的规范 JSON 加一个 LF 求 SHA-256；每条边写入时**省略取值为 `None` 的扩展字段**（未声明扩展字段的边仍仅含 `{"a", "b", "length_m"}`，声明了 `travel_method_ids`、`consumes_state` 或 `opens` 的边按实际非空字段写入）。它取决于地点及其 `city_id`、声明边（含扩展字段值）和运行种子，不取决于 `travel-method.jsonl`，也不取决于 `map.jsonl` 的行内空白和键序。
 地图只在内存维护，生成结果不写进环境包。
-`Graph` 保留确定性最短路。住处最近驿站先比较最短距离，同距取较小地点身份。
+
+`Graph` 提供按出行方式隔离的确定性最短路与直达边查询：
+- **带限制的声明边（`travel_method_ids` 非空）只作为两端点之间的单边直达跳（single-edge direct hop）**，仅对列出在内的 `travel_method_id` 开放，不参与多跳串联中转路径，也不允许未列出的方式借道。
+- **自带的 `walking` 与所有 `city_wide: true` 的出行方式**只在当前所在城市的**自由街区边（未声明 `travel_method_ids`）**上寻路，等长时取完整地点元组字典序最小的一条。
+- **`city_wide: false` 的出行方式**不可在自由街区边上寻路，仅可用于显式包含该 `travel_method_id` 的单条声明边。
+住处最近驿站 `nearest_parcel_station` 仅在 `persona.home_location` 所属城市（`home_location.city_id`）内检索 `accepts_parcels: true` 的地点，先比较最短距离，同距取较小地点身份；所属城市无驿站时（且目录需要驿站时）报 `PARCEL_STATION_REQUIRED`。
 出行方式的登记见下一节，天气、用时和车费的公式见[交换引擎](02-exchange-engine.md)。
 
 <a name="resource-engine-出行方式"></a>
@@ -249,14 +254,15 @@ flowchart TD
 
 | 字段 | 约束 | 含义 |
 | --- | --- | --- |
-| `travel_method_id` | 非空白字符串；文件内唯一；行按它升序；不得为保留身份 `walking` | 出行方式的身份，app 行和回调规则用它引用 |
+| `travel_method_id` | 非空白字符串；文件内唯一；行按它升序；不得为保留身份 `walking` | 出行方式的身份，app 行、`map.jsonl` 限制边和回调规则用它引用 |
 | `name` | 非空白字符串；在全部出行方式（含自带的「步行」）之间经 `channel_key` 比较后唯一 | 人物看到并写进 `detail` 的名称 |
 | `speed_meters_per_second` | 有限且大于 0 的 JSON 数值，整数或小数都可以；布尔和字符串不接受 | 基础速度，米/秒 |
 | `start_price_fen` | 不小于 0 的严格整数 | 起步价，分 |
 | `price_per_km_fen` | 不小于 0 的严格整数 | 每公里价格，分 |
 | `exertion` | `idle`、`light`、`moderate`、`heavy` 之一 | 体力档位，与内容行的 `exertion` 同一闭集 |
+| `city_wide` | 可选严格布尔，缺省 `true`；显式 `null` 或非布尔报 `ENVIRONMENT_KIND_INVALID` | 为真时可用于同城自由街区任意起终点及被声明边引用；为假时（如高铁、飞机）不可走自由街区，只可用于 `map.jsonl` 显式列出它的声明边 |
 
-六个字段都没有缺省值，其他键拒绝，文件可以零行。两个价格都写 0 就是免费的方式。
+六个必填字段都没有缺省值，可选字段只有 `city_wide`，其他键拒绝，文件可以零行。两个价格都写 0 就是免费的方式。全部出行方式（无论 `city_wide` 为真或为假）均共用 `WEATHER_FACTORS` 计算用时，不设天气豁免字段。
 名称不要求与地点、商品、app 的名称不同，因为它只在 `detail` 里解析。
 
 自带的步行由引擎维护，不写在文件里，任何环境包都有。
@@ -281,7 +287,7 @@ app 行和回调规则可以像引用数据集的方式一样引用 `walking`。
 | `ENVIRONMENT_ID_DUPLICATE` | `travel_method_id` 重复或写成 `walking`；两行名称相同；名称与「步行」相同 | `travel-method.jsonl:<行号> and travel-method.jsonl:<行号> share the identity <值>.`；`travel-method.jsonl:<行号> uses the reserved identity walking.`；`travel-method.jsonl:<行号> and travel-method.jsonl:<行号> share the name <名称>.`；`travel-method.jsonl:<行号> uses the built-in name 步行.` |
 | `ENVIRONMENT_REF_UNKNOWN` | app 行的 `travel_method_ids` 或回调规则的 `travel_method_id` 指向既不在文件里、也不是 `walking` 的身份 | `<文件名>:<行号> Unknown travel_method_id: <值>.` |
 
-速度极慢的方式不在这里拒绝，由「加权连通图与路线」的一天上限统一把关。
+速度极慢的方式不在这里拒绝，由「加权连通图与路线」的双轨一天上限分别把关（`city_wide: true` 参与同城自由街区时限，`city_wide: false` 按引用它的声明边单边校验）。
 用时与车费的公式、天气系数和体力档位对应的代谢当量归[交换引擎](02-exchange-engine.md)；
 目录另建索引 `apps_by_travel_method`，键为 `walking` 和每个数据集身份，值为绑定它的功能 app 身份升序元组。
 
@@ -365,23 +371,25 @@ app 行只有 `app_id`、`name`、`role` 和功能 app 的两个绑定字段，�
 目录不为两个字段新建索引；单元的列出、受理、开始时减 1 和完成效果的结算归模拟引擎，见[模拟引擎](04-simulation-engine.md)「出行、内容与查询」。
 
 内容恰有 `app_ids` 或 `location_kinds` 一侧非空，可以绑定多个同侧容器。
+可选严格布尔 `repeatable` 缺省 `true`（显式 `null` 或非布尔报 `ENVIRONMENT_KIND_INVALID`）：为 `false` 时，该独立内容或整部系列完整做完一轮（`completed_rounds >= 1`）后即耗尽，不再被选中、推送、接续或列出。
 可选 `series` 为 null 或 `{title, episode}`；系列按标题识别，各集容器必须完全相同，正整数集号不得重复。
-同一系列各集的 `consumes_state` 必须相同（都不写，或写同一个状态名）；`completion_effects` 每集各写各的，不要求相同，一个系列可以有几集声明 `food`。
+同一系列各集的 `consumes_state` 必须相同（都不写，或写同一个状态名）；`memory_category` 与 `repeatable` 也必须全系列一致（不一致均报 `CONTENT_SERIES_INVALID`）；`completion_effects` 每集各写各的，不要求相同，一个系列可以有几集声明 `food`。
 绑定到地点类型的内容，不属于系列时的 `title` 和系列的 `series.title` 是人物要写的名称，系列各集的 `title` 不是；
 绑定到 app 的内容标题不是可写的名称，人物只写 app 名。
 目录提供按集号排序的系列索引；挑选、进度、自动接续和恢复由模拟引擎处理。
 
-绑定到 app 的内容可以另写前提 `prerequisite`，声明这条内容只有人在某类地点、或当地时间落在某些时段内才能开始。
-省略表示没有前提，随时随地能开始；「没有前提」只有省略一种写法，显式 `null` 拒绝。前提对象只有两个成员，其他键拒绝。
+绑定到 app 的内容可以另写前提 `prerequisite`，声明这条内容只有人在某座城市、某类地点、或当地时间落在某些时段内才能开始。
+省略表示没有前提，随时随地能开始；「没有前提」只有省略一种写法，显式 `null` 拒绝。前提对象只有三个成员，其他键拒绝。
 
 | 成员 | 类型 | 约束 | 含义 |
 | --- | --- | --- | --- |
-| `location_kinds` | 字符串数组 | 省略与 `[]` 等价；每项非空白，无重复并按字符串升序；每项须与至少一个登记地点的 `kind` 逐字相等，不做归一 | 人的停留地点属于其中一类时才能开始；为空表示不限地点 |
+| `city_ids` | 字符串数组 | 省略与 `[]` 等价；显式 `null` 拒绝；每项非空白，无重复并按字符串升序；每项须为至少一个登记地点的 `city_id`（悬空报 `CONTENT_BINDING_DANGLING`） | 人的停留地点所属城市属于其中之一时才能开始；为空表示不限城市 |
+| `location_kinds` | 字符串数组 | 省略与 `[]` 等价；每项非空白，无重复并按字符串升序；每项须与至少一个登记地点的 `kind` 逐字相等，不做归一 | 人的停留地点属于其中一类时才能开始；为空表示不限地点类型 |
 | `opens` | 营业时段对象 | 形状与地点行的 `opens` 完全相同，用同一套校验；省略表示不限时间，显式 `null` 拒绝 | 当地时间落在这些时段内才能开始 |
 
-两个成员至少写一项，两项都写时都要满足。`opens` 里一个时段都没有是合法写法，表示这条内容永远不能开始。
+三个成员至少写一项（均省略或为空报 `CONTENT_PREREQUISITE_INVALID`），多项都写时要全部满足。`opens` 里一个时段都没有是合法写法，表示这条内容永远不能开始。
 内容行顶层的 `location_kinds` 把内容绑定到地点，是地点内容，没有 app 记录；前提里的同名成员只是 app 内容的开始条件，内容仍由 `app_ids` 绑定。写了顶层 `location_kinds` 的行不能写前提，地点内容也没有可用时段字段。
-同一系列各集的前提必须完全相同：都不写，或解析后的 `location_kinds` 与 `opens` 逐项相等，键的先后、`exceptions` 省略与写成空对象不算差异。目录不为前提建索引；前提的判定、筛选和拒绝归模拟引擎。
+`_check_series` 对绑定到 app 的系列（`app_ids` 非空）**不再要求各集的 `prerequisite` 完全相同**：同一系列各集可以各自声明独立的 `city_ids`、`location_kinds` 与 `opens` 前提或省略前提（地点内容系列仍不得声明前提）。目录不为前提建索引；前提的判定、全集代表筛选和拒绝归模拟引擎。
 同时卖商品的 app 每条内容都带前提时，前提都不满足它就打不开，登记不拦。它卖的商品照常可以查询和购买。
 候选投影见[人物的候选与呈现](06-agent.md)。
 
@@ -392,6 +400,10 @@ app 行只有 `app_id`、`name`、`role` 和功能 app 的两个绑定字段，�
 类别只有 `snack`、`meal`、`drink`、`goods`；价格全店同价，无库存、供给上限或动态报价。
 `store_kinds` 与 `app_ids` 缺省空数组，恰有一侧非空。地点侧展开到全部逐字匹配地点；
 app 侧只出现在 app 商品索引，不虚构店铺。任何类别都可绑定任何实际地点类型。
+可选严格布尔 `instant` 缺省 `false`，仅允许 `app_ids` 非空且 `store_kinds` 为空的线上商品声明：
+为真时走电子即时履约（`0` 运费、付款完成当秒即收货、不经驿站）；
+店铺商品（`store_kinds` 非空）声明 `instant`、或任意商品将其显式写成 `null`、非布尔，均报 `ENVIRONMENT_KIND_INVALID`。
+只有目录存在至少一件非即时线上商品（`app_ids` 非空且 `instant` 为假）时，才要求登记驿站且主常住地所在城市（`home_location.city_id`）内须有合法驿站，否则报 `PARCEL_STATION_REQUIRED`。
 地点类型匹配至少一件商品的 `store_kinds` 时，每家分店都必须在自己的地点行填写 `rating`，取 1 至 5 的有限 JSON 数值，两端均可取，允许小数。
 登记检查在商品绑定校验之后执行。商铺缺分、分数越界、写成字符串、布尔值或 `null`，均报 `ENVIRONMENT_NUMBER_INVALID`。
 其余地点省略该字段，填写评分报 `ENVIRONMENT_KIND_INVALID`。只代收快递的驿站省略，同时售卖商品的驿站填写自己的评分。
@@ -415,10 +427,13 @@ app 侧只出现在 app 商品索引，不虚构店铺。任何类别都可绑�
 
 ## 声明式回调
 
-状态行恰为 `{state, initial, cap, reset_on_goods}`，初值和上限为严格整数，`0 <= initial <= cap`。
-商品重置列表可为空，引用实际商品。状态行在前按状态名升序，规则行在后按规则身份升序。
-状态除了被回调效果和收货重置改变，还被凭它的地点内容在开始时减 1：字段 `consumes_state` 见「app、内容与候选呈现」，
-减 1 的时刻与证据见[模拟引擎](04-simulation-engine.md)「出行、内容与查询」。
+状态行形状为 `{state, initial, cap, reset_on_goods}` 并可带可选 `gain_on_goods`（缺省为空数组 `[]`），初值和上限为严格整数，`0 <= initial <= cap`。
+`reset_on_goods` 与 `gain_on_goods` 均为升序、去重的非空白 `goods_id` 数组，引用实际已登记商品（未知商品报 `ENVIRONMENT_REF_UNKNOWN`，重复或未排序报 `ENVIRONMENT_ID_DUPLICATE` / `ENVIRONMENT_KIND_INVALID`，`gain_on_goods` 显式写成 `null` 报 `ENVIRONMENT_KIND_INVALID`）；
+同一状态的 `gain_on_goods` 与 `reset_on_goods` 不得存在同一商品重叠（重叠报 `ENVIRONMENT_KIND_INVALID`）。
+真实收货时，`reset_on_goods` 将状态直接置为 `cap`（`reset_to_cap`），而 `gain_on_goods` 按 `min(cap, before + 1)` 每次递增 `1`（`gain_on_receipt`）。
+状态行在前按状态名升序，规则行在后按规则身份升序。
+状态除了被回调效果、收货重置（`reset_on_goods`）与收货累加（`gain_on_goods`）改变，还被凭它的地点内容（`Content.consumes_state`）、声明边（`MapEdge.consumes_state`）或商业住宿地点（`Location.sleep_consumes_state`）在开始时减 1（`consume_on_start`）：
+减 1 的时刻与证据见[模拟引擎](04-simulation-engine.md)「动作、名称与并行」与「出行、内容与查询」。
 规则恰为 `{rule_id, trigger, effect}`，仅可额外声明 `notify`。状态和规则分别唯一。
 
 | 对象 | 完整形状 |
@@ -454,6 +469,6 @@ app 侧只出现在 app 商品索引，不虚构店铺。任何类别都可绑�
 ## 验证边界
 
 目录单元测试消费清单和它登记的 JSONL，核对字节身份、严格行定位、对象引用、清单检查的次序与错误优先级，
-并验证全量供给索引、内容系列、营业安排、内容前提的登记、凭状态与完成效果的登记、app 行已删字段的拒绝、回调登记、声明的距离、出行方式和运行种子地图；
+并验证全量供给索引（含 `instant` 与条件性本城驿站检查）、内容系列（含放宽的应用系列分集前提与 `repeatable` 一致性）、营业安排、内容前提（含 `city_ids`）的登记、凭状态与完成效果的登记、地点 `city_id` 与 `sleep_consumes_state`、app 行已删字段的拒绝、回调登记（含 `gain_on_goods` 排重与与 `reset_on_goods` 互斥）、声明边限制、出行方式（含 `city_wide`）、分城运行种子地图生成（不跨城建随机边、单节点城合法）与双轨 `validate_route_limit` 检查；
 测试夹具只放出行方式一个可选文件，其余带可选文件或只有步行的情形由测试在夹具副本上构造并刷新清单。
-环境加载再检查人物名称与冻结身份；动作、交易、实际消费、回调效果和恢复由对应集成及系统测试证明。
+环境加载再检查人物名称、主常住地所在城市驿站与冻结身份；动作、交易、实际消费、回调效果和恢复由对应集成及系统测试证明。

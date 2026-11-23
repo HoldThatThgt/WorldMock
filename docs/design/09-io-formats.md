@@ -2,7 +2,7 @@
 
 ## 单一状态归属
 
-完整环境由不可变输入对象承载，世界由唯一已提交 WorldState 承载。运行状态结构版本为 16，运行清单结构版本为 7；
+完整环境由不可变输入对象承载，世界由唯一已提交 `WorldState` 承载。运行状态结构版本（`WORLD_SCHEMA_VERSION`）为 17，运行清单结构版本为 7；
 `persona.toml` 与 `config.toml` 各自的 `schema_version` 写在[配置](08-configuration.md)「人物声明」与「运行配置」的字段表里。
 不接受旧结构、兼容字段、迁移和 fallback；所有当前模型拒绝未知字段，原始 JSONL/TOML 输入规则归
 [配置](08-configuration.md)与[资源引擎](03-resource-engine.md)。
@@ -21,9 +21,9 @@ flowchart LR
 
 ## 世界、人物与活动
 
-世界保存完整环境身份、persona_sha256、config_sha256、唯一种子与随机根、天气日期事实、
+世界保存完整环境身份、`persona_sha256`、`config_sha256`、唯一种子与随机根、分城每日天气事实（`WorldState.weather_by_date` 为 `dict[str, dict[str, str]]`，按 `local_date -> {city_id: condition}` 索引）、
 共同时钟、人物、两个资金账户、活动、订单、调度边界、已处理动作和已提交呈现留痕。
-人物保存实际地点、身体、当前槽位活动、内容共享进度、个人事务、日计划、回调状态与每日幂等标记。
+人物保存实际地点、身体、当前槽位活动、内容共享进度、个人事务、日计划、回调状态、每日幂等标记与已激活商业住宿有效期（`AgentState.lodging_stays` 为 `dict[str, int]`，映射 `location_id -> checkout_epoch`）。
 人物状态的 `navigation_foreground` 记录导航 app 此刻是否在前台：null 表示不在前台；非空时是
 `{activity_id, app_id, opened_at}`，分别是所属的出行活动、这趟出行选定的导航 app 和这一段回到前台的时刻。
 非空而所指出行不是该人物进行中的出行、`opened_at` 早于出行开始或晚于当前时刻，或者同时存在进行中的槽位 2 活动，
@@ -37,17 +37,17 @@ flowchart LR
 睡眠活动的私有数据记录 `declared_duration_seconds`（人物写的时长，600 到 43200 秒）和 `oversleep_seconds`
 （多睡的时长，0，或 1200 到 3600 之间 60 的整数倍）；计划时长是两者之和，受理时定下，恢复后不重新抽取。
 出行活动保存所用出行方式的 `travel_method_id`（自带的步行是 `walking`，其余是数据集的身份），其他活动为空；出行活动的动作是 `travel`，私有数据的 `exertion` 记录受理时取的代谢当量键。
-查询活动的私有数据恰为 `action`（恒为 `query`）、`targets`（认出的各项，按所写次序去重；商品是 `{kind: goods, goods_id}`，类别是 `{kind: category, category}`）、`app_id`（这几分钟所在的 app，可空）、`scoped`（答案是否只列经 `app_id` 能买的）和 `accepted_event_id`；做完的查询另有 `answer`，提前结束和被截断的没有。`answer` 是 `{rows, omitted}`，只有身份、分和纪元秒：`rows` 每行恰为 `{goods_id, route, store_id, app_ids, price_fen, delivery_fee_fen, expected_at, available, reason}`，`route` 取 `pickup`、`delivery`、`station_pickup` 或 null，`reason` 取 `location_closed`、`present_at_seller`、`store_without_app`、`no_open_store`、`no_open_store_on_app`、`not_sold_on_app` 之一或 null；`omitted` 是没列出的商品件数。不存人物所写的 `prefer` 原文。interact 活动的私有数据恒带非空的 `content_id`。
-商品履约记录的 pending 状态允许尚未付款，只有实际付款才有 paid_at；已取消的记录永不收货。
+查询活动的私有数据恰为 `action`（恒为 `query`）、`targets`（认出的各项，按所写次序去重；商品是 `{kind: goods, goods_id}`，类别是 `{kind: category, category}`）、`app_id`（这几分钟所在的 app，可空）、`scoped`（答案是否只列经 `app_id` 能买的）和 `accepted_event_id`；做完的查询另有 `answer`，提前结束和被截断的没有。`answer` 是 `{rows, omitted}`，只有身份、分和纪元秒：`rows` 每行恰为 `{goods_id, route, store_id, app_ids, price_fen, delivery_fee_fen, expected_at, available, reason}`，`route` 取 `pickup`、`delivery`、`station_pickup`、`instant` 或 null，`reason` 取 `location_closed`、`present_at_seller`、`store_without_app`、`no_open_store`、`no_open_store_on_app`、`not_sold_on_app` 之一或 null；`omitted` 是没列出的商品件数。不存人物所写的 `prefer` 原文。interact 活动的私有数据恒带非空的 `content_id`。
+商品履约记录（`DeliveryState`）的履约方式 `FulfillmentKind` 闭集为 `delivery`、`pickup`、`station_pickup`、`instant`；pending 状态允许尚未付款，只有实际付款才有 `paid_at`；已取消的记录永不收货。
 商品履约记录的付款字段按订单取值：同一次购买里 `app_id` 相同的记录是一张订单，`payment_app_id`、`payment_duration_seconds`、
 `payment_started_at`、`payment_ended_at` 在同一张订单的记录上相同。`payment_app_id` 为 null 表示直付；
 `payment_duration_seconds` 是 0 或 10 至 20，只有 `app_id` 与 `payment_app_id` 都为 null 的到店直付为 0，
 这时两个付款时刻恒为 null；其余订单在付款段真实开始、真实走完时各写一次。
 订单由购买活动的 `data.order_ids` 和记录上的 `app_id` 得出：购买活动列出了世界里没有的记录，
 或者同一张订单的记录在这四个付款字段上取值不同，世界状态在写入和恢复时都被拒绝。
-`paid_at` 在一次购买的全部记录上同时写入，等于购买完成的时刻；到店记录的 `expected_at` 是购买开始时刻加实际购买时长。
+`paid_at` 在一次购买的全部记录上同时写入，等于购买完成的时刻；到店（`pickup`）与即时电子履约（`instant`）记录的 `expected_at` 都是购买开始时刻加实际购买时长（其中 `instant` 在付款完成当秒直接结算收货，写 `arrived_at`、`received_at` 与终态 `delivered`）。
 外卖的 `expected_at` 是人物看到的预计送达，私有字段 `weather_delay_seconds` 是受理时冻结的天气总延长，单位为秒，取非负整数。
-到店与快递在世界状态上该字段为空。动作结果、活动进度和到达事件里的订单快照都省去该字段。
+到店、快递与 `instant` 在世界状态上该字段为空。动作结果、活动进度和到达事件里的订单快照都省去该字段。
 排程与收货按同一个规则从订单推出实际应送达时刻，见[模拟引擎](04-simulation-engine.md)「购买、付款与收货」。
 `arrived_at` 只在实际发生时写入。商品品质保存在收货事件，查询和购买结果里的商铺评分从冻结目录取。
 内容共享进度以人物与内容身份保存，报告不新增进度。位置归零、轮数加一有两个来源：内容做到末尾，和在地点做的事被人物结束，规则见[模拟引擎](04-simulation-engine.md)「出行、内容与查询」。

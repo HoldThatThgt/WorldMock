@@ -238,7 +238,7 @@ def test_unit_done_raises_every_content_behind_to_the_next_round(tmp_path, perso
 
 def test_location_sleepable_is_a_strict_boolean_that_defaults_to_false():
     """sleepable 缺省为假，与 is_home 互不推导；null、数字或字符串按类型错误拒绝。"""
-    base = {"location_id": "home", "name": "家", "kind": "home", "app_ids": []}
+    base = {"location_id": "home", "name": "家", "kind": "home", "city_id": "test-city", "app_ids": []}
     assert Location.model_validate(base).sleepable is False
     assert Location.model_validate({**base, "is_home": True}).sleepable is False
     assert Location.model_validate({**base, "sleepable": True}).is_home is False

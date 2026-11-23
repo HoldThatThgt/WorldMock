@@ -14,6 +14,8 @@ from worldmock.state.world.world import WorldState, validated_payload
 from worldmock.simulation_engine.world.run_identity import require_environment_identity
 from worldmock.recording_engine.storage.opslog import OpsLogger
 
+_LOGGER = logging.getLogger(__name__)
+
 
 @dataclass
 class EngineContext:
@@ -61,15 +63,30 @@ class EngineContext:
                  and self.state.run_id == self.store.manifest["run_id"]
                  and tuple(self.state.agents) == (self.persona.agent_id,))
         if not valid:
-            logging.error("Runtime environment inputs or agent identity mismatch")
+            _LOGGER.error("Runtime environment inputs or agent identity mismatch")
             raise IntegrityError("Runtime environment inputs or agent identity mismatch")
         require_environment_identity(self.store.manifest, self.inputs)
+        self._validate_world_keys()
         from worldmock.simulation_engine.activities.lifecycle.activity_validation import validate_activity_targets
 
         validate_activity_targets(self.state, self.catalog, self.persona)
         from worldmock.simulation_engine.scheduling.callbacks.callbacks import validate_callback_states
 
         validate_callback_states(self.state, self.catalog)
+
+    def _validate_world_keys(self) -> None:
+        """@brief 恢复和校验拒绝未登记城市的天气键或未登记地点的住宿租约键。"""
+        catalog_cities = {place.city_id for place in self.catalog.locations.values()}
+        for local_date, cities in self.state.weather_by_date.items():
+            if not set(cities).issubset(catalog_cities):
+                _LOGGER.error("Weather city keys for %s are not registered in catalog", local_date)
+                raise IntegrityError(f"Weather city keys for {local_date} are not registered in catalog")
+        for agent in self.state.agents.values():
+            if not set(agent.lodging_stays).issubset(self.catalog.locations):
+                _LOGGER.error("Lodging stay location keys for agent %s are not registered in catalog", agent.agent_id)
+                raise IntegrityError(
+                    f"Lodging stay location keys for agent {agent.agent_id} are not registered in catalog"
+                )
 
     def commit_step(self, staged: WorldState, drafts: list[EventDraft]) -> list[Event]:
         """@brief 提交一步世界推进并换上新世界。

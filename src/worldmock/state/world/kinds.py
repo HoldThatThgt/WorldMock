@@ -59,6 +59,7 @@ class FulfillmentKind(StrEnum):
     DELIVERY = "delivery"
     PICKUP = "pickup"
     STATION_PICKUP = "station_pickup"
+    INSTANT = "instant"
 
 
 

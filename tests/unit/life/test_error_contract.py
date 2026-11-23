@@ -137,8 +137,8 @@ def test_prerequisite_refusal_is_absent_when_something_can_start_or_the_app_has_
 def test_prerequisite_refusal_names_every_matching_place_in_identity_order(tmp_path):
     """多个地点属于前提的类型时，按地点身份升序用 or 连接，人物从不看到类型原文；下一步取同一段地点。"""
     root = dingtalk_environment(tmp_path / "input")
-    add_rows(root, "location.jsonl", "location_id", {"app_ids": [], "kind": "office", "location_id": "annex",
-                                                      "name": "分部", "branch_label": "西区"})
+    add_rows(root, "location.jsonl", "location_id", {"app_ids": [], "city_id": "test-city", "kind": "office",
+                                                      "location_id": "annex", "name": "分部", "branch_label": "西区"})
     refusal = refusal_at(load_catalog(root / "catalog", 7), (12, 8, 10), "home")
     assert refusal.reason == ("Nothing in 钉钉 can start here now: "
                               "it requires presence at 分部（西区） or 练秋湖研发中心.")

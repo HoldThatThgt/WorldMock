@@ -535,7 +535,7 @@ def test_takeaway_due_before_the_payment_arrives_in_the_same_advance_that_comple
     (arrival,) = business_events(engine, "delivery_arrival")
     (received,) = business_events(engine, "goods_received")
     assert payment.occurred_at == arrival.occurred_at == received.occurred_at == activity.planned_end_at
-    assert arrival.data["late_by_seconds"] == 120 and arrival.data["weather_delay_seconds"] == 90
+    assert arrival.data["late_by_seconds"] == 120 and arrival.data["weather_delay_seconds"] == 105
     assert payment.event_seq < arrival.event_seq < received.event_seq
     assert len({payment.state_version_after, arrival.state_version_after, received.state_version_after}) == 1
     assert arrival.caused_by == [payment.event_id] and received.caused_by == [arrival.event_id]

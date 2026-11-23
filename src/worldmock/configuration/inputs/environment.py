@@ -145,7 +145,7 @@ def load_environment(root: Path | str, *, metadata_loader: Callable | None = Non
     metadata = (metadata_loader or load_model_metadata)(config.model)
     catalog = load_catalog(directory / "catalog", config.seed)
     home, initial, workplace = _resolve_persona_locations(persona, catalog)
-    _require_parcel_station(catalog)
+    _require_parcel_station(catalog, home)
     return EnvironmentInputs(directory, catalog, persona, config, persona_digest, config_digest,
                              metadata, home, initial, workplace)
 
@@ -157,29 +157,37 @@ def _resolve_persona_locations(persona: PersonaConfig, catalog: Any) -> tuple[st
     by_name = {channel_key(place.display_name): place for place in catalog.locations.values()}
     home = by_name.get(channel_key(persona.home_location))
     if home is None or not home.is_home:
+        _LOGGER.error("Invalid persona home_location: %s", persona.home_location)
         raise RegistrationError("HOME_LOCATION_REQUIRED", "persona.home_location")
     if not home.sleepable:
+        _LOGGER.error("Persona home_location is not sleepable: %s", persona.home_location)
         raise RegistrationError("HOME_NOT_SLEEPABLE", "persona.home_location")
     initial = by_name.get(channel_key(persona.initial_location))
     if initial is None:
         detail = "Persona location reference is unknown or ambiguous: initial_location"
+        _LOGGER.error(detail)
         raise RegistrationError("ENVIRONMENT_REF_UNKNOWN", detail)
     workplace = None
     if persona.work_schedule is not None:
         workplace = by_name.get(channel_key(persona.work_schedule.workplace))
         if workplace is None:
             detail = "Persona location reference is unknown or ambiguous: work_schedule.workplace"
+            _LOGGER.error(detail)
             raise RegistrationError("ENVIRONMENT_REF_UNKNOWN", detail)
     return home.location_id, initial.location_id, workplace.location_id if workplace else None
 
 
-def _require_parcel_station(catalog: Any) -> None:
-    """@brief app 侧商品要求实际驿站，所有驿站都有对应地点类型内容。"""
+def _require_parcel_station(catalog: Any, home_location_id: str) -> None:
+    """@brief 非即时线上商品要求住处同城存在驿站，所有驿站都有对应地点类型内容。"""
+    home_city = catalog.locations[home_location_id].city_id
     stations = [place for place in catalog.locations.values() if place.accepts_parcels]
-    if any(goods.app_ids for goods in catalog.goods.values()) and not stations:
-        raise RegistrationError("PARCEL_STATION_REQUIRED", "app goods require a parcel station")
+    if any(goods.app_ids and not goods.instant for goods in catalog.goods.values()):
+        if not any(station.city_id == home_city for station in stations):
+            _LOGGER.error("Home city %s has no parcel station for non-instant app goods", home_city)
+            raise RegistrationError("PARCEL_STATION_REQUIRED", f"home city {home_city} has no parcel station")
     for station in stations:
         if not catalog.contents_by_location_kind.get(station.kind):
+            _LOGGER.error("Parcel station %s has no location content", station.location_id)
             raise RegistrationError("PARCEL_STATION_REQUIRED", station.location_id)
 
 

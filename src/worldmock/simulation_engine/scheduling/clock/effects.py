@@ -50,8 +50,10 @@ def apply_scheduled_effect(state: WorldState, event: ScheduledEvent, context) ->
         return ScheduledOutcome(changed, data, "app_push" if "push_id" in data and not _asleep(state) else None)
     if event.kind == ScheduledKind.WEATHER:
         date = event.data["local_date"]
-        condition = state.weather_by_date[date]
-        data = {"local_date": date, "condition": condition, "speed_factor": WEATHER_FACTORS[condition]}
+        city_id = event.data["city_id"]
+        condition = state.weather_by_date[date][city_id]
+        data = {"city_id": city_id, "local_date": date, "condition": condition,
+                "speed_factor": WEATHER_FACTORS[condition]}
         return ScheduledOutcome(state, data)
     return ScheduledOutcome(state, dict(event.data))
 

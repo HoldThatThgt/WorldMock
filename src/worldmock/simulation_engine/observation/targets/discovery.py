@@ -15,10 +15,16 @@ class DiscoveryContext:
 
 
 def product_rows(context: DiscoveryContext) -> tuple[dict, ...]:
-    """@brief 地点侧商品为完整查询集合，app 侧商品只在查询与按名购买时出现。"""
+    """@brief 地点侧商品仅保留当前停留或锚定城市在售的店铺商品，app 侧商品只在查询与按名购买时出现。"""
+    catalog = context.inputs.catalog
+    current_city = catalog.locations[context.agent.location_id].city_id
+    local_goods = {goods_id for location_id, location in catalog.locations.items()
+                   if location.city_id == current_city
+                   for goods_id in catalog.goods_by_store[location_id]}
     return tuple({"goods_id": goods.goods_id, "name": goods.name, "category": goods.category,
                   "price_fen": goods.price_fen}
-                 for _, goods in sorted(context.inputs.catalog.goods.items()) if goods.store_kinds)
+                 for _, goods in sorted(catalog.goods.items())
+                 if goods.store_kinds and goods.goods_id in local_goods)
 
 
 def product_bindings(context) -> list[dict]:

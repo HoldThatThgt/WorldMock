@@ -8,6 +8,7 @@ from worldmock.exchange_engine.definitions.constants import WEATHER_FACTORS
 from worldmock.recording_engine.events.callback_contract import (
     ConsumeOnStartResult,
     StateDeltaResult,
+    StateGainResult,
     StateResetResult,
     TransferResult,
 )
@@ -30,6 +31,7 @@ _DIGEST_FIELDS = frozenset({"kind", "tier", "period", "digests", "fallback"})
 _DIGEST_ITEM_FIELDS = frozenset({"text", "source_event_ids", "cited_event_ids"})
 #: 月回顾与年回顾的期写法（ASCII 数字，fullmatch 不接受末尾换行）。
 _PERIOD_PATTERNS = {"month": re.compile(r"[0-9]{4}-(0[1-9]|1[0-2])"), "year": re.compile(r"[0-9]{4}")}
+_LOGGER = logging.getLogger(__name__)
 
 
 def validate_environment_event(event) -> None:
@@ -45,7 +47,7 @@ def validate_environment_event(event) -> None:
         if data["key"] not in TIME_KEYS or not _text(data["scheduled_id"]) or event.caused_by:
             _invalid("Time trigger must be an independent actual scheduled fact")
     elif kind == "weather":
-        _system_source(event, {"kind", "local_date", "condition", "speed_factor", "scheduled_id"})
+        _system_source(event, {"kind", "city_id", "local_date", "condition", "speed_factor", "scheduled_id"})
         _weather(data)
     elif kind == "callback_reminder":
         if (set(data) != {"kind", "rule_id", "app_id", "text"} or event.source_kind != "environment"
@@ -126,16 +128,17 @@ def _location_stay(event) -> None:
 
 
 def _callback_effect(event) -> None:
-    """@brief 四种效果正文来自同一模型，且只有真实环境触发可产生；三种状态效果不改账户。"""
+    """@brief 五种效果正文来自同一模型，且只有真实环境触发可产生；四种状态效果不改账户。"""
     contracts = {"state_delta": StateDeltaResult, "reset_to_cap": StateResetResult,
-                 "consume_on_start": ConsumeOnStartResult, "transfer": TransferResult}
+                 "gain_on_receipt": StateGainResult, "consume_on_start": ConsumeOnStartResult,
+                 "transfer": TransferResult}
     contract = contracts.get(event.data.get("type"))
     if contract is None:
         _invalid("Callback effect type is invalid")
     try:
         contract.model_validate(event.data, strict=True)
     except ValueError:
-        logging.exception("Callback effect fields are invalid")
+        _LOGGER.error("Callback effect fields are invalid")
         raise
     if (event.source_kind != "environment" or event.visibility != "system"
             or event.agent_id is None or len(event.caused_by) != 1):
@@ -168,14 +171,17 @@ def _system_source(event, fields: set[str]) -> None:
 
 
 def _weather(data: dict) -> None:
-    """@brief 天气日期、枚举和速度系数只能表达引擎真实天气。"""
+    """@brief 天气城市、日期、枚举、速度系数与排程身份只能表达引擎真实分城天气。"""
     try:
         valid_date = date.fromisoformat(data["local_date"]).isoformat() == data["local_date"]
     except (ValueError, TypeError):
         valid_date = False
     factor = data["speed_factor"]
-    if (not valid_date or data["condition"] not in WEATHER_FACTORS or type(factor) not in (int, float)
-            or factor != WEATHER_FACTORS[data["condition"]] or not _text(data["scheduled_id"])):
+    expected_scheduled = (f"weather-{data['city_id']}-{data['local_date']}"
+                          if _text(data["city_id"]) and valid_date else None)
+    if (not _text(data["city_id"]) or not valid_date or not isinstance(data["condition"], str)
+            or data["condition"] not in WEATHER_FACTORS or type(factor) not in (int, float)
+            or factor != WEATHER_FACTORS[data["condition"]] or data["scheduled_id"] != expected_scheduled):
         _invalid("Weather fact disagrees with the actual environment weather")
 
 
@@ -186,5 +192,5 @@ def _text(value) -> bool:
 
 def _invalid(message: str) -> None:
     """@brief 非法录制数据写错误日志并拒绝。"""
-    logging.error(message)
+    _LOGGER.error(message)
     raise ValueError(message)

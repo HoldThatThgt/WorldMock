@@ -234,10 +234,15 @@ def test_a_delivery_is_in_the_progress_layer_until_the_next_decision_publishes_i
     assert _published(engine) >= arrival.event_seq
 
 
+def _every_three_minutes(persona, config):
+    """运行配置：每三分钟到一次重估间隔，确保 228 秒驾车途中必然触发一次决策。"""
+    config["reconsideration_interval_seconds"] = 180
+
+
 def test_a_balance_notice_from_a_decision_commit_reaches_the_next_decision_only(engine_factory, tmp_path):
     """开车出发时触发一条可见的支出回调：出发那次决策的提交里有 balance_decreased（序号介于那次观察与提交末序号之间）；
     其后的观察里有一条 balance_decreased，写这次提交前后余额之差（含车费）；路上再播报一次之后的观察里没有它。"""
-    engine = engine_factory(callback_environment(tmp_path, visible_fee_rules(_DRIVING)), mutate=every_five_minutes)
+    engine = engine_factory(callback_environment(tmp_path, visible_fee_rules(_DRIVING)), mutate=_every_three_minutes)
     before = engine.context.state.accounts["agent:1"]
     _, trip = act(engine, "drive", travel("公司", "驾车"))
     assert trip.status == "in_progress", trip.error_code
@@ -368,7 +373,7 @@ def test_progress_records_lie_after_their_bounds_except_the_carried_ones(engine_
     每次观察：非 tool_call 记录的来源序号大于它那一种的界；序号不超过已发布界的来源只属于带入记录，或是上一次决策提交里
     产生的非记忆提示（开车出发之后的那次观察里这一分支确实出现）；每条 tool_call 对应一项占槽位的活动或一项做完的查询；
     同一时刻已发布条目的来源与进度层的来源只在带入记录上重叠。"""
-    engine = engine_factory(callback_environment(tmp_path, visible_fee_rules(_DRIVING)), mutate=every_five_minutes)
+    engine = engine_factory(callback_environment(tmp_path, visible_fee_rules(_DRIVING)), mutate=_every_three_minutes)
     late = []
     _, bought = act(engine, "takeaway", purchase("牛肉面"))
     late.append(_check_bounds(engine, observe_only(engine, "buying")))

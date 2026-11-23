@@ -129,14 +129,14 @@ def test_answer_reads_the_world_at_the_finishing_second(engine_factory, tmp_path
 
 
 def test_every_open_store_selling_the_goods_gives_one_row(engine_factory):
-    """人在家查询「柠檬茶」、prefer 为 null：恰四行。一心面馆与三杯咖啡各一条外卖行，可以下单，可用的 app 是各自登记的
-    全部 app，运费 5 元，预计送达是做完时刻加 1,150 秒与 1,629 秒，较近的排前；二味小炒与四季便利各一条到店行排在后面，
+    """人在家查询「柠檬茶」、prefer 为 null：恰四行。三杯咖啡与一心面馆各一条外卖行，可以下单，可用的 app 是各自登记的
+    全部 app，运费 5 元，预计送达是做完时刻加 1,105 秒与 1,246 秒，较近的排前；二味小炒与四季便利各一条到店行排在后面，
     不可下单，原因逐字，没有 app、运费与送达。"""
     done, answer = _asked(engine_factory(), "tea", "柠檬茶")
     assert answer["scope"] == "列出全部途径" and "omitted" not in answer
     assert answer["rows"] == [
-        _line("柠檬茶", "外卖", "一心面馆", ["美团"], "12 元", "5 元", _iso(done.ended_at + 1150)),
-        _line("柠檬茶", "外卖", "三杯咖啡", ["饿了么", "美团"], "12 元", "5 元", _iso(done.ended_at + 1629)),
+        _line("柠檬茶", "外卖", "三杯咖啡", ["饿了么", "美团"], "12 元", "5 元", _iso(done.ended_at + 1105)),
+        _line("柠檬茶", "外卖", "一心面馆", ["美团"], "12 元", "5 元", _iso(done.ended_at + 1246)),
         _line("柠檬茶", "到店", "二味小炒", [], "12 元", reason=NO_APP),
         _line("柠檬茶", "到店", "四季便利", [], "12 元", reason=NO_APP)]
 
@@ -211,9 +211,9 @@ def test_usable_prefer_lists_only_what_its_app_can_deliver(engine_factory, tmp_p
     engine = engine_factory(mutate=_at("公司"))
     done, answer = _asked(engine, "meal", "食品", prefer="美团")
     assert (answer["app"], answer["scope"]) == ("美团", "只列经这个 app 能买的")
-    assert answer["rows"] == [_line("牛肉面", "外卖", "一心面馆", ["美团"], "28 元", "5 元", _iso(done.ended_at + 816))]
+    assert answer["rows"] == [_line("牛肉面", "外卖", "一心面馆", ["美团"], "28 元", "5 元", _iso(done.ended_at + 953))]
     done, named = _asked(engine, "meal-and-rice", "食品", "饭团", prefer="美团")
-    assert named["rows"] == [_line("牛肉面", "外卖", "一心面馆", ["美团"], "28 元", "5 元", _iso(done.ended_at + 816)),
+    assert named["rows"] == [_line("牛肉面", "外卖", "一心面馆", ["美团"], "28 元", "5 元", _iso(done.ended_at + 953)),
                              _line("饭团", None, None, [], "10 元", reason="这个 app 里没有")]
     root = _edited(tmp_path, "noodle-closed", _closed("noodle-1"), "location.jsonl")
     _, closed = _asked(engine_factory(root, mutate=_at("公司")), "meal", "食品", prefer="美团")
@@ -254,10 +254,10 @@ def test_answer_orders_goods_and_rows_and_lists_at_most_twenty_goods(engine_fact
     _, answer = _asked(engine_factory(root), "snacks", "零食")
     listed = list(dict.fromkeys(row["product"] for row in answer["rows"]))
     assert answer["omitted"] == "还有 3 件没列" and len(listed) == 20
-    assert listed == ["薯片", *(f"零食r{index:02d}" for index in range(10)), *(f"零食c{index:02d}" for index in range(8)),
+    assert listed == ["薯片", *(f"零食c{index:02d}" for index in range(8)), *(f"零食r{index:02d}" for index in range(10)),
                       "零食s00"]
     chips = [(row["store"], row["now"]) for row in answer["rows"] if row["product"] == "薯片"]
-    assert chips == [("一心面馆", "可以下单"), ("三杯咖啡", "可以下单"), ("二味小炒", "不可下单"), ("四季便利", "不可下单")]
+    assert chips == [("三杯咖啡", "可以下单"), ("一心面馆", "可以下单"), ("二味小炒", "不可下单"), ("四季便利", "不可下单")]
     _, named = _asked(engine_factory(root), "snacks-and-tissue", "零食", "纸巾")
     assert named["omitted"] == "还有 4 件没列" and "纸巾" not in {row["product"] for row in named["rows"]}
     _, few = _asked(engine_factory(root), "drink", "饮料")
