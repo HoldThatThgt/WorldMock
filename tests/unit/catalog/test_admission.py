@@ -32,7 +32,7 @@ def test_file_identity_drift_is_rejected(catalog_dir, change):
 
 
 HOME_OFFICE = '{"a":"home","b":"office","length_m":12600}'
-FIXTURE_MAP_SHA256 = "017bbcfedf78e142ac0310242e504655142c92796fb8395c8ccc4a11a3afedf5"
+FIXTURE_MAP_SHA256 = "c4d0e3f83e4b7684c8bc2a113b4becf8260b3621729a8e9b1ff2d69362a4289a"
 
 
 def declare(directory, *lines):

@@ -22,9 +22,9 @@ flowchart LR
 
 ## 世界、人物与活动
 
-世界保存完整环境身份、`persona_sha256s`（全员人物原字节摘要映射）、`config_sha256`、唯一种子与随机根、天气日期事实、
+世界保存完整环境身份、`persona_sha256s`（全员人物原字节摘要映射）、`config_sha256`、唯一种子与随机根、分城每日天气事实（`WorldState.weather_by_date` 为 `dict[str, dict[str, str]]`，按 `local_date -> {city_id: condition}` 索引）、
 共同时钟、全员人物集合（`len(agents) >= 1`）、N+1 个资金账户（`external:scenario` 加每位注册人物的 `agent:{agent_id}`）、活动、订单、调度边界、`processed_actions`（`StoredAction` 已移除 `receipt` 字段）、待呈递状态、跨模块屏障状态与调度视图 `SchedulingState`（`state/decisions/round.py`）。跨模块边界传输对象统一在 `state/decisions/barrier.py` 定义（`SuspendedLoopState`、`AgentWakeupInput`、`ToolDispatchResult`、`SandboxOutcome`、`SearchTaskSpec`、`SearchSessionOutcome`、`SearchCommitReceipt`、`BarrierCommitReceipt`）。
-人物保存实际地点、身体、当前槽位活动、内容共享进度、个人事务、日计划、回调状态、每日幂等标记与可选的无栈挂起载荷 `suspended_loop: SuspendedLoopState | None`。
+人物保存实际地点、身体、当前槽位活动、内容共享进度、个人事务、日计划、回调状态、每日幂等标记、已激活商业住宿有效期（`AgentState.lodging_stays` 为 `dict[str, int]`，映射 `location_id -> checkout_epoch`）与可选的无栈挂起载荷 `suspended_loop: SuspendedLoopState | None`。
 已删除 `same_moment_rounds`、`same_moment_stage` 与 `same_second_continuation`。
 
 `SuspendedLoopState`（随 `AgentState.suspended_loop` 序列化到世界状态与检查点）显式持有十五个字段：
@@ -60,17 +60,17 @@ flowchart LR
 睡眠活动的私有数据记录 `declared_duration_seconds`（人物写的时长，600 到 43200 秒）和 `oversleep_seconds`
 （多睡的时长，0，或 1200 到 3600 之间 60 的整数倍）；计划时长是两项之和，受理时定下，恢复后不重新抽取。
 出行活动保存所用出行方式的 `travel_method_id`（自带的步行是 `walking`，其余是数据集的身份），其他活动为空；出行活动的动作是 `travel`，私有数据的 `exertion` 记录受理时取的代谢当量键。
-搜索活动（`ActivityKind.SEARCH`）由 `SearchWorldRequest`（`query`、`prefer` 与 `self_note`）发起：开始受理阶段私有数据记下 `action`（`"search"`）、`query`、`prefer`、`accepted_event_id`，且 `app_id` **仅当 `prefer` 非空并解析匹配到开放下单 app 时才填入对应 `app_id`（`scoped = True`），否则为 `None`（`scoped = False`）**；搜索子会话内部工具（`search_goods`、`inspect_goods_offers`、`search_places`、`submit_search_results`）模型定义在 `state/interaction/search_requests.py`（全部遵守 `deepseek_strict_schema`）。做完的搜索在 `complete_searches` 阶段完成 `app_use` 归属（原 `data.app_id` 为 `None` 时按返回 `goods_rows` 中可下单商品 `selling_app_id` 众数或 `search-app:{action_id}` 随机流写回 `data.app_id`，保持原 `data.scoped`），并由 `Fact Guard` 写入确定性回答 `data.answer`（含 `query`、`prefer`、`scoped`、`goods_rows`、`place_rows`、`summary`：其中 `goods_rows` 保持 `{goods_id, name, category, category_label, price_fen, price_yuan, selling_app_ids, selling_apps, available, reason, fulfillment, total_price_fen, delivery_fee_fen?, selling_app_id, selling_app, store_id, store, rating, expected_at}`，地点行 `place_rows` 含 `{location_id, name, kind, open_now, today_hours, rating, sleepable, accepts_parcels, units, travel_options}`）；提前取消或被截断的搜索没有回答字段。`interact` 活动的私有数据恒带非空的 `content_id`。
-商品履约记录的 `pending` 状态允许尚未付款，只有实际付款才有 `paid_at`；已取消的记录永不收货。
+搜索活动（`ActivityKind.SEARCH`）由 `SearchWorldRequest`（`query`、`prefer` 与 `self_note`）发起：开始受理阶段私有数据记下 `action`（`"search"`）、`query`、`prefer`、`accepted_event_id`，且 `app_id` **仅当 `prefer` 非空并解析匹配到开放下单 app 时才填入对应 `app_id`（`scoped = True`），否则为 `None`（`scoped = False`）**；搜索子会话内部工具（`search_goods`、`inspect_goods_offers`、`search_places`、`submit_search_results`）模型定义在 `state/interaction/search_requests.py`（全部遵守 `deepseek_strict_schema`）。做完的搜索在 `complete_searches` 阶段完成 `app_use` 归属（原 `data.app_id` 为 `None` 时按返回 `goods_rows` 中可下单商品 `selling_app_id` 众数或 `search-app:{action_id}` 随机流写回 `data.app_id`，保持原 `data.scoped`），并由 `Fact Guard` 写入确定性回答 `data.answer`（含 `query`、`prefer`、`scoped`、`goods_rows`、`place_rows`、`summary`：其中 `goods_rows` 保持 `{goods_id, name, category, category_label, price_fen, price_yuan, selling_app_ids, selling_apps, available, reason, fulfillment, total_price_fen, delivery_fee_fen?, selling_app_id, selling_app, store_id, store, rating, expected_at}`，`fulfillment` 取 `pickup`、`delivery`、`station_pickup`、`instant` 或 `None`，门店商品限定当前城市、地点限定当前城市及从当前地点直达的异地枢纽，地点行 `place_rows` 含 `{location_id, name, kind, open_now, today_hours, rating, sleepable, accepts_parcels, units, travel_options}`）；提前取消或被截断的搜索没有回答字段。`interact` 活动的私有数据恒带非空的 `content_id`。
+商品履约记录（`DeliveryState`）的履约方式 `FulfillmentKind` 闭集为 `delivery`、`pickup`、`station_pickup`、`instant`；`pending` 状态允许尚未付款，只有实际付款才有 `paid_at`；已取消的记录永不收货。
 商品履约记录的付款字段按订单取值：同一次购买里 `app_id` 相同的记录是一张订单，`payment_app_id`、`payment_duration_seconds`、
 `payment_started_at`、`payment_ended_at` 在同一张订单的记录上相同。`payment_app_id` 为 `null` 表示直付；
 `payment_duration_seconds` 是 0 或 10 至 20，只有 `app_id` 与 `payment_app_id` 都为 `null` 的到店直付为 0，
 这时两个付款时刻恒为 `null`；其余订单在付款段真实开始、真实走完时各写一次。
 订单由购买活动的 `data.order_ids` 和记录上的 `app_id` 得出：购买活动列出了世界里没有的记录，
 或者同一张订单的记录在这四个付款字段上取值不同，世界状态在写入和恢复时都被拒绝。
-`paid_at` 在一次购买的全部记录上同时写入，等于购买完成的时刻；到店记录的 `expected_at` 是购买开始时刻加实际购买时长。
+`paid_at` 在一次购买的全部记录上同时写入，等于购买完成的时刻；到店（`pickup`）与即时电子履约（`instant`）记录的 `expected_at` 都是购买开始时刻加实际购买时长（其中 `instant` 在付款完成当秒直接结算收货，写 `arrived_at`、`received_at` 与终态 `delivered`）。
 外卖的 `expected_at` 是人物看到的预计送达，私有字段 `weather_delay_seconds` 是受理时冻结的天气总延长，单位为秒，取非负整数。
-到店与快递在世界状态上该字段为空。动作结果、活动进度和到达事件里的订单快照都省去该字段。
+到店、快递与 `instant` 在世界状态上该字段为空。动作结果、活动进度和到达事件里的订单快照都省去该字段。
 排程与收货按同一个规则从订单推出实际应送达时刻，见[模拟引擎](04-simulation-engine.md)「购买、付款与收货」。
 `arrived_at` 只在实际发生时写入。商品品质保存在收货事件，搜索和购买结果里的商铺评分从冻结目录取。
 内容共享进度以人物与内容身份保存，报告不新增进度。位置归零、轮数加一有两种来源：内容做到末尾，和在地点做的事被人物结束，规则见[模拟引擎](04-simulation-engine.md)「出行、内容与搜索」。

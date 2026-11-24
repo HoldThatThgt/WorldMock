@@ -35,7 +35,7 @@ flowchart LR
 唯一写入者与严格模块边界由程序结构共同保证：
 - `LifeEngine`（[engine.py](../../src/worldmock/simulation_engine/engine.py)）全部公共方法均为**同步 `def`**（绝不使用 `async def`），内部绝不直接原地修改已提交 `self.context.state`，而是经由不可变复制或 `BarrierMerger` 事务替换。
 - 包导入拓扑单向闭环：`worldmock.simulation_engine` 绝不导入 `agents` 或 `runtime`；`worldmock.agents` 绝不导入 `runtime` 或 `simulation_engine`；全仓库仅 `runtime.lifecycle.run_host` 导入 `simulation_engine.engine`。
-- 并发执行期间，每个人物拥有独立的深拷贝沙盒 `WorldState` 与私密 `EvidenceBuffer`（`AgentSandbox`，实现 `agents/protocol/engine_handle.py` 定义的 `SandboxHandle` 协议），搜索子会话仅持只读 `SearchCatalogView`；所有网络模型调用通过 `asyncio.gather` 并发完成，待全部退出后回到主线程依次完成 `complete_searches` 或 `commit_barrier` 确定性提交，零数据库并发写锁。
+- 并发执行期间，每个人物拥有独立的深拷贝沙盒 `WorldState` 与私密证据草稿缓冲（`AgentSandbox`，实现 `agents/protocol/engine_handle.py` 定义的 `SandboxHandle` 协议），搜索子会话仅持只读 `SearchCatalogView`；所有网络模型调用通过 `asyncio.gather` 并发完成，待全部退出后回到主线程依次完成 `complete_searches` 或 `commit_barrier` 确定性提交，零数据库并发写锁。
 
 运行宿主与模拟引擎按固定步序循环推进：
 
@@ -101,7 +101,7 @@ flowchart TD
 | 身份 | 格式与作用范围 |
 | --- | --- |
 | `wakeup_id` | `f"{run_id}:wake:{current_time}:v{state.version}:a{agent_id}"`：`prepare_barrier` 在屏障起点为每位就绪人物分配的唯一确定性身份；因 `search_world` 挂起后再恢复沿用同一 `wakeup_id`；因冲突回滚并在下一次同刻屏障重试时因已提交兄弟人物推高了 `state.version` 而获得新 `wakeup_id` |
-| `action_id` | 人物唤醒沙盒内为每次世界动作请求分配的确定性动作身份，关联 `ActionState`、`ActivityState.origin_wakeup_id` 以及随机键 `search-duration:{action_id}` / `search-app:{action_id}` 等 |
+| `action_id` | 人物唤醒沙盒内为每次世界动作请求分配的确定性动作身份，关联 `StoredAction`、`ActivityState.origin_wakeup_id` 以及随机键 `search-duration:{action_id}` / `search-app:{action_id}` 等 |
 | 主唤醒 `call_id` | `f"{wakeup_id}:model:{t:04d}:attempt:1"`（`t` 从 1 起连续递增，含截断重试与协议纠错回合） |
 | 搜索子会话证据归属 | 子会话内部模型交互不占用主唤醒 `wakeup_id` 轮次计费归类：事件信封设置 `EventDraft.activity_id = search_activity_id` 与 `data.purpose = "search_session"` |
 
@@ -174,9 +174,9 @@ runner 在运行的事件循环里、驱动心跳之内，从运行清单冻结�
 写文件：原子写在 Windows 上遇到拒绝访问（同步或杀毒软件短暂占用目标）按 0.05 秒起倍增的八个间隔重试，共约 13 秒，
 第九次仍被拒绝才失败（issue #7）；其他平台与其他错误立即失败。状态、心跳、检查点素材、工作区快照与导出都经它写。
 
-运维日志：`logs/ops-*.jsonl` 只用于定位长运行问题，不参与审计：模型往来记录 `MODEL_EXCHANGE` 带证据写入耗时 `commit_ms`；
-另有传输等待 `MODEL_TRANSPORT_WAIT`（失败发送数、累计等待毫秒数与最后的错误链）、协议拒绝 `MODEL_PROTOCOL_REJECTED`（响应
-阶段带协议纠错时的错误码）与零点计划调用耗时 `PLAN_DAY_CALL`、回顾调用耗时 `MEMORY_DIGEST_CALL`。
+运维日志：`logs/ops-*.jsonl` 只用于定位长运行问题，不参与审计：屏障提交、检查点与工作区记忆保存分别记录 `BARRIER_COMMITTED`、`CHECKPOINT_COMMITTED` 与 `MEMORY_UPDATED`；
+模型传输重发记录 `MODEL_TRANSPORT_WAIT`（失败发送数、累计等待毫秒数与最后的错误链）；零点计划与回顾调用分别记录 `PLAN_DAY_CALL` 与 `MEMORY_DIGEST_CALL`（携带耗时 `call_ms`）；
+运行起止与故障另记 `RUN_STARTED`、`RUN_RESUMED`、`RUN_ENDED`、`RUN_FAILED` 与 `RUN_CRASHED`。
 
 用户通过 `--environment` 显式指定完整环境根，删除 `--scenario` 生活运行输入和地图生成命令。
 环境验证、导出和状态查询使用原有公开入口；独立行为分析由仓库工具读取事实。
@@ -190,7 +190,7 @@ runner 在运行的事件循环里、驱动心跳之内，从运行清单冻结�
 主唤醒循环的九个原生工具（六个核心世界动作 `start_main_activity`、`start_side_activity`、`report_status`、`pause_activity`、`conclude_activity`、`revise_day_plan`、搜索工具 `search_world` 与只读工具 `recall_task_summary`、`search_memory`）、七层提示、最后回合工具收窄、原生 `tool_calls` 纠错与截断纠正，以及搜索子会话 `LLM Search Session` 使用的四个内部严格工具（`search_goods`、`inspect_goods_offers`、`search_places`、`submit_search_results`）均归[人物](06-agent.md)；主要开始与搜索工具的参数与受理归[模拟引擎](04-simulation-engine.md)。
 工具定义指纹在 `ModelIdentity.tool_schema_sha256s` 中按 `"action"` 与 `"search"` 两阶段分别冻结。
 
-单次唤醒期间，人物沙盒 `AgentSandbox` 经由 `SandboxHandle`（`agents/protocol/engine_handle.py`）封装全部工具分发（已彻底移除旧式 `LifeEngine.read_query`）：只读工具（`recall_task_summary` 与 `search_memory`）直接在 `LifeEngine.read_task_summary` / `LifeEngine.search_memory` 上读取冻结观察 `event_seq` 及以前的事件与状态并返回深拷贝（不写事件、不推进时间、不消耗随机流）；控制工具与业务拒绝在沙盒世界副本上求值并返回含 `changes` 的消息推进 `AgentLoop` 下一回合；持续开始动作或 `search_world` 则冻结结果退出（或挂起保存 `SuspendedLoopState`）。全部请求模型分别由共享的 `REQUEST_MODELS`（`state/interaction/requests.py`）与 `SEARCH_REQUEST_MODELS`（`state/interaction/search_requests.py`）提供并由单元测试强核对一致。
+单次唤醒期间，人物沙盒 `AgentSandbox` 经由 `SandboxHandle`（`agents/protocol/engine_handle.py`）封装全部工具分发（已彻底移除旧式 `LifeEngine.read_query`）：只读工具（`recall_task_summary` 与 `search_memory`）直接在 `LifeEngine.read_task_summary` / `LifeEngine.search_memory` 上读取冻结观察 `event_seq` 及以前的事件与状态并返回深拷贝（不写事件、不推进时间、不消耗随机流）；控制工具与业务拒绝在沙盒世界副本上求值并返回含 `changes` 的消息推进 `AgentLoop` 下一回合；持续开始动作或 `search_world` 则冻结结果退出（或挂起保存 `SuspendedLoopState`）。全部请求模型分别由共享的 `REQUEST_MODELS`（`state/interaction/requests.py`）与 `SEARCH_SESSION_MODELS`（`state/interaction/search_requests.py`）提供并由单元测试强核对一致。
 
 模型服务也可以是开发工具在本机起的录音应答服务（`scripts/recorded_response_run.py`）。它从运行冻结的输入素材复原一份输入，把 `config.toml` 中全部 `[models.*]` 配置段的 `base_url` 与 `metadata_url` 改到 127.0.0.1，各凭据变量给占位值，真实密钥不进入子进程；运行代码不为它留任何入口或开关。
 

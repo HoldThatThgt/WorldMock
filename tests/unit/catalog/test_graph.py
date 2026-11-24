@@ -46,9 +46,9 @@ def test_full_path_comparison_prefers_smaller_first_hop_despite_larger_suffix(re
 
 
 def test_catalog_routes_through_an_unselected_intermediate_location(loaded_catalog):
-    """@brief 家和公司之间必须沿完整环境图经过公园。"""
-    assert loaded_catalog.graph.path("home", "office") == ("home", "park", "office")
-    assert loaded_catalog.shortest_m("home", "office") == 1957
+    """@brief 家和公司之间必须沿完整环境图经过四季便利。"""
+    assert loaded_catalog.graph.path("home", "office") == ("home", "store", "office")
+    assert loaded_catalog.shortest_m("home", "office") == 1353
     paths = loaded_catalog.graph.shortest_paths("home")
     with pytest.raises(TypeError):
         paths["office"] = (1, ("home", "office"))

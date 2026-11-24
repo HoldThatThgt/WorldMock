@@ -5,8 +5,12 @@ from datetime import datetime
 from math import ceil
 from random import Random
 from zoneinfo import ZoneInfo
-from worldmock.resource_engine.catalog.models import Catalog, Content
-from worldmock.simulation_engine.observation.wording.content_prerequisite import prerequisite_unmet
+from worldmock.resource_engine.catalog.models import Catalog, Content, Location
+from worldmock.simulation_engine.observation.wording.content_prerequisite import (
+    content_units,
+    prerequisite_unmet,
+    unit_target_episode,
+)
 from worldmock.state.world.kinds import ActivityKind, ActivityStatus
 from worldmock.state.world.agent import AgentState
 from worldmock.state.world.world import WorldState
@@ -27,11 +31,19 @@ class ContentRequest:
     previous_content_id: str | None = None
 
 def eligible_contents(catalog: Catalog, state: WorldState, request: ContentRequest) -> tuple[Content, ...]:
-    """@brief 合格内容：这个 app 绑定的内容里此刻满足前提的那些，按内容身份升序；筛选不抽随机数。"""
+    """@brief 合格内容：按完整单元定代表并检验未耗尽及此刻前提，保留所有合格单元全部分集并按内容身份升序；不抽随机数。"""
     stay = None if request.stay_location_id is None else catalog.locations[request.stay_location_id]
     moment = datetime.fromtimestamp(state.current_time, ZoneInfo(state.timezone))
-    contents = (catalog.contents[key] for key in sorted(catalog.contents_by_app.get(request.app_id, ())))
-    return tuple(item for item in contents if not prerequisite_unmet(item, stay, moment))
+    agent = state.agents[request.agent_id]
+    contents = tuple(catalog.contents[key] for key in sorted(catalog.contents_by_app.get(request.app_id, ())))
+    kept = []
+    for unit in content_units(contents):
+        item = unit_target_episode(unit, agent)
+        if item is None:
+            continue
+        if not prerequisite_unmet(item, stay, moment):
+            kept.extend(unit)
+    return tuple(sorted(kept, key=lambda entry: entry.content_id))
 
 def select_content(catalog: Catalog, state: WorldState, request: ContentRequest,
                    stream: Random) -> tuple[Content, str | None]:
@@ -46,7 +58,8 @@ def select_from_contents(contents: tuple[Content, ...], state: WorldState, reque
     if pinned is not None:
         return pinned
     agent = state.agents[request.agent_id]
-    units = _exclude_reserved(content_units(contents), state, request)
+    active = tuple(unit for unit in content_units(contents) if unit_target_episode(unit, agent) is not None)
+    units = _exclude_reserved(active or content_units(contents), state, request)
     unfinished = _unfinished_content(units, agent)
     if unfinished is not None:
         return unfinished, None
@@ -62,20 +75,25 @@ def select_from_contents(contents: tuple[Content, ...], state: WorldState, reque
     representatives = sorted((representative(unit, agent) for unit in candidates), key=lambda item: item.content_id)
     return representatives[stream.randrange(len(representatives))], None
 
-def next_episode(catalog: Catalog, agent: AgentState, content: Content, rounds: int) -> Content | None:
-    """@brief 同一系列里接在这一集之后的下一集：集号更大，且没有进度记录或完成轮数小于 rounds 的第一集。
-
-    独立内容没有下一集；按目录索引 contents_by_series 的集号次序取第一条，没有时为 None。不看内容前提、
-    pushable 与预留，不改状态。
+def next_episode(catalog: Catalog, agent: AgentState, content: Content, rounds: int,
+                 stay_moment: tuple[Location | None, datetime]) -> Content | None:
+    """@brief 同一系列里接在这一集之后的下一集：集号更大且轮数低于 rounds，同时满足可重复与此刻前提时返回它。
 
     :param rounds: 刚做完的这一集做完之后的完成轮数。
+    :param stay_moment: 本刻停留地点与本地时刻二元组，用于校验紧邻下集的地点、城市与时段前提。
     """
     if content.series is None:
         return None
     candidates = [catalog.contents[key] for key in catalog.contents_by_series[content.series.title]
                   if catalog.contents[key].series.episode > content.series.episode
-                  and (key not in agent.content_progress or agent.content_progress[key].completed_rounds < rounds)]
-    return candidates[0] if candidates else None
+                  and _rounds(agent, catalog.contents[key]) < rounds]
+    if not candidates:
+        return None
+    candidate = candidates[0]
+    if not candidate.repeatable and _rounds(agent, candidate) >= 1:
+        return None
+    stay, local_moment = stay_moment
+    return None if prerequisite_unmet(candidate, stay, local_moment) else candidate
 
 def autoplay_content(catalog: Catalog, state: WorldState, request: ContentRequest, stream: Random) -> Content | None:
     """@brief 接续顺序：一次 app 使用里一条放完、同一系列没有下一集时，挑同一 app 里接着放的那一条，没有时为 None。
@@ -157,7 +175,7 @@ def opening_duration(catalog: Catalog, state: WorldState, request: ContentReques
 
 def pinned_push_content(contents: tuple[Content, ...], state: WorldState,
                         request: ContentRequest) -> tuple[Content, str] | None:
-    """@brief 此刻打开会钉住的推送内容：当前会话里这个 app 有未释放的推送，并且它指向的内容在合格内容里；不改状态。
+    """@brief 此刻打开会钉住的推送内容：当前会话有未释放推送且所在单元代表集可推送时返回目标内容。
 
     :param contents: 这个 app 此刻的合格内容。
     """
@@ -165,8 +183,15 @@ def pinned_push_content(contents: tuple[Content, ...], state: WorldState,
     push = None if session is None else session.app_pushes.get(request.app_id)
     if push is None or push.status == "released":
         return None
-    item = next((content for content in contents if content.content_id == push.content_id), None)
-    return None if item is None else (item, push.push_id)
+    agent = state.agents[request.agent_id]
+    for unit in content_units(contents):
+        target = unit_target_episode(unit, agent)
+        if target is None or not target.pushable:
+            continue
+        match = next((item for item in unit if item.content_id == push.content_id), None)
+        if match is not None and match.pushable:
+            return match, push.push_id
+    return None
 
 
 def _unfinished_content(units: tuple[tuple[Content, ...], ...], agent: AgentState) -> Content | None:
@@ -174,18 +199,6 @@ def _unfinished_content(units: tuple[tuple[Content, ...], ...], agent: AgentStat
     items = [representative(unit, agent) for unit in units]
     unfinished = [item for item in items if _position(agent, item) > 0]
     return min(unfinished, key=lambda item: (-_last_consumed(agent, item), item.content_id)) if unfinished else None
-
-
-def content_units(contents: tuple[Content, ...]) -> tuple[tuple[Content, ...], ...]:
-    """@brief 独立内容各自成单元，系列内各集按共同身份归为一个单元。"""
-    series, singles = {}, []
-    for item in contents:
-        if item.series is None:
-            singles.append((item,))
-        else:
-            key = item.series.title
-            series.setdefault(key, []).append(item)
-    return tuple([*singles, *(tuple(series[key]) for key in sorted(series))])
 
 
 def _exclude_reserved(units: tuple[tuple[Content, ...], ...], state: WorldState,
@@ -216,7 +229,8 @@ def _reserved_ids(state: WorldState, request: ContentRequest) -> set[str]:
 
 def representative(unit: tuple[Content, ...], agent: AgentState) -> Content:
     """@brief 系列代表为最小轮数中的最低集，独立内容只有自身。"""
-    return min(unit, key=lambda item: (_rounds(agent, item), item.series.episode if item.series is not None else 0,
+    return min(unit, key=lambda item: (_rounds(agent, item),
+                                      0 if item.series is None else item.series.episode,
                                       item.content_id))
 
 
@@ -227,17 +241,17 @@ def _unit_round(unit: tuple[Content, ...], agent: AgentState) -> int:
 
 def _rounds(agent: AgentState, item: Content) -> int:
     """@brief 尚无消费记录的内容处于零轮。"""
-    progress = agent.content_progress.get(item.content_id)
-    return 0 if progress is None else progress.completed_rounds
+    return (0 if item.content_id not in agent.content_progress
+            else agent.content_progress[item.content_id].completed_rounds)
 
 
 def _position(agent: AgentState, item: Content) -> float:
     """@brief 尚无消费记录的内容位置为零。"""
-    progress = agent.content_progress.get(item.content_id)
-    return 0 if progress is None else progress.position_seconds
+    return (0 if item.content_id not in agent.content_progress
+            else agent.content_progress[item.content_id].position_seconds)
 
 
 def _last_consumed(agent: AgentState, item: Content) -> int:
     """@brief 没有正秒数消费的内容时间以负一表示，排在所有真实消费之前。"""
-    progress = agent.content_progress.get(item.content_id)
-    return -1 if progress is None else progress.last_consumed_at
+    return (-1 if item.content_id not in agent.content_progress
+            else agent.content_progress[item.content_id].last_consumed_at)

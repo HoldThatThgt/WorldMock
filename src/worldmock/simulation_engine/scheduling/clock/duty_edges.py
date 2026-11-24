@@ -1,6 +1,6 @@
 """@brief 班次与休息时段起止的唤醒事实（docs/design/04-simulation-engine.md）。
 
-起止时刻由人物在场景里声明的工作安排（经 world_ops.agent_config 取得）与世界时钟直接求值，不存交付状态：日期例外
+起止时刻由人物在场景里声明的工作安排（经 inputs.persona_by_id 取得）与世界时钟直接求值，不存交付状态：日期例外
 优先于每周声明（work_schedule.shift_on），区间半开，按当地墙钟换算（work_schedule.shift_span、break_spans：夏令时
 跳过的当地时刻按跳变前的偏移、重复的取第一次，换算后落到班次之外的休息时段起止照样记）；写作 1440 的止点落在次日
 当地零点。不当班的日子本身没有起止，没有工作安排的人物没有这些时刻。

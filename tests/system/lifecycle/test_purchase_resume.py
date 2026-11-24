@@ -79,7 +79,7 @@ def test_late_delivery_keeps_its_rainy_quote_after_midnight_and_restore(engine_f
     from worldmock.simulation_engine.scheduling.plans.day_plan_inputs import plan_inputs
 
     def late(persona, config):
-        config["seed"] = 14
+        config["seed"] = 33
         config["start_time"] = datetime.fromisoformat("2026-01-05T23:00:00+08:00")
         config["stop_time"] = config["start_time"] + timedelta(days=1)
 
@@ -94,7 +94,7 @@ def test_late_delivery_keeps_its_rainy_quote_after_midnight_and_restore(engine_f
     assert all("weather_delay_seconds" not in row for row in bought.data["orders"])
     finish_activity(engine, bought, "night-purchase")
     state = engine.context.state
-    assert state.weather_by_date["2026-01-05"] == "heavy_rain"
+    assert state.weather_by_date["2026-01-05"] == {"test-city": "heavy_rain"}
     first, second = state.deliveries.values()
     assert {order.weather_delay_seconds for order in (first, second)} == {360}
     assert {order.expected_at for order in (first, second)} == {start + 27 * 60}
@@ -104,7 +104,7 @@ def test_late_delivery_keeps_its_rainy_quote_after_midnight_and_restore(engine_f
     child = branch_of(engine, tmp_path, "resume", observed["observation_event_id"])
     try:
         state = child.context.state
-        assert state.weather_by_date["2026-01-06"] == "sunny"
+        assert state.weather_by_date["2026-01-06"] == {"test-city": "sunny"}
         fresh = quote_goods(child.context.inputs, state, 1, "beef-noodles", None)
         assert fresh.expected_at == state.current_time + 24 * 60 and fresh.weather_delay_seconds == 0
         assert state.deliveries[first.order_id] == first and first.expected_at < state.current_time < first.arrival_due_at()

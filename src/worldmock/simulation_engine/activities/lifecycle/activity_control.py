@@ -5,7 +5,9 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
+from zoneinfo import ZoneInfo
 
 from worldmock.foundation.errors import BusinessRuleError
 from worldmock.recording_engine.events.models import EventDraft
@@ -23,7 +25,12 @@ from worldmock.state.world.world import WorldState, active_activities
 from worldmock.simulation_engine.actions.name_resolution import near_names
 from worldmock.simulation_engine.observation.targets.object_labels import resolve_name
 from worldmock.foundation.time.readable import duration_phrase
-from worldmock.simulation_engine.activities.lifecycle.sessions import at_stay, moment_label, on_road
+from worldmock.simulation_engine.activities.lifecycle.sessions import (
+    at_stay,
+    current_session,
+    moment_label,
+    on_road,
+)
 
 if TYPE_CHECKING:
     from worldmock.simulation_engine.actions.admission import Context
@@ -363,23 +370,47 @@ def _unpausable_refusal(context: Context, activity: ActivityState) -> Refusal:
 def _continues_with_next_episode(context: Context, activity: ActivityState) -> bool:
     """@brief 交互活动做完当前这一集后是否接着做下一集：与系列接续同一个判定 content_select.next_episode。
 
-    轮数取当前内容此刻的完成轮数（没有进度记录按 0 算）加一，即这一集做完之后的完成轮数，与接续时传入的是同一个数。
-    独立内容、系列最后一集、后面各集轮数都不低于这个数的系列都不接续。读准入上下文的环境输入与人物此刻的状态。
+    轮数取当前内容此刻的完成轮数（没有进度记录按 0 算）加一，传入本刻停留地点与本地时刻校验前提与可重复性。
     """
     catalog = context.inputs.catalog
     agent = context.state.agents[activity.agent_id]
     content = catalog.contents[activity.data["content_id"]]
     progress = agent.content_progress.get(content.content_id)
     rounds = (0 if progress is None else progress.completed_rounds) + 1
-    return next_episode(catalog, agent, content, rounds) is not None
+    session = current_session(context.state, activity.agent_id)
+    stay = catalog.locations[session.location_id] if session is not None and session.kind == "stay" else None
+    local_moment = datetime.fromtimestamp(context.state.current_time, ZoneInfo(context.inputs.config.timezone))
+    return next_episode(catalog, agent, content, rounds, (stay, local_moment)) is not None
+
+
+def intercity_conclude_refusal(catalog, activity: ActivityState,
+                               names: Mapping[str, str] | None = None) -> Refusal | None:
+    """@brief 跨城在途禁止提前结束：进行中的出行活动起终点分属不同城市时拒绝并返回抵达指引。"""
+    if activity.kind != ActivityKind.TRAVEL or activity.status != ActivityStatus.ACTIVE:
+        return None
+    origin_city = catalog.locations[activity.location_id].city_id
+    destination = catalog.locations[activity.destination_id]
+    if origin_city == destination.city_id:
+        return None
+    name = activity.name if names is None else names.get(activity.activity_id, activity.name)
+    return Refusal(
+        "ACTIVITY_PAUSE_UNAVAILABLE",
+        f"{name} is an active intercity trip and cannot be concluded before arrival.",
+        next_step=f"Wait until arrival at {destination.display_name}.",
+        fix="Conclude this activity after arrival instead.",
+    )
 
 
 def _conclude_refusal(context: Context, activity: ActivityState) -> Refusal | None:
-    """@brief 结束：能结束（进行中、暂停中或待收尾）；有别的待收尾活动时先收尾；进行中的非社交活动须在决策边界。"""
+    """@brief 结束：能结束（进行中、暂停中或待收尾）；跨城在途与睡中禁止结束；有别的待收尾先收尾；进行中须在决策边界。"""
     if not concludable(activity):
         return refusal_for_code("ACTION_REQUEST_INVALID")
     if activity.kind == ActivityKind.SLEEP and activity.status == ActivityStatus.ACTIVE:
         return refusal_for_code("ACTIVITY_PAUSE_UNAVAILABLE")
+    if context.inputs is not None:
+        intercity = intercity_conclude_refusal(context.inputs.catalog, activity, context.activity_names)
+        if intercity is not None:
+            return intercity
     waiting = pending_conclusions(context.open_activities)
     if waiting and activity.activity_id not in {item.activity_id for item in waiting}:
         return conclusion_refusal(waiting, dict(context.activity_names))

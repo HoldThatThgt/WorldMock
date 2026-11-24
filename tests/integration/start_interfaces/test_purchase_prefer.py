@@ -42,9 +42,11 @@ from worldmock.agents.prompt.tool_groups import compact_tool_layer
 
 ZONE = ZoneInfo("Asia/Shanghai")
 FIRST_DAY = "2026-01-05"
-#: 两家能外卖的店送到家的预计送达：一心面馆 2,524 米，三杯咖啡 4,729 米，小雨额外计入 45 秒或 83 秒。
-NEAR = int(datetime(2026, 1, 5, 8, 19, 10, tzinfo=ZONE).timestamp())
-FAR = int(datetime(2026, 1, 5, 8, 27, 9, tzinfo=ZONE).timestamp())
+#: 公司旁两家店的预计送达（1,617 米 + 58//2=29s；2,000 米 + 71//2=35s）与家里到两家店的预计送达。
+NEAR = int(datetime(2026, 1, 5, 8, 15, 53, tzinfo=ZONE).timestamp())
+FAR = int(datetime(2026, 1, 5, 8, 17, 15, tzinfo=ZONE).timestamp())
+HOME_CAFE = int(datetime(2026, 1, 5, 8, 18, 25, tzinfo=ZONE).timestamp())
+HOME_NOODLE = int(datetime(2026, 1, 5, 8, 20, 46, tzinfo=ZONE).timestamp())
 APP_NAMES = {"bilibili": "哔哩哔哩", "eleme": "饿了么", "meituan": "美团"}
 NEITHER = " Neither start request was started."
 PURCHASE_KEYS = {"fact_kind", "agent_id", "order_id", "goods_id", "category", "store_id", "app_id", "payment_app_id",
@@ -107,6 +109,11 @@ def _declared(tmp_path, cafe_m, noodle_m):
 def _at_store(persona, config):
     """人物从四季便利开始。"""
     persona["initial_location"] = "四季便利"
+
+
+def _at_office(persona, config):
+    """人物从公司开始：一心面馆 1,617 米、三杯咖啡 2,000 米。"""
+    persona["initial_location"] = "公司"
 
 
 def _attentive(persona, config):
@@ -177,41 +184,41 @@ def test_prefer_that_names_no_order_app_is_silently_ignored(engine_factory, writ
     assert [row for row in events(engine, "action_result") if row.data["status"] == "rejected"] == []
     record = _side_record(engine, "after")
     assert record["arguments"] == {"action": "purchase", "target": ["柠檬茶"], "prefer": written}
-    assert [row["channel"] for row in record["result"]["details"]["purchases"]] == ["美团"]
+    assert [row["channel"] for row in record["result"]["details"]["purchases"]] == ["饿了么"]
     assert not {"items", "resolved", "notes"} & set(record["result"]["details"])
 
 
 def test_normalised_prefer_counts_without_a_resolution_record(engine_factory):
-    """「饿 了 么」规整后对上饿了么：与写「饿了么」得到同一条记录，受理结果的 details 里不记规整；商品名照旧记规整，
+    """「美 团」规整后对上美团：与写「美团」得到同一条记录，受理结果的 details 里不记规整；商品名照旧记规整，
     resolved 里只有商品名那一条。"""
     routes = []
-    for written in ("饿了么", "饿 了 么"):
+    for written in ("美团", "美 团"):
         engine = engine_factory()
         result = _bought(engine, "tea", "柠檬茶", prefer=written)
         assert "resolved" not in result.data
         assert "resolved" not in _side_record(engine, "during")["result"]["details"]
         routes.append(_routes(engine, result))
-    assert routes == [[("lemon-tea", "cafe", "eleme", FAR)]] * 2
+    assert routes == [[("lemon-tea", "cafe", "meituan", HOME_CAFE)]] * 2
     engine = engine_factory()
-    result = _bought(engine, "spaced", "柠 檬 茶", prefer="饿 了 么")
+    result = _bought(engine, "spaced", "柠 檬 茶", prefer="美 团")
     assert result.data["resolved"] == [{"written": "柠 檬 茶", "as": "柠檬茶"}]
     details = _side_record(engine, "during")["result"]["details"]
     assert details["resolved"] == [{"written": "柠 檬 茶", "as": "柠檬茶"}]
-    assert _routes(engine, result) == [("lemon-tea", "cafe", "eleme", FAR)]
+    assert _routes(engine, result) == [("lemon-tea", "cafe", "meituan", HOME_CAFE)]
 
 
 def test_usable_prefer_may_move_the_order_to_a_farther_store(engine_factory):
-    """没有意向时从最近的一心面馆经美团送；写饿了么时只在登记了饿了么的三杯咖啡里选，更远、更晚到。"""
-    catalog = engine_factory().context.catalog
-    assert (catalog.shortest_m("home", "noodle-1"), catalog.shortest_m("home", "cafe")) == (2524, 4729)
-    for prefer, expected in ((None, ("noodle-1", "meituan", 2524, NEAR)), ("饿了么", ("cafe", "eleme", 4729, FAR))):
-        engine = engine_factory()
+    """人在公司：没有意向时从最近的一心面馆经美团送；写饿了么时只在登记了饿了么的三杯咖啡里选，更远、更晚到。"""
+    catalog = engine_factory(mutate=_at_office).context.catalog
+    assert (catalog.shortest_m("office", "noodle-1"), catalog.shortest_m("office", "cafe")) == (1617, 2000)
+    for prefer, expected in ((None, ("noodle-1", "meituan", 1617, NEAR)), ("饿了么", ("cafe", "eleme", 2000, FAR))):
+        engine = engine_factory(mutate=_at_office)
         (order,) = _orders(engine, _bought(engine, "tea", "柠檬茶", prefer=prefer))
         assert (order.store_id, order.app_id, order.distance_meters, order.expected_at) == expected
-        assert (order.fulfillment, order.destination_id, order.total_price_fen) == ("delivery", "home", 1700)
+        assert (order.fulfillment, order.destination_id, order.total_price_fen) == ("delivery", "office", 1700)
 
 
-@pytest.mark.parametrize("cafe_m,noodle_m,store", [(None, None, "noodle-1"), (2000, 3000, "cafe"),
+@pytest.mark.parametrize("cafe_m,noodle_m,store", [(None, None, "cafe"), (2000, 3000, "cafe"),
                                                    (3000, 3000, "cafe")])
 def test_preferred_app_store_is_chosen_by_todays_rule(engine_factory, tmp_path, cafe_m, noodle_m, store):
     """写美团：两家登记了美团的店里照今天的规则选，最近的一家；声明距离调换远近后选另一家；同距取较小的店铺身份。"""
@@ -237,7 +244,7 @@ def test_store_chosen_through_the_preferred_app_is_not_drawn_again(engine_factor
     for prefer, expected in ((None, drawn), (APP_NAMES[other], other), (APP_NAMES[drawn], drawn)):
         engine = engine_factory(root)
         assert _routes(engine, _bought(engine, "tea", "柠檬茶", prefer=prefer)) == [
-            ("lemon-tea", "cafe", expected, FAR)]
+            ("lemon-tea", "cafe", expected, HOME_CAFE)]
 
 
 def test_preferred_app_store_must_be_open_now(engine_factory, tmp_path):
@@ -245,7 +252,7 @@ def test_preferred_app_store_must_be_open_now(engine_factory, tmp_path):
     root = _edited(tmp_path, "cafe-closed", _closed("cafe"), "location.jsonl")
     engine = engine_factory(root)
     assert _routes(engine, _bought(engine, "tea", "柠檬茶", prefer="饿了么")) == [
-        ("lemon-tea", "noodle-1", "meituan", NEAR)]
+        ("lemon-tea", "noodle-1", "meituan", HOME_NOODLE)]
 
 
 def test_prefer_neither_creates_nor_removes_refusals(engine_factory, tmp_path):
@@ -325,9 +332,9 @@ def test_courier_goods_use_the_preferred_app_when_registered_on_them(engine_fact
 
 
 def test_each_goods_routes_on_its_own_under_one_prefer(engine_factory):
-    """牛肉面和柠檬茶写饿了么：柠檬茶经饿了么从三杯咖啡来，牛肉面只有一心面馆能送、另选美团；两张订单、两份运费、
-    两条付款、两条「订单已下单」、两趟到达。不写时一张订单一份运费；柠檬茶写两次时同一条路线、一份运费。"""
-    engine = engine_factory()
+    """人在公司，牛肉面和柠檬茶写饿了么：柠檬茶经饿了么从三杯咖啡来，牛肉面只有一心面馆能送、另选美团；两张订单、
+    两份运费、两条付款、两条「订单已下单」、两趟到达。不写时一张订单一份运费；柠檬茶写两次时同一条路线、一份运费。"""
+    engine = engine_factory(mutate=_at_office)
     result = _bought(engine, "two", "牛肉面", "柠檬茶", prefer="饿了么")
     orders = _orders(engine, result)
     assert sorted(_routes(engine, result)) == [("beef-noodles", "noodle-1", "meituan", NEAR),
@@ -336,14 +343,14 @@ def test_each_goods_routes_on_its_own_under_one_prefer(engine_factory):
     finish_activity(engine, result, "two")
     assert sorted(row.data["amount_fen"] for row in phone_events(engine, "purchase_payment")) == [1700, 3300]
     assert sorted(row[2] for row in notices(engine) if row[1] == "订单已下单") == ["eleme", "meituan"]
-    reach(engine, FAR + 84)
-    assert sorted(row.occurred_at for row in phone_events(engine, "delivery_arrival")) == [NEAR + 45, FAR + 84]
-    plain = engine_factory()
+    reach(engine, FAR + 36)
+    assert sorted(row.occurred_at for row in phone_events(engine, "delivery_arrival")) == [NEAR + 29, FAR + 36]
+    plain = engine_factory(mutate=_at_office)
     single = _orders(plain, _bought(plain, "two", "牛肉面", "柠檬茶"))
     assert {(order.store_id, order.app_id, order.group_key) for order in single} == {
         ("noodle-1", "meituan", single[0].group_key)}
     assert sum(order.total_price_fen for order in single) == 4500
-    twice = engine_factory()
+    twice = engine_factory(mutate=_at_office)
     result = _bought(twice, "twice", "柠檬茶", "柠檬茶", prefer="饿了么")
     orders = _orders(twice, result)
     assert _routes(twice, result) == [("lemon-tea", "cafe", "eleme", FAR)] * 2
@@ -376,9 +383,10 @@ def test_one_store_keeps_one_ordering_app_within_a_purchase(engine_factory, tmp_
 
 
 def test_balance_is_checked_against_the_preferred_routes(engine_factory):
-    """余额 47 元买牛肉面和柠檬茶：不写意向一份运费 45 元受理；写饿了么多出一份运费共 50 元，整组以余额不足拒绝，
-    不为余额放弃意向，一件也不买。"""
+    """人在公司、余额 47 元买牛肉面和柠檬茶：不写意向一份运费 45 元受理；写饿了么多出一份运费共 50 元，
+    整组以余额不足拒绝，不为余额放弃意向，一件也不买。"""
     def poor(persona, config):
+        persona["initial_location"] = "公司"
         persona["initial_balance_fen"] = 4700
 
     _bought(engine_factory(mutate=poor), "plain", "牛肉面", "柠檬茶")
@@ -396,7 +404,7 @@ def test_purchase_in_the_same_reply_as_departure(engine_factory):
     _, (trip, bought) = act_group(engine, "leave", travel("公司"), purchase("柠檬茶", prefer="饿了么"))
     assert (trip.status, bought.status) == ("in_progress", "in_progress"), bought.error_code
     (order,) = _orders(engine, bought)
-    assert (order.store_id, order.app_id, order.destination_id, order.expected_at) == ("cafe", "eleme", "home", FAR)
+    assert (order.store_id, order.app_id, order.destination_id, order.expected_at) == ("cafe", "eleme", "home", HOME_CAFE)
     store = engine_factory(mutate=_at_store)
     _, (trip, local) = act_group(store, "leave", travel("公司"), purchase("柠檬茶", prefer="饿了么"))
     assert trip.error_code == local.error_code == "ACTIVITY_PRECONDITION_UNMET"
@@ -483,11 +491,11 @@ def _without_order_apps(tmp_path):
 
 
 def test_goods_row_previews_the_route_without_prefer(engine_factory):
-    """人在家时柠檬茶一行按没有意向的路线写运费和预计到达；紧接着写饿了么购买，实际送达更晚，以购买结果为准。"""
-    engine = engine_factory()
+    """人在公司时柠檬茶一行按没有意向的路线写运费和预计到达；紧接着写饿了么购买，实际送达更晚，以购买结果为准。"""
+    engine = engine_factory(mutate=_at_office)
     observed, result = act(engine, "tea", purchase("柠檬茶", prefer="饿了么"))
     row = next(item for item in tool_targets(observed)["柠檬茶"]["actions"] if item["action"] == "purchase")
-    assert row["note"] == "一心面馆（评分 4），运费5 元，预计01月05日 08:19:10到达"
+    assert row["note"] == "一心面馆（评分 4），运费5 元，预计01月05日 08:15:53到达"
     assert result.status == "in_progress" and _routes(engine, result) == [("lemon-tea", "cafe", "eleme", FAR)]
     (sold,) = _side_record(engine, "ordered")["result"]["details"]["purchases"]
     assert (sold["store"], sold["rating"]) == ("三杯咖啡", 4.5)
@@ -515,7 +523,7 @@ def test_accepted_route_is_frozen_through_a_checkpoint_and_reopened_run(engine_f
     engine = engine_factory()
     stage_day_plan(engine)
     result = _bought(engine, "tea", "柠檬茶", prefer="饿了么")
-    assert _routes(engine, result) == [("lemon-tea", "cafe", "eleme", FAR)]
+    assert _routes(engine, result) == [("lemon-tea", "cafe", "eleme", HOME_CAFE)]
     advance_next(engine)
     assert engine.context.state.activities[result.activity_id].status == "active"
     before = _orders(engine, result)
@@ -526,12 +534,12 @@ def test_accepted_route_is_frozen_through_a_checkpoint_and_reopened_run(engine_f
     child = LifeEngine.open(engine.context.inputs, tmp_path / "branch")
     try:
         assert _orders(child, result) == before
-        assert _routes(child, result) == [("lemon-tea", "cafe", "eleme", FAR)]
+        assert _routes(child, result) == [("lemon-tea", "cafe", "eleme", HOME_CAFE)]
         finish_activity(child, result, "tea")
         assert [row.data["amount_fen"] for row in phone_events(child, "purchase_payment")] == [1700]
         assert [(row[1], row[2]) for row in notices(child)][:1] == [("订单已下单", "eleme")]
-        reach(child, FAR + 84)
-        assert [row.occurred_at for row in phone_events(child, "delivery_arrival")] == [FAR + 84]
+        reach(child, HOME_CAFE + 41)
+        assert [row.occurred_at for row in phone_events(child, "delivery_arrival")] == [HOME_CAFE + 41]
     finally:
         child.close()
 
@@ -551,5 +559,5 @@ def test_settled_purchase_sentence_keeps_its_wording_without_the_channel(engine_
     paid = datetime.fromtimestamp(order.paid_at, ZONE)
     (entry,) = [item for item in layer["今天"] if any("买柠檬茶1份" in line for line in item.get("核验", ()))]
     assert entry["时刻"] == f"{paid:%H:%M}"
-    assert entry["核验"].count("买柠檬茶1份，17元，预计08:27送到家") == 1
+    assert entry["核验"].count("买柠檬茶1份，17元，预计08:18送到家") == 1
     assert "饿了么" not in memory and "eleme" not in memory

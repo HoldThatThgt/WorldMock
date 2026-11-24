@@ -16,6 +16,8 @@ from worldmock.state.world.world import WorldState
 from worldmock.simulation_engine.commerce.purchase.settlement import settle_money_transfer
 from worldmock.resource_engine.catalog.travel_methods import Method, travel_method
 
+_LOGGER = logging.getLogger(__name__)
+
 
 @dataclass(frozen=True, slots=True)
 class Trip:
@@ -45,15 +47,19 @@ class Trip:
 
 def plan_trip(graph: Graph, origin: str, destination: str, method: Method,
               weather_factor: float = 1.0) -> Trip:
-    """@brief 从完整图计算唯一路径，用时与车费按所选出行方式的速度和价格由系统算子给出。
+    """@brief 从完整图与方式限制计算唯一路径，用时与车费按所选方式的速度、距离和天气系数给出。
 
-    天气系数对自带的步行和数据集定义的全部方式生效；车费与天气无关。
+    天气系数对自带步行与数据集声明的各类出行方式生效；车费与天气无关。
     """
-    path = graph.path(origin, destination)
-    meters = graph.distance_meters(origin, destination)
+    route = graph.shortest_route(origin, destination, method.travel_method_id, method.city_wide)
+    if route is None:
+        _LOGGER.error("No route exists for travel method %s between %s and %s",
+                      method.travel_method_id, origin, destination)
+        raise BusinessRuleError("ACTIVITY_PRECONDITION_UNMET")
+    meters, path = route
     duration = travel_seconds(method.speed_meters_per_second, meters, weather_factor)
     if not 1 <= duration <= TRAVEL_MAX_SECONDS:
-        logging.error("Travel route duration is outside the supported interval")
+        _LOGGER.error("Travel route duration is outside the supported interval")
         raise BusinessRuleError("ROUTE_DURATION_INVALID")
     fare = evaluate_travel_fare(method.start_price_fen, method.price_per_km_fen, meters)
     return Trip(f"{origin}->{destination}:{method.travel_method_id}", path, meters, duration, fare)
@@ -94,8 +100,12 @@ def update_travel(activity: ActivityState, trip: Trip, agent: AgentState) -> tup
 def persisted_trip(catalog: Catalog, activity: ActivityState) -> Trip:
     """@brief 恢复与推进按活动原始起点和同一出行方式重算同一行程，完整身份、路径和代谢当量键必须匹配。"""
     method = travel_method(catalog, activity.travel_method_id)
-    trip = plan_trip(catalog.graph, activity.location_id, activity.destination_id, method,
-                     activity.data["weather_factor"])
+    try:
+        trip = plan_trip(catalog.graph, activity.location_id, activity.destination_id, method,
+                         activity.data["weather_factor"])
+    except BusinessRuleError as error:
+        _LOGGER.error("Persisted travel plan is invalid on the published graph: %s", error)
+        raise IntegrityError("Persisted travel plan does not match the published graph") from error
     if (activity.data.get("trip_id") != trip.trip_id or tuple(activity.data.get("path", ())) != trip.path
             or activity.data.get("exertion") != method.exertion
             or activity.data.get("distance_meters") != trip.distance_meters

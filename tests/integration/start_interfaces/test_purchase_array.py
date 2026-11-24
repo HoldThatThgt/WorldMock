@@ -45,7 +45,7 @@ def _effects(engine) -> list:
 
 def test_same_name_twice_buys_two_portions_in_one_delivery_group(engine_factory):
     """规格的例子：牛肉面一份、柠檬茶两份，三条数量为 1 的记录、一个配送组、运费只收一次。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=lambda persona, config: persona.update(initial_location="公司"))
     _, result = act(engine, "basket", purchase("牛肉面", "柠檬茶", "柠檬茶"))
     assert result.status == "in_progress", result.error_code
     orders = _orders(engine, result)
@@ -54,11 +54,11 @@ def test_same_name_twice_buys_two_portions_in_one_delivery_group(engine_factory)
     assert [(order.goods_id, order.quantity, order.unit_price_fen, order.delivery_fee_fen) for order in orders] == [
         ("beef-noodles", 1, 2800, 500), ("lemon-tea", 1, 1200, 0), ("lemon-tea", 1, 1200, 0)]
     assert {(order.store_id, order.app_id, order.destination_id, order.fulfillment.value) for order in orders} == {
-        ("noodle-1", "meituan", "home", "delivery")}
+        ("noodle-1", "meituan", "office", "delivery")}
     assert len({order.group_key for order in orders}) == 1 and sum(order.total_price_fen for order in orders) == 5700
-    arrival = datetime(2026, 1, 5, 8, 19, 10, tzinfo=_ZONE)
+    arrival = datetime(2026, 1, 5, 8, 15, 53, tzinfo=_ZONE)
     assert {order.expected_at for order in orders} == {int(arrival.timestamp())}
-    assert {order.distance_meters for order in orders} == {2524}
+    assert {order.distance_meters for order in orders} == {1617}
     activity = engine.context.state.activities[result.activity_id]
     assert activity.name == "购买牛肉面、柠檬茶×2（1月5日 08:00 起）" and activity.resource_claims == {"second"}
     assert activity.activity_id == f"activity-{action_identity('basket')}-purchase"
@@ -84,7 +84,9 @@ def test_more_than_ten_portions_are_accepted_with_four_digit_order_numbers(engin
     assert identities == [f"order-{action_identity('many')}-{number:04d}" for number in range(1, 13)]
     assert identities == sorted(identities) and len(set(identities)) == 12
     orders = [engine.context.state.deliveries[key] for key in identities]
-    assert [order.goods_id for order in orders] == sorted(order.goods_id for order in orders)
+    assert [(order.group_key, order.goods_id) for order in orders] == sorted(
+        (order.group_key, order.goods_id) for order in orders
+    )
     assert all(order.quantity == 1 for order in orders)
     fees = {}
     for order in orders:

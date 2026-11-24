@@ -203,6 +203,17 @@ def test_first_and_last_event_are_read_by_primary_key(tmp_path, monkeypatch):
     assert (wall["started_at"], wall["last_event_at"]) == (first.isoformat(), last.isoformat())
 
 
+def _read_heartbeat_bytes(path, deadline: float) -> bytes:
+    """在 Windows 并发原子替换心跳文件时重试瞬时拒绝访问，直到超时。"""
+    while True:
+        try:
+            return path.read_bytes()
+        except PermissionError:
+            if os.name != "nt" or time.monotonic() >= deadline:
+                raise
+            time.sleep(0.005)
+
+
 def test_driver_heartbeat_writes_at_once_and_every_interval(tmp_path, monkeypatch):
     """进入时立即写心跳，之后每个间隔重写；退出后线程结束，文件恰含三键。"""
     monkeypatch.setattr(status, "HEARTBEAT_INTERVAL_SECONDS", 0.05)
@@ -210,10 +221,11 @@ def test_driver_heartbeat_writes_at_once_and_every_interval(tmp_path, monkeypatc
     beat = DriverHeartbeat(tmp_path)
     with beat:
         assert path.exists()
-        seen, deadline = {json.loads(path.read_bytes())["heartbeat_at"]}, time.monotonic() + 2
+        deadline = time.monotonic() + 2
+        seen = {json.loads(_read_heartbeat_bytes(path, deadline))["heartbeat_at"]}
         while len(seen) < 3 and time.monotonic() < deadline:
             time.sleep(0.01)
-            seen.add(json.loads(path.read_bytes())["heartbeat_at"])
+            seen.add(json.loads(_read_heartbeat_bytes(path, deadline))["heartbeat_at"])
         assert len(seen) >= 3
     assert not beat._thread.is_alive()
     record = json.loads(path.read_bytes())

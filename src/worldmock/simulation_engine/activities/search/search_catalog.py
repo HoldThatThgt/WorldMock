@@ -16,10 +16,10 @@ from worldmock.resource_engine.catalog.travel_methods import travel_method, trav
 from worldmock.simulation_engine.actions import admission
 from worldmock.simulation_engine.activities.content.location_activities import location_units, unit_locked
 from worldmock.simulation_engine.activities.travel.travel import plan_trip
-from worldmock.simulation_engine.commerce.purchase.order_apps import order_app_ids, preferred_app_id, selling_app_ids
+from worldmock.simulation_engine.commerce.purchase.order_apps import order_app_ids, preferred_app_id
 from worldmock.simulation_engine.commerce.purchase.purchase_offers import quote_goods
 from worldmock.simulation_engine.observation.targets.object_labels import resolve_name
-from worldmock.simulation_engine.scheduling.clock.weather import current_weather_factor
+from worldmock.simulation_engine.scheduling.clock.weather import trip_weather_factor
 from worldmock.state.decisions.barrier import SearchTaskSpec
 from worldmock.state.interaction.search_requests import (
     InspectGoodsOffersRequest,
@@ -27,6 +27,7 @@ from worldmock.state.interaction.search_requests import (
     SearchPlacesRequest,
     SubmitSearchResultsRequest,
 )
+from worldmock.state.world.kinds import ROUTE_NAMES
 from worldmock.state.world.world import WorldState
 
 _LOGGER = logging.getLogger(__name__)
@@ -44,8 +45,9 @@ class SearchCatalogView:
     def search_goods(self, request: SearchGoodsRequest | Mapping[str, Any]) -> dict[str, Any]:
         """@brief 按条件分页检索当前作用域内商品与实时可用报价。"""
         req = request if isinstance(request, SearchGoodsRequest) else SearchGoodsRequest.model_validate(request)
+        current_city = _current_city(self._inputs.catalog, self._state, self._task.agent_id)
         app_filter = _resolve_app_filter(self._inputs.catalog, req.app)
-        store_filter = _resolve_store_filter(self._inputs.catalog, req.store)
+        store_filter = _resolve_store_filter(self._inputs.catalog, req.store, current_city)
         rows = _matching_goods_rows(self._inputs, self._state, self._task, (req, app_filter, store_filter))
         page = rows[req.offset:req.offset + req.limit]
         next_offset = req.offset + len(page)
@@ -60,7 +62,7 @@ class SearchCatalogView:
         return {"items": items}
 
     def search_places(self, request: SearchPlacesRequest | Mapping[str, Any]) -> dict[str, Any]:
-        """@brief 按距离排序检索同城地点、营业状态、可做内容单元与各出行方式耗时和车费。"""
+        """@brief 按距离排序检索同城及直达异地枢纽地点、营业状态、可做内容单元与各出行方式耗时和车费。"""
         req = request if isinstance(request, SearchPlacesRequest) else SearchPlacesRequest.model_validate(request)
         rows = _matching_place_rows(self._inputs, self._state, self._task, req)
         page = rows[req.offset:req.offset + req.limit]
@@ -72,8 +74,9 @@ class SearchCatalogView:
         """@brief 按 Fact Guard 白名单校验最终提交的 goods_ids、place_ids 与摘要。"""
         req = (request if isinstance(request, SubmitSearchResultsRequest)
                else SubmitSearchResultsRequest.model_validate(request))
+        here = self._state.agents[self._task.agent_id].location_id
         invalid_goods, invalid_places = validate_fact_ids(
-            self._inputs.catalog, self._task.scoped_app_id, req.goods_ids, req.place_ids)
+            self._inputs.catalog, self._task.scoped_app_id, req.goods_ids, req.place_ids, here)
         if invalid_goods or invalid_places:
             _LOGGER.error("Search submission contains out-of-scope or unknown ids: goods=%s places=%s",
                           invalid_goods, invalid_places)
@@ -86,15 +89,56 @@ class SearchCatalogView:
 
 def validate_fact_ids(catalog, scoped_app_id: str | None,
                       goods_ids: tuple[str, ...] | list[str],
-                      place_ids: tuple[str, ...] | list[str]) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """@brief 校验商品与地点身份均为冻结环境真实对象且满足意向 app 作用域。"""
+                      place_ids: tuple[str, ...] | list[str],
+                      here_location_id: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """@brief 校验商品与地点身份均为冻结环境真实对象、满足意向 app 及同城与直达异地枢纽作用域。"""
+    current_city = catalog.graph.city_of(here_location_id)
     bad_goods = tuple(
         gid for gid in goods_ids
-        if gid not in catalog.goods
-        or (scoped_app_id is not None and scoped_app_id not in selling_app_ids(catalog, (gid,)))
+        if gid not in catalog.goods or not _goods_in_scope(catalog, gid, current_city, scoped_app_id)
     )
-    bad_places = tuple(pid for pid in place_ids if pid not in catalog.locations)
+    bad_places = tuple(
+        pid for pid in place_ids
+        if pid not in catalog.locations or not _place_in_scope(catalog, here_location_id, pid)
+    )
     return bad_goods, bad_places
+
+
+def _current_city(catalog, state: WorldState, agent_id: int) -> str:
+    """@brief 返回当前锚定地点所属城市身份。"""
+    return catalog.locations[state.agents[agent_id].location_id].city_id
+
+
+def _local_stores(catalog, goods_id: str, current_city: str) -> tuple[str, ...]:
+    """@brief 返回当前城市里售卖该商品的实体门店身份，按身份升序。"""
+    return tuple(sid for sid in sorted(catalog.goods_by_store)
+                 if goods_id in catalog.goods_by_store[sid] and catalog.locations[sid].city_id == current_city)
+
+
+def _local_selling_app_ids(catalog, goods_id: str, current_city: str) -> tuple[str, ...]:
+    """@brief 线上 app 登记或当前城市售卖门店登记的下单 app，按身份升序。"""
+    local = set(_local_stores(catalog, goods_id, current_city))
+    return tuple(
+        key for key in sorted(catalog.apps)
+        if goods_id in catalog.goods_by_app[key]
+        or any(goods_id in catalog.goods_by_store[sid] for sid in catalog.stores_by_app[key] if sid in local)
+    )
+
+
+def _goods_in_scope(catalog, goods_id: str, current_city: str, scoped_app_id: str | None) -> bool:
+    """@brief 网上有售商品跨城可见；实体门店商品须在当前城市有售且满足作用域 app。"""
+    local = _local_stores(catalog, goods_id, current_city)
+    if not catalog.goods[goods_id].app_ids and not local:
+        return False
+    return scoped_app_id is None or scoped_app_id in _local_selling_app_ids(catalog, goods_id, current_city)
+
+
+def _place_in_scope(catalog, here: str, loc_id: str) -> bool:
+    """@brief 地点可见当且仅当位于当前所在城市，或是从当前地点直达的异地枢纽。"""
+    graph = catalog.graph
+    if graph.city_of(loc_id) == graph.city_of(here):
+        return True
+    return loc_id in dict(graph.intercity_edges_from(here))
 
 
 def _resolve_app_filter(catalog, app_text: str | None) -> tuple[bool, str | None]:
@@ -107,13 +151,14 @@ def _resolve_app_filter(catalog, app_text: str | None) -> tuple[bool, str | None
     return (found is not None), found
 
 
-def _resolve_store_filter(catalog, store_text: str | None) -> tuple[bool, str | None]:
-    """@brief 把调用方所写的店铺名称或身份规整为唯一地点身份。"""
+def _resolve_store_filter(catalog, store_text: str | None, current_city: str) -> tuple[bool, str | None]:
+    """@brief 把调用方所写的店铺名称或身份规整为当前城市的唯一地点身份。"""
     if store_text is None:
         return True, None
     if store_text in catalog.locations:
-        return True, store_text
-    by_name = {loc.display_name: key for key, loc in catalog.locations.items()}
+        ok = catalog.locations[store_text].city_id == current_city
+        return ok, (store_text if ok else None)
+    by_name = {loc.display_name: key for key, loc in catalog.locations.items() if loc.city_id == current_city}
     matched = resolve_name(store_text, list(by_name)).name
     return (matched is not None), (None if matched is None else by_name[matched])
 
@@ -126,12 +171,13 @@ def _matching_goods_rows(inputs: EnvironmentInputs, state: WorldState,
         return []
     catalog = inputs.catalog
     scoped = task.scoped_app_id
+    current_city = _current_city(catalog, state, task.agent_id)
     rows: list[tuple[tuple, dict[str, Any]]] = []
     for goods_id in sorted(catalog.goods):
         goods = catalog.goods[goods_id]
-        sellers = selling_app_ids(catalog, (goods_id,))
-        if scoped is not None and scoped not in sellers:
+        if not _goods_in_scope(catalog, goods_id, current_city, scoped):
             continue
+        sellers = _local_selling_app_ids(catalog, goods_id, current_city)
         if app_filter is not None and app_filter not in sellers:
             continue
         if store_filter is not None and goods_id not in catalog.goods_by_store.get(store_filter, ()):
@@ -140,7 +186,7 @@ def _matching_goods_rows(inputs: EnvironmentInputs, state: WorldState,
             continue
         if req.max_price_yuan is not None and goods.price_fen > round(req.max_price_yuan * 100):
             continue
-        if not _matches_goods_keywords(catalog, goods, req.keywords):
+        if not _matches_goods_keywords(catalog, goods, req.keywords, current_city):
             continue
         row = project_goods_row(inputs, state, task.agent_id, goods_id, scoped)
         if req.open_only and not row["available"]:
@@ -149,12 +195,13 @@ def _matching_goods_rows(inputs: EnvironmentInputs, state: WorldState,
     return [row for _, row in sorted(rows, key=lambda item: item[0])]
 
 
-def _matches_goods_keywords(catalog, goods, keywords: tuple[str, ...] | list[str]) -> bool:
-    """@brief 关键词空时全部通过，否则商品名、类别或售卖店名至少命中一条不区分大小写子串。"""
+def _matches_goods_keywords(catalog, goods, keywords: tuple[str, ...] | list[str], current_city: str) -> bool:
+    """@brief 关键词空时全部通过，否则商品名、类别或当前城市售卖店名至少命中一条不区分大小写子串。"""
     if not keywords:
         return True
-    stores = " ".join(catalog.locations[sid].display_name for sid, ids in catalog.goods_by_store.items()
-                      if goods.goods_id in ids)
+    stores = " ".join(
+        catalog.locations[sid].display_name for sid in _local_stores(catalog, goods.goods_id, current_city)
+    )
     haystack = " ".join((goods.name, GOODS_CATEGORY_LABELS.get(goods.category, goods.category), stores)).casefold()
     return any(kw.casefold() in haystack for kw in keywords)
 
@@ -163,12 +210,13 @@ def _unavailable_reason(inputs: EnvironmentInputs, state: WorldState, agent_id: 
                         goods_id: str, scoped_app_id: str | None) -> str:
     """@brief 将不可下单的商品状态映射为六句固定中文原因之一。"""
     catalog = inputs.catalog
-    sellers = selling_app_ids(catalog, (goods_id,))
+    current_city = _current_city(catalog, state, agent_id)
+    sellers = _local_selling_app_ids(catalog, goods_id, current_city)
     if scoped_app_id is not None and scoped_app_id not in sellers:
         return "这个 app 里没有"
     here = admission.present_location(state, agent_id)
     local = datetime.fromtimestamp(state.current_time, ZoneInfo(inputs.config.timezone))
-    stores = tuple(sid for sid in sorted(catalog.goods_by_store) if goods_id in catalog.goods_by_store[sid])
+    stores = _local_stores(catalog, goods_id, current_city)
     if here in stores and not catalog.locations[here].is_open(local):
         return "这家店此刻已打烊"
     if scoped_app_id is not None:
@@ -179,16 +227,15 @@ def _unavailable_reason(inputs: EnvironmentInputs, state: WorldState, agent_id: 
 
 
 def _next_open_label(inputs: EnvironmentInputs, state: WorldState,
-                     scoped_app_id: str | None, goods_id: str) -> str | None:
-    """@brief 为当前打烊商品找出作用域内店铺当日接下来最早开放时刻。"""
+                     task: SearchTaskSpec, goods_id: str) -> str | None:
+    """@brief 为当前打烊商品找出作用域内同城店铺当日接下来最早开放时刻。"""
     catalog = inputs.catalog
+    current_city = _current_city(catalog, state, task.agent_id)
     local = datetime.fromtimestamp(state.current_time, ZoneInfo(inputs.config.timezone))
     minute = local.hour * 60 + local.minute
     candidates: list[str] = []
-    for sid in sorted(catalog.goods_by_store):
-        if goods_id not in catalog.goods_by_store[sid]:
-            continue
-        if scoped_app_id is not None and scoped_app_id not in catalog.apps_by_store[sid]:
+    for sid in _local_stores(catalog, goods_id, current_city):
+        if task.scoped_app_id is not None and task.scoped_app_id not in catalog.apps_by_store[sid]:
             continue
         for start_min, _ in catalog.locations[sid].opening_intervals(local.date()):
             if start_min > minute:
@@ -201,7 +248,8 @@ def project_goods_row(inputs: EnvironmentInputs, state: WorldState, agent_id: in
     """@brief 与购买报价共用同一判定生成单件商品搜索事实行，禁止自造价格或通道。"""
     catalog = inputs.catalog
     goods = catalog.goods[goods_id]
-    sellers = selling_app_ids(catalog, (goods_id,))
+    current_city = _current_city(catalog, state, agent_id)
+    sellers = _local_selling_app_ids(catalog, goods_id, current_city)
     base: dict[str, Any] = {
         "goods_id": goods_id, "name": goods.name, "category": goods.category,
         "category_label": GOODS_CATEGORY_LABELS.get(goods.category, goods.category),
@@ -214,9 +262,10 @@ def project_goods_row(inputs: EnvironmentInputs, state: WorldState, agent_id: in
     except BusinessRuleError:
         reason = _unavailable_reason(inputs, state, agent_id, goods_id, scoped_app_id)
         base.update(available=False, orderable=False, open_now=False, delivery_seconds=None,
-                    reason=reason, unavailable_reason=reason, fulfillment=None, total_price_fen=goods.price_fen,
-                    delivery_fee_fen=None, selling_app_id=None, app_id=None, selling_app=None,
-                    store_id=None, store=None, store_name=None, rating=None, store_rating=None, expected_at=None)
+                    reason=reason, unavailable_reason=reason, fulfillment=None, route=None,
+                    total_price_fen=goods.price_fen, delivery_fee_fen=None, selling_app_id=None, app_id=None,
+                    selling_app=None, store_id=None, store=None, store_name=None, rating=None,
+                    store_rating=None, expected_at=None)
         return base
     store = None if offer.store_id is None else catalog.locations[offer.store_id]
     store_name = None if store is None else store.display_name
@@ -225,7 +274,7 @@ def project_goods_row(inputs: EnvironmentInputs, state: WorldState, agent_id: in
         available=True, orderable=True, open_now=True,
         delivery_seconds=max(0, offer.expected_at - state.current_time),
         reason=None, unavailable_reason=None, fulfillment=offer.fulfillment,
-        total_price_fen=goods.price_fen + offer.delivery_fee_fen,
+        route=ROUTE_NAMES.get(offer.fulfillment), total_price_fen=goods.price_fen + offer.delivery_fee_fen,
         delivery_fee_fen=offer.delivery_fee_fen, selling_app_id=offer.app_id, app_id=offer.app_id,
         selling_app=None if offer.app_id is None else catalog.apps[offer.app_id].name,
         store_id=offer.store_id, store=store_name, store_name=store_name,
@@ -237,23 +286,26 @@ def project_goods_row(inputs: EnvironmentInputs, state: WorldState, agent_id: in
 
 def _inspect_one_goods(inputs: EnvironmentInputs, state: WorldState,
                        task: SearchTaskSpec, goods_id: str) -> dict[str, Any]:
-    """@brief 检查单个商品在本作用域内的存在性与履约报价细节。"""
-    bad, _ = validate_fact_ids(inputs.catalog, task.scoped_app_id, (goods_id,), ())
+    """@brief 检查单个商品在本作用域与当前城市内的存在性与履约报价细节。"""
+    here = state.agents[task.agent_id].location_id
+    bad, _ = validate_fact_ids(inputs.catalog, task.scoped_app_id, (goods_id,), (), here)
     if bad:
         return {"goods_id": goods_id, "found": False, "error": "Out of scope or unknown goods_id"}
     row = project_goods_row(inputs, state, task.agent_id, goods_id, task.scoped_app_id)
-    available_from = None if row["available"] else _next_open_label(inputs, state, task.scoped_app_id, goods_id)
+    available_from = None if row["available"] else _next_open_label(inputs, state, task, goods_id)
     return {"found": True, **row, "available_from": available_from}
 
 
 def _matching_place_rows(inputs: EnvironmentInputs, state: WorldState,
                          task: SearchTaskSpec, req: SearchPlacesRequest) -> list[dict[str, Any]]:
-    """@brief 筛选并按当前停留点最短路径距离排序地点搜索候选。"""
+    """@brief 筛选同城与直达异地枢纽地点并按最短路距离排序搜索候选。"""
     catalog = inputs.catalog
     here = admission.present_location(state, task.agent_id) or task.current_location_id
     local = datetime.fromtimestamp(state.current_time, ZoneInfo(inputs.config.timezone))
     rows: list[tuple[tuple, dict[str, Any]]] = []
     for loc_id in sorted(catalog.locations):
+        if not _place_in_scope(catalog, here, loc_id):
+            continue
         location = catalog.locations[loc_id]
         if req.kind is not None and location.kind != req.kind:
             continue
@@ -262,7 +314,7 @@ def _matching_place_rows(inputs: EnvironmentInputs, state: WorldState,
             continue
         if not _matches_place_keywords(catalog, location, req.keywords):
             continue
-        dist = catalog.shortest_m(here, loc_id)
+        dist = catalog.graph.distance_meters(here, loc_id, city_wide=False)
         rows.append(((dist, loc_id), project_place_row(inputs, state, (task.agent_id, here), loc_id)))
     return [row for _, row in sorted(rows, key=lambda item: item[0])]
 
@@ -303,7 +355,9 @@ def _travel_options(inputs: EnvironmentInputs, state: WorldState,
     """@brief 计算当前天气下前往目标地点的全部合法出行方式报价。"""
     if origin == destination:
         return []
-    weather = current_weather_factor(state)
+    weather = trip_weather_factor(
+        state, inputs.catalog.locations[origin].city_id, inputs.catalog.locations[destination].city_id,
+    )
     options: list[dict[str, Any]] = []
     for method in travel_methods(inputs.catalog):
         try:

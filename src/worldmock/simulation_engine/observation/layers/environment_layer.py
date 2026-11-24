@@ -11,10 +11,11 @@ _BODY_KEYS = ("appetite", "sleepiness", "relaxation", "social")
 
 
 def environment_layer(context, levels: dict[str, str]) -> dict:
-    """@brief 不把内部数量、账户、身份或任意地点类型放进人物提示。"""
+    """@brief 不把内部数量、账户、身份或任意地点类型放进人物提示；天气按当前锚定地点所属城市读取。"""
+    city_id = context.catalog.locations[context.state.agents[context.agent_id].location_id].city_id
     return {"layer": "环境层", "observed_at": iso_time(context.state.current_time, context.config.timezone),
             "body": {key: levels[key] for key in _BODY_KEYS}, "location": _location(context),
-            "weather": WEATHER_LABELS[current_weather(context.state)], "duty": _duty(context),
+            "weather": WEATHER_LABELS[current_weather(context.state, city_id)], "duty": _duty(context),
             "tomorrow": _tomorrow(context)}
 
 

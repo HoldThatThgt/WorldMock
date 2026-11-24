@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from pathlib import Path
 from types import MappingProxyType
 from typing import NoReturn, TypeVar
@@ -46,22 +47,25 @@ from worldmock.resource_engine.catalog.models import (
 )
 from worldmock.foundation.errors import reject_value
 from worldmock.exchange_engine.definitions.constants import RULES_VERSION, WALKING_TRAVEL_METHOD_ID
-from worldmock.foundation.randomness import random_stream
 
+_LOGGER = logging.getLogger(__name__)
 _Model = TypeVar("_Model", bound=DeepFrozenModel)
 
 
 def load_catalog(catalog_dir: Path | str, seed: int) -> Catalog:
-    """@brief 读取登记的严格 JSONL，统一核对引用后用声明的距离和唯一种子生成内存地图。"""
+    """@brief 读取登记的严格 JSONL，统一核对引用后按分城种子生成内存地图并双轨校验。"""
     directory, manifest, rows = _registered_catalog(catalog_dir)
     if type(seed) is not int:
+        _LOGGER.error("Environment seed must be a strict integer, got %r", type(seed).__name__)
         raise RegistrationError("ENVIRONMENT_NUMBER_INVALID", "The environment seed must be a strict integer.")
     state = hashlib.sha256(f"random:{seed}".encode()).hexdigest()
-    locations = [row.location_id for row in rows["locations"]]
-    published = generate_map(locations, random_stream(state, "map").getrandbits(64), rows["map_edges"])
-    validate_map(published, set(locations))
-    graph = Graph(published)
-    validate_route_limit(published.nodes, graph, rows["travel_methods"])
+    locations = rows["locations"]
+    published = generate_map(locations, state, rows["map_edges"])
+    city_by_node = {row.location_id: row.city_id for row in locations}
+    validate_map(published, set(city_by_node))
+    graph = Graph(published, city_by_node)
+    methods = {row.travel_method_id: row for row in rows["travel_methods"]}
+    validate_route_limit(locations, graph, methods)
     return _catalog_view(directory, manifest, rows, published, graph)
 
 
@@ -74,10 +78,12 @@ def _registered_catalog(catalog_dir: Path | str) -> tuple[Path, CatalogManifest,
     """@brief 加载与纯校验共用唯一文件解析和对象准入阶段。"""
     directory = Path(catalog_dir)
     if directory.is_symlink():
+        _LOGGER.error("Catalog directory must not be a symlink: %s", directory)
         raise RegistrationError("ENVIRONMENT_IDENTITY_MISMATCH", str(directory))
     directory = directory.resolve()
     payload = read_manifest_payload(directory)
     if type(payload.get("rules_version")) is int and payload["rules_version"] != RULES_VERSION:
+        _LOGGER.error("Manifest rules_version mismatch: %r != %d", payload.get("rules_version"), RULES_VERSION)
         raise RegistrationError("RULES_VERSION_MISMATCH")
     manifest = parse_catalog_model(payload, CatalogManifest)
     validate_manifest(directory, manifest)

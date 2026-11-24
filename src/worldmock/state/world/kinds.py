@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from types import MappingProxyType
 
 
 class ActivityKind(StrEnum):
@@ -54,6 +55,16 @@ class FulfillmentKind(StrEnum):
     DELIVERY = "delivery"
     PICKUP = "pickup"
     STATION_PICKUP = "station_pickup"
+    INSTANT = "instant"
+
+
+#: 履约途径的机器取值（沿用 FulfillmentKind）到人物可读中文名的只读映射。
+ROUTE_NAMES = MappingProxyType({
+    "pickup": "到店",
+    "delivery": "外卖",
+    "station_pickup": "快递",
+    "instant": "即时到账",
+})
 
 
 class SessionStatus(StrEnum):

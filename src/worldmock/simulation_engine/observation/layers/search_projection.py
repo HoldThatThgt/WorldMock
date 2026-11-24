@@ -7,12 +7,12 @@ from typing import Any
 
 from worldmock.configuration.inputs.environment import EnvironmentInputs
 from worldmock.foundation.time.readable import money_phrase
+from worldmock.state.world.kinds import ROUTE_NAMES
 
 SCOPED = "只列经这个 app 能买的"
 ALL_ROUTES = "列出全部途径"
 UNFINISHED = "没有查完"
 SEARCH_GOODS_LIMIT = 20
-_ROUTE_LABELS = {"pickup": "到店", "delivery": "外卖", "station_pickup": "快递"}
 _DEFAULT_UNAVAILABLE = "此刻没有营业的店卖这件商品"
 
 
@@ -50,7 +50,7 @@ def _public_goods(row: Mapping[str, Any]) -> dict[str, Any]:
     fee_fen = row.get("delivery_fee_fen")
     item: dict[str, Any] = {
         "product": row["name"],
-        "route": _ROUTE_LABELS.get(row.get("fulfillment")),
+        "route": ROUTE_NAMES.get(row.get("fulfillment")),
         "store": store,
     }
     if store is not None:

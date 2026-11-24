@@ -139,7 +139,7 @@ def _wake_snapshot(context, state: WorldState, agent, boundary: RhythmBoundary) 
         app_push_arrived="app_push" in flags, is_asleep=is_asleep(state, agent.agent_id))
 
 def decide_engine_rhythm(context, staged: WorldState, boundary: RhythmBoundary) -> WorldState:
-    """@brief 静默边界不调用模型；真实决策交付一次提醒并注解唯一身体草稿；悬挂搜索中不触发常规唤醒。"""
+    """@brief 静默边界不调用模型；真实决策交付一次提醒并注解唯一身体草稿，搜索进行中仍允许常规唤醒。"""
     changed = staged.model_copy(deep=True)
     for agent_id in sorted(staged.agents):
         agent = staged.agents[agent_id]

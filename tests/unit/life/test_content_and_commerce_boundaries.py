@@ -1,10 +1,14 @@
 """真实推送、内容选择与订单边界的拒绝和幂等行为。"""
 
+from datetime import datetime
 from random import Random
 from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 
 import pytest
 
+from tests.frozen_inputs import fixture_metadata
+from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
 from tests.life.prerequisite_inputs import (
     CLOCK,
     app_content,
@@ -25,13 +29,20 @@ from worldmock.simulation_engine.scheduling.callbacks.app_push import (
 )
 from worldmock.simulation_engine.commerce.purchase.basket import activity_orders
 from worldmock.simulation_engine.commerce.fulfillment.commerce import deliver_order
+from worldmock.configuration.inputs.environment import load_environment
 from worldmock.simulation_engine.activities.content.content_select import (
     ContentRequest,
     eligible_contents,
+    next_episode,
     select_from_contents,
 )
 from worldmock.simulation_engine.activities.content.interact import InteractivityRuntime
-from worldmock.simulation_engine.activities.content.location_activities import location_units, unit_binding
+from worldmock.simulation_engine.activities.content.location_activities import (
+    consume_callback_state,
+    location_units,
+    unit_binding,
+)
+from worldmock.simulation_engine.observation.wording.content_prerequisite import unit_target_episode
 from worldmock.state.world.kinds import ActivityStatus, SessionKind, SessionStatus
 from worldmock.state.world.agent import AppPush, ContentProgress, SessionState
 from worldmock.simulation_engine.commerce.fulfillment.parcel import require_ready_parcels
@@ -312,9 +323,8 @@ def finish_episode(interactivity, state, activity):
 
 
 @pytest.mark.parametrize("lapse,started", [("hours", (12, 9, 59, 30)), ("road", (12, 9, 0, 0))])
-def test_series_with_a_prerequisite_keeps_continuing_after_the_prerequisite_lapses(tmp_path, lapse, started):
-    """前提只卡开始：在办公室、在时段内开始的系列，时段过了（09:59:30 开始）或人已在路上（09:00 开始后出发），
-    一集做完仍自动接下一集直到播完。"""
+def test_series_with_a_prerequisite_stops_next_episode_after_the_prerequisite_lapses(tmp_path, lapse, started):
+    """前提管开始也管续集：运行中的这一集在前提失效后不中断并照常做完，但下一集接续判定前提未满足而收尾。"""
     context, state = dingtalk_world(tmp_path, EPISODES, when=started)
     interactivity = InteractivityRuntime(context)
     state, activity, _ = interactivity.start(state, pending(), app_row(context, "dingtalk"), "office")
@@ -326,17 +336,14 @@ def test_series_with_a_prerequisite_keeps_continuing_after_the_prerequisite_laps
                             name="去家的路上")
         state = state.model_copy(update={"sessions": {"stay": road}})
     request = ContentRequest(1, "dingtalk", None if lapse == "road" else "office")
-    for following in ("dingtalk-week-2", "dingtalk-week-3"):
-        state, activity, evidence = finish_episode(interactivity, state, activity)
-        # 这一集做完的那一秒，这个 app 已经没有合格内容，新的一次打开会被拒绝；接续不判定前提
-        assert eligible_contents(context.catalog, state, request) == ()
-        assert evidence["completed"] is True and activity.status == ActivityStatus.ACTIVE
-        assert activity.data["content_id"] == following and activity.planned_end_at == state.current_time + 60
     state, activity, evidence = finish_episode(interactivity, state, activity)
+    # 这一集做完的那一秒，这个 app 已经没有合格内容，下一集续接同样因前提未满足而收尾
+    assert eligible_contents(context.catalog, state, request) == ()
     assert evidence["completed"] is True and activity.status == ActivityStatus.COMPLETED
-    assert state.current_time == moment(*started) + 180
+    assert activity.data["content_id"] == "dingtalk-week-1"
+    assert state.current_time == moment(*started) + 60
     assert {key: item.completed_rounds for key, item in state.agents[1].content_progress.items()} == {
-        "dingtalk-week-1": 1, "dingtalk-week-2": 1, "dingtalk-week-3": 1}
+        "dingtalk-week-1": 1}
 
 
 def test_restore_accepts_a_lapsed_push_and_a_running_content_whose_prerequisite_no_longer_holds(tmp_path):
@@ -359,3 +366,48 @@ def test_restore_accepts_a_lapsed_push_and_a_running_content_whose_prerequisite_
     assert eligible_contents(context.catalog, lapsed, ContentRequest(1, "dingtalk", "home")) == ()
     validate_activity_targets(lapsed, context.catalog, context.persona_by_id)
     validate_app_pushes(lapsed, context.catalog)
+
+
+def test_unit_target_episode_and_next_episode_boundary_cases(tmp_path):
+    """@brief 空单元与已耗尽一次性单元均返回 None；next_episode 跳过已读完的一次性后续集。"""
+    assert unit_target_episode((), None) is None
+
+    root = copy_environment(tmp_path / "once-series")
+    rows = catalog_rows(root, "content-catalog.jsonl")
+    for cid in ("c-drama-1", "c-drama-2", "c-drama-3"):
+        row = next(item for item in rows if item["content_id"] == cid)
+        row["repeatable"] = False
+    write_catalog_rows(root, "content-catalog.jsonl", rows)
+    loaded = load_environment(root, metadata_loader=fixture_metadata)
+    catalog = loaded.catalog
+
+    base_state = world(loaded)
+    agent_done_all = base_state.agents[1].model_copy(update={"content_progress": {
+        cid: ContentProgress(content_id=cid, completed_rounds=1, position_seconds=0.0, last_consumed_at=100)
+        for cid in ("c-drama-1", "c-drama-2", "c-drama-3")
+    }})
+    unit = tuple(catalog.contents[cid] for cid in ("c-drama-1", "c-drama-2", "c-drama-3"))
+    assert unit_target_episode(unit, agent_done_all) is None
+
+    agent_ep2_done = base_state.agents[1].model_copy(update={"content_progress": {
+        "c-drama-2": ContentProgress(content_id="c-drama-2", completed_rounds=1,
+                                     position_seconds=0.0, last_consumed_at=100),
+    }})
+    moment_now = datetime(2026, 1, 5, 9, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
+    assert next_episode(catalog, agent_ep2_done, catalog.contents["c-drama-1"], 2,
+                        (catalog.locations["home"], moment_now)) is None
+
+
+def test_consume_callback_state_rejects_negative_balance(tmp_path):
+    """@brief 扣减凭状态内容或边之前状态已为 0 时抛出 IntegrityError。"""
+    root = copy_environment(tmp_path / "zero-cb")
+    write_catalog_rows(root, "callbacks.jsonl", [
+        {"cap": 2, "gain_on_goods": [], "initial": 0, "reset_on_goods": [], "state": "token"},
+    ])
+    loaded = load_environment(root, metadata_loader=fixture_metadata)
+    base_state = world(loaded)
+    base_state = base_state.model_copy(update={
+        "agents": {1: base_state.agents[1].model_copy(update={"callback_states": {"token": 0}})},
+    })
+    with pytest.raises(IntegrityError, match="below zero"):
+        consume_callback_state(base_state, 1, "token", ("req-1", None))

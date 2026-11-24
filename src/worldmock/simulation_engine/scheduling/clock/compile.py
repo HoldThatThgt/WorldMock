@@ -43,7 +43,10 @@ def compile_schedule(inputs) -> list[ScheduledEvent]:
             if "daily" in time_keys:
                 _time_rows(rows, instant, "daily", agent_ids)
             date = local.date().isoformat()
-            rows[f"weather-{date}"] = (instant, ScheduledKind.WEATHER, {"local_date": date}, agent_ids[0])
+            for city_id in sorted({place.city_id for place in catalog.locations.values()}):
+                rows[f"weather-{city_id}-{date}"] = (
+                    instant, ScheduledKind.WEATHER, {"city_id": city_id, "local_date": date}, agent_ids[0],
+                )
             if date in flags:
                 rows[f"calendar-{date}"] = (instant, ScheduledKind.CALENDAR_FLAG,
                                             {"date": date, "flags": flags[date]}, agent_ids[0])

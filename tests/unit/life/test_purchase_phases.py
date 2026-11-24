@@ -73,7 +73,7 @@ def test_payment_order_key_is_the_canonical_app_list_and_the_store_order_sorts_l
 
 
 def test_two_goods_from_one_store_on_one_app_are_one_order_in_one_delivery_group(environment):
-    state = world(environment)
+    state = world(environment, "office")
     groups, total = quoted_basket(environment, state, 1, ("beef-noodles", "lemon-tea"), None)
     (offers,) = groups.values()
     assert {(offer.store_id, offer.app_id) for offer in offers} == {("noodle-1", "meituan")}
@@ -115,7 +115,7 @@ def test_ordering_app_is_drawn_once_per_store_and_local_date(environment, random
     assert list(payment_orders(orders)) == [payment_order_key(expected)]
     assert [order.delivery_fee_fen for order in orders] == [500, 0, 0]
     tomorrow = state.model_copy(update={"current_time": state.current_time + 86400}, deep=True)
-    tomorrow.weather_by_date[local_date(tomorrow)] = "sunny"
+    tomorrow.weather_by_date[local_date(tomorrow)] = {"test-city": "sunny"}
     again = random_stream(random_state, f"order-app:cafe:{local_date(tomorrow)}").choice(["eleme", "meituan"])
     assert {quote_goods(inputs, tomorrow, 1, key, None).app_id for key in goods} == {again}
 

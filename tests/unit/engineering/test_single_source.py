@@ -46,11 +46,12 @@ OWNERS = {
     'src/worldmock/resource_engine/catalog/loader.py': ('load_catalog',),
     'src/worldmock/resource_engine/catalog/models.py': ('Catalog', 'CatalogManifest', 'MapGraph', 'MapEdge', 'App', 'Goods', 'Content', 'Location', 'TravelMethod', 'SummarySource', 'ContentSeries', 'OpeningHours', 'ContentPrerequisite', 'require_declared_schedule'),
     'src/worldmock/resource_engine/catalog/travel_methods.py': ('travel_methods', 'travel_method', 'WALKING'),
+    'src/worldmock/resource_engine/registration/admission.py': ('validate_route_limit',),
     'src/worldmock/resource_engine/registration/errors.py': ('RegistrationError', 'REGISTRATION_REASONS'),
     'src/worldmock/simulation_engine/actions/start_group.py': ('GROUP_REJECTION_SUFFIX', 'group_rejection', 'frozen_observation'),
     'src/worldmock/simulation_engine/activities/content/content_select.py': ('eligible_contents', 'pinned_push_content', 'autoplay_content', 'next_episode', 'opening_duration', 'OpeningDuration'),
-    'src/worldmock/simulation_engine/activities/content/location_activities.py': ('location_units', 'next_content', 'unit_facts', 'held_refusal', 'running_series_note'),
-    'src/worldmock/simulation_engine/activities/lifecycle/activity_control.py': ('pausable', 'PAUSE_MIN_REMAINING_SECONDS'),
+    'src/worldmock/simulation_engine/activities/content/location_activities.py': ('location_units', 'next_content', 'unit_facts', 'held_refusal', 'running_series_note', 'state_unavailable_reason', 'state_unavailable_refusal', 'consume_callback_state'),
+    'src/worldmock/simulation_engine/activities/lifecycle/activity_control.py': ('pausable', 'PAUSE_MIN_REMAINING_SECONDS', 'intercity_conclude_refusal'),
     'src/worldmock/simulation_engine/activities/travel/navigation_foreground.py': ('settle_navigation', 'navigation_app', 'foreground_event'),
     'src/worldmock/simulation_engine/activities/travel/travel.py': ('plan_trip',),
     'src/worldmock/simulation_engine/body/sleep_plan.py': ('SLEEP_WINDOW_SECONDS', 'OVERSLEEP_THRESHOLD_SECONDS', 'OVERSLEEP_MINUTES_MIN', 'OVERSLEEP_MINUTES_MAX', 'assumed_sleep', 'sleep_seconds_in_window', 'oversleep_seconds'),
@@ -60,7 +61,8 @@ OWNERS = {
     'src/worldmock/simulation_engine/evidence/stays.py': ('stay_events', 'run_start_event', 'run_start_events'),
     'src/worldmock/simulation_engine/observation/memory/layout.py': ('MEMORY_LAYER_CHARS', 'MEMORY_BACKSTOP_CHARS', 'PublishedEntry', 'TodayFold', 'earliest_date', 'assemble_layer', 'layer_chars', 'require_budget', 'fold_entry', 'fold_items'),
     'src/worldmock/simulation_engine/observation/wording/activity_titles.py': ('progress_snapshot',),
-    'src/worldmock/simulation_engine/observation/wording/content_prerequisite.py': ('prerequisite_unmet', 'app_prerequisite_refusal', 'time_phrase', 'app_time_state'),
+    'src/worldmock/simulation_engine/observation/wording/content_prerequisite.py': ('prerequisite_unmet', 'unit_target_episode', 'unexhausted_units', 'app_prerequisite_refusal', 'time_phrase', 'app_time_state'),
+    'src/worldmock/simulation_engine/scheduling/clock/weather.py': ('city_weather_factor', 'trip_weather_factor'),
     'src/worldmock/state/identity.py': ('RUN_MANIFEST_SCHEMA_VERSION',),
     'src/worldmock/state/interaction/actions.py': ('START_TOOLS', 'start_tool'),
     'src/worldmock/state/interaction/control_items.py': ('CONTROL_TOOLS',),
@@ -69,6 +71,7 @@ OWNERS = {
     'src/worldmock/state/model/memory.py': ('SUBJECTIVE_TYPES', 'SUBJECTIVE_SNAPSHOT_FIELDS', 'valid_subjective_snapshot', 'valid_subjective_snapshots'),
     'src/worldmock/state/observation/labels.py': ('ACTIVITY_KIND_LABELS', 'ACTIVITY_DOING_LABELS', 'ACTION_LABELS'),
     'src/worldmock/state/world/agent.py': ('NavigationForeground',),
+    'src/worldmock/state/world/kinds.py': ('ROUTE_NAMES',),
     'src/worldmock/state/world/order_notices.py': ('ORDER_PLACED', 'ORDER_SHIPPED', 'ORDER_DELIVERED', 'ORDER_TITLES', 'PAYMENT_SUCCEEDED'),
     'src/worldmock/state/world/world.py': ('validated_payload', 'active_side_activities'),
     'tools/analysis/behavior/metrics.py': ('BEDTIME_MIN_SECONDS', 'BEDTIME_DAY_START_MINUTES'),
@@ -194,7 +197,8 @@ def test_copied_rule_table_fails_even_after_renaming(tmp_path):
                                     'def shipping_delay_seconds(interval):\n return interval // 2\n',
                                     'def active_side_activities(state, agent_id):\n return ()\n',
                                     'TITLE_LIST_LIMIT = 5\n',
-                                    'def opening_duration(catalog, state, request):\n return None\n'])
+                                    'def opening_duration(catalog, state, request):\n return None\n',
+                                    'ROUTE_NAMES = {}\n'])
 def test_wrong_shared_rule_owner_fails(tmp_path, source):
     _sample(tmp_path, 'tools/analysis/wrong.py', source)
     assert any('wrong owner' in item for item in single_source_violations(tmp_path))

@@ -9,6 +9,10 @@ from worldmock.simulation_engine.activities.content.content_select import (
     eligible_contents,
     select_from_contents,
 )
+from worldmock.simulation_engine.observation.wording.content_prerequisite import (
+    content_units,
+    unit_target_episode,
+)
 from worldmock.state.world.agent import AppPush
 from worldmock.state.world.world import WorldState
 from worldmock.foundation.randomness import random_stream
@@ -48,17 +52,21 @@ def issue_app_push(state: WorldState, event: ScheduledEvent, catalog: Catalog) -
     return changed, data
 
 def _push_candidates(state: WorldState, catalog: Catalog, agent_id: int) -> dict[str, tuple]:
-    """@brief 每个会话每个 app 至多一条；候选是这个 app 此刻合格并标了 pushable 的内容，停留地点取到期这一秒
-    活动结算之后的停留会话，人在路上时带地点前提的内容都不是候选。"""
+    """@brief 每个会话每个 app 至多一条；按完整单元代表集验证 pushable 与前提，人在路上不推带地点前提内容。"""
     session = current_session(state, agent_id)
     stay, candidates = present_location(state, agent_id), {}
+    agent = state.agents[agent_id]
     for app_id in sorted(catalog.apps):
         if app_id in session.app_pushes:
             continue
-        content = tuple(item for item in eligible_contents(catalog, state, ContentRequest(agent_id, app_id, stay))
-                        if item.pushable)
-        if content:
-            candidates[app_id] = content
+        eligible = eligible_contents(catalog, state, ContentRequest(agent_id, app_id, stay))
+        pushed = []
+        for unit in content_units(eligible):
+            target = unit_target_episode(unit, agent)
+            if target is not None and target.pushable:
+                pushed.extend(unit)
+        if pushed:
+            candidates[app_id] = tuple(sorted(pushed, key=lambda item: item.content_id))
     return candidates
 
 def open_app_push(state: WorldState, agent_id: int, app_id: str,

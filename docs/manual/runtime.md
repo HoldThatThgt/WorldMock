@@ -66,7 +66,7 @@ start_side_activity  {"action": "interact", "target": ["哔哩哔哩"], "prefer"
 出行的 `detail` 照工具层该目的地下列出的出行方式名称写（步行，以及数据集定义的方式）；在地点做事的 `detail` 照工具层当前地点下列出的名称写。
 睡眠的 `target` 写 10 到 720 的分钟数，只写数字，`detail` 写 `null`。购买逐份写商品名，同一个名称写两次就是两份。
 购买和 `search_world` 的 `prefer` 写想用的下单 app 完整名称，照工具层 `prefer_apps` 列出的写，没有想法写 `null`；使用内容 app 时 `prefer` 写 `null`。
-`search_world` 的 `query` 用自然语言描述想找的商品特征、预算或同城地点诉求（1 至 200 字）。
+`search_world` 的 `query` 用自然语言描述想找的商品特征、预算或同城与直达枢纽地点诉求（1 至 200 字）。
 例子里的地点、内容、商品和 app 名称取自所用的环境数据集。
 `search_world` 占**副槽位**，时长从 `180` 至 `420` 秒（`3` 至 `7` 分钟）确定性抽取，不能暂停；受理后当前唤醒无栈挂起，到期时系统运行上下文隔离的 `LLM Search Session` 子会话并通过 `Fact Guard` 二次核对实时报价与营业状态，完结当秒释放副槽位并恢复原挂起上下文直接衔接下单或出行。
 记忆查询（`search_memory`）和回看任务（`recall_task_summary`）仍然当场只读完成。

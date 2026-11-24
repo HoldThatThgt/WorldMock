@@ -144,7 +144,7 @@ def build_search_task(inputs: EnvironmentInputs, state: WorldState,
         location_name=inputs.catalog.locations[loc_id].display_name,
         opened_at_clock=iso_time(activity.started_at, state.timezone),
         local_date=local_date(state.current_time, state.timezone),
-        weather_label=WEATHER_LABELS[current_weather(state)],
+        weather_label=WEATHER_LABELS[current_weather(state, inputs.catalog.locations[loc_id].city_id)],
         open_apps=tuple(inputs.catalog.apps[aid].name for aid in order_app_ids(inputs.catalog)),
         category_overview=overview, turn_budget=turn_budget,
     )
@@ -191,7 +191,7 @@ def _validate_outcome(context: EngineContext, activity: ActivityState, outcome: 
         _LOGGER.error("Search outcome ownership mismatch for activity %s", activity.activity_id)
         raise ProtocolError("Search outcome ownership mismatch")
     bad_goods, bad_places = validate_fact_ids(
-        context.catalog, activity.data.get("app_id"), outcome.goods_ids, outcome.place_ids)
+        context.catalog, activity.data.get("app_id"), outcome.goods_ids, outcome.place_ids, activity.location_id)
     if bad_goods or bad_places:
         _LOGGER.error("Fact guard rejected fabricated search ids: goods=%s places=%s", bad_goods, bad_places)
         raise ProtocolError("Fact guard rejected search outcome ids")

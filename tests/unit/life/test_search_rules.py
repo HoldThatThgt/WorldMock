@@ -6,8 +6,9 @@ from dataclasses import replace
 
 import pytest
 
-from tests.life.conftest import action_identity, advance_next, search_world, stage_day_plan
-from tests.life.environment_runtime import act
+from tests.life.conftest import action_identity, advance_next, do_at, search_world, stage_day_plan
+from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
+from tests.life.environment_runtime import act, finish_activity
 from worldmock.foundation.errors import ProtocolError
 from worldmock.foundation.randomness import random_stream
 from worldmock.recording_engine.events.models import EventDraft
@@ -162,3 +163,85 @@ def test_search_validation_and_complete_searches_attribute_app_and_release_slot(
     merged = [entry for entry in today.entries if entry.wakeup_id == spec.origin_wakeup_id]
     assert len(merged) == 1
     assert any(line.kind == "search" for line in merged[0].lines)
+
+
+def _city_isolation_search_env(tmp_path):
+    """构造含双城直达枢纽、非直达远城、异城商铺、即时商品与一次性地点单元的隔离环境。"""
+    root = copy_environment(tmp_path / "search-city-isolation")
+    locs = catalog_rows(root, "location.jsonl")
+    locs.extend([
+        {"app_ids": [], "city_id": "city-b", "kind": "park", "location_id": "hub-b", "name": "乙城枢纽"},
+        {"app_ids": [], "city_id": "city-b", "kind": "b_store", "location_id": "b-store", "name": "乙城小铺",
+         "rating": 4.2},
+        {"app_ids": [], "city_id": "city-c", "kind": "park", "location_id": "station-c", "name": "丙城远站"},
+    ])
+    write_catalog_rows(root, "location.jsonl", sorted(locs, key=lambda row: row["location_id"]))
+    goods = catalog_rows(root, "merchant-catalog.jsonl")
+    goods.extend([
+        {"app_ids": ["bilibili"], "category": "goods", "goods_id": "instant-pass",
+         "instant": True, "name": "在线月卡", "price_fen": 3000},
+        {"category": "snack", "goods_id": "b-cake", "name": "乙城糕点", "price_fen": 1500,
+         "store_kinds": ["b_store"]},
+    ])
+    write_catalog_rows(root, "merchant-catalog.jsonl", sorted(goods, key=lambda row: row["goods_id"]))
+    contents = catalog_rows(root, "content-catalog.jsonl")
+    contents.append({
+        "content_id": "home-once-unit", "duration_seconds": 120, "exertion": "light",
+        "location_kinds": ["home"], "pushable": False, "relaxation_relief": "none",
+        "repeatable": False, "social_relief": "none", "summary": "一次性整理测试摘要。",
+        "summary_source": {"kind": "synthetic", "notice": "测试用合成摘要", "url": None}, "title": "一次性整理",
+    })
+    write_catalog_rows(root, "content-catalog.jsonl", sorted(contents, key=lambda row: row["content_id"]))
+    write_catalog_rows(root, "map.jsonl", [
+        {"a": "home", "b": "hub-b", "length_m": 10000, "travel_method_ids": ["driving"]},
+        {"a": "hub-b", "b": "station-c", "length_m": 20000, "travel_method_ids": ["driving"]},
+    ])
+    return root
+
+
+def test_search_catalog_view_isolates_city_preserves_instant_and_hides_locked_units(engine_factory, tmp_path):
+    """同城商铺隔离、跨城即时商品保留、直达异地枢纽纳入 search_places、已耗尽单元过滤及分城天气字典。"""
+    engine = engine_factory(environment_root=_city_isolation_search_env(tmp_path))
+    assert set(engine.context.state.weather_by_date["2026-01-05"]) == {"test-city", "city-b", "city-c"}
+
+    _, done_once = act(engine, "do-once", do_at("家", "一次性整理"))
+    assert done_once.status == "in_progress", done_once.error_code
+    finish_activity(engine, done_once, "finish-once")
+
+    _, started = act(engine, "city-search", search_world("找商品和去乙城枢纽"))
+    assert started.status == "in_progress", started.error_code
+    advance_next(engine)
+    [(spec, catalog)] = engine.due_searches()
+
+    inst = catalog.search_goods(SearchGoodsRequest(
+        keywords=["在线月卡"], category=None, app=None, store=None,
+        max_price_yuan=None, open_only=False, limit=20, offset=0,
+    ))
+    assert [row["goods_id"] for row in inst["items"]] == ["instant-pass"]
+    assert inst["items"][0]["route"] == "即时到账" and inst["items"][0]["delivery_fee_fen"] == 0
+    assert inst["items"][0]["store_id"] is None and inst["items"][0]["selling_apps"] == ["哔哩哔哩"]
+
+    assert catalog.search_goods(SearchGoodsRequest(
+        keywords=["乙城糕点"], category=None, app=None, store=None,
+        max_price_yuan=None, open_only=False, limit=20, offset=0,
+    ))["total"] == 0
+    assert catalog.inspect_goods_offers(InspectGoodsOffersRequest(goods_ids=["b-cake"]))["items"][0]["found"] is False
+
+    places = catalog.search_places(SearchPlacesRequest(
+        keywords=["家", "乙城", "丙城"], kind=None, open_only=False, limit=50, offset=0,
+    ))
+    place_ids = {row["location_id"] for row in places["items"]}
+    assert "hub-b" in place_ids and "b-store" not in place_ids and "station-c" not in place_ids
+    home_row = next(row for row in places["items"] if row["location_id"] == "home")
+    assert "一次性整理" not in home_row["units"]
+    hub_row = next(row for row in places["items"] if row["location_id"] == "hub-b")
+    assert hub_row["travel_options"]
+
+    for bad_goods, bad_places in ((["b-cake"], []), ([], ["b-store"]), ([], ["station-c"])):
+        res = catalog.validate_submission(SubmitSearchResultsRequest(
+            goods_ids=bad_goods, place_ids=bad_places, summary="越界",
+        ))
+        assert res["valid"] is False and res["error_code"] == "SEARCH_FACT_INVALID"
+    assert catalog.validate_submission(SubmitSearchResultsRequest(
+        goods_ids=["instant-pass"], place_ids=["hub-b"], summary="合规",
+    ))["valid"] is True

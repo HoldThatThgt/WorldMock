@@ -56,8 +56,9 @@ def _check_locations(personas, catalog) -> None:
     """@brief 全员人物引用和驿站要求复用纯加载的真实准入。"""
     from worldmock.configuration.inputs.environment import _require_parcel_station, _resolve_personas_locations
 
-    _resolve_personas_locations(personas, catalog)
-    _require_parcel_station(catalog)
+    homes, _, _ = _resolve_personas_locations(personas, catalog)
+    for home_id in homes.values():
+        _require_parcel_station(catalog, home_id)
 
 
 def _checked(relative: str, operation, errors: list):

@@ -127,9 +127,33 @@ flowchart LR
 
 睡眠由人物写时长：`target` 是 10 到 720 的整数分钟，只写数字，全角数字与空白先归一；
 带单位、小数、正负号或越界的写法都拒绝，引擎不换算、不取整、不截断。
-请求不写地点，睡在人物当前停留的地点；该地点须标了 `sleepable`，否则以 `ACTIVITY_PRECONDITION_UNMET` 拒绝，
-下一步指向本人的家。声明了营业时段的地点关门时不能开始睡眠，以 `LOCATION_CLOSED` 拒绝；
-关门只卡开始，睡着后到了关门时刻照常睡到计划结束。
+请求不写地点，睡在人物当前停留的地点；睡眠准入依次核验可睡资格、营业时段与住宿凭状态（`sleep_consumes_state`）：
+
+- **不可睡地点的同城就近引导**：当前地点 `sleepable` 为假时以 `ACTIVITY_PRECONDITION_UNMET` 拒绝（`unmet` 为 `sleepable_location`），优先在当前停留城市（`location.city_id`）内按下列优先序给出指引，只有当前城市既无自有住处也无任何酒店时再指往最近的可睡城市：
+  - 本城已有处于有效期内的酒店（`current_time < agent.lodging_stays.get(location_id, 0)`）→ `next_step` 指引前往该酒店；
+  - 本城标有 `is_home: true` 且 `sleepable: true` 的自有住处 → `next_step` 指引前往该住处；
+  - 本城声明了 `sleep_consumes_state` 且人物当前持有该状态（`callback_states[state] >= 1`）的酒店 → `next_step` 指引前往该酒店；
+  - 本城声明了 `sleep_consumes_state` 的酒店（当前状态为 `0`）→ `reason` 追加 `state_unavailable_reason` 提示购买对应的房晚商品，`next_step` 指引前往该酒店；
+  - 当前城市既无自有住处也无酒店 → `next_step` 指引前往最近一座拥有 `sleepable: true` 自有住处或酒店的城市（同优先级按全图最短距离最小、同距按 `location_id` 升序；跨城时优先自有住处，其次酒店）。
+- **营业时段**：声明了 `opens` 的地点关门时不能开始睡眠，以 `LOCATION_CLOSED` 拒绝；关门只卡开始，睡着后到了关门时刻照常睡到计划结束。
+- **商业酒店房晚有效期与凭状态扣减（`AgentState.lodging_stays`）**：`AgentState` 维护持久化映射 `lodging_stays: dict[str, int]`（`location_id -> checkout_epoch`）。在声明了 `sleep_consumes_state` 的商业住宿地点请求 `sleep` 时：
+  - 若 `state.current_time < agent.lodging_stays.get(location_id, 0)`，说明仍在该酒店已核销房晚的入住有效期内，直接准入且**不再扣减状态**（同一入住窗口内的午休与回店夜宿不重复扣费）；
+  - 否则校验 `agent.callback_states[location.sleep_consumes_state] >= 1`：不足时以 `ACTIVITY_PRECONDITION_UNMET` 拒绝，沿用共享 `state_unavailable_reason`（按 `goods_id` 升序汇总该状态 `reset_on_goods` 与 `gain_on_goods` 的并集商品名以 ` or ` 连接）；
+  - 扣减成立开始睡眠时，在同一事务内将该状态减 `1`（写出 `ConsumeOnStartResult(content_id=None)`，由 `AgentSandbox` 与 `BarrierMerger` 共用的 `_start_effects` 按实际动作绑定 `CallbackCause("action", "sleep", ...)` 与锚点 `<action_id>:consume`），并按本地钟面 `06:00` 日切规则写入 `lodging_stays[location_id] = checkout_epoch`：入住当地时刻在 `00:00` 至 `05:59` 之间设 `checkout_epoch` 为**当日 `12:00:00`**，在 `06:00` 及以后设为**次日 `12:00:00`**。
+  - 入住有效期内即使睡着跨越 `12:00:00` 也照常睡到计划结束、不打断当次睡眠；在 `12:00:00` 及之后再次新开睡眠时有效期已过，须重新核验并扣减 `1` 点状态。
+
+```mermaid
+stateDiagram-v2
+    state "未激活房晚 (需 callback_states >= 1)" as Unchecked
+    state "入住有效期内 (current_time < checkout_epoch)" as ActiveStay
+    state "退房过期 (current_time >= checkout_epoch)" as ExpiredStay
+
+    [*] --> Unchecked
+    Unchecked --> ActiveStay: "sleep 开始扣 1 点状态 (06:00 日切设为当日或次日 12:00)"
+    ActiveStay --> ActiveStay: "有效期内再次 sleep (午休或夜宿) 直接放行不扣点"
+    ActiveStay --> ExpiredStay: "时钟到达或越过 checkout_epoch (睡着中的一觉不断)"
+    ExpiredStay --> ActiveStay: "再次新开 sleep 需状态 >= 1 并重新扣 1 点设新退房界"
+```
 
 睡眠只在自己的计划结束时结束，计划结束在受理时定下：开始时刻加写的时长，再加多睡的时长。
 会不会睡过头按这一觉开始的那一刻判定：受理时从开始时刻往回数 24 小时，合计本人在这 24 小时里睡了多久。
@@ -164,6 +188,7 @@ flowchart LR
 开始工具之外的零耗时世界请求是 `report_status`、`pause_activity`、`conclude_activity`、`revise_day_plan` 四个控制工具，
 完整工具清单与一次回复的批次形状见[人物](06-agent.md)。
 在地点做事和用内容 app 可以暂停，出行、睡眠、购买、搜索不能；已结束活动必须由人物收尾，搜索除外，它到期完成时即自动结算并让出副槽位。
+此外，正在进行中的**跨城出行**（`origin.city_id != destination.city_id`）禁止在到达前调用 `conclude_activity` 提前结束跳回出发枢纽：提交时以 `ACTIVITY_PAUSE_UNAVAILABLE` 拒绝，工具层活动目标行同步将该活动的 `conclude_activity` 标为不可用；同城出行（`origin.city_id == destination.city_id`）仍可提前结束回到出发地。
 
 一次 app 使用进行中，在任何一次唤醒里都可以暂停：它放完一条就自动接下一条，没有整段的计划结束。
 在地点做的事快做完时只能结束，不能暂停：进行中的在地点做的事离计划结束不足 180 秒时，`pause_activity` 以 `ACTIVITY_PAUSE_UNAVAILABLE` 拒绝，
@@ -181,7 +206,7 @@ flowchart LR
 | `fix` | `Conclude this activity or keep it running instead.` | `Conclude this activity or let it finish instead.` |
 
 会不会接着做下一集与系列接续用同一个函数 `content_select.next_episode`（见「出行、内容与搜索」的接续顺序）：
-把当前这一集此刻的完成轮数加一当作做完后的轮数，找得到下一集就是会接。工具层活动目标行的 `pause_activity` 一行和沙盒提交后的拒绝都经
+把当前这一集此刻的完成轮数加一当作做完后的轮数，并传入当前停留地点与本地时刻 `(stay_location, local_moment)`；找得到此刻满足前提且未受 `repeatable: false` 轮次限制的下一集就是会接，使暂停临近结束提示与实际接续完全同源。工具层活动目标行的 `pause_activity` 一行和提交后的拒绝都经
 `activity_control.control_refusal` 取这段文字，一字不差。一次 app 使用不受 180 秒的限制，走不到这条拒绝。
 
 能否暂停只有一处判定，`activity_control.pausable`：活动进行中、是 interact，并且是一次 app 使用（活动私有数据 `app_id` 非空）或离计划结束不少于 180 秒。
@@ -192,15 +217,31 @@ flowchart LR
 
 ## 出行、内容与搜索
 
-出行使用完整内存地图的最短路径，等长时取完整地点元组字典序最小的一条。
-受理时冻结路径、距离、出行方式的身份、天气系数、用时和车费，之后天气变化不改写已受理的行程；
-恢复时按同一出行方式重算并核对，不符报 `Persisted travel plan does not match the published graph`。
+出行使用受方式约束的图上路径：自带的 `walking` 与 `city_wide: true` 的方式仅沿当前所在城市的自由街区边（未声明 `travel_method_ids` 的同城边）取最短路，等长时取完整地点元组字典序最小的一条；
+`map.jsonl` 中显式声明了 `travel_method_ids` 的限制边（含所有跨城边及同城限制边）只作为其两端点之间的**单边直达跳**，仅对列出在内的出行方式开放、不参与多跳串联中转；`city_wide: false` 的方式不得在自由街区边上寻路，只能走显式包含它的单条声明边。
+受理时冻结路径、距离、出行方式的身份、天气系数（`min(weather_factor(origin_city), weather_factor(destination_city))`，对全部方式生效、无天气豁免）、用时和车费，之后天气变化不改写已受理的行程；
+恢复时按同一出行方式与冻结天气系数重算并核对，不符报 `Persisted travel plan does not match the published graph`。
 用时与车费按[交换引擎](02-exchange-engine.md)的两条公式由所选出行方式的速度和价格算出；车费在出发受理时支付，余额不足以 `INSUFFICIENT_TRAVEL_FUNDS` 拒绝，原因 `The caller's available balance is below the route fare.`。
 同一开始组里出发并购买时，开始前的余额核对用所选出行方式的车费。
-不能把途中地点改成目的地。到达按真实计划结束时间登记，不提前结束同行的购买或内容活动。
+不能把途中地点改成目的地。到达按真实计划结束时间登记，不提前结束同行的购买或内容活动；跨城出行到达目的枢纽并提交后切换停留会话、工具层城市视野及环境层城市天气。
 
-每个其他地点（目的地）下列出全部出行方式，每种方式一行：自带的步行在前，其余按 `travel_method_id` 升序，不轮转、不截断；关闭的地点照旧可以前往。
-每行带车费、按当刻天气算出的用时和「轻松」或「费力」：体力档位是 `idle`、`light` 的方式写轻松，`moderate`、`heavy` 的方式和步行写费力。余额不够付车费的方式照样列出，标为此刻不可用，原因与受理一致。
+工具层出行视野与门户提示按当前停留地点所属城市隔离：
+- **可见地点集合**：人物停留时，工具层仅列出**当前城市全部地点**，以及**与当前停留地点 `agent.location_id` 存在直接跨城声明边相连的异地枢纽**；未直接相连的异地地点不出现在工具层清单中，名称解析仍认得全部登记地点名称，以便直接对非邻接异地地点发起 `travel` 时由准入返回前往本城枢纽的指引。
+- **可选出行方式**：当前城市其他地点下列出 `walking` 与 `city_wide: true` 的方式（若与当前位置存在同城直接声明边，则补充含该边允许的 `city_wide: false` 方式并受该边 `opens` 与 `consumes_state` 约束；不列出未直连的 `city_wide: false` 干线方式），自带的步行在前，其余按 `travel_method_id` 升序；直连的异地枢纽下仅列出该跨城声明边的 `travel_method_ids`。每行带车费、按起终两城较差天气系数算出的用时和「轻松」或「费力」：体力档位是 `idle`、`light` 的方式写轻松，`moderate`、`heavy` 的方式和步行写费力。余额不够付车费、发车窗口外或缺少票证状态的声明边方式照样列出，标为此刻不可用，原因与受理一致。关闭的地点照旧可以前往（受边 `opens` 发车窗口限制的直达边见下文）。
+- **本城枢纽门户说明**：当前城市中连有跨城声明边的地点，其工具层 `state` 在营业时段之后自动追加 `；城际可达：<dest1>（<method1>、<method2>）、...`，按目的地点 `location_id` 升序排列。
+
+出发受理（`_travel_refusal`）按下表次序检查对象条件，先遇到不成立的项即给出拒绝（紧接整组其余槽位与余额检查规则）：
+
+| 次序 | 检查项 | 拒绝码与细节 |
+| --- | --- | --- |
+| 1 | `_keeps_here` 原地留守检查 | 有进行中或未解除挂起的搜索（`ActivityKind.SEARCH`），或含到店（`FulfillmentKind.PICKUP`）记录的购买活动时，报 `ACTIVITY_PRECONDITION_UNMET`（`Conclude <活动名> before departure.`） |
+| 2 | 非邻接跨城目标检查 | 起点与终点 `city_id` 不同且这两地间不存在直达跨城声明边时，报 `ACTIVITY_PRECONDITION_UNMET`，`next_step` 指向本城对应枢纽 `Travel to <hub display_name> first.` |
+| 3 | 方式准入检查 | 声明边不允许所选方式，或 `city_wide: false` 方式用于非直连声明边起终点之间时，报 `ACTIVITY_PRECONDITION_UNMET` |
+| 4 | `planned_trip` 时长范围检查 | 计算出的单程时长不在 `[1, 86400]` 秒内时，报 `ROUTE_DURATION_INVALID` |
+| 5 | 声明边 `opens` 发车窗口检查 | 直接声明边写了 `opens` 而当前本地时刻不在其发车时段内时，报 `LOCATION_CLOSED`，原因复用 `content_prerequisite.time_phrase` 写明今日或未来七日窗口 |
+| 6 | 声明边 `consumes_state` 状态检查 | 直接声明边写了 `consumes_state` 而 `agent.callback_states[state] < 1` 时，报 `ACTIVITY_PRECONDITION_UNMET`，原因复用共享 `state_unavailable_reason`（按 `goods_id` 升序以 ` or ` 连接 `reset_on_goods` 与 `gain_on_goods` 并集商品名） |
+
+声明了 `consumes_state` 的边在出发受理成立的同一次提交中将本人该状态减 `1`，写出 `ConsumeOnStartResult(content_id=None)`，并由 `AgentSandbox` 与 `BarrierMerger` 共用的 `_start_effects` 绑定 `CallbackCause("action", "travel", ...)`（锚点 `<action_id>:consume`）。
 
 出行活动保存所用出行方式的 `travel_method_id`，判断一项活动是不是出行只看它的动作是否为 `travel`。
 行程身份是 `<起点>-><终点>:<travel_method_id>`，步行例如 `home->office:walking`。
@@ -241,7 +282,7 @@ flowchart LR
 人物每进入、每离开一个地点各写一条停留事件，字段和起因见[记录引擎](05-recording-engine.md)「事件与来源」。
 `stay_records.stay_events` 与导航规则在同一处执行，同样只比较提交前后的世界：待提交的世界比提交前多出一段路上会话，
 就为提交前进行中的那段停留写 `location_left`；多出一段停留会话就写 `location_entered`，
-会话的 `opened_by_action_id` 为空的是按计划到达，非空的是人物途中提前结束出行、回到出发地。
+会话的 `opened_by_action_id` 为空的是按计划到达，非空的是同城出行途中提前结束、回到出发地。
 运行开始时人物所在的那一段停留随世界创建的首次提交写一条 `run_start`；运行截止不写离开。
 
 在地点做哪件事由人物点名。内容单元是人物能点名的一件事，单元名写在 `start_main_activity` 的 `detail` 里。
@@ -259,26 +300,26 @@ flowchart LR
 地点活动名为「进行<单元名>（M月D日 HH:MM 起）」，点名系列时用系列名，不用各集标题。
 
 内容写了 `consumes_state`（字段见[资源引擎](03-resource-engine.md)「app、内容与候选呈现」）的单元凭状态，系列各集写的相同，取任一集；
-凭状态的单元在本人这个回调状态的值小于 1 时未开放。开放与否只看本人此刻的状态值，与这个单元是否被暂停的活动占着无关：
+凭状态的单元在本人这个回调状态的值小于 1 时未开放。此外，若地点单元（独立内容或系列）的 `repeatable` 为 `false` 且已完整做完至少一轮（单元内全部条目的最小完成轮数不小于 `1`），`unit_locked` 同样将其判为锁定/隐藏。开放与否只看本人此刻的状态值与完成轮数，与这个单元是否被暂停的活动占着无关：
 暂停中凭状态的活动已在开始时用掉开放，状态为 0 时这个单元不列出，恢复照旧走待办层的 `report_status`；状态再次开放时单元照旧列出，被占着时按单元被占不可用。
-未开放的单元不列在工具层（见[人物](06-agent.md)「提示与工具」），其余单元照旧完整列出；照写它的名称仍能解析到它，交给受理拒绝，
-与按名称购买未展示的商品同类；名称解析失败时给出的候选不含未开放的单元，即使它与写错的名称最接近。
+未开放或不可重复已耗尽的单元不列在工具层（见[人物](06-agent.md)「提示与工具」），其余单元照旧完整列出；照写它的名称仍能解析到它，交给受理拒绝，
+与按名称购买未展示的商品同类；名称解析失败时给出的候选不含未开放或已耗尽的单元，即使它与写错的名称最接近。
 
-受理时按下表次序检查对象条件，第一条不成立的给出拒绝。
+受理时按下表次序检查对象条件，按序最先遇到的不成立条件给出拒绝。
 
 | 检查（按次序） | 拒绝码 | 何时不成立 |
 | --- | --- | --- |
 | 营业 | `LOCATION_CLOSED` | 地点声明了营业时段而此刻不在其内 |
 | 取件 | `PARCEL_NOT_READY` | 地点是驿站，而本人在此没有已到站的包裹；有包裹时这次受理同时取件，见「购买、付款与收货」 |
 | 单元被占 | `RESOURCE_CONFLICT` | 该单元的某条内容是本人一项暂停中活动的当前内容；原因点名那项活动，其他单元不受影响 |
-| 未开放 | `ACTIVITY_PRECONDITION_UNMET` | 单元凭状态，而本人这个状态小于 1 |
+| 未开放或已耗尽 | `ACTIVITY_PRECONDITION_UNMET` | 单元凭状态而本人这个状态小于 1，或 `repeatable` 为 `false` 且已完成一轮 |
 
-单元被占排在未开放之前，人物照写一件已暂停的事时得到先恢复的原因，而不是没开放。未开放的拒绝：
+单元被占排在未开放之前，人物照写一件已暂停的事时得到先恢复的原因，而不是没开放。未开放与状态不足的拒绝由地点内容、限制边出发与商业住宿共用 `state_unavailable_reason`：
 
 | 字段 | 取值 |
 | --- | --- |
 | `error_code` | `ACTIVITY_PRECONDITION_UNMET` |
-| `reason` | 状态的 `reset_on_goods` 非空时 `<单元名> is not available now; receiving <商品名> makes it available.`，商品名按 `goods_id` 升序用 ` or ` 连接；为空时 `<单元名> is not available now.` |
+| `reason` | 状态的 `reset_on_goods` 与 `gain_on_goods` 升序并集非空时 `<名称> is not available now; receiving <商品名> makes it available.`，商品名按 `goods_id` 升序用 ` or ` 连接；并集为空时 `<名称> is not available now.` |
 | `next_step` | 无 |
 | `fix` | 无；这是世界条件造成的拒绝 |
 | `unmet` | `callback_state` |
@@ -288,10 +329,10 @@ flowchart LR
 
 整组受理成立后，凭状态的单元开始时，在同一个沙盒世界副本里把本人这个状态减 1。
 受理已保证减之前不小于 1，不钳位；减后小于 0 是运行故障 `Consumed state fell below zero`。
-减 1 排在活动放进世界、驿站取件之后：同一次受理在驿站开始一件凭状态的事时先取件（收货可能把某个状态置为上限），再减 1。
+减 1 排在活动放进世界、驿站取件之后：同一次受理在驿站开始一件凭状态的事时先取件（收货可能把某个状态置为上限或累加），再减 1。
 只在开始时减：恢复暂停的活动、系列自动接下一集、提前结束、运行截止都不减也不退，下次点名这个单元是新的开始，再减 1；
-整组被拒时沙盒丢弃此次临时变更，不减。每次减 1 写一条 `consume_on_start` 回调效果，起因是这次开始调用的受理结果，
-正文见[记录引擎](05-recording-engine.md)「事件与来源」；它怎样触发阈值规则见「回调事务」。
+整组被拒时沙盒丢弃此次临时变更，不减。每次减 1 写一条 `consume_on_start` 回调效果（`ConsumeOnStartResult`：`content_id` 在地点内容开始时为非空内容身份，在跨城声明边出发和商业酒店入住开始时为 `None`），起因是这次开始调用的受理结果，由 `AgentSandbox` 与 `BarrierMerger` 共用的 `_start_effects` 绑定 `CallbackCause("action", action_kind, ...)`（`action_kind` 按实际动作取 `interact`、`travel` 或 `sleep`），锚点 `<action_id>:consume`；
+正文见[记录引擎](05-recording-engine.md)「事件与来源」，阈值触发见「回调事务」。
 
 家里做的饭叫得出名字。食品状态是至少被一条 `completion_effects.food` 不为空的内容凭着（`consumes_state`）的回调状态，
 由 `Catalog.food_states()` 给出：系列各集凭同一状态，只要有一集写了 `food`，这个状态就是食品状态；全系统只按它判定食品状态。
@@ -322,11 +363,12 @@ flowchart LR
 离计划结束不足 180 秒时只能结束。
 
 能打开的只有登记了内容的内容 app；打开只看内容，不显示商品，也不下单。
-用内容 app 时人物只写 app 名，做哪一条由引擎挑，先筛后挑。
-合格内容是这个 app 绑定的内容里此刻满足内容前提的那些，由 `content_select.eligible_contents` 按 `content_id` 升序给出；
-打开时的挑选、自动接续的挑选、工具层的时长和推送候选读的都是它。
-打开 app 时挑第一条用打开顺序，筛选之后的次序不变：推送钉住、最近未完成、系列下一集、未看单元、轮数最少；预留排除和系列代表集都只在合格内容里算。
-随机流的键仍是 `{activity_id}:{draw_index}`，打开时 `draw_index` 为 0，一次挑选至多抽一次，筛选本身不抽取，所以不含任何前提的环境包挑选与推送结果不变。
+用内容 app 时人物只写 app 名，做哪一条由引擎挑，按**全集组单元、按代表集验前提**统一筛选：
+- **全集单元筛选（`content_select.eligible_contents`）**：先由 `content_prerequisite.content_units` 基于目录完整系列 `catalog.contents_by_series` 与绑定到该 app 的全部独立内容组装完整单元（不再先按集过滤单条再拼单元）。
+- **不可重复耗尽过滤**：若单元声明 `repeatable` 为 `false` 且单元最小完成轮数不小于 `1`（独立内容已完成至少一轮，或系列全集每集均已完成至少一轮），整单元淘汰，不再参与挑选、推送与重播。
+- **代表集定位与前提判定**：在未耗尽的完整单元上经 `unit_target_episode` 与 `representative(unit, agent)` 求唯一待播代表集 `target_episode`（完成轮数最少者中集号最小、集号相同时 `content_id` 最小的一集），再判定 `not prerequisite_unmet(target_episode, stay, local_moment)`；仅当代表集此刻满足前提时，该单元才进入合格单元池（`target_episode` 未解锁时整部系列安全挂起等待：既不跳播后序集，也不重播前序集）。
+- **全入口同源**：`select_content`、`select_from_contents`、`autoplay_content`、`opening_duration`、`pinned_push_content` 与 `app_push._push_candidates` 共用上述全集单元筛选（`autoplay_content` 与 `app_push._push_candidates` 额外要求 `target_episode.pushable` 为真）。打开 app 挑起始条目保持推送钉住、最近未完成、已开始系列、未看单元、轮数最少的先后次序；预留排除也基于合格单元的 `target_episode` 计算。
+随机流的键仍是 `{activity_id}:{draw_index}`，打开时 `draw_index` 为 0，一次挑选至多抽一次，筛选本身不抽取，所以不含分集前提与 `repeatable: false` 的环境包挑选与推送结果不变。
 放完一条之后接哪一条按接续顺序，见下文。
 这个次序只用于内容 app，app 里的内容标题不是可写的名称；活动名为「进行<app 名>（M月D日 HH:MM 起）」。
 
@@ -334,40 +376,45 @@ flowchart LR
 停留地点是人物当前停留会话所在的地点；人在路上时没有停留地点，既不算在出发地也不算在目的地。
 本地时刻是世界当前时刻按运行时区换算的结果。没写前提的内容总是满足。
 
-| 判定（两项各判各的） | 记下的成员 | 何时不满足 |
+| 判定（按次序） | 记下的成员 | 何时不满足 |
 | --- | --- | --- |
-| 地点 | `content_location` | `location_kinds` 非空，而人物没有停留地点，或停留地点的 `kind` 不在其中；只比较 `kind` 原文，不看该地点此刻是否营业 |
+| 城市 | `content_location` | `city_ids` 非空，而人物没有停留地点，或停留地点的 `city_id` 不在其中 |
+| 地点类型 | `content_location` | `location_kinds` 非空，而人物没有停留地点，或停留地点的 `kind` 不在其中；只比较 `kind` 原文，不看该地点此刻是否营业（与城市判定同归 `content_location` 并去重） |
 | 时段 | `content_time` | 写了 `opens`，而本地时刻不在当天的时段内；时段含头不含尾，秒不参与 |
 
 ```mermaid
 flowchart TD
-    A["start_side_activity：action 为 interact，target 为一个内容 app"] --> B{"这个 app 登记了内容吗"}
-    B -->|"没有"| Refuse["名称解析时已退回 ACTION_NOT_OFFERED，只用于下单与搜索引导"]
-    B -->|"有"| C["按停留地点和本地时刻筛出合格内容"]
-    C --> D{"有合格内容吗"}
-    D -->|"一条都没有"| X["CONTENT_PREREQUISITE_UNMET：拒绝并写明地点、时段与下次开放"]
-    D -->|"有"| E["在合格内容里按打开顺序挑一条"]
+    A["start_side_activity：action 为 interact，target 为内容 app"] --> B{"这个 app 登记了内容吗"}
+    B -- "没有" --> Refuse["名称解析退回 ACTION_NOT_OFFERED（只用于购买 prefer 与 search_world 引导）"]
+    B -- "有" --> C["按目录全集组装单元，筛去 repeatable false 已读完单元，求各自代表集 target_episode"]
+    C --> D{"有代表集满足此刻前提的单元吗"}
+    D -- "没有" --> X["CONTENT_PREREQUISITE_UNMET（未耗尽单元列地点时段，全部已读完报无未读内容）"]
+    D -- "有" --> E["在合格单元代表集里按打开顺序挑一条"]
     E --> F["开始并放完这一条，中途不再看前提"]
-    F --> G["按接续顺序接下一条：下一集不看前提，另选内容只在此刻合格内容里挑"]
+    F --> G["调 next_episode 校验下一集前提与 repeatable 轮数，否则按接续顺序接其他合格代表集"]
 ```
 
-登记了内容的 app 此刻没有任何合格内容时，对它的 interact 以 `CONTENT_PREREQUISITE_UNMET` 拒绝。
+登记了内容的 app 此刻没有任何合格单元时，对它的 interact 以 `CONTENT_PREREQUISITE_UNMET` 拒绝。
 它是副调用的对象条件，与 `LOCATION_CLOSED`、`PARCEL_NOT_READY` 同一层，判定发生在派发任何活动、开路上会话、收车费之前。
 工具层这个 app 一行的 `reason` 与受理的拒绝由同一个函数 `content_prerequisite.app_prerequisite_refusal` 产生，一字不差。
 恢复暂停的活动、自动接续和推送都不产生这个拒绝：自动接续找不到合格的下一条时，这次 app 使用停下等收尾；没有登记内容的 app 在名称解析时已被退回，到不了这一步。
 它是普通业务拒绝：不开始活动、不扣款、不消耗随机流、不改内容进度和推送状态，不产生 app 使用记录，直接在当前 `AgentLoop` 返回纠偏 `tool` 消息，不属于名称类拒绝。
 
+`app_prerequisite_refusal` 与 `app_time_state` 只读取该 app 中**剩余未耗尽单元各自当前的代表集 `target_episode`**（按 `target_episode.content_id` 升序）：
+- 若所有单元均因 `repeatable: false` 完整读完（剩余未耗尽单元为空）：`app_prerequisite_refusal` 返回 `CONTENT_PREREQUISITE_UNMET`，其 `reason` 为 `All content in <app 名称> has already been finished.`（`fix` 为 `null`）；`app_time_state` 返回 `无未读内容`。
+- 若存在未耗尽单元但它们的代表集全都不满足前提：按每个未耗尽单元的代表集逐条生成分句（不再读取旧全集里已读完的前序集或被锁住的后序集之外的条目），字段取值如下表。
+
 | 字段 | 取值 |
 | --- | --- |
 | `error_code` | `CONTENT_PREREQUISITE_UNMET` |
-| `reason` | `Nothing in <app 名称> can start here now: <分句>.`；没有任何内容差地点时去掉 `here ` 一词 |
+| `reason` | 未耗尽单元代表集都不满足前提时为 `Nothing in <app 名称> can start here now: <分句>.`（无任何代表集差地点时去掉 `here `）；全 app 单元均因 `repeatable: false` 读完时为 `All content in <app 名称> has already been finished.` |
 | `fix` | `null`；这是世界条件造成的拒绝，改写请求不能让它成立 |
-| `next_step` | 有内容差地点时 `Go to <地点>.`，取第一个差地点的分句的地点；都只差时间时是该码的默认下一步 `Choose another action.` |
-| `unmet` | `content_location`、`content_time` 中实际出现过的，按这个次序 |
+| `next_step` | 有内容差地点时 `Go to <地点>.`，取按序最先差地点的分句地点；都只差时间或全读完时是该码的默认下一步 `Choose another action.` |
+| `unmet` | `content_location`、`content_time` 中实际出现过的，按这个次序；全读完时为空 |
 | `items` | 一条，指向这次 `start_side_activity` 调用的 `target`，`expected` 与 `why` 都是 `reason`，没有候选 |
 
-分句按这个 app 的全部内容逐条写，内容按 `content_id` 升序；文字相同的分句只留第一次出现的那个，其余按原次序用 `; or ` 连接，不截断。
-`<地点>` 是 `kind` 属于该内容前提的全部登记地点的显示名，按 `location_id` 升序用 ` or ` 连接，人物从不看到 `kind` 原文。
+分句按这些未耗尽单元的代表集逐条写，按 `target_episode.content_id` 升序；文字相同的分句只保留首次出现的那条，其余按原次序用 `; or ` 连接，不截断。
+`_clause` 筛选 `<地点>` 时同时按 `city_ids`（非空时要求 `loc.city_id in city_ids`）与 `location_kinds`（非空时要求 `loc.kind in location_kinds`）过滤登记地点；当当前停留地点 `stay` 已知且当前城市存在满足条件的候选地点时，优先只列出当前城市内匹配的地点显示名（否则列出全部满足 `city_ids` 与 `location_kinds` 的地点显示名），按 `location_id` 升序用 ` or ` 连接，人物从不看到 `kind` 或 `city_id` 原文。
 `<时段>` 是该内容前提当天的时段，每个写成 `HH:MM–HH:MM`，用 `, ` 连接。
 
 | 这条内容差什么 | 分句 |
@@ -385,7 +432,7 @@ flowchart TD
 | 当天和之后七个本地日都没有 | `not available today or in the next seven days` |
 
 那一天的时段同样由 `OpeningHours.opening_intervals` 求，特殊日期照算；`<星期>` 取固定的 `Mon` 至 `Sun`，不随系统语言变，`<MM-DD>` 是补零的月和日。
-下次开放写在括号里而不用分号，因为分句之间用 `; or ` 连接并去重。工具层内容 app 一行的 `state` 用同一个函数，写法见[人物](06-agent.md)「提示与工具」。
+下次开放写在括号里而不用分号，因为分句之间用 `; or ` 连接并去重。工具层内容 app 一行的 `state` 用同一个函数 `app_time_state`：全读完时返回 `无未读内容`，未耗尽代表集全都不合格且有代表集写了 `opens` 时返回去重拼接的 `time_phrase`，否则为 `null`，写法见[人物](06-agent.md)「提示与工具」。
 
 例：钉钉只有一条只在办公室、工作日 08:00–10:00 与 17:00–20:00 能开始的打卡内容。人物在家时原因是
 `Nothing in 钉钉 can start here now: it requires presence at 练秋湖研发中心.`，在办公室而时段已过时是
@@ -393,48 +440,48 @@ flowchart TD
 `Nothing in 钉钉 can start now: it is not available today (next available Mon 10-19 08:00–10:00, 17:00–20:00).`。
 
 前提只卡一条内容的开始。打开 app 时判定一次，开始之后到这条放完，时段结束、人离开那类地点、到达别处、播报边界都不再判定，照常结算到内容末端；
-系列自动接下一集也不判定。一次 app 使用接另一部系列或另一条独立内容时只在那一秒合格的内容里挑，见下文的接续顺序。
-恢复不判定前提，接着做同一条内容。人物提前结束而留下进度的内容，下次被挑中属于再次开始：不合格时它不在候选里，不挡住同一个 app 的其他内容；合格时仍按最近未完成优先，从保存的位置接着做。
+系列自动接下一集时须再次核验下一集此刻的内容前提与 `repeatable` 轮数，见下文接续顺序。一次 app 使用接另一部系列或另一条独立内容时只在那一秒合格的未耗尽单元代表集里挑，见下文的接续顺序。
+恢复不判定前提，接着做同一条内容。人物提前结束而留下进度的内容，下次被挑中属于再次开始：不合格时它不在合格单元代表集里，不挡住同一个 app 的其他合格单元；合格时仍按最近未完成优先，从保存的位置接着做。
 从检查点恢复运行时，对持久活动和会话推送的核对不加前提这一项：进行中的内容和已送达的推送此刻不满足前提都是合法状态。
 
 同一次开始组里出行和用内容 app 一起提交时，前提的停留地点取本组请求生效之前的停留地点，也就是出发地，目的地不参与判断；整组核验和工具层读的都是出发前的世界，结论相同。
 核验成立后派发在开路上会话之前取一次停留地点，经 `ContentRequest.stay_location_id` 传给挑选，不因为人物此时已经算在路上而把刚核验通过的内容筛掉。
-已经在路上的人物没有停留地点，带地点前提的内容不能开始，只带时段前提的内容照常按时刻判定。
+已经在路上的人物没有停留地点，带 `city_ids` 或 `location_kinds` 地点前提的内容不能开始，只带时段前提的内容照常按时刻判定。
 推送钉住仍读挑选当时的会话，即路上会话：出发前工具层显示的「有推送」和余量在同一次开始组出发后不兑现，按没有这条推送来挑。
 
-整点推送处理时，一个内容 app 的候选内容是：当前会话里这个 app 还没有推送，且内容此刻合格并标了 `pushable`。
-「此刻」取推送事件到期的那一秒，停留地点取该秒活动结算之后的停留会话，恰在整点到达算已经到了；人在路上时带地点前提的内容都不是候选。
+整点推送处理时，一个内容 app 的候选内容是：当前会话里这个 app 还没有推送，且该 app 经全集单元筛选（`content_select.eligible_contents`）合格的未耗尽单元代表集 `target_episode` 中标了 `pushable` 的条目（`app_push._push_candidates`）。
+「此刻」取推送事件到期的那一秒，停留地点取该秒活动结算之后的停留会话，恰在整点到达算已经到了；人在路上时带 `city_ids` 或 `location_kinds` 前提的内容都不是候选。因此同一系列的首集可以标 `pushable: false`，待次日或抵达对应城市后由标 `pushable: true` 的后续代表集进入推送候选。
 候选为空的 app 不参加抽取，全部 app 都没有候选时写 `{kind: "app_push", pushed: false, session_id}`；抽取、载荷、每段会话每个 app 至多一条、完成释放都不变。
-推送送达之后前提可能不再满足。打开 app 时先筛后挑，被推送的那条不在合格内容里就不钉住，活动的 `pinned_by_push_id` 为 `null`，推送保持 `pending`，不记打开；筛后没有任何合格内容时照上面的拒绝处理。
+推送送达之后前提可能不再满足（或单元已消费完）。打开 app 时先筛后挑，被推送的那条不在合格单元代表集里就不钉住，活动的 `pinned_by_push_id` 为 `null`，推送保持 `pending`，不记打开；筛后没有任何合格单元时照上面的拒绝处理。
 推送不撤回，仍占着这段会话里该 app 的名额，停留结束时照旧过期；同一段停留里时段再次到来而它仍未释放时恢复优先。
-是否会钉住由 `content_select.pinned_push_content` 一处判定：当前会话里这个 app 有未释放的推送，并且它指向的内容在合格内容里。
+是否会钉住由 `content_select.pinned_push_content` 一处判定：当前会话里这个 app 有未释放的推送，并且它指向的内容在合格单元代表集里。
 
-一条内容做到末端、进度保存之后，按接续顺序判定接不接、接哪一条。在地点做的事只用第一行；
-一次 app 使用（活动私有数据 `app_id` 非空的 interact 活动）四行都用。打开 app 时挑第一条的打开顺序不受影响。
+一条内容做到末端、进度保存之后，按接续顺序判定接不接、接哪一条。在地点做的事只用「下一集」一行；
+一次 app 使用（活动私有数据 `app_id` 非空的 interact 活动）全部规则都用。打开 app 时挑起始条目的打开顺序不受影响。
 
 | 行 | 何时适用 | 接哪一条 | 抽取 |
 | --- | --- | --- | --- |
-| 下一集 | 刚放完的是系列的一集，并且有集号更大、完成轮数低于这一集刚放完后的轮数的集 | 这些集里集号最小的一集，从它保存的位置接着放；不看内容前提、`pushable` 和预留 | 不抽 |
-| 另一部系列 | 只用于一次 app 使用：刚放完的是系列的一集，而下一集一行没有找到 | 这个 app 里另一部开始过、没放完的系列，取最近放过的一部（各集最近一次消费时刻的最大值从晚到早，相同时代表集的 `content_id` 小的在前），放它的代表集，从保存的位置接着放 | 不抽 |
-| 没看过的独立内容 | 只用于一次 app 使用：刚放完的是独立内容 | 这个 app 里一条没有任何进度记录的独立内容 | 候选按 `content_id` 升序，抽一次 `randrange` |
+| 下一集 | 刚放完的是系列的一集，并且有集号更大、完成轮数低于这一集刚放完后的轮数的集；且该紧邻候选集同时满足：未因 `repeatable` 为 `false` 达到或超过单轮（候选集已完成轮数须为 `0`），以及此刻 `prerequisite_unmet(candidate, stay_location, local_moment)` 为空 | 满足条件的集里集号最小的一集，从它保存的位置接着放；不看 `pushable` 与预留（一旦前提不满足或不可重复耗尽则返回 `None`，正常停下不跳播） | 不抽 |
+| 另一部系列 | 只用于一次 app 使用：刚放完的是系列的一集，而下一集一行没有找到 | 这个 app 里另一部开始过、没放完且未耗尽的系列，取最近放过的一部（各集最近一次消费时刻的最大值从晚到早，相同时代表集的 `content_id` 小的在前），放它的代表集，从保存的位置接着放 | 不抽 |
+| 没看过的独立内容 | 只用于一次 app 使用：刚放完的是独立内容 | 这个 app 里一条没有任何进度记录、且此刻合格的独立内容 | 候选按 `content_id` 升序，抽一次 `randrange` |
 | 没有 | 适用的那一行没有候选 | 活动照旧做完：状态 `completed`，边界 `planned_end`，等人物收尾 | — |
 
-开始过、没放完的系列，指有一集的完成轮数多于各集的最小轮数，或有一集保存的位置大于零；各集轮数相同、位置都为零的系列不算，放完一整轮的也不算。
-代表集是轮数最少的各集里集号最小的一集。后两行的候选要同时满足三条，`pushable` 看的是将要放的那一条（第二行是代表集）：
-`pushable` 为真；此刻合格，即按 `content_select.eligible_contents` 以挑选那一秒的停留地点和本地时刻判定；不是预留。
+开始过、没放完的系列，指有一集的完成轮数多于各集的最小轮数，或有一集保存的位置大于零；各集轮数相同、位置都为零的系列不算，放完一整轮的也不算（`repeatable` 为 `false` 且最小轮数不小于 `1` 的已耗尽系列同样不计入）。
+代表集是轮数最少的各集里集号最小的一集。「另一部系列」与「没看过的独立内容」两行的候选都通过全集单元筛选并同时满足三条，`pushable` 看的是将要放的那一条（代表集）：
+`pushable` 为真；此刻代表集满足前提；不是预留。
 预留是人物别的进行中或暂停的 interact 活动正在放的内容，以及当前会话（一段停留，或一段路）里任何 app 未释放的推送；刚放完的那一条所在的单元（系列按标题，独立内容按身份）同样排除。
 这些排除都是硬的，排空了就是没有，不像打开顺序那样排空时退回不排除；接续顺序也没有打开顺序那样退回轮数最少、重放看过的内容。
 停留地点取 `admission.present_location` 在这一秒结算活动时的值。到达的那一秒先结算全部活动、后切换会话，所以那一秒的挑选仍按路上算：没有停留地点，带地点前提的内容不合格。
 
 接上的一条留在原活动、原槽位：状态回到 `active`，活动私有数据换成这一条（带上 `played` 与 `accepted_event_id`，`pinned_by_push_id` 为空），
 计划结束取上一次结算时刻加这一条的余量，计划时长取已做时长加余量，活动反馈重新排，进度播报的锚点不动。
-`draw_index` 每接一条加一，三行都加；第三行用加一后的值作随机键 `{activity_id}:{draw_index}`，挑选请求的 `previous_content_id` 是刚放完的那一条。
+`draw_index` 每接一条加一，上述各条接续路径都加；抽「没看过的独立内容」时用加一后的值作随机键 `{activity_id}:{draw_index}`，挑选请求的 `previous_content_id` 是刚放完的那一条。
 接上的一条不打开也不释放推送；放完一条照旧释放指向它的推送。所以接另一部系列或另一条独立内容时，未释放的推送指向的内容一直算预留，留到人物下次打开那个 app 时按打开顺序钉住；下一集一行不看预留，接到推送指向的那一集时，放完照旧释放那条推送。
 各条之间的边界照常是结算边界：每条有自己的 `activity_progress`（`data.content` 是这一条）、自己的内容消费与已核验经历，按自己的缓解档位结算；
 这些边界不是唤醒原因，不增加决策。一次 app 使用因此在人物收尾、或接续顺序找不到下一条时才结束，人物只能在别的唤醒原因带来的决策里结束它。
-下一集一行是 `content_select.next_episode`，后两行是 `content_select.autoplay_content`，都只读、至多抽一次，由 `interact._complete_content` 组合。
+下一集一行是 `content_select.next_episode(catalog, agent, content, rounds, (stay_location, local_moment))`，后两项是 `content_select.autoplay_content`，都只读、至多抽一次，由 `interact._complete_content` 组合。
 
-接下一集不判定内容前提，在时段内、在那类地点开始的系列，时段过了或人离开之后仍一集接一集，直到放完或人物结束活动。内容进度按人物与内容共享，跨 app 和地点不重新从零计算。
+`next_episode` 与 `activity_control._continues_with_next_episode` 均按当前 `(stay_location, local_moment)` 判定：若紧邻后序集受 `repeatable: false` 单轮约束或此刻 `prerequisite_unmet` 非空，立即返回 `None` 正常结束当次条目，不再击穿未来日期或异地前提。内容进度按人物与内容共享，跨 app 和地点不重新从零计算。
 暂停不推进内容；通过 `report_status` 按活动名恢复时，要求当前人在实际开始地点，并读取最新共享进度，
 不重新选内容，也不重新检查营业、包裹、单元被占和是否开放。暂停的活动没有进行中的结算区间，之后任何时刻、在原地或别处
 都可以用 `conclude_activity` 结束。
@@ -474,7 +521,7 @@ flowchart TD
 每一项用 app 的活动都有内容，活动数据的 `content_id` 不为空；登记了内容而此刻都不合格的 app 不可用。
 打开 app 的结果不带商品。想找这个 app 卖的东西或同城门店，用原生工具 `search_world` 搜索，用 `start_side_activity(purchase)` 加 `prefer` 买。
 
-地点和当前地点的内容单元完整呈现（凭状态而未开放的单元除外），不轮转、不截断。商品呈现保留实际曝光轮转。
+本城地点和当前地点的内容单元完整呈现（凭状态未开放或 `repeatable: false` 已耗尽的单元除外），不轮转、不截断。商品呈现经 `discovery.py` 筛选仅在当前城市有门店销售的店铺商品（`store.city_id == current_city`）后保留实际曝光轮转，异地特产不进入本地曝光窗口。
 
 ### 搜索（`search_world` 与 `LLM Search Session`）
 
@@ -506,13 +553,13 @@ flowchart TD
 | 提前结束：人物在提前唤醒中用 `conclude_activity` 取消 | `cancelled`，`interruption_reason` 为 `agent_cancelled` | 结束的那一秒 | 已让出 | 没有（且立刻清空 `suspended_loop`，不调用搜索子模型） |
 | 被截断：运行截止 | `truncated`，`interruption_reason` 为 `experiment_end` | 空 | 运行已结束 | 没有 |
 
-`search_world` 搜索的计划结束是离散时钟边界。时钟推进至 `planned_end_at` 且活动仍处于 `ACTIVE` 时，`RunHost` 通过 `LifeEngine.due_searches()` 在最新已提交世界状态上绑定只读 `SearchCatalogView`（按 `SearchTaskSpec` 仅注入本次 `query`、锁定的 `scoped_app_id`、当前停留地点与城市、当地时刻、天气标签与目录品类概览；人物人设、记忆与余额绝不进入子会话），并发运行隔离上下文的 `LLM Search Session`。
+`search_world` 搜索的计划结束是离散时钟边界。时钟推进至 `planned_end_at` 且活动仍处于 `ACTIVE` 时，`RunHost` 通过 `LifeEngine.due_searches()` 在最新已提交世界状态上绑定只读 `SearchCatalogView`（按 `SearchTaskSpec` 仅注入本次 `query`、锁定的 `scoped_app_id`、当前停留地点与所属城市 `city_id`、当地时刻、当前城市天气标签与目录品类概览；人物人设、记忆与余额绝不进入子会话），并发运行隔离上下文的 `LLM Search Session`。
 
-子会话使用纯内存确定性只读工具集（`search_goods`、`inspect_goods_offers`、`search_places`、`submit_search_results`，见[人物](06-agent.md)），并在模型档 `max_react_turns` 预算内经 `submit_search_results(goods_ids, place_ids, summary)` 交回候选身份清单（至多 20 个 `goods_id` 与 10 个 `place_id`）。若在预算用尽前未能通过提交，直接抛出 `ProtocolError("Search session turn budget exhausted")` 并保留完整子会话交互证据，**严禁静默回退旧版静态截断列表**。
+子会话使用纯内存确定性只读工具集（`search_goods`、`inspect_goods_offers`、`search_places`、`submit_search_results`，见[人物](06-agent.md)），并仅在**当前停留城市（`store.city_id == current_city`）**范围内检索门店商品，在**当前停留城市与从当前地点存在跨城声明边直达的异地枢纽（`_place_in_scope`）**范围内检索地点（绑定 `app_ids` 的线上商品含 `instant: true` 电子凭证全图可检索），在模型档 `max_react_turns` 预算内经 `submit_search_results(goods_ids, place_ids, summary)` 交回候选身份清单（至多 20 个 `goods_id` 与 10 个地点 `location_id`）。若在预算用尽前未能通过提交，直接抛出 `ProtocolError("Search session turn budget exhausted")` 并保留完整子会话交互证据，**严禁静默回退旧版静态截断列表**。
 
 随后 `LifeEngine.complete_searches(outcomes)` 在单次主线程事务内完成确定性结算：
 
-- **`Fact Guard` 事实投影**：对子会话提交的 `goods_ids` 与 `place_ids` 执行二次白名单核验（校验属于当前城市且受 `scoped_app_id` 约束），按搜索结束那一秒的实时 `WorldState` 调用实时报价函数统一生成结构化商品报价行 `goods_rows`（与实时购买报价共用价格、商铺评分、当前天气一半延长与不可下单原因口径）和同城地点行 `place_rows`（含营业状态、当日营业时段、商铺评分、已过滤未开放状态的当前可点名地点单元及从当前位置出发的可用出行方式概览）；子会话自身不被允许输出价格、运费、评分、时长或可买状态。
+- **`Fact Guard` 事实投影**：对子会话提交的 `goods_ids` 与 `place_ids` 执行二次白名单核验（校验门店商品在当前城市有售、地点属于当前城市或从当前地点直达的异地枢纽、线上商品与店铺商品均符合 `scoped_app_id` 约束），按搜索结束那一秒的实时 `WorldState` 调用 `quote_goods` 统一生成结构化商品报价行 `goods_rows`（与实时购买报价共用价格、商铺评分、当前城市当天天气一半延长与同城不可下单原因口径；`instant: true` 线上商品走 `fulfillment="instant"` 即时到账、`store_id=None`、`delivery_fee_fen=0`、`rating=None`；搜索恰在本地日期切换时完结则按当前城市新一天的天气报价）和地点行 `place_rows`（含营业状态、当日营业时段、商铺评分、已过滤未开放及已耗尽状态的当前可点名地点单元及从当前位置出发受 `city_wide` 与 `MapEdge` 限制的可行出行方式概览）；子会话自身不被允许输出价格、运费、评分、时长或可买状态。
 - **`app_use` 归属结算**：若开始时 `data.app_id` 已由 `prefer` 锁定，沿用该 `app_id`；若开始时 `data.app_id` 为 `None`（`prefer` 为空或未匹配到合法下单应用），完成阶段按返回 `goods_rows` 中可下单商品所属 `selling_app_id` 的众数归属 `data.app_id`（平手按字典序取最小）；若仍没有任何可下单 `selling_app_id` 可归属，则通过 `random_stream(random_state, f"search-app:{action_id}")` 从当前范围可用下单应用中确定性抽取并写入 `data.app_id`（无可用应用时保持 `None`）。凡 `data.app_id` 非空者，按该 `search` 活动执行区间登记 `app_use` 足迹（不写 `app_foreground`）。
 - **释放副槽位与安排恢复唤醒**：同时写入 `ended_at = current_time` 与 `concluded_at = current_time` 立刻释放副槽位，置 `agent.next_decision_at = current_time`，将权威结果与经过搜索这段时间产生的世界事件差量注入 `pending_tool_call_id` 对应的 `tool` 消息，随后由下一次屏障按 `mode = "resume_search"` 恢复人物原唤醒上下文直接衔接下单或出行。
 
@@ -552,16 +599,17 @@ flowchart TD
 
 | 次序 | 情形 | 结果 |
 | --- | --- | --- |
-| 先 | 绑定在 app 上的快递类商品 | 意向 app 在商品登记的 app 之内就用它，否则按商品与本地日期抽取；到站天数和运费按最终的 app 取。人在路上也能下单 |
-| 再 | 人停在卖这件商品的地点 | 营业就到店购买，不看 `prefer`，没有下单 app；已打烊以 `LOCATION_CLOSED` 拒绝，不改成外卖 |
-| 再 | 人在路上 | 以 `ACTIVITY_PRECONDITION_UNMET` 拒绝，不看 `prefer` |
-| 最后 | 外卖 | 候选店是卖这件商品、登记了至少一个内容 app、此刻营业的地点；没有候选店时拒绝，并点出最近一家有售的地点。候选店里有登记了意向 app 的，只在这些店里按（价款加运费，距离，店铺身份）取最小，下单 app 就是意向 app，不抽取，可以因此换到更远的店；没有，或没有意向，就在全部候选店里取最小，下单 app 按「店铺、本地日期」等概率抽取 |
+| 先 | 绑定在 app 上的线上商品（`app_ids` 非空） | 意向 app 在商品登记的 app 之内就用它，否则按商品与本地日期抽取。若商品声明 `instant: true`，`quote_goods` 返回即时电子履约报价（`fulfillment="instant"`、`store_id=None`、`delivery_fee_fen=0`、`destination_id=present_location(state, agent_id) or agent.location_id`、`path=()`、`distance_meters=0`、`prep_seconds=0`、`weather_delay_seconds=None`），工具层预览写 `运费0元，付款即收货`；若 `instant: false`，走快递（`station_pickup`），寄往对应人物 `home_location` 所属城市（`home_location.city_id`）内最近驿站，到站天数和运费按最终的 app 取。两类线上商品人在路上都能下单 |
+| 再 | 人停在卖这件店铺商品的地点 | 营业就到店购买，不看 `prefer`，没有下单 app；已打烊以 `LOCATION_CLOSED` 拒绝，不改成外卖 |
+| 再 | 人在路上购买店铺商品 | 以 `ACTIVITY_PRECONDITION_UNMET` 拒绝，不看 `prefer` |
+| 最后 | 外卖（店铺商品远程送达） | 候选店仅筛选**当前停留城市（`store.city_id == current_city`）**内卖这件商品、登记了至少一个内容 app、此刻营业的地点；没有候选店时拒绝，`_require_store` 同样只在当前城市内寻找最近一家有售地点（若当前城市没有任何门店有售，仅说明本城暂无该商品线下门店）。候选店里有登记了意向 app 的，只在这些店里按（价款加运费，距离，店铺身份）取最小，下单 app 就是意向 app，不抽取，可以因此换到更远的店；没有，或没有意向，就在全部本城候选店里取最小，下单 app 按「店铺、本地日期」等概率抽取 |
 
 意向从不产生拒绝，也从不消除拒绝；用不上时不退回、不给候选、不写任何提示。一次购买里同一家店仍只有一个下单 app、一个配送组、一份运费；
 同一家店同一天的两次购买可以落在不同的 app 上。意向让商品分到不同的 app 或店时，订单、配送组、付款段和通知跟着变多，运费按配送组各收一份。
-工具层商品行按没有意向的路线预览，给出实际商铺名称、评分和适用的运费、预计到达，实际以购买结果为准。
+工具层商品行按没有意向的路线预览，给出实际商铺名称、评分和适用的运费、预计到达（即时电子履约商品显示 `运费0元，付款即收货`），实际以购买结果为准。
 
-购买受理派生到店、外卖或快递履约，冻结目的地、商品、报价、各张订单的付款方式与付款时长、购买时长和各段的起止。
+购买受理派生到店（`pickup`）、外卖（`delivery`）、快递（`station_pickup`）或即时电子履约（`instant`），冻结目的地、商品、报价、各张订单的付款方式与付款时长、购买时长和各段的起止。
+`prepare_purchase` 为到店（`PICKUP`）与即时电子履约（`INSTANT`）记录同样冻结 `expected_at = state.current_time + duration`。
 每条记录的下单 app 也在受理时冻结；意向只在受理时用一次，恢复和重放读记录，不重选店、不重抽 app。
 外卖按受理时的天气和店铺到收货地的最短距离冻结公开预计送达和天气总延长。
 途中变天、跨零点或恢复运行时均沿用这次报价。工具结果、在途待办和日计划只显示公开预计送达。
@@ -570,9 +618,10 @@ flowchart TD
 
 | 履约 | 与出行的关系 |
 | --- | --- |
-| 到店 | 不能与出发同组开始；进行中的到店购买须先结束才能出发 |
-| 外卖（店铺商品远程送达） | 只能在出发前已经开始，或与出发同组开始；收货地点是出发前的停留地点，人在路上时下不了单 |
-| 快递（绑定在 app 上的商品） | 不依赖当前停留点，路上也能下单 |
+| 到店（`pickup`） | 不能与出发同组开始；进行中的到店购买须先结束才能出发 |
+| 外卖（`delivery`） | 只能在出发前已经开始，或与出发同组开始；收货地点是出发前的停留地点，人在路上时下不了单 |
+| 快递（`station_pickup`） | 不依赖当前停留点，路上也能下单；不阻断出发 |
+| 即时到账（`instant`） | 不依赖当前停留点，路上也能下单；不阻断出发 |
 
 付款按订单抽取，订单一律按键升序处理，到店订单排在最后。付款方式的候选是绑定了 `purchase` 的功能 app 按身份升序、
 末尾加一个 null，一张订单等概率取一次：抽到功能 app 表示跳到这个 app 付款；抽到 null 表示直付，
@@ -593,9 +642,9 @@ flowchart TD
 第一个付款段恰好从购买开始那一秒起时，开始时刻在受理的同一次提交里写入。付款段结束不扣款。
 
 受理时不扣款。购买走到计划结束的那一秒重新核验整次总额：余额不足则全部记录取消、购买活动记为失败，不付款也不收货。
-余额足够时在同一次提交里按订单键升序逐张结算：从人物账户转出这张订单的货款加它名下各配送组的运费，
+余额足够时在同一次提交里按订单键升序逐张结算（`_pay_order`）：从人物账户转出这张订单的货款加它名下各配送组的运费，
 把 `paid_at` 写到这张订单的全部记录上，写一条 `purchase_payment`，账户差额只记在这条事件上，起因是购买受理的结果；
-再写这张订单的「订单已下单」和「支付成功」；到店订单的记录随后逐条当秒收货，起因是这张订单的付款事件。
+再写这张订单的 `ORDER_PLACED`（「订单已下单」）和 `payment_notification`（「支付成功」）；到店（`FulfillmentKind.PICKUP`）与即时电子履约（`FulfillmentKind.INSTANT`）订单的记录随后在**同一次事务内于 `paid_at` 当秒立即调用 `settle_receipt` 完成收货**，起因是这张订单的 `purchase_payment` 事件（即时电子履约记录因此直接触发 `gain_on_receipt` 与 `reset_on_goods` 状态更新，且不登记任何发货或到站事件）。
 订单之间不插入回调或其他结算，全部订单的 `paid_at` 都等于购买完成的时刻。
 完成时只有一部分记录已付款是运行故障 `Purchase contains partially paid orders`；
 有付款段没有走完是运行故障 `Purchase completion requires actual payment operation evidence`。
@@ -614,24 +663,25 @@ flowchart TD
 
 | 通知 | 每什么一条 | 时刻 | 发送的 app | 记录集合 | 起因 | 正文 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 订单已下单 | 每张带下单 app 的已付款订单 | 付款时刻 | 订单的下单 app | 这张订单的全部记录 | 这张订单的付款事件 | `已下单：{商品名列表}` |
-| 支付成功 | 每张已付款订单；支付 app 与下单 app 都为空的不发 | 付款时刻 | 支付 app，直付时是订单的下单 app | 同上 | 同上 | `已消费 {金额} 元，购买{商品名列表}` |
-| 订单已发货 | 每趟配送，外卖和快递都发 | 付款后经过「付款到公开预计送达的剩余秒数」的十分之一，向上取整到秒 | 这趟配送的下单 app | 这一趟的记录 | 所属订单的付款事件 | `{商品名列表}已发货` |
-| 订单已送达 | 每趟外卖配送 | 真实送达的时刻 | 这趟配送的下单 app | 这一趟的记录 | 这一趟的到达事件 | `{商品名列表}已送达`，有延误时附该趟的延误说明 |
+| 订单已下单（`ORDER_PLACED`） | 每张带下单 app 的已付款订单（含外卖、快递与即时电子履约） | 付款时刻 | 订单的下单 app | 这张订单的全部记录 | 这张订单的付款事件 | `已下单：{商品名列表}` |
+| 支付成功（`payment_notification`） | 每张已付款订单；支付 app 与下单 app 都为空的不发 | 付款时刻 | 支付 app，直付时是订单的下单 app | 同上 | 同上 | `已消费 {金额} 元，购买{商品名列表}` |
+| 订单已发货（`ORDER_SHIPPED`） | 每趟配送，外卖和快递都发；到店与即时电子履约不发 | 付款后经过「付款到公开预计送达的剩余秒数」的十分之一，向上取整到秒 | 这趟配送的下单 app | 这一趟的记录 | 所属订单的付款事件 | `{商品名列表}已发货` |
+| 订单已送达（`ORDER_DELIVERED`） | 每趟外卖配送；快递、到店与即时电子履约不发 | 真实送达的时刻 | 这趟配送的下单 app | 这一趟的记录 | 这一趟的到达事件 | `{商品名列表}已送达`，有延误时附该趟的延误说明 |
 
 付款时刻是购买完成、真正扣款的那一秒；一次购买的全部「订单已下单」「支付成功」在这一秒发出，每张订单先写「订单已下单」再写「支付成功」。
 付款时公开预计送达已过就当秒发货。距公开预计送达还有 60 秒就在付款后 6 秒发货，还有 700 秒就在付款后 70 秒发货。
 商品名列表是这条通知所含记录的商品名，按 `goods_id` 升序用「、」连接，同一商品多份写成「名称×份数」。
 发货通知用一条预排事件实现：种类 `order_shipped`，身份 `shipped-{这一趟里最小的 order_id}`，与到达排程取同一条记录，
-载荷是这一趟的记录身份，起因是所属订单的付款事件。到期时只写这一条 `order_notification`，不写别的事件，不求值回调，
+载荷是这一趟的记录身份，起因是所属订单的付款事件。`delivery_events` 跳过到店（`PICKUP`）与即时电子履约（`INSTANT`），仅为外卖与快递排程。到期时只写这一条 `order_notification`，不写别的事件，不求值回调，
 不唤醒人物，也不算进人物下一次决策时刻的候选；人物睡着时照写，到期时刻晚于运行截止的不发。
 一次购买的排程序号从现有最大序号加一开始，先按趟的顺序分给各趟的发货排程，再按同样的顺序分给各趟的到达排程，
 所以同一秒到期时发货通知先于到达处理。外卖送达时先写人物可见的到达事件和收货，再写「订单已送达」。
 快递到站不发「订单已送达」，沿用到站取件通知，照发「订单已下单」「支付成功」「订单已发货」。
+即时电子履约（`FulfillmentKind.INSTANT`）订单有下单 app 而无物流：只发「订单已下单」（`ORDER_PLACED`）与「支付成功」（`payment_notification`），不发「订单已发货」与「订单已送达」，并在付款同次事务中当秒完成收货。
 到店当场买的订单只有「支付成功」，由支付 app 发；抽到直付时一条通知都没有。
-付款后到店订单当秒收货，外卖在到期时真实送达，快递先到驿站，再由本人到站后在本站开始一件事时领取。
+付款后到店订单与即时电子履约订单当秒收货（`status` 立即置为 `delivered`），外卖在到期时真实送达，快递先到`home_location.city_id` 内最近驿站，再由本人到站后在本站开始一件事时领取。
 已付款、状态为 `pending`（外卖或快递在路上）或 `ready_for_pickup`（快递已到驿站、等本人领取）的商品履约记录是本人的在途订单；
-未付款的 `pending` 记录是进行中购买的报价，不算在途。待办层的 `orders` 与零点计划的「在途订单」都用同一个函数按这一条选出，
+未付款的 `pending` 记录是进行中购买的报价，不算在途；即时电子履约记录在付款当秒即收货，不留在途订单中。待办层的 `orders` 与零点计划的「在途订单」都用同一个函数按这一条选出，
 见[人物](06-agent.md)「进度、待办与记忆」与「零点计划」。
 外卖商品履约记录的 `trip_id` 写成 `<店铺>-><收货地>:delivery`；后缀 `delivery` 不是出行方式身份，与数据集定义了哪些出行方式无关。
 外卖送达和快递到站按一趟配送各登记一条到达事件，起因恰为这一趟所属订单的那条付款事件。
@@ -647,9 +697,9 @@ flowchart TD
 购买明细的每一行带 `channel`：下单 app 的完整名称，或「到店」；取自记录上的下单 app，不取人物写的 `prefer`；这次请求的受理与终结结果都带。已结算的购买句不写渠道。
 到店和外卖的购买明细另带实际卖出商铺的名称和评分。搜索和购买受理时尚未产生这份商品的品质。
 
-真实付款生成信封资金变化；真实收货应用[交换效果](02-exchange-engine.md)、回调状态重置和个人事务累计。
+真实付款生成信封资金变化；真实收货应用[交换效果](02-exchange-engine.md)、回调状态重置（`reset_to_cap`）与收货累加（`gain_on_receipt`）和个人事务累计。
 到店拿到或外卖送到时，每条商品履约记录在这次收货事件上登记一项品质，抽样依据是这份商品的实际卖出商铺评分。
-同款多份分别结算，重复处理已收货的记录直接返回原状态。快递到站、本人取件和取消购买均不抽品质。
+同款多份分别结算，重复处理已收货的记录直接返回原状态。快递到站、本人取件、即时电子履约与取消购买均不抽品质（即时电子履约既无 `store_id` 也无 `quality`，其收货起因指向该订单的 `purchase_payment` 事件）。
 在地点做完写了完成效果的事只结算完成效果，不是收货，不重置回调状态，不累计个人事务。
 取件、付款、前台区间与通知的原因均指向真实源事件，重复请求、恢复与重放不重新选择或重复应用效果。
 
@@ -688,7 +738,9 @@ flowchart TD
 同一边界同一类别只计一次，`planned_end` 与 `session_open` 同属 `time_boundary`，
 按类别订阅的回调只执行一次。`rejection_feedback` 出现在跨人物资源冲突被 `BarrierMerger` 回滚后同刻再唤醒时（沙盒内业务拒绝直接在当前 `AgentLoop` 内部纠偏）。
 
-天气只来自世界按本地日期生成的事实。天气与日历在实际本地午夜登记，时间回调只在数据集声明的时间登记；
+天气只来自世界按本地日期与城市生成的事实：`WorldState.weather_by_date` 为 `dict[str, dict[str, str]]`，映射 `local_date -> {city_id: condition}`。
+新建世界（起始日）与每个实际本地午夜，按目录已登记的全部 `city_id` 升序各自独立以随机键 `weather:{city_id}:{local_date}` 抽取当日天气；午夜事件对每个升序 `city_id` 分别写出一条 `environment_event`（`kind = "weather"`，`scheduled_id = weather-{city_id}-{local_date}`，封闭字段集 `{kind, city_id, local_date, condition, speed_factor, scheduled_id}`）。
+日历同样在实际本地午夜登记，时间回调只在数据集声明的时间登记；
 绝对时钟在夏令时变化时仍单调推进。停止时先完成真实结算和正常 run_end 回调，再写终态。
 
 零点边界（不是运行终点）的推进提交之后依次执行：日回顾、月回顾（每月第一个零点）、年回顾（每年第一个零点）、零点计划，
@@ -728,7 +780,8 @@ B_D 只有时钟到达 D 日零点之后才确定，在那之前读取是完整�
 
 回调状态与规则的数据声明归[配置](08-configuration.md)和[资源引擎](03-resource-engine.md)。
 动作触发能订阅哪些动作只写在[资源引擎](03-resource-engine.md)「声明式回调」；搜索（`search_world`）不在其中，受理 `search_world` 不触发任何动作回调。
-凭状态的地点内容开始时把状态减 1（见「出行、内容与搜索」），和状态增量一样可以成为阈值触发的来源。
+真实收货除触发 `reset_on_goods`（`reset_to_cap`）外，还为声明了 `gain_on_goods` 包含该 `goods_id` 的状态触发累加（`StateGainResult`：`kind="callback_effect"`、`type="gain_on_receipt"`、`rule_id=None`、`state`、`goods_id`、`before`、`after`，其中 `after = min(cap, before + 1)`），起因均为 `goods_received` 事件。
+凭状态开始（`consume_on_start`）覆盖地点内容（`Content.consumes_state`）、声明边出行（`MapEdge.consumes_state`）与商业酒店睡眠（`Location.sleep_consumes_state`）三类开始扣除：`ConsumeOnStartResult` 的 `content_id` 为 `str | None = None`（地点内容为非空内容身份，跨城边出行与酒店住宿睡眠为 `None`），`AgentSandbox` 与 `BarrierMerger` 共用的 `_start_effects` 按实际动作绑定 `CallbackCause("action", action_kind, ...)`（`action_kind` 取 `"interact"`、`"travel"` 或 `"sleep"`，锚点 `<action_id>:consume`），和状态增量一样可以成为阈值触发的来源。
 执行按规则身份排序，真实触发和效果落在同一事务；每日次数和运行起止的一次性标记持久化。
 阈值回调每次提交最多触发一次，不级联。状态提示比较整个触发后的净可见结果，抵消变化不提示。
 支出余额不足记录 paid=false，账户不变，后续效果继续；所有效果都有唯一真实原因。
@@ -744,7 +797,7 @@ B_D 只有时钟到达 D 日零点之后才确定，在那之前读取是完整�
 `AgentSandbox` 为每位就绪人物持有深拷贝沙盒世界（候选世界）：活动与已处理动作两个集合各换一个新容器，与当前世界共享没有变的条目，其余部分完整复制。
 候选世界改动条目一律换成新条目、从不原地修改（见[状态与序列化](09-io-formats.md)「世界、人物与活动」），所以沙盒尝试
 被丢弃、冲突回滚或正常提交，已提交世界都保持原样，推进与提交前后的比较（阈值回调、导航前台、购买前台区间、停留进出）总能看到真实的
-提交前世界。各人物在 `AgentLoop` 内部仅把草稿写进私有 `EvidenceBuffer`，待并发协程全部退出后交由 `BarrierMerger.commit_barrier` 按 `agent_id` 升序依次核验跨人物冲突：
+提交前世界。各人物在 `AgentLoop` 内部仅把草稿缓存在私有沙盒 `AgentSandbox` 内，待并发协程全部退出后交由 `BarrierMerger.commit_barrier` 按 `agent_id` 升序依次核验跨人物冲突：
 无冲突分支连同证据草稿在单次 SQLite 事务中原子合入；若后位人物的前置条件已被前位人物的提交改变，则整体回滚该后位人物的本次沙盒变更并重置其 `next_decision_at = current_time`（写入拒绝反馈，不写入工作区 `MEMORY.md`），由下一次同刻屏障重新观察改选。
 
 共享时钟结算与事件在同一事务提交，共同检查点保存共同世界（含各人物 `AgentState.suspended_loop`）和全体人物工作区。

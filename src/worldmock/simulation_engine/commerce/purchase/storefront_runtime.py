@@ -51,7 +51,8 @@ class StorefrontRuntime:
         drawn = random_stream(state.random_state, f"purchase-duration:{pending.action_id}").randint(60, 300)
         duration = purchase_seconds(drawn, order_payments(orders))
         orders = tuple(order.model_copy(update={"expected_at": state.current_time + duration}, deep=True)
-                       if order.fulfillment == FulfillmentKind.PICKUP else order for order in orders)
+                       if order.fulfillment in {FulfillmentKind.PICKUP, FulfillmentKind.INSTANT} else order
+                       for order in orders)
         activity = _purchase_activity(state, pending, orders, duration, self.context.catalog)
         changed = state.model_copy(update={"deliveries": {**state.deliveries,
             **{order.order_id: order for order in orders}},
@@ -135,14 +136,15 @@ class StorefrontRuntime:
             events.append(placed_notice(orders, paid, self.context.catalog))
         if orders[0].app_id is not None or orders[0].payment_app_id is not None:
             events.append(payment_notice(orders, paid, self.context.catalog))
-        if orders[0].fulfillment == FulfillmentKind.PICKUP:
-            for order in orders:
-                outcome = settle_receipt(changed, self.context, order.order_id)
-                changed = outcome.state
-                for receipt in outcome.receipts:
-                    if receipt.data.get("kind") == "goods_received":
-                        receipt.caused_by = [paid.event_id]
-                events.extend(outcome.receipts)
+        for order in orders:
+            if order.fulfillment not in {FulfillmentKind.PICKUP, FulfillmentKind.INSTANT}:
+                continue
+            outcome = settle_receipt(changed, self.context, order.order_id)
+            changed = outcome.state
+            for receipt in outcome.receipts:
+                if receipt.data.get("kind") == "goods_received":
+                    receipt.caused_by = [paid.event_id]
+            events.extend(outcome.receipts)
         return changed, events
 
 

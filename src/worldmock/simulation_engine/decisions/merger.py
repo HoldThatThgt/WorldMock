@@ -228,6 +228,7 @@ class BarrierMerger:
                 all_agent_drafts = list(direct_drafts)
         except BusinessRuleError as conflict:
             self._actions.drain_causes()
+            self._actions.drain_drafts()
             conflict_evts = _conflict_drafts(self._context, before, outcome, conflict)
             return _conflict_rollback(before, outcome.agent_id), [*prelude, *conflict_evts], False
         self._context.callback_causes.update(self._actions.drain_causes())

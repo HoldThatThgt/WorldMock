@@ -86,6 +86,23 @@ class ActionHandlers:
         ended = [state.activities[activity.activity_id] for activity in selected]
         return [conclusion_outcome(activity, name) for name, activity in zip(names, ended, strict=True)]
 
+    def _check_conclude_targets(
+        self, state: WorldState, pending: ToolInvocation, selected: list[ActivityState]
+    ) -> None:
+        """@brief 核验所选活动可结束、非跨城在途且不遗漏待收尾活动。"""
+        if not all((activity_control.concludable(item) for item in selected)):
+            _LOGGER.error("Concluded activity is not active, paused or awaiting conclusion")
+            raise BusinessRuleError("ACTION_REQUEST_INVALID")
+        names = self._control_names(pending)
+        for item in selected:
+            refusal = activity_control.intercity_conclude_refusal(self.context.catalog, item, names)
+            if refusal is not None:
+                _LOGGER.error("Active intercity travel %s cannot be concluded before arrival", item.activity_id)
+                raise refusal.error()
+        waiting = activity_control.pending_conclusions(activity_control.open_activities(state, pending.agent_id))
+        if waiting and (not {item.activity_id for item in waiting} & {item.activity_id for item in selected}):
+            raise activity_control.conclusion_required(waiting, names)
+
     def _conclude_activity(
         self, state: WorldState, pending: ToolInvocation, request: ConcludeActivityRequest
     ) -> tuple[WorldState, ActionResult]:
@@ -94,12 +111,7 @@ class ActionHandlers:
         written, summaries = [item.activity_name for item in items], [item.summary for item in items]
         requested, selected = self._named_activities(state, pending, written)
         changes = self._errand_changes(pending, "conclude_activity", request)
-        if not all(activity_control.concludable(item) for item in selected):
-            _LOGGER.error("Concluded activity is not active, paused or awaiting conclusion")
-            raise BusinessRuleError("ACTION_REQUEST_INVALID")
-        waiting = activity_control.pending_conclusions(activity_control.open_activities(state, pending.agent_id))
-        if waiting and not ({item.activity_id for item in waiting} & {item.activity_id for item in selected}):
-            raise activity_control.conclusion_required(waiting, self._control_names(pending))
+        self._check_conclude_targets(state, pending, selected)
         changed, departed = self._cancel_selected(state, pending, selected)
         activities = dict(changed.activities)
         for activity, summary in zip(selected, summaries, strict=True):

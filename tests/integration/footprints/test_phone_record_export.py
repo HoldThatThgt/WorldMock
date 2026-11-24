@@ -297,7 +297,8 @@ def test_rewritten_foreground_intervals_are_refused(exported, phone_export, faul
         assert earliest["data"]["app_id"] == "bilibili" and earliest["data"]["step"] == "ordering"
         earliest["data"]["interval_start"] -= 30
     elif fault == "ordering_over_the_previous_app":
-        ordering["data"]["interval_start"] -= 30
+        earliest = min(row["data"]["interval_start"] for row in front["bought"])
+        ordering["data"]["interval_start"] -= min(30, ordering["data"]["interval_start"] - earliest)
     elif fault == "interval_of_the_app_activity":
         ordering["activity_id"] = ids["watching"]
     else:

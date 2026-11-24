@@ -96,7 +96,7 @@ def delivery_events(state: WorldState, orders: tuple[DeliveryState, ...],
     """
     grouped = {}
     for order in orders:
-        if order.paid_at is not None and order.fulfillment != FulfillmentKind.PICKUP:
+        if order.paid_at is not None and order.fulfillment not in {FulfillmentKind.PICKUP, FulfillmentKind.INSTANT}:
             grouped.setdefault((order.expected_at, order.group_key), []).append(order)
     trips = [sorted(grouped[key], key=lambda order: order.order_id) for key in sorted(grouped)]
     first = max((item.sequence for item in state.pending_events), default=0) + 1

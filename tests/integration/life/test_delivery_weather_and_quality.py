@@ -25,7 +25,7 @@ def lunch_environment(path):
 
 def test_rainy_lunch_from_menu_to_receipt(engine_factory, tmp_path):
     def heavy_rain(persona, config):
-        config["seed"] = 32
+        config["seed"] = 18
 
     engine = engine_factory(lunch_environment(tmp_path / "lunch"), mutate=heavy_rain)
     noon = int(datetime(2026, 1, 5, 12, tzinfo=ZoneInfo("Asia/Shanghai")).timestamp())

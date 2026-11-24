@@ -1,7 +1,9 @@
 """@brief 环境包、对象容器、营业时段与声明式回调的唯一登记校验。"""
 
-from collections import deque
+from collections import defaultdict, deque
+from collections.abc import Mapping, Sequence
 from datetime import date
+import logging
 from pathlib import Path
 import re
 from typing import NoReturn
@@ -15,7 +17,14 @@ from worldmock.resource_engine.catalog.identity import (
     compute_catalog_identity,
     present_catalog_files,
 )
-from worldmock.resource_engine.catalog.models import CatalogManifest, MapGraph, WEEKDAYS, channel_key
+from worldmock.resource_engine.catalog.models import (
+    CatalogManifest,
+    Location,
+    MapGraph,
+    TravelMethod,
+    WEEKDAYS,
+    channel_key,
+)
 from worldmock.exchange_engine.definitions.constants import (
     MAP_MIN_NODES,
     PUSH_SUMMARY_MAX_CHARS,
@@ -28,6 +37,7 @@ from worldmock.exchange_engine.definitions.constants import (
 )
 from worldmock.exchange_engine.commerce.operators import travel_seconds
 
+_LOGGER = logging.getLogger(__name__)
 #: 目录 JSONL 的文件名闭集；清单自己不进文件表。
 CATALOG_FILES = REQUIRED_CATALOG_FILES | OPTIONAL_CATALOG_FILES
 
@@ -131,30 +141,48 @@ def validate_registration(rows: dict) -> None:
         if display:
             names = [channel_key(getattr(row, display)) for row in entries]
             if len(names) != len(set(names)):
+                _LOGGER.error("Duplicate display name in catalog section %s", name)
                 raise RegistrationError("ENVIRONMENT_ID_DUPLICATE")
     apps = {app.app_id: app for app in rows["apps"]}
     kinds = {place.kind for place in rows["locations"]}
+    cities = frozenset(place.city_id for place in rows["locations"])
+    states = frozenset(row.state for row in rows["callback_states"])
     methods = _check_travel_methods(rows["travel_methods"])
-    _check_locations(rows, apps)
+    _check_locations(rows, apps, states)
     _check_goods(rows, apps, kinds)
     _check_store_ratings(rows)
-    _check_contents(rows, apps, kinds, frozenset(row.state for row in rows["callback_states"]))
+    _check_contents(rows, apps, kinds, cities, states)
     _check_apps(rows, methods)
     _check_callbacks(rows, apps, methods)
-    _check_map_edges(rows["map_edges"], [place.location_id for place in rows["locations"]])
+    _check_map_edges(rows["map_edges"], rows["locations"], methods, states)
 
 
-def _check_locations(rows, apps) -> None:
-    """@brief 住宿按显式标记，驿站按显式资格与地点内容登记。"""
+def _check_locations(rows, apps, states: frozenset[str]) -> None:
+    """@brief 住宿按显式标记，商业住宿凭状态限非自有可睡地点，驿站按非即时线上商品条件强制要求。"""
     if not any(place.is_home for place in rows["locations"]):
+        _LOGGER.error("Catalog declares no home location")
         raise RegistrationError("HOME_LOCATION_REQUIRED")
-    for place in rows["locations"]:
+    for number, place in enumerate(rows["locations"], start=1):
         _check_content_apps(place.app_ids, apps)
+        if place.sleep_consumes_state is not None:
+            if not place.sleepable or place.is_home:
+                _LOGGER.error("Location %s declares sleep_consumes_state on invalid location", place.location_id)
+                raise RegistrationError(
+                    "ENVIRONMENT_KIND_INVALID",
+                    f"location.jsonl:{number} sleep_consumes_state requires sleepable=true and is_home=false.")
+            if place.sleep_consumes_state not in states:
+                _LOGGER.error("Location %s references unknown state %s", place.location_id, place.sleep_consumes_state)
+                raise RegistrationError(
+                    "ENVIRONMENT_REF_UNKNOWN",
+                    f"location.jsonl:{number} Unknown callback state: {place.sleep_consumes_state}.")
         if place.opens is not None:
             _check_opening_hours(place.opens)
         if place.accepts_parcels and not any(place.kind in c.location_kinds for c in rows["contents"]):
+            _LOGGER.error("Parcel station %s has no location content", place.location_id)
             raise RegistrationError("PARCEL_STATION_REQUIRED", f"{place.location_id} has no location content.")
-    if any(goods.app_ids for goods in rows["goods"]) and not any(p.accepts_parcels for p in rows["locations"]):
+    if any(goods.app_ids and not goods.instant for goods in rows["goods"]) and not any(
+            p.accepts_parcels for p in rows["locations"]):
+        _LOGGER.error("Non-instant app goods require at least one parcel station")
         raise RegistrationError("PARCEL_STATION_REQUIRED", "App goods require a parcel station.")
 
 
@@ -188,12 +216,18 @@ def _time_minutes(value: str, allow_midnight: bool = False) -> int:
 
 
 def _check_goods(rows, apps, kinds) -> None:
-    """@brief 商品恰绑定一侧，每个地点类型逐字匹配实际地点。"""
-    for goods in rows["goods"]:
+    """@brief 商品恰绑定一侧，店铺商品不得声明 instant，每个地点类型逐字匹配实际地点。"""
+    for number, goods in enumerate(rows["goods"], start=1):
         if not goods.app_ids and not goods.store_kinds:
+            _LOGGER.error("Goods %s has neither app_ids nor store_kinds", goods.goods_id)
             raise RegistrationError("GOODS_BINDING_MISSING")
         if goods.app_ids and goods.store_kinds:
+            _LOGGER.error("Goods %s binds both app_ids and store_kinds", goods.goods_id)
             raise RegistrationError("GOODS_BINDING_SIDE_EXCLUSIVE")
+        if goods.store_kinds and ("instant" in goods.model_fields_set or goods.instant):
+            _LOGGER.error("Store goods %s declares instant", goods.goods_id)
+            raise RegistrationError("ENVIRONMENT_KIND_INVALID",
+                                    f"merchant-catalog.jsonl:{number} Store goods may not declare instant.")
         _check_content_apps(goods.app_ids, apps)
         _check_bindings(goods.store_kinds, kinds, "GOODS_BINDING_DANGLING")
 
@@ -210,9 +244,10 @@ def _check_store_ratings(rows: dict) -> None:
                                     f"location.jsonl:{number} Only selling locations can declare a rating.")
 
 
-def _check_contents(rows, apps, kinds, states: frozenset[str]) -> None:
+def _check_contents(rows, apps, kinds, cities: frozenset[str], states: frozenset[str]) -> None:
     """@brief 内容容器、摘要、来源、前提、凭的状态与完成效果、系列符合独立登记规则；同一地点类型下可点名的单元名唯一。
 
+    :param cities: 登记的全部城市身份集合。
     :param states: 登记的全部状态名；没有 callbacks.jsonl 时为空集。
     """
     series, episodes, units = {}, set(), {}
@@ -227,26 +262,35 @@ def _check_contents(rows, apps, kinds, states: frozenset[str]) -> None:
             raise RegistrationError("CONTENT_SUMMARY_TOO_LONG")
         if content.summary_source.kind == "real" and not content.summary_source.url:
             raise RegistrationError("CONTENT_SOURCE_URL_MISSING")
-        _check_prerequisite(content, kinds)
+        _check_prerequisite(content, kinds, cities)
         _check_location_declarations(content, states)
         if content.series is not None:
             _check_series(series, episodes, content)
         _check_unit_name(units, content, number)
 
 
-def _check_prerequisite(content, kinds) -> None:
-    """@brief 内容前提只能写在 app 内容上并至少声明地点类型或时段之一；地点类型有序、无重复并指向登记地点。"""
+def _check_prerequisite(content, kinds, cities: frozenset[str]) -> None:
+    """@brief 内容前提只能写在 app 内容上并至少声明城市、地点类型或时段之一；城市与地点类型有序去重并指向登记地点。"""
     prerequisite = content.prerequisite
     if prerequisite is None:
         return
     if content.location_kinds:
+        _LOGGER.error("Location content %s declares prerequisite", content.content_id)
         raise RegistrationError("CONTENT_PREREQUISITE_INVALID", f"{content.content_id} is a location content.")
-    if not prerequisite.location_kinds and prerequisite.opens is None:
-        raise RegistrationError("CONTENT_PREREQUISITE_INVALID",
-                                f"{content.content_id} declares neither location kinds nor opening hours.")
+    if not prerequisite.city_ids and not prerequisite.location_kinds and prerequisite.opens is None:
+        _LOGGER.error("Content %s declares empty prerequisite", content.content_id)
+        raise RegistrationError(
+            "CONTENT_PREREQUISITE_INVALID",
+            f"{content.content_id} declares neither city_ids, location_kinds, nor opening hours.")
+    _check_order(prerequisite.city_ids)
+    for city_id in prerequisite.city_ids:
+        if city_id not in cities:
+            _LOGGER.error("Content %s prerequisite names unknown city_id %s", content.content_id, city_id)
+            raise RegistrationError("CONTENT_BINDING_DANGLING", f"{content.content_id} prerequisite names {city_id}.")
     _check_order(prerequisite.location_kinds)
     for kind in prerequisite.location_kinds:
         if kind not in kinds:
+            _LOGGER.error("Content %s prerequisite names unknown kind %s", content.content_id, kind)
             raise RegistrationError("CONTENT_BINDING_DANGLING", f"{content.content_id} prerequisite names {kind}.")
     if prerequisite.opens is not None:
         _check_opening_hours(prerequisite.opens)
@@ -267,22 +311,27 @@ def _check_location_declarations(content, states: frozenset[str]) -> None:
 
 
 def _check_series(series: dict, episodes: set, content) -> None:
-    """@brief 同一系列各集的容器绑定、内容前提、凭的状态与记忆类别必须完全相同，集号不得重复；完成效果各集各写。
+    """@brief 同系列各集容器绑定、凭的状态、记忆类别与 repeatable 须一致且集号唯一；app 系列允许分集独立前提。
 
-    :param series: 系列名到先登记那一集的（容器绑定，内容前提，凭的状态，记忆类别）。
+    :param series: 系列名到首集（app_ids，location_kinds，凭的状态，记忆类别，repeatable）。
     :param episodes: 已登记的（系列名，集号）。
     """
     title, episode = content.series.title, content.series.episode
-    binding = (content.app_ids, content.location_kinds)
-    first = series.setdefault(title, (binding, content.prerequisite, content.consumes_state, content.memory_category))
-    if first[0] != binding or (title, episode) in episodes:
+    first = series.setdefault(
+        title, (content.app_ids, content.location_kinds, content.consumes_state,
+                content.memory_category, content.repeatable))
+    if (first[0], first[1]) != (content.app_ids, content.location_kinds) or (title, episode) in episodes:
+        _LOGGER.error("Series %s has conflicting binding or duplicate episode %s", title, episode)
         raise RegistrationError("CONTENT_SERIES_INVALID")
-    if first[1] != content.prerequisite:
-        raise RegistrationError("CONTENT_SERIES_INVALID", f"{title} episodes declare different prerequisites.")
     if first[2] != content.consumes_state:
+        _LOGGER.error("Series %s episodes declare different consumed states", title)
         raise RegistrationError("CONTENT_SERIES_INVALID", f"{title} episodes declare different consumed states.")
     if first[3] != content.memory_category:
+        _LOGGER.error("Series %s episodes declare different memory categories", title)
         raise RegistrationError("CONTENT_SERIES_INVALID", f"{title} episodes declare different memory categories.")
+    if first[4] != content.repeatable:
+        _LOGGER.error("Series %s episodes declare different repeatable flags", title)
+        raise RegistrationError("CONTENT_SERIES_INVALID", f"{title} episodes declare different repeatable flags.")
     episodes.add((title, episode))
 
 
@@ -370,8 +419,15 @@ def _check_callbacks(rows, apps, methods: frozenset[str]) -> None:
     goods = {item.goods_id for item in rows["goods"]}
     for state in states.values():
         if not 0 <= state.initial <= state.cap:
+            _LOGGER.error("Invalid initial/cap range on callback state %s", state.state)
             raise RegistrationError("ENVIRONMENT_NUMBER_INVALID")
         _check_bindings(state.reset_on_goods, goods)
+        _check_bindings(state.gain_on_goods, goods)
+        if set(state.reset_on_goods) & set(state.gain_on_goods):
+            _LOGGER.error("Callback state %s overlaps reset_on_goods and gain_on_goods", state.state)
+            raise RegistrationError(
+                "ENVIRONMENT_KIND_INVALID",
+                f"Callback state {state.state} overlaps reset_on_goods and gain_on_goods.")
     for number, rule in enumerate(rows["callback_rules"], start=len(states) + 1):
         trigger, effect = rule.trigger, rule.effect
         if trigger.trigger_class == "action" and trigger.key == "travel":
@@ -412,16 +468,18 @@ def _check_notify(rule, states, apps) -> None:
         _check_content_apps((rule.notify.app_id,), apps)
 
 
-def _check_map_edges(edges, location_ids) -> None:
-    """@brief 声明边依次核对端点次序、端点登记、地点对唯一、行次序和互不矛盾，详情带行号。"""
-    registered, lines = set(location_ids), {}
+def _check_map_edges(edges, locations: Sequence[Location], methods: frozenset[str],
+                     states: frozenset[str]) -> None:
+    """@brief 声明边依次核对端点次序、端点登记、地点对唯一、行次序、限制字段与自由边互不矛盾。"""
+    city_by_node = {place.location_id: place.city_id for place in locations}
+    lines = {}
     pairs = [(edge.a, edge.b) for edge in edges]
     for number, (a, b) in enumerate(pairs, start=1):
         if a >= b:
             _reject_map_row("ENVIRONMENT_KIND_INVALID", number, "Map endpoints must satisfy a < b.")
     for number, pair in enumerate(pairs, start=1):
         for endpoint in pair:
-            if endpoint not in registered:
+            if endpoint not in city_by_node:
                 _reject_map_row("ENVIRONMENT_REF_UNKNOWN", number, f"Unknown location_id: {endpoint}.")
     for number, (a, b) in enumerate(pairs, start=1):
         first = lines.setdefault((a, b), number)
@@ -430,18 +488,57 @@ def _check_map_edges(edges, location_ids) -> None:
     for number in range(2, len(pairs) + 1):
         if pairs[number - 2] > pairs[number - 1]:
             _reject_map_row("ENVIRONMENT_KIND_INVALID", number, "Map rows must be sorted by (a, b).")
-    _check_declared_distances(edges, location_ids)
+    for number, edge in enumerate(edges, start=1):
+        _check_one_edge(number, edge, city_by_node, methods, states)
+    _check_declared_distances(edges, locations)
+
+
+def _check_one_edge(number: int, edge, city_by_node: Mapping[str, str],
+                    methods: frozenset[str], states: frozenset[str]) -> None:
+    """@brief 核对单条声明边的跨城约束、自由边禁携字段、出行方式引用、状态及发车时段。"""
+    cross_city = city_by_node[edge.a] != city_by_node[edge.b]
+    if cross_city:
+        if not edge.travel_method_ids:
+            _reject_map_row("ENVIRONMENT_KIND_INVALID", number, "Intercity edges must declare travel_method_ids.")
+        if WALKING_TRAVEL_METHOD_ID in edge.travel_method_ids:
+            _reject_map_row("ENVIRONMENT_KIND_INVALID", number, "Intercity edges may not allow walking.")
+    if edge.travel_method_ids is None:
+        if edge.consumes_state is not None or edge.opens is not None:
+            _reject_map_row("ENVIRONMENT_KIND_INVALID", number,
+                            "Free map edges may not declare consumes_state or opens.")
+        return
+    try:
+        _check_order(edge.travel_method_ids)
+    except RegistrationError as error:
+        detail = ("Duplicate travel_method_id." if error.code == "ENVIRONMENT_ID_DUPLICATE"
+                  else "travel_method_ids must be sorted.")
+        _reject_map_row(error.code, number, detail)
+    for method_id in edge.travel_method_ids:
+        if method_id not in methods:
+            _reject_map_row("ENVIRONMENT_REF_UNKNOWN", number, f"Unknown travel_method_id: {method_id}.")
+    if edge.consumes_state is not None and edge.consumes_state not in states:
+        _reject_map_row("ENVIRONMENT_REF_UNKNOWN", number, f"Unknown callback state: {edge.consumes_state}.")
+    if edge.opens is not None:
+        try:
+            _check_opening_hours(edge.opens)
+        except RegistrationError as error:
+            _reject_map_row(error.code, number, error.detail or error.message)
 
 
 def _reject_map_row(code: str, number: int, detail: str) -> NoReturn:
-    """@brief 声明边的登记失败详情一律以文件名和行号开头。"""
+    """@brief 声明边的登记失败详情一律以文件名和行号开头并记录错误日志。"""
+    _LOGGER.error("Map edge validation failed (%s) at map.jsonl:%d: %s", code, number, detail)
     raise RegistrationError(code, f"map.jsonl:{number} {detail}")
 
 
-def _check_declared_distances(edges, location_ids) -> None:
-    """@brief 只含声明边的图上，任何一条声明边都不得被经其他声明边的更短路线绕过。"""
-    declared = Graph(MapGraph(nodes=tuple(sorted(location_ids)), edges=tuple(edges)))
+def _check_declared_distances(edges, locations: Sequence[Location]) -> None:
+    """@brief 只含自由声明边的图上，任何一条自由声明边都不得被经其他自由声明边的更短路线绕过。"""
+    city_by_node = {place.location_id: place.city_id for place in locations}
+    free_edges = tuple(edge for edge in edges if edge.travel_method_ids is None)
+    declared = Graph(MapGraph(nodes=tuple(sorted(city_by_node)), edges=free_edges), city_by_node)
     for number, edge in enumerate(edges, start=1):
+        if edge.travel_method_ids is not None:
+            continue
         meters = declared.distance_meters(edge.a, edge.b)
         if meters < edge.length_m:
             route = " -> ".join(declared.path(edge.a, edge.b))
@@ -449,20 +546,64 @@ def _check_declared_distances(edges, location_ids) -> None:
                             f"{edge.a}-{edge.b} declares {edge.length_m} m but {route} is {meters} m.")
 
 
-def validate_route_limit(nodes: tuple[str, ...], graph: Graph, travel_methods) -> None:
-    """@brief 生成后的地图上最远的一对地点，最慢的出行方式在最差天气下必须一天之内走到。
+def validate_route_limit(locations: Sequence[Location], graph: Graph,
+                         methods: Mapping[str, TravelMethod]) -> None:
+    """@brief 双轨核验一日出行上限：多节点城市自由街区子图连通且可达上限，各限定声明边单边可达上限。"""
+    _check_free_city_limits(locations, graph, methods)
+    _check_gated_edge_limits(graph, methods)
 
-    :param travel_methods: 数据集定义的出行方式行；最慢速度取自带步行与各行速度中最小的一个。
-    """
-    farthest = None
-    for origin in nodes:
-        for destination, (meters, _) in graph.shortest_paths(origin).items():
-            if origin < destination and (farthest is None or meters > farthest[0]):
-                farthest = (meters, origin, destination)
+
+def _check_free_city_limits(locations: Sequence[Location], graph: Graph,
+                            methods: Mapping[str, TravelMethod]) -> None:
+    """@brief 检验多节点城市自由街区子图内部连通及 walking/city_wide 最慢方式雪天不超过一日上限。"""
+    by_city: dict[str, list[str]] = defaultdict(list)
+    for place in locations:
+        by_city[place.city_id].append(place.location_id)
+    multi_cities = [(city_id, tuple(sorted(nodes))) for city_id, nodes in sorted(by_city.items())
+                    if len(nodes) >= MAP_MIN_NODES]
+    for city_id, city_nodes in multi_cities:
+        if set(graph.free_shortest_paths(city_nodes[0])) != set(city_nodes):
+            _LOGGER.error("Free-street subgraph of city %s is disconnected", city_id)
+            raise RegistrationError("MAP_DISCONNECTED", f"City {city_id} free street graph is disconnected.")
+    farthest = _farthest_free_pair(multi_cities, graph)
+    if farthest is None:
+        return
     meters, origin, destination = farthest
-    slowest = min((WALKING_METERS_PER_SECOND, *(method.speed_meters_per_second for method in travel_methods)))
+    slowest = min((WALKING_METERS_PER_SECOND,
+                   *(method.speed_meters_per_second for method in methods.values() if method.city_wide)))
+    _require_within_day_limit(origin, destination, meters, slowest)
+
+
+def _farthest_free_pair(multi_cities: list[tuple[str, tuple[str, ...]]],
+                        graph: Graph) -> tuple[int, str, str] | None:
+    """@brief 在多节点城市的同城自由子图中找出距离最远的一对地点。"""
+    farthest: tuple[int, str, str] | None = None
+    for _, city_nodes in multi_cities:
+        for origin in city_nodes:
+            for destination, (meters, _) in graph.free_shortest_paths(origin).items():
+                if origin < destination and (
+                        farthest is None or meters > farthest[0]
+                        or (meters == farthest[0] and (origin, destination) < farthest[1:])):
+                    farthest = (meters, origin, destination)
+    return farthest
+
+
+def _check_gated_edge_limits(graph: Graph, methods: Mapping[str, TravelMethod]) -> None:
+    """@brief 检验每条声明了 travel_method_ids 的边在最慢允许方式雪天 0.6 下单边不超过一日上限。"""
+    for edge in graph.gated_edges():
+        slowest = min(
+            WALKING_METERS_PER_SECOND if method_id == WALKING_TRAVEL_METHOD_ID
+            else methods[method_id].speed_meters_per_second
+            for method_id in edge.travel_method_ids)
+        _require_within_day_limit(edge.a, edge.b, edge.length_m, slowest)
+
+
+def _require_within_day_limit(origin: str, destination: str, meters: int, slowest: int | float) -> None:
+    """@brief 校验给定路程在最慢速度与最差天气下不超过 TRAVEL_MAX_SECONDS。"""
     seconds = travel_seconds(slowest, meters, min(WEATHER_FACTORS.values()))
     if seconds > TRAVEL_MAX_SECONDS:
+        _LOGGER.error("Route %s -> %s (%d m at %s m/s) takes %d s, exceeding %d s",
+                      origin, destination, meters, slowest, seconds, TRAVEL_MAX_SECONDS)
         raise RegistrationError(
             "MAP_ROUTE_TOO_LONG",
             f"{origin} -> {destination} is {meters} m, which takes {seconds} s at {slowest} m/s "
@@ -470,13 +611,15 @@ def validate_route_limit(nodes: tuple[str, ...], graph: Graph, travel_methods) -
 
 
 def validate_map(graph: MapGraph, location_ids: set[str]) -> None:
-    """@brief 内存图节点完整、规范正边有序且连通。"""
+    """@brief 内存图节点完整、规范正边有序且全图整体连通。"""
     if len(graph.nodes) < MAP_MIN_NODES:
+        _LOGGER.error("Map has fewer than %d nodes", MAP_MIN_NODES)
         raise RegistrationError("MAP_TOO_SMALL")
     pairs = [(edge.a, edge.b) for edge in graph.edges]
     if (tuple(sorted(location_ids)) != graph.nodes or pairs != sorted(set(pairs))
             or any(edge.a >= edge.b or edge.a not in location_ids or edge.b not in location_ids
                    for edge in graph.edges)):
+        _LOGGER.error("Map contains invalid or unsorted edge endpoints")
         raise RegistrationError("MAP_EDGE_INVALID")
     adjacency = {node: set() for node in graph.nodes}
     for edge in graph.edges:
@@ -489,4 +632,5 @@ def validate_map(graph: MapGraph, location_ids: set[str]) -> None:
             reached.add(neighbor)
             queue.append(neighbor)
     if reached != location_ids:
+        _LOGGER.error("Map is not globally connected")
         raise RegistrationError("MAP_DISCONNECTED")

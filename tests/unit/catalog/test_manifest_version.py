@@ -29,10 +29,12 @@ def test_manifest_rule_version_priority_precedes_strict_shape(tmp_path, payload,
 
 
 @pytest.mark.parametrize("change,code,reason", [
+    ({"rules_version": 5}, "RULES_VERSION_MISMATCH", "The environment was published for a different rules version."),
     ({"rules_version": 6}, "RULES_VERSION_MISMATCH", "The environment was published for a different rules version."),
     ({"rules_version": 6, "format_version": 5}, "RULES_VERSION_MISMATCH",
      "The environment was published for a different rules version."),
     ({"rules_version": 8}, "RULES_VERSION_MISMATCH", "The environment was published for a different rules version."),
+    ({"format_version": 4}, "ENVIRONMENT_KIND_INVALID", "A declared kind is outside the fixed set."),
     ({"format_version": 5}, "ENVIRONMENT_KIND_INVALID", "A declared kind is outside the fixed set."),
     ({"format_version": 6}, "ENVIRONMENT_KIND_INVALID", "A declared kind is outside the fixed set."),
 ])

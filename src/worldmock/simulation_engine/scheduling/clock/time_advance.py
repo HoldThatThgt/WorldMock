@@ -125,7 +125,7 @@ class TimeAdvanceCoordinator:
         self.context.callback_causes.clear()
         staged = self.context.state.model_copy(update={"current_time": target_epoch}, deep=True)
         if reminders.is_local_midnight(target_epoch, staged.timezone):
-            register_daily_weather(staged)
+            register_daily_weather(staged, self.context.catalog)
         staged = prune_processed_actions(staged)
         drafts, results = self._advance_activities(staged, target_epoch)
         staged, background, arrivals = self._process_scheduled(staged, target_epoch)

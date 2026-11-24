@@ -20,7 +20,7 @@ flowchart LR
 
 运行查看器打开导出目录：在页面里从 `events.jsonl` 建索引，读导出清单、运行清单和冻结的目录素材，见「显示写法与检查工具」。
 
-运行库只有一个写入者，就是运行进程里的生活引擎：引擎的全部公共方法同步执行；多人物并发推理期间仅在各自的私有内存沙盒（`AgentSandbox`）与 `EvidenceBuffer` 中收集草稿，退出并发段后由 `RunHost` 交还 `LifeEngine.commit_barrier`（`BarrierMerger`）在单次事务中按 `agent_id` 升序写库（见[运行装配与决策循环](10-runtime.md)「时钟屏障与并发唤醒循环」），不引入并发写锁或 WAL 假设。写入分两种，每次都是一个 SQLite 事务。
+运行库只有一个写入者，就是运行进程里的生活引擎：引擎的全部公共方法同步执行；多人物并发推理期间仅在各自的私有内存沙盒（`AgentSandbox`）内收集草稿，退出并发段后由 `RunHost` 交还 `LifeEngine.commit_barrier`（`BarrierMerger`）在单次事务中按 `agent_id` 升序写库（见[运行装配与决策循环](10-runtime.md)「时钟屏障与并发唤醒循环」），不引入并发写锁或 WAL 假设。写入分两种，每次都是一个 SQLite 事务。
 
 - **一步世界推进**：版本恰好加一的新世界与至少一条因果事件。调用方同时交上这一步出发时的世界，存储先核对它与已提交
   世界的规范 JSON 逐字节相同，不同即以 `Engine world differs from the committed world` 拒绝；新世界在写入前已按加载口径
@@ -50,9 +50,9 @@ SHA-256，存储的正文是它的 zlib 流（见「冻结输入、检查点与�
 受理、拒绝、动作结果、活动生命周期事件和运行截止时写下的截断快照（`environment_event`）里的快照，以及观察作为证据记下的进行中活动，照旧带完整的 `data.played`；世界状态只存完整列表。
 `activities.jsonl` 取哪一份快照见「完整导出认证」。
 
-callback_effect、callback_reminder、time_trigger、weather 使用闭合字段合同。
+`callback_effect`、`callback_reminder`、`time_trigger`、`weather` 使用闭合字段合同。
 效果包含一项实际触发原因和完整类型化结果；收入支出方向与信封资金变化一致，未支付结果没有资金变化。
-独立时间事实不能伪装成上游事件的附加效果，天气条件与速度系数必须来自固定世界天气表。
+独立时间事实不能伪装成上游事件的附加效果；`weather` 的 `data` 闭合字段为 `{kind, city_id, local_date, condition, speed_factor, scheduled_id}`，在本地午夜按目录已登记城市升序各记一条（`scheduled_id` 为 `weather-{city_id}-{local_date}`），天气条件与速度系数必须来自固定世界天气表。
 
 日、月、年回顾的登记事件 `memory_digest_generated` 同样使用闭合字段合同。信封是 `environment_event`，来源 `model`、可见性
 `system`、属于一个人物、没有资金变化，起因恰一项，是这一期最后一次模型响应；唤醒、动作与活动身份为 null。`data` 恰为
@@ -75,16 +75,17 @@ callback_effect、callback_reminder、time_trigger、weather 使用闭合字段�
 
 生成规则见[人物](06-agent.md#agent-日月年回顾)「日、月、年回顾」。
 
-状态效果有三种正文：回调规则的增量 `state_delta`、收货把状态置为上限的 `reset_to_cap`，以及凭状态的地点内容开始时把状态减 1 的 `consume_on_start`。
+状态效果共有四种正文：回调规则的增量 `state_delta`（`StateDeltaResult`）、收货按 `reset_on_goods` 把状态置为上限的 `reset_to_cap`（`StateResetResult`）、收货按 `gain_on_goods` 把状态加 1 并钳位至上限的 `gain_on_receipt`（`StateGainResult`），以及凭状态的活动或地点开始时把状态减 1 的 `consume_on_start`（`ConsumeOnStartResult`）。
+`gain_on_receipt` 的 `data` 恰为 `{kind, type, rule_id, state, goods_id, before, after}`：`kind` 为 `callback_effect`，`type` 为 `gain_on_receipt`，`rule_id` 为 `null`，`state` 是状态名，`goods_id` 是本次收货的商品身份，`before` 是收货前的值，`after` 等于 `min(cap, before + 1)`；`caused_by` 恰一项，指向这次 `goods_received` 事件。
 `consume_on_start` 的 `data` 恰为 `{kind, type, rule_id, state, content_id, before, after}`：`kind` 为 `callback_effect`，`type` 为 `consume_on_start`，
-`rule_id` 为 null，`state` 是状态名，`content_id` 是开始的那条内容，`before`、`after` 是减 1 前后的值，都不小于 0。
-信封与另外两种状态效果相同：`environment_event`，来源 `environment`，可见性 `system`，`resource_changes` 为空，`caused_by` 恰一项，
-是开始这件事的那次调用的受理 `action_result`。什么时候减见[模拟引擎](04-simulation-engine.md)「出行、内容与搜索」。
+`rule_id` 为 `null`，`state` 是状态名，`before`、`after` 是减 1 前后的值且都不小于 0；`content_id` 为可选字段（缺省或为 `null`）：凭状态的地点内容开始时为开始的那条内容身份（非空字符串），地图声明边出发消耗 `consumes_state` 或商业住宿地点入睡消耗 `sleep_consumes_state` 时为 `null`。
+信封与其余状态效果相同：`environment_event`，来源 `environment`，可见性 `system`，`resource_changes` 为空，`caused_by` 恰一项，
+是开始这件事那次调用的受理 `action_result`；`AgentSandbox` 与 `BarrierMerger` 共用的 `_start_effects` 登记阈值比较沿用的 `CallbackCause` 时按实际动作种类绑定 `"interact"`、`"travel"` 或 `"sleep"`（锚点为 `{action_id}:consume`）。什么时候减见[模拟引擎](04-simulation-engine.md)「出行、内容与搜索」。
 
 唤醒原因写在共同身体结算、`decision_started` 和观察里，取值是[模拟引擎](04-simulation-engine.md)唤醒表里的名称。
 每次睡醒的原因列表同时含 `planned_end` 与 `session_open`，质量报告和行为评估按原因名的计数各加一。
 
-共同身体结算写成 `body_settlement`，带「结算前」`before`、「结算后」`after` 和这一笔的分录 `resource_flows`。对能量、睡眠不足、放松需要、社交需要四项，「结算后」等于「结算前」加上本记录该项的全部 `source` 分录、减去全部 `drain` 分录。这条记录上只有两类分录：共同结算的分录，和这次推进的不适脉冲。不适脉冲对着共同结算之后的身体计算，世界里加的是分录登记的同一个数额。同一秒的收货（到店购买完成、外卖送达、驿站取件）和地点内容的完成效果不进这条记录，只记在各自的事件上。`goods_received` 的 `applied` 等于该事件登记的分录数额之和，不用前后两个数相减；没有分录时是 `0.0`。业务拒绝带来的放松脉冲，分录记在这组拒绝的第一条 `action_result` 事件正文顶层的 `resource_flows` 上，`action_rejected` 不带；没有施加脉冲时不写这个键。
+共同身体结算写成 `body_settlement`，带「结算前」`before`、「结算后」`after` 和这一笔的分录 `resource_flows`。对能量、睡眠不足、放松需要、社交需要四项，「结算后」等于「结算前」加上本记录该项的全部 `source` 分录、减去全部 `drain` 分录。这条记录上只有两类分录：共同结算的分录，和这次推进的不适脉冲。不适脉冲对着共同结算之后的身体计算，世界里加的是分录登记的同一个数额。同一秒的收货（到店购买完成、即时电子收货、外卖送达、驿站取件）和地点内容的完成效果不进这条记录，只记在各自的事件上。`goods_received` 的 `applied` 等于该事件登记的分录数额之和，不用前后两个数相减；没有分录时是 `0.0`。业务拒绝带来的放松脉冲，分录记在这组拒绝的第一条 `action_result` 事件正文顶层的 `resource_flows` 上，`action_rejected` 不带；没有施加脉冲时不写这个键。
 
 地点内容的完成效果（`completion_effects`，见[资源引擎](03-resource-engine.md)「app、内容与候选呈现」）证据记在这条内容做完的那条 `activity_progress` 上，不新增事件种类：
 内容证据 `data.content` 的字段闭集含 `completion_effects`。这次推进没有做完内容、做完的内容没写 `completion_effects` 或是 app 内容时，它为 null；
@@ -238,7 +239,7 @@ app_touch、payment_notification 和 order_notification 是系统点事实，不
 
 购买投影保存实际订单商品、门店、平台、付款 app、数量、价格与履约事实。人物写的 `prefer` 原文只在 `action_requested` 事件的请求里，购买工件不为它加字段。
 付款、到站与收货分开；收到的经历只能来自已提交的本人真实收货事件。地点内容的完成效果（含 `food` 补的能量）不是收货，不进购买投影，也不是「收到」这种已核验经历。
-到店与外卖每条 `goods_received` 事件在原有字段上记录实际卖出商铺 `store_id` 与该份商品的 `quality`（好、中、坏）。导出的购买事实中，每条 `receipt` 收货行与 `verified-experiences.jsonl` 中的 `received` 经历行沿用来源事件的这两个字段。快递取件沿用原有字段。核验按 `order_id` 对应已履约订单，检查商铺一致、品质合法、来源事件一致，每份只有一条收货。
+到店与外卖每条 `goods_received` 事件在原有字段上记录实际卖出商铺 `store_id` 与该份商品的 `quality`（好、中、坏）。导出的购买事实中，每条 `receipt` 收货行与 `verified-experiences.jsonl` 中的 `received` 经历行沿用来源事件的这两个字段。即时电子收货（`instant`）与快递取件（`station_pickup`）只写订单基础收货字段，既不写 `store_id` 也不写 `quality`。核验按 `order_id` 对应已履约订单，检查商铺一致、品质合法、来源事件一致，每份只有一条收货。
 有延误的外卖在一趟配送的 `delivery_arrival` 事件顶层记录天气总延长 `weather_delay_seconds` 和实际比下单预计晚的 `late_by_seconds`。这两项是已经发生的秒数。该趟「订单已送达」通知用同一到达事实解释延误一次。外卖的购买与在途订单事件快照只公开下单预计；快递到站沿用原有正文。
 对象的显示名一律取自这次运行冻结的环境目录，不从观察记录里取；日时间线的写法见「显示写法与检查工具」。
 
@@ -318,7 +319,7 @@ flowchart TD
 - 订单是一次购买里下单 app 相同的全部商品履约记录，到店买的记录合成一张到店订单。按订单分段：带下单 app 的订单按 `app_id` 升序，到店订单排在最后；
   段与段之间用「；」，「购买」两个字只在最前面写一次。同一个下单 app 上点了两家店仍是一张订单、一段。
 - 段内的商品按 `goods_id` 升序，同一件商品买了几份合写成「名称×份数」，各项以「、」相连，与订单通知正文同一写法。
-- 渠道：`app_id` 不为空写「（经<app 名>下单）」，为空写「（到店）」。只在 app 里卖的快递商品有下单 app，同样写「经<app 名>下单」。
+- 渠道：`app_id` 不为空写「（经<app 名>下单）」，为空写「（到店）」。只在 app 里卖的快递商品与即时电子商品都有下单 app，同样写「（经<app 名>下单）」。
 - 余额不足而失败、被提前结束的购买照写同一句，状态由各处另写。
 
 **搜索。**
@@ -716,6 +717,7 @@ app 的开关、订单通知和地点停留只进事件与这些工件，不进�
 到店记录合成一张到店订单。每张已付款的订单恰有一条付款事件，它的购买活动、记录集合、金额、时刻、账户差额和受理来源都与这张订单一致；
 一张订单不得只付一部分。两次购买走同一路线（店铺、收货地、下单 app、履约方式都相同）时各算各的，不并成一张订单。
 到站取件通知的来源到站事件，起因恰为列出该记录的付款事件；本人在驿站领取的收货事件，起因是带着该记录领取后快照的取件动作结果。
+即时电子订单（`instant`）在付款完成当秒于同一事务内直接结算收货：它与到店订单（`pickup`）一样，`goods_received` 的起因恰为所属订单的 `purchase_payment` 事件且时刻等于 `paid_at`；其中 `instant` 与快递取件（`station_pickup`）一样既不写 `store_id` 也不写 `quality`（只有 `pickup` 与 `delivery` 写 `store_id` 与合法 `quality`）。
 
 手机记录的自查都只读已导出的事件、工件和最终检查点，任一不成立导出不发布。
 
@@ -727,10 +729,10 @@ app 的开关、订单通知和地点停留只进事件与这些工件，不进�
 | 导航区间 | 所属活动是出行，步骤全为 `navigation`，一趟出行只有一个导航 app；不越出这趟出行，不与同一人物任何购买、搜索或用 app 的活动的执行区间重叠 | `Navigation app use overlaps a side activity or leaves its trip` |
 | 下单与支付区间 | 所属活动是购买；下单区间的 app 是该购买某张订单的下单 app，且全部早于第一个付款段；每张付款时长大于 0 的订单，付款段 10 至 20 秒，按订单键的顺序排在购买末尾、互不重叠，订单上的付款起止与对应的支付前台区间一致，购买被截断时区间止于购买结束 | `Purchase app use disagrees with its order phases` |
 | 同一时刻只有一个 app 在前台 | 同一人物全部 `app_use` 区间互不重叠、长度为正，导航、下单、支付、搜索所在的 app 与人物点名使用的 app 一起查 | `App use intervals overlap or have no positive duration` |
-| 「支付成功」 | 每张已付款订单，支付 app 与下单 app 不全为空时恰一条；发送的 app 是支付 app，直付时是下单 app；金额、记录集合、时刻与起因和这张订单的付款事件一致 | `Payment notification count disagrees with actual payment`、`Payment notification disagrees with its actual purchase payment` |
-| 订单已下单 | 每张带下单 app 的已付款订单恰一条，时刻等于付款时刻，app、记录集合与起因和这张订单一致；未付款的订单没有 | `Order notification count disagrees with actual payment, shipment or delivery`、`Order notification disagrees with its actual order event` |
-| 订单已发货 | 每趟已付款的配送至多一条；发货时刻不晚于导出里最后一条事件的时刻时恰一条；时刻等于付款时刻加「付款至公开预计的非负间隔」的十分之一，向上取整到秒 | 同上两句 |
-| 订单已送达 | 每趟已送达的外卖配送恰一条，时刻等于送达时刻，起因是这一趟的到达事件；快递和到店没有 | 同上两句 |
+| 「支付成功」 | 每张已付款订单，支付 app 与下单 app 不全为空时恰一条（`instant` 订单恒带下单 app，因此必有）；发送的 app 是支付 app，直付时是下单 app；金额、记录集合、时刻与起因和这张订单的付款事件一致 | `Payment notification count disagrees with actual payment`、`Payment notification disagrees with its actual purchase payment` |
+| 订单已下单 | 每张带下单 app 的已付款订单（含外卖、快递与 `instant`）恰一条，时刻等于付款时刻，app、记录集合与起因和这张订单一致；未付款的订单没有 | `Order notification count disagrees with actual payment, shipment or delivery`、`Order notification disagrees with its actual order event` |
+| 订单已发货 | 每趟已付款的外卖或快递配送至多一条；发货时刻不晚于导出里最后一条事件的时刻时恰一条；时刻等于付款时刻加「付款至公开预计的非负间隔」的十分之一，向上取整到秒；到店与 `instant` 订单没有 | 同上两句 |
+| 订单已送达 | 每趟已送达的外卖配送恰一条，时刻等于送达时刻，起因是这一趟的到达事件；快递、到店与 `instant` 没有 | 同上两句 |
 | 冻结环境里的 app | 导航的 app 是绑定了该出行方式的功能 app，下单的 app 是内容 app，支付的 app 是绑定了购买的功能 app 或内容 app；「支付成功」的 app 同支付；订单通知的 app 是内容 app | `Foreground app disagrees with its frozen app role or binding`、`Payment notification disagrees with its frozen app`、`Order notification disagrees with its frozen content app` |
 | 停留工件 | `location-stays.jsonl` 与由事件重新投影的结果逐行相同 | `Export location stays disagree with committed events` |
 | 停留的先后 | 恰一行 `run_start` 且是第一行，进入时刻等于运行开始；各行按时间先后互不重叠，只有最后一行的离开时刻可以为 null | `Location stays overlap or are out of order` |

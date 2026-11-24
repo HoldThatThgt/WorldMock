@@ -149,7 +149,7 @@ def test_order_restore_rejects_payment_fields_that_no_order_can_carry(engine_fac
 def test_world_restore_rejects_records_of_one_order_that_disagree_on_its_payment(engine_factory, field):
     """同一张订单的两条记录各自都合法，付款字段却不一致：世界状态在恢复时和写入前都被拒绝。"""
     engine = engine_factory()
-    _, started = act(engine, "purchase", purchase("牛肉面", "柠檬茶"))
+    _, started = act(engine, "purchase", purchase("牛肉面", "柠檬茶", prefer="美团"))
     assert started.status == "in_progress"
     state = engine.context.state
     first, second = (state.deliveries[key] for key in state.activities[started.activity_id].data["order_ids"])
@@ -174,7 +174,7 @@ def test_world_restore_rejects_records_of_one_order_that_disagree_on_its_payment
 def test_world_restore_rejects_a_purchase_activity_that_lists_an_unknown_record(engine_factory):
     """订单由购买活动列出的记录得出：列出的记录不在世界里时，世界状态在恢复时和写入前都被拒绝。"""
     engine = engine_factory()
-    _, started = act(engine, "purchase", purchase("牛肉面", "柠檬茶"))
+    _, started = act(engine, "purchase", purchase("牛肉面", "柠檬茶", prefer="美团"))
     assert started.status == "in_progress"
     state = engine.context.state
     kept, dropped = state.activities[started.activity_id].data["order_ids"]
@@ -233,3 +233,55 @@ def test_errand_change_reports_required_and_forbidden_fields_together(change):
         ErrandChange(**payload)
     expected = {"item", "quantity"} if change["change"] != "取消" else {"item", "quantity", "reason"}
     assert {issue["loc"][0] for issue in caught.value.errors()} == expected
+
+
+@pytest.mark.parametrize("bad_stays", [
+    "not-a-mapping",
+    {"": 100},
+    {"  ": 100},
+    {"hotel": 0},
+    {"hotel": True},
+])
+def test_world_restore_rejects_invalid_lodging_stays_shapes(engine_factory, bad_stays):
+    """lodging_stays 必须是以非空白地点标识为键、正整数退房纪元秒为值的映射。"""
+    engine = engine_factory()
+    payload = engine.context.state.model_dump(mode="json")
+    payload["agents"]["1"]["lodging_stays"] = bad_stays
+    with pytest.raises(ValidationError):
+        WorldState.model_validate(payload)
+
+
+@pytest.mark.parametrize("bad_weather", [
+    "not-a-mapping",
+    {"not-a-date": {"test-city": "sunny"}},
+    {"2026-1-5": {"test-city": "sunny"}},
+])
+def test_world_restore_rejects_invalid_weather_by_date_keys(engine_factory, bad_weather):
+    """weather_by_date 必须是以标准 ISO 日期字符串为键、合法分城天气表为值的映射。"""
+    engine = engine_factory()
+    payload = engine.context.state.model_dump(mode="json")
+    payload["weather_by_date"] = bad_weather
+    with pytest.raises(ValidationError):
+        WorldState.model_validate(payload)
+
+
+@pytest.mark.parametrize("updates", [
+    {"store_id": "cafe"},
+    {"delivery_fee_fen": 500},
+    {"status": "delivered", "paid_at": 100, "arrived_at": 101, "received_at": 100},
+    {"status": "delivered", "paid_at": 100, "arrived_at": 100, "received_at": 101},
+])
+def test_instant_delivery_state_rejects_store_fee_and_mismatched_timestamps(updates):
+    """instant 履约订单禁止带入店铺或运费，已送达终态下到达/收货与付款必须同一秒。"""
+    base = {
+        "order_id": "order-1", "agent_id": 1, "goods_id": "digital-ticket", "category": "goods",
+        "store_id": None, "app_id": "bilibili", "payment_app_id": "wechat", "group_key": "g1",
+        "payment_duration_seconds": 10, "payment_started_at": None, "payment_ended_at": None,
+        "quantity": 1, "unit_price_fen": 5000, "delivery_fee_fen": 0, "total_price_fen": 5000,
+        "destination_id": "home", "delivery_address_id": "home", "fulfillment": "instant",
+        "created_at": 10, "paid_at": None, "expected_at": 20, "weather_delay_seconds": None,
+        "arrived_at": None, "received_at": None, "status": "pending", "path": (),
+        "trip_id": None, "distance_meters": 0, "prep_seconds": 0,
+    }
+    with pytest.raises(ValidationError):
+        DeliveryState.model_validate({**base, **updates})

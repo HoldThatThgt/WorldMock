@@ -242,7 +242,7 @@ def test_one_order_over_two_delivery_groups_exports_with_a_single_payment(engine
         validate_export(tmp_path / "one-order")
 
 
-@pytest.mark.parametrize("rules_version", [6, 8, "7", True])
+@pytest.mark.parametrize("rules_version", [5, 6, 8, "7", True])
 def test_export_frozen_under_another_rules_version_is_rejected_before_consumption(real_export, rules_version):
     """@brief 冻结运行清单里的规则版本不是当前规则版本时，导出在读取工件之前被拒绝。"""
     manifest, _ = read_export(real_export)

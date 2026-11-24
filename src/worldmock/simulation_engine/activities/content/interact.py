@@ -3,8 +3,9 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from worldmock.foundation.errors import BusinessRuleError, IntegrityError
-from worldmock.recording_engine.events.callback_contract import ConsumeOnStartResult
 from worldmock.recording_engine.events.models import EventDraft, validate_resource_flows
 from worldmock.simulation_engine.activities.lifecycle.activities import (
     ActivityStartParams,
@@ -21,7 +22,10 @@ from worldmock.simulation_engine.activities.content.content_select import (
     next_episode,
     select_content,
 )
-from worldmock.simulation_engine.activities.content.location_activities import next_content
+from worldmock.simulation_engine.activities.content.location_activities import (
+    consume_callback_state,
+    next_content,
+)
 from worldmock.state.world.activity import ActivityState
 from worldmock.state.world.kinds import ActivityStatus
 from worldmock.state.world.agent import ContentProgress
@@ -106,20 +110,11 @@ class InteractivityRuntime:
         content = self.context.catalog.contents[activity.data["content_id"]]
         if content.consumes_state is None:
             return state, []
-        agent = state.agents[activity.agent_id]
-        before = agent.callback_states[content.consumes_state]
-        after = before - 1
-        if after < 0:
-            logging.error("Consumed state fell below zero")
-            raise IntegrityError("Consumed state fell below zero")
-        agent = agent.model_copy(update={"callback_states": {**agent.callback_states, content.consumes_state: after}},
-                                 deep=True)
-        payload = ConsumeOnStartResult(state=content.consumes_state, content_id=content.content_id,
-                                       before=before, after=after)
-        draft = EventDraft(event_type="environment_event", occurred_at=state.current_time, agent_id=agent.agent_id,
-                           source_kind="environment", visibility="system",
-                           caused_by=[activity.origin_request_event_id], data=payload.model_dump(mode="json"))
-        return _put_agent(state, agent), [draft]
+        changed, draft = consume_callback_state(
+            state, activity.agent_id, content.consumes_state,
+            (activity.origin_request_event_id, content.content_id),
+        )
+        return changed, [draft]
 
     def advance(self, state: WorldState, activity: ActivityState, target: int) -> tuple[WorldState, dict | None]:
         """@brief 泛型游标已推进后保存实际内容区间，不再另加心理效果；一条放完时按接续顺序接着放或停下。"""
@@ -184,7 +179,10 @@ class InteractivityRuntime:
         activity = activity.model_copy(update={"data": {**activity.data, "played": played}}, deep=True)
         agent = state.agents[activity.agent_id]
         index = activity.data["draw_index"] + 1
-        upcoming = next_episode(self.context.catalog, agent, content, rounds)
+        stay_id = present_location(state, activity.agent_id)
+        stay = None if stay_id is None else self.context.catalog.locations[stay_id]
+        local_moment = datetime.fromtimestamp(state.current_time, ZoneInfo(state.timezone))
+        upcoming = next_episode(self.context.catalog, agent, content, rounds, (stay, local_moment))
         if upcoming is None and activity.data["app_id"] is not None:
             upcoming = self._autoplay(state, activity, content, index)
         if upcoming is None:

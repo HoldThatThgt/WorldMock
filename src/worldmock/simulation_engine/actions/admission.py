@@ -15,7 +15,10 @@ from worldmock.simulation_engine.activities.content import location_activities
 from worldmock.state.interaction.actions import START_TOOLS
 from worldmock.exchange_engine.conditions.activity_rules import activity_slot
 from worldmock.simulation_engine.commerce.purchase.basket import quoted_basket
-from worldmock.simulation_engine.observation.wording.content_prerequisite import app_prerequisite_refusal
+from worldmock.simulation_engine.observation.wording.content_prerequisite import (
+    app_prerequisite_refusal,
+    time_phrase,
+)
 from worldmock.simulation_engine.observation.wording.guidance import (
     Refusal,
     default_reason,
@@ -28,7 +31,7 @@ from worldmock.state.world.world import WorldState
 from worldmock.simulation_engine.activities.lifecycle.sessions import current_session
 from worldmock.simulation_engine.activities.travel.travel import Trip, plan_trip
 from worldmock.resource_engine.catalog.travel_methods import travel_method
-from worldmock.simulation_engine.scheduling.clock.weather import current_weather_factor
+from worldmock.simulation_engine.scheduling.clock.weather import trip_weather_factor
 
 _LOGGER = logging.getLogger(__name__)
 _SLEEP_SLOT_REASON = "Sleep requires the second activity slot to be empty."
@@ -131,10 +134,13 @@ def search_refusal(context: Context) -> Refusal | None:
 
 
 def planned_trip(context: Context, row: Mapping[str, Any]) -> Trip:
-    """@brief 出行行按出发前的地点、所选出行方式与当前天气形成同源行程报价。"""
-    origin, catalog = context.state.agents[context.agent_id].location_id, context.inputs.catalog
+    """@brief 出行行按出发前地点、所选出行方式与两城较小天气系数形成同源行程报价。"""
+    origin, destination = context.state.agents[context.agent_id].location_id, row["object_id"]
+    catalog = context.inputs.catalog
     method = travel_method(catalog, row["selected_action"]["travel_method_id"])
-    return plan_trip(catalog.graph, origin, row["object_id"], method, current_weather_factor(context.state))
+    factor = trip_weather_factor(context.state, catalog.locations[origin].city_id,
+                                 catalog.locations[destination].city_id)
+    return plan_trip(catalog.graph, origin, destination, method, factor)
 
 
 def _occupant(context: Context, slot: str) -> ActivityState | None:
@@ -187,7 +193,7 @@ def _main_refusal(context: Context, main: Call | None, side: Call | None) -> Blo
 
 
 def _travel_refusal(context: Context, row: Mapping[str, Any]) -> Refusal | None:
-    """@brief 出行：进行中的查询与进行中的到店购买要先结束；路线时长超出范围按路线拒绝。"""
+    """@brief 出行准入：先检查原地活动阻塞，再按枢纽直达、方式许可、行程耗时与限定边门禁依次核验。"""
     state = context.state
     local = next((activity for activity in state.activities.values()
                   if activity.agent_id == context.agent_id and activity.status == ActivityStatus.ACTIVE
@@ -196,11 +202,65 @@ def _travel_refusal(context: Context, row: Mapping[str, Any]) -> Refusal | None:
         name = _name(context, local)
         return Refusal("ACTIVITY_PRECONDITION_UNMET", f"Conclude {name} before departure.", f"Conclude {name}.",
                        ("activities_before_departure",))
+    return _route_refusal(context, row)
+
+
+def _route_refusal(context: Context, row: Mapping[str, Any]) -> Refusal | None:
+    """@brief 按跨城非直达、方式许可、耗时上限、检票时段与票证状态核验行程。"""
+    catalog, origin = context.inputs.catalog, context.state.agents[context.agent_id].location_id
+    destination = row["object_id"]
+    origin_loc, dest_loc = catalog.locations[origin], catalog.locations[destination]
+    edge = catalog.graph.declared_edge(origin, destination)
+    if origin_loc.city_id != dest_loc.city_id and edge is None:
+        hub_id = catalog.graph.next_hub_toward(origin, destination)
+        hub = catalog.locations[hub_id].display_name
+        return Refusal("ACTIVITY_PRECONDITION_UNMET",
+                       f"No direct route connects {origin_loc.display_name} to {dest_loc.display_name}.",
+                       f"Travel to {hub} first.", ("travel_route",))
+    method = travel_method(catalog, row["selected_action"]["travel_method_id"])
+    if catalog.graph.shortest_route(origin, destination, method.travel_method_id, method.city_wide) is None:
+        return _method_unavailable_refusal(catalog, edge, method, (origin_loc, dest_loc))
     try:
-        planned_trip(context, row)
+        trip = planned_trip(context, row)
     except BusinessRuleError as error:
         _LOGGER.error("Travel route was refused: %s", error)
         return refusal_from_error(error)
+    if edge is not None and trip.path == (origin, destination):
+        return _gated_edge_refusal(context, edge, method, dest_loc)
+    return None
+
+
+def _method_unavailable_refusal(catalog, edge, method, endpoints) -> Refusal:
+    """@brief 所选方式在路径或限定边上不可用时返回方式约束拒绝与可用方式指引。"""
+    origin_loc, dest_loc = endpoints
+    if edge is not None and edge.travel_method_ids is not None:
+        allowed = " or ".join(travel_method(catalog, mid).name for mid in edge.travel_method_ids)
+        return Refusal(
+            "ACTIVITY_PRECONDITION_UNMET",
+            f"{method.name} cannot travel from {origin_loc.display_name} to {dest_loc.display_name}; use {allowed}.",
+            f"Travel using {allowed}.", ("travel_method",),
+        )
+    return Refusal(
+        "ACTIVITY_PRECONDITION_UNMET",
+        f"{method.name} cannot travel directly from {origin_loc.display_name} to {dest_loc.display_name}.",
+        unmet=("travel_method",),
+    )
+
+
+def _gated_edge_refusal(context: Context, edge, method, dest_loc) -> Refusal | None:
+    """@brief 核验限定直达边的检票开放时段与前置票证状态。"""
+    moment = _local_moment(context)
+    origin_loc = context.inputs.catalog.locations[context.state.agents[context.agent_id].location_id]
+    if edge.opens is not None and not edge.opens.is_open(moment):
+        phrase = time_phrase(edge.opens, moment.date())
+        return Refusal("LOCATION_CLOSED",
+                       f"{method.name} from {origin_loc.display_name} to {dest_loc.display_name} is {phrase}.",
+                       unmet=("opening_hours",))
+    agent = context.state.agents[context.agent_id]
+    if edge.consumes_state is not None and agent.callback_states[edge.consumes_state] < 1:
+        return location_activities.state_unavailable_refusal(
+            context.inputs.catalog, edge.consumes_state, f"{method.name} to {dest_loc.display_name}",
+        )
     return None
 
 
@@ -238,15 +298,64 @@ def _location_refusal(context: Context, row: Mapping[str, Any]) -> Refusal | Non
 
 
 def _sleep_place_refusal(context: Context) -> Refusal | None:
-    """@brief 睡眠的地点判定：当前停留地点须标了 sleepable，声明了营业时段时此刻须在其内（关门只卡开始）。"""
-    location = context.inputs.catalog.locations[context.state.agents[context.agent_id].location_id]
+    """@brief 睡眠地点核验：当前可睡、在营业时段内，且酒店住宿须在有效房晚或持有足够房晚状态。"""
+    catalog, state = context.inputs.catalog, context.state
+    agent = state.agents[context.agent_id]
+    location = catalog.locations[agent.location_id]
     if not location.sleepable:
-        home = context.place_names[context.inputs.home_location_ids[context.agent_id]]
-        return Refusal("ACTIVITY_PRECONDITION_UNMET", f"Sleeping is not possible at {location.display_name}.",
-                       f"Go to {home}.", ("sleepable_location",))
+        reason, step = _sleep_guidance(context, location)
+        return Refusal("ACTIVITY_PRECONDITION_UNMET", reason, step, ("sleepable_location",))
     if not location.is_open(_local_moment(context)):
         return refusal_for_code("LOCATION_CLOSED")
+    state_name = location.sleep_consumes_state
+    if (state_name is not None and state.current_time >= agent.lodging_stays.get(location.location_id, 0)
+            and agent.callback_states[state_name] < 1):
+        return location_activities.state_unavailable_refusal(
+            catalog, state_name, f"Sleeping at {location.display_name}",
+        )
     return None
+
+
+def _nearest_sleep_target(catalog, here_id: str, candidates):
+    """@brief 在同优先级的候选住宿中取全图最短距离最近者，等距按地点身份升序。"""
+    return min(candidates, key=lambda place: (catalog.shortest_m(here_id, place.location_id), place.location_id))
+
+
+def _sleep_guidance(context: Context, here) -> tuple[str, str]:
+    """@brief 非可睡地点睡眠拒绝的同城优先引导梯队。"""
+    catalog, state = context.inputs.catalog, context.state
+    agent = state.agents[context.agent_id]
+    in_city = [place for place in catalog.locations.values() if place.city_id == here.city_id and place.sleepable]
+    checked_in = [place for place in in_city if state.current_time < agent.lodging_stays.get(place.location_id, 0)]
+    if checked_in:
+        target = _nearest_sleep_target(catalog, here.location_id, checked_in)
+        return f"Sleeping is not possible at {here.display_name}.", f"Go to {target.display_name}."
+    homes = [place for place in in_city if place.is_home]
+    if homes:
+        target = _nearest_sleep_target(catalog, here.location_id, homes)
+        return f"Sleeping is not possible at {here.display_name}.", f"Go to {target.display_name}."
+    hotels = [place for place in in_city if place.sleep_consumes_state is not None]
+    ready = [place for place in hotels if agent.callback_states[place.sleep_consumes_state] >= 1]
+    if ready:
+        target = _nearest_sleep_target(catalog, here.location_id, ready)
+        return f"Sleeping is not possible at {here.display_name}.", f"Go to {target.display_name}."
+    if hotels:
+        target = _nearest_sleep_target(catalog, here.location_id, hotels)
+        hint = location_activities.state_unavailable_reason(
+            catalog, target.sleep_consumes_state, f"Sleeping at {target.display_name}",
+        )
+        return f"Sleeping is not possible at {here.display_name}. {hint}", f"Go to {target.display_name}."
+    remote = [place for place in catalog.locations.values()
+              if place.sleepable and (place.is_home or place.sleep_consumes_state is not None)]
+    target = min(
+        remote,
+        key=lambda place: (
+            not place.is_home,
+            catalog.graph.distance_meters(here.location_id, place.location_id, city_wide=False),
+            place.location_id,
+        ),
+    )
+    return f"Sleeping is not possible at {here.display_name}.", f"Go to {target.display_name}."
 
 
 def _side_refusal(context: Context, main: Call | None, side: Call | None) -> Blocked | None:
@@ -263,7 +372,8 @@ def _app_refusal(context: Context, main: Call | None, side: Call) -> Refusal | N
     catalog = context.inputs.catalog
     stay = present_location(context.state, context.agent_id)
     return app_prerequisite_refusal(catalog, side.rows[0]["object_id"],
-                                    None if stay is None else catalog.locations[stay], _local_moment(context))
+                                    None if stay is None else catalog.locations[stay], _local_moment(context),
+                                    context.state.agents[context.agent_id])
 
 
 def _search_blocked(context: Context, search: Call) -> Blocked | None:

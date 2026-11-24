@@ -68,15 +68,15 @@ def test_public_layers_validate_and_contain_four_felt_signals(engine_factory):
 
 
 @pytest.mark.parametrize("method,identity,seconds,fare,exertion", [
-    ("步行", "walking", 1919, 0, "walking"), ("驾车", "driving", 329, 500, "light"),
-    ("打车", "taxi", 329, 1400, "light"), ("公共交通", "bus", 461, 200, "light")],
+    ("步行", "walking", 1327, 0, "walking"), ("驾车", "driving", 228, 500, "light"),
+    ("打车", "taxi", 228, 1400, "light"), ("公共交通", "bus", 319, 200, "light")],
     ids=["walking", "driving", "taxi", "bus"])
 def test_each_travel_method_uses_complete_path_actual_departure_fare_and_arrival(
         engine_factory, method, identity, seconds, fare, exertion):
-    """夹具的家到公司是 1,957 米、当天小雨（系数 0.85）：四种出行方式的用时按各自速度乘天气系数上取整，车费取较大值。"""
+    """夹具的家到公司是 1,353 米、当天小雨（系数 0.85）：四种出行方式的用时按各自速度乘天气系数上取整，车费取较大值。"""
     engine = engine_factory()
     action = identity
-    assert engine.context.state.weather_by_date == {"2026-01-05": "light_rain"}
+    assert engine.context.state.weather_by_date == {"2026-01-05": {"test-city": "light_rain"}}
     _, result = act(engine, f"trip-{action}", travel("公司", method))
     assert result.status == "in_progress", result.error_code
     assert result.activity_id == f"activity-{action_identity(f'trip-{action}')}"
@@ -88,7 +88,7 @@ def test_each_travel_method_uses_complete_path_actual_departure_fare_and_arrival
     assert activity.name.startswith(f"{method}前往公司（")
     assert activity.resource_claims == {"first"}
     assert activity.data["path"][0] == "home" and activity.data["path"][-1] == "office"
-    assert activity.data["distance_meters"] == engine.context.catalog.shortest_m("home", "office") == 1957
+    assert activity.data["distance_meters"] == engine.context.catalog.shortest_m("home", "office") == 1353
     assert activity.planned_duration_seconds == seconds
     paid = 200000 - engine.context.state.accounts["agent:1"]
     assert paid == fare and engine.context.state.accounts["external:scenario"] == -200000 + paid
@@ -319,8 +319,8 @@ def _two_station_world(tmp_path, first_m, second_m):
 
     root = copy_environment(tmp_path / "station-input")
     rows = catalog_rows(root, "location.jsonl")
-    rows.append({"accepts_parcels": True, "app_ids": [], "branch_label": "二店", "kind": "parcel_station",
-                 "location_id": "parcel-station-2", "name": "快递驿站"})
+    rows.append({"accepts_parcels": True, "app_ids": [], "branch_label": "二店", "city_id": "test-city",
+                 "kind": "parcel_station", "location_id": "parcel-station-2", "name": "快递驿站"})
     write_catalog_rows(root, "location.jsonl", sorted(rows, key=lambda row: row["location_id"]))
     write_catalog_rows(root, "map.jsonl", [{"a": "home", "b": "parcel-station", "length_m": first_m},
                                           {"a": "home", "b": "parcel-station-2", "length_m": second_m}])

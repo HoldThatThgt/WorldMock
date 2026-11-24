@@ -86,13 +86,13 @@ def moment(hour, minute=0, second=0, day=12):
     return int(datetime(2026, 10, day, hour, minute, second, tzinfo=ZONE).timestamp())
 
 
-def clear_day_seed(local_date="2026-10-12"):
-    """@brief 找出给定本地日抽到晴天的最小种子：声明的距离不随种子变化，晴天时出行用时就是距离除以速度。"""
+def clear_day_seed(local_date="2026-10-12", city_id="test-city"):
+    """@brief 找出给定本地日与城市抽到晴天的最小种子：声明的距离不随种子变化，晴天时出行用时就是距离除以速度。"""
     for seed in range(500):
         state = hashlib.sha256(f"random:{seed}".encode()).hexdigest()
-        if random_stream(state, f"weather:{local_date}").choice(tuple(WEATHER_FACTORS)) == "sunny":
+        if random_stream(state, f"weather:{city_id}:{local_date}").choice(tuple(WEATHER_FACTORS)) == "sunny":
             return seed
-    raise AssertionError(local_date)
+    raise AssertionError((city_id, local_date))
 
 
 def phone_environment(destination, clip_seconds=540):

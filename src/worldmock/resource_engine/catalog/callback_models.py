@@ -10,12 +10,18 @@ from worldmock.foundation.errors import reject_value
 
 
 class CallbackState(DeepFrozenModel):
-    """@brief 单个通用状态的初值、上限与收货重置商品。"""
+    """@brief 单个通用状态的初值、上限、收货重置商品与收货增益商品。"""
 
+    #: 回调状态唯一身份。
     state: NonEmptyString
+    #: 运行初始状态值。
     initial: StrictInt
+    #: 状态值上限。
     cap: NonNegativeInteger
+    #: 收货后置满至上限的商品身份元组。
     reset_on_goods: tuple[NonEmptyString, ...]
+    #: 收货后每次递增 1 并受上限钳位的商品身份元组。
+    gain_on_goods: tuple[NonEmptyString, ...] = ()
 
 
 class CallbackTrigger(DeepFrozenModel):

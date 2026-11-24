@@ -219,6 +219,7 @@ def test_manifest_reader_rejects_noncanonical_or_nonobject_document(directory, p
 
 @pytest.mark.parametrize("change,code", [
     ({"rules_version": 0}, "RULES_VERSION_MISMATCH"),
+    ({"rules_version": 5}, "RULES_VERSION_MISMATCH"),
     ({"rules_version": 6}, "RULES_VERSION_MISMATCH"),
     ({"files": ()}, "ENVIRONMENT_FILE_UNLISTED"),
 ])
@@ -616,9 +617,10 @@ def test_prerequisite_shape_errors_are_reported_on_their_content_line(directory,
 
 @pytest.mark.parametrize("content_id,prerequisite,code,detail", [
     ("c-rest", {"location_kinds": ["home"]}, "CONTENT_PREREQUISITE_INVALID", "c-rest is a location content."),
-    ("c-article", {}, "CONTENT_PREREQUISITE_INVALID", "c-article declares neither location kinds nor opening hours."),
+    ("c-article", {}, "CONTENT_PREREQUISITE_INVALID",
+     "c-article declares neither city_ids, location_kinds, nor opening hours."),
     ("c-article", {"location_kinds": []}, "CONTENT_PREREQUISITE_INVALID",
-     "c-article declares neither location kinds nor opening hours."),
+     "c-article declares neither city_ids, location_kinds, nor opening hours."),
     ("c-article", {"location_kinds": ["office", "office"]}, "ENVIRONMENT_ID_DUPLICATE", None),
     ("c-article", {"location_kinds": ["office", "home"]}, KIND_INVALID, None),
     ("c-article", {"location_kinds": ["Office"]}, "CONTENT_BINDING_DANGLING", "c-article prerequisite names Office."),
@@ -689,7 +691,7 @@ def test_prerequisite_check_precedes_the_series_check(directory):
     set_prerequisite(directory, "c-drama-2", {}, series={"episode": 1, "title": "测试剧集"})
     failure = refused(directory)
     assert (failure.code, failure.detail) == ("CONTENT_PREREQUISITE_INVALID",
-                                              "c-drama-2 declares neither location kinds nor opening hours.")
+                                              "c-drama-2 declares neither city_ids, location_kinds, nor opening hours.")
 
 
 SERIES_HOURS = {"weekly": {"mon": [["08:00", "10:00"]], "tue": [["08:00", "10:00"]]}}
@@ -703,17 +705,24 @@ SERIES_HOURS = {"weekly": {"mon": [["08:00", "10:00"]], "tue": [["08:00", "10:00
     ({"opens": SERIES_HOURS}, {"opens": {"weekly": {"mon": [["08:00", "10:00"]]}}}),
     ({"opens": SERIES_HOURS}, {"opens": {**SERIES_HOURS, "exceptions": {"2026-10-12": []}}}),
 ], ids=["second-omits", "first-omits", "kinds-differ", "opens-missing", "weekly-differs", "exceptions-differ"])
-def test_series_episodes_with_different_prerequisites_are_refused(directory, first, second):
+def test_series_episodes_with_different_prerequisites_load_for_app_series(directory, first, second):
+    """app 系列允许不同分集各自声明不同前提（或部分分集省略前提）。"""
     rows = catalog_rows(directory.parent, "content-catalog.jsonl")
     for content_id, prerequisite in (("c-drama-1", first), ("c-drama-2", second), ("c-drama-3", first)):
         if prerequisite is not None:
             next(row for row in rows if row["content_id"] == content_id)["prerequisite"] = prerequisite
     write_catalog_rows(directory.parent, "content-catalog.jsonl", rows)
+    validate_catalog_files(directory)
+    contents = load_catalog(directory, 7).contents
+    assert contents["c-drama-1"].prerequisite != contents["c-drama-2"].prerequisite
+
+
+def test_series_episodes_with_different_repeatable_flags_are_refused(directory):
+    """同系列分集必须保持相同的 repeatable 取值，否则报 CONTENT_SERIES_INVALID。"""
+    change_rows(directory, "content-catalog.jsonl", "c-drama-2", {"repeatable": False})
     failure = refused(directory)
     assert (failure.code, failure.detail) == ("CONTENT_SERIES_INVALID",
-                                              "测试剧集 episodes declare different prerequisites.")
-    assert failure.message == ("Episodes of a series must share one container binding and one prerequisite "
-                               "and have unique episode numbers.")
+                                              "测试剧集 episodes declare different repeatable flags.")
 
 
 def test_series_episodes_with_the_same_prerequisite_in_another_spelling_load(directory):

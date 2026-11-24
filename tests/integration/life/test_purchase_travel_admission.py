@@ -23,7 +23,7 @@ from worldmock.simulation_engine.observation.wording.guidance import rejection_g
 from worldmock.simulation_engine.commerce.purchase.purchase_offers import quote_goods
 from worldmock.simulation_engine.activities.travel.travel import pay_travel_fare, plan_trip
 from worldmock.resource_engine.catalog.travel_methods import WALKING, travel_method
-from worldmock.simulation_engine.scheduling.clock.weather import current_weather_factor
+from worldmock.simulation_engine.scheduling.clock.weather import city_weather_factor
 
 #: 开始组有两条调用时追加在拒绝原因后的一句。
 NEITHER = " Neither start request was started."
@@ -68,7 +68,8 @@ def _with_budget(engine_factory, difference):
     quote = quote_goods(probe.context.inputs, state, 1, "online-notebook", None)
     _, total = quoted_basket(probe.context.inputs, state, 1, ("online-notebook",), None)
     catalog = probe.context.catalog
-    trip = plan_trip(catalog.graph, "home", "office", travel_method(catalog, "taxi"), current_weather_factor(state))
+    trip = plan_trip(catalog.graph, "home", "office", travel_method(catalog, "taxi"),
+                     city_weather_factor(state, "test-city"))
     engine = engine_factory(mutate=lambda persona, config: persona.update(
         initial_balance_fen=total + trip.fare_fen + difference))
     assert quote_goods(engine.context.inputs, engine.context.state, 1, "online-notebook", None) == quote
@@ -302,7 +303,8 @@ def test_fare_shortfall_preserves_the_actual_world_and_produces_the_declared_ref
     engine = engine_factory(mutate=lambda persona, config: persona.update(initial_balance_fen=199))
     state = engine.context.state
     catalog = engine.context.catalog
-    trip = plan_trip(catalog.graph, "home", "office", travel_method(catalog, "bus"), current_weather_factor(state))
+    trip = plan_trip(catalog.graph, "home", "office", travel_method(catalog, "bus"),
+                     city_weather_factor(state, "test-city"))
     assert trip.fare_fen == 200
     before = state.model_dump(mode="json")
     event_seq = engine.context.store.last_event_seq
@@ -322,7 +324,8 @@ def test_departure_fare_receipt_uses_the_exact_world_accounts_and_zero_sum_trans
     state = engine.context.state
     before = state.model_dump(mode="json")
     catalog = engine.context.catalog
-    trip = plan_trip(catalog.graph, "home", "office", travel_method(catalog, mode), current_weather_factor(state))
+    trip = plan_trip(catalog.graph, "home", "office", travel_method(catalog, mode),
+                     city_weather_factor(state, "test-city"))
     assert trip.fare_fen == fare and trip.trip_id == f"home->office:{mode}"
     changed, receipt = pay_travel_fare(state, 1, trip)
     assert changed.accounts == {"agent:1": 0, "external:scenario": 0}
@@ -358,7 +361,7 @@ def _seed_with_weather(condition):
 
     for seed in range(500):
         state = hashlib.sha256(f"random:{seed}".encode()).hexdigest()
-        if random_stream(state, "weather:2026-01-05").choice(tuple(WEATHER_FACTORS)) == condition:
+        if random_stream(state, "weather:test-city:2026-01-05").choice(tuple(WEATHER_FACTORS)) == condition:
             return seed
     raise AssertionError(condition)
 
@@ -367,7 +370,8 @@ def test_tool_layer_quotes_the_declared_distance_for_every_travel_method(engine_
     """家到公司声明 12,600 米、当天小雨：工具层给出的用时和车费就是按声明值算出的结果。"""
     engine = engine_factory(_declared_world(tmp_path, ("home", "office", 12600)))
     state, graph = engine.context.state, engine.context.catalog.graph
-    assert state.weather_by_date == {"2026-01-05": "light_rain"} and current_weather_factor(state) == 0.85
+    assert state.weather_by_date == {"2026-01-05": {"test-city": "light_rain"}}
+    assert city_weather_factor(state, "test-city") == 0.85
     assert graph.distance_meters("home", "office") == 12600 and graph.path("home", "office") == ("home", "office")
     trips = {mode: plan_trip(graph, "home", "office", travel_method(engine.context.catalog, mode), 0.85)
              for mode in ("walking", "driving", "taxi", "bus")}
@@ -394,7 +398,7 @@ def test_accepted_trip_over_the_declared_distance_takes_the_documented_time_in_e
     seed = _seed_with_weather(condition)
     engine = engine_factory(_declared_world(tmp_path, ("home", "office", 12600)),
                             mutate=lambda persona, config: config.update(seed=seed))
-    assert engine.context.state.weather_by_date == {"2026-01-05": condition}
+    assert engine.context.state.weather_by_date == {"2026-01-05": {"test-city": condition}}
     assert engine.context.catalog.shortest_m("home", "office") == 12600
     _, result = act(engine, f"declared-{condition}", travel("公司", method))
     assert result.status == "in_progress", result.error_code
@@ -424,7 +428,7 @@ def test_delivery_store_and_expected_arrival_follow_the_declared_distances(
     root = _declared_world(tmp_path, ("cafe", "office", cafe_m), ("noodle-1", "office", noodle_m))
     engine = engine_factory(root, mutate=at_office)
     catalog, state = engine.context.catalog, engine.context.state
-    assert current_weather_factor(state) == 0.85
+    assert city_weather_factor(state, "test-city") == 0.85
     assert (catalog.shortest_m("cafe", "office"), catalog.shortest_m("noodle-1", "office")) == (cafe_m, noodle_m)
     goods_id = next(key for key, item in catalog.goods.items() if item.name == goods)
     quote = quote_goods(engine.context.inputs, state, 1, goods_id, None)
@@ -487,7 +491,7 @@ def test_every_destination_lists_walking_first_then_dataset_methods_by_identity(
     """每个目的地列出全部出行方式：步行在前，其余按出行方式身份升序；车费、按当刻天气的用时和轻松或费力
     与受理结果同源，余额不够付车费的方式照样列出并标为不可用。"""
     engine = engine_factory(_custom_world(tmp_path))
-    assert current_weather_factor(engine.context.state) == 0.85
+    assert city_weather_factor(engine.context.state, "test-city") == 0.85
     observed, result = act(engine, "ride", travel("公司", "电动车"))
     targets = [row for row in observed["tool_layer"]["targets"] if row["kind"] == "location" and row["name"] != "家"]
     assert len(targets) == 7
@@ -498,18 +502,18 @@ def test_every_destination_lists_walking_first_then_dataset_methods_by_identity(
         assert [row["available"] for row in target["actions"]] == [True, True, True, True, False]
         assert target["actions"][-1]["reason"] == FARE_REASON
     assert {name: (row["price"], row["duration"]) for name, row in travel_rows(observed, "公司").items()} == {
-        "步行": ("0 元", "约 32 分钟"), "自行车": ("0 元", "约 9 分钟"), "缆车": ("3 元", "约 13 分钟"),
-        "电动车": ("1.57 元", "约 6 分钟"), "火箭": ("300000 元", "不到 1 分钟")}
+        "步行": ("0 元", "约 22 分钟"), "自行车": ("0 元", "约 6 分钟"), "缆车": ("3 元", "约 9 分钟"),
+        "电动车": ("1.5 元", "约 4 分钟"), "火箭": ("300000 元", "不到 1 分钟")}
     binding = next(row for row in observed["catalog_bindings"] if row["object"] == "公司")
     assert [(row["detail"], row["travel_method_id"]) for row in binding["actions"]] == [
         ("步行", "walking"), ("自行车", "bike"), ("缆车", "cable"), ("电动车", "ebike"), ("火箭", "rocket")]
     assert "travel_method_id" not in str(observed["tool_layer"])
-    # 受理的行程就是那一行的报价：1,957 米、每秒 6.5 米乘 0.85 是 355 秒，车费取 150 与 157 中较大的一个
+    # 受理的行程就是那一行的报价：1,353 米、每秒 6.5 米乘 0.85 是 245 秒，车费取 150 与 109 中较大的一个
     assert result.status == "in_progress", result.error_code
     trip = engine.context.state.activities[result.activity_id]
-    assert (trip.travel_method_id, trip.planned_duration_seconds, trip.data["exertion"]) == ("ebike", 355, "light")
+    assert (trip.travel_method_id, trip.planned_duration_seconds, trip.data["exertion"]) == ("ebike", 245, "light")
     assert trip.data["trip_id"] == "home->office:ebike" and trip.name.startswith("电动车前往公司（")
-    assert engine.context.state.accounts["agent:1"] == 200000 - 157
+    assert engine.context.state.accounts["agent:1"] == 200000 - 150
 
 
 def test_unaffordable_travel_method_is_refused_with_the_reason_shown_on_its_row(engine_factory, tmp_path):
@@ -644,7 +648,7 @@ def test_accepted_trip_stays_frozen_through_a_weather_change_and_a_reopened_run(
 
     def weather(seed, day):
         state = hashlib.sha256(f"random:{seed}".encode()).hexdigest()
-        return random_stream(state, f"weather:{day}").choice(tuple(WEATHER_FACTORS))
+        return random_stream(state, f"weather:test-city:{day}").choice(tuple(WEATHER_FACTORS))
 
     seed = next(value for value in range(2000)
                 if (weather(value, "2026-01-05"), weather(value, "2026-01-06")) == ("sunny", "snow"))
@@ -668,7 +672,7 @@ def test_accepted_trip_stays_frozen_through_a_weather_change_and_a_reopened_run(
             advance_next(engine)
     state = engine.context.state
     assert midnight < state.current_time < started.planned_end_at
-    assert state.weather_by_date["2026-01-06"] == "snow" and current_weather_factor(state) == 0.6
+    assert state.weather_by_date["2026-01-06"] == {"test-city": "snow"} and city_weather_factor(state, "test-city") == 0.6
     frozen = state.activities[result.activity_id]
     assert frozen.status == "active" and frozen.planned_end_at == started.planned_end_at
     assert frozen.planned_duration_seconds == 10500 and frozen.data == started.data

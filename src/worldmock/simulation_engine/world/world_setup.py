@@ -56,7 +56,7 @@ def _initial_state(inputs: EnvironmentInputs, run_id: str) -> WorldState:
         agents=agents, accounts=accounts, random_seed=inputs.config.seed,
         random_state=hashlib.sha256(f"random:{inputs.config.seed}".encode()).hexdigest(),
     )
-    register_daily_weather(state)
+    register_daily_weather(state, inputs.catalog)
     names = {identity: place.display_name for identity, place in inputs.catalog.locations.items()}
     for persona in sorted(inputs.personas, key=lambda item: item.agent_id):
         state = sessions.open_stay(state, persona.agent_id, names)

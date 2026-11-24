@@ -69,8 +69,8 @@ Windows 可用 `py -3.12`，其他系统可用 `python3.12`。`--wheelhouse` 指
 
 环境根只含 `catalog/`、`personas/`（存放按文件名排列的一个或多个 `*.toml` 人物声明文件）与 `config.toml`，描述一个世界、一名或多名数字人和一次运行。
 `config.toml` 通过 `[models.*]` 与 `[model_routing]` 声明阶段及人物维度的异构模型路由（见[运行配置](docs/manual/runtime.md#runtime-编写-config-toml)）。
-目录使用清单、四份必需 JSONL 和按需放置的可选 JSONL（回调声明 `callbacks.jsonl`、两地距离声明 `map.jsonl`、出行方式 `travel-method.jsonl`）；
-地图由声明的距离和唯一运行种子在内存生成，发布包不包含生成的 `map.json`。
+目录使用清单、四份必需 JSONL 和按需放置的可选 JSONL（回调声明 `callbacks.jsonl`、两地距离与边限制声明 `map.jsonl`、出行方式 `travel-method.jsonl`）；
+分城地图由各城地点、声明的边与唯一运行种子在内存生成，发布包不包含生成的 `map.json`。
 完整格式和实际模型服务要求见[用户手册](docs/manual/README.md)。
 
 运行输出位于 `runs/`。事件数据库、素材、模型证据和共同检查点保留实际来源，恢复使用新的目录并保留父运行。

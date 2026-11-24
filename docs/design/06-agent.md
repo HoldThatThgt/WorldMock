@@ -108,17 +108,19 @@ flowchart LR
 工具层动作行固定八个字段，键序 `action, detail, available, reason, price, duration, quantity, note`，
 紧凑渲染省略 `null`。`detail` 是调用里要照写的名称：出行行是出行方式名称，购买行和内容 app 行为 `null`，
 地点上的 interact 行与 sleep 行见下表。
-其他地点（目的地）的目标行下每种出行方式一行，`action` 恒为 `travel`：自带的步行在前，其余按 `travel_method_id` 升序，每个目的地列出全部方式，不轮转、不截断。
-出行行的 `price` 是车费的人读写法（免费写「0 元」），`duration` 是按当刻天气算出的用时，`quantity` 为 `null`，`note` 是「轻松」或「费力」；余额不够付车费的方式照样列出并标为不可用。
+工具层只列出**当前城市（与 `agent.location_id` 同 `city_id`）的全部地点**，以及**与当前地点存在直接跨城声明边相连的异地枢纽地点**；不直接相连的异地地点不进工具层列表（仍可通过名称解析识别，但受理以 `ACTIVITY_PRECONDITION_UNMET` 拒绝并在 `next_step` 指引 `Travel to <hub display_name> first.`）。人在路上时 `agent.location_id` 仍锚定出发城市。
+当前城市其余地点的目标行下列出可用的同城出行方式：`walking` 在前（若允许），其余按 `travel_method_id` 升序；同城自由街区开放 `walking` 与全部 `city_wide: true` 的方式，`city_wide: false` 的方式只在该两点存在直接声明边且边上 `travel_method_ids` 列出它时才叠加出现（并受该边 `opens` 与 `consumes_state` 约束）。直接相连的异地枢纽目标行下，**只列出该跨城声明边声明的 `travel_method_ids`**（按 `travel_method_id` 升序，不含 `walking`）。所有可达目的地的允许方式均不轮转、不截断。
+地点目标行的 `state` 先写出当天的营业时段（未写 `opens` 写「全天营业」，否则以「、」连接当日时段或写「今日休息」）；若当前城市中的该地点连有至少一条跨城声明边，则在营业时段后紧接附加门户说明：`；城际可达：<dest1>（<method1>、<method2>）、...`，按目的枢纽 `location_id` 升序排列、每个目的枢纽下的出行方式显示名按 `travel_method_id` 升序以「、」相连。
+出行的 `price` 是车费的人读写法（免费写「0 元」），`duration` 是按当刻天气算出的用时（跨城边取起终两城当日天气系数的较小值），`quantity` 为 `null`，`note` 是「轻松」或「费力」；余额不够付车费、发车窗口外或缺少票证状态的声明边方式照样列出并标为不可用。
 私有绑定的出行行另带 `travel_method_id`，不进入公开工具层；紧凑渲染的分组键仍是目标类别与动作，全部目的地的出行行落在同一组里，还原后与完整工具层逐值相同。
 同一个出行方式名称用于工具层的 `detail`、活动名、环境层路上的位置（键 `travel_method`）和到达句「<时刻> <出行方式名称>到了<地点显示名>」；步行写「步行」，其余写数据集起的名称。
 每行的 `available` 与 `reason` 和受理用同一套检查，对只含这一行的一组求值，说明与拒绝原因一字不差。
 所以 `available` 为 `true` 的行单独提交一定受理（开始组仍两项一起核验）；重复做同一件事、几件事谁先谁后，环境都不另加限制，
 凡是限制都已经写在那一行的 `available` 与 `reason` 里，这是[概述](00-overview.md)「核心原则」里人物自主性的落实，系统层有一句讲它。
-人物停留在某个地点时，该地点的目标行下为每个内容单元列一条 interact 行（凭状态而未开放的单元除外，见下文「在地点做的一件事」表），完整列出，不轮转、不截断，按单元键升序；
-地点标了 `sleepable` 时 sleep 行排在其后。人在路上时不列任何地点的 interact 行，其他地点只列出行；没有单元的地点没有 interact 行。
+人物停留在某个地点时，该地点的目标行下为每个内容单元列一条 interact 行（凭状态而未开放、或 `repeatable: false` 且已完整做完一轮的单元除外，见下文「在地点做的一件事」表），完整列出，不轮转、不截断，按单元键升序；
+地点标了 `sleepable` 时 sleep 行排在其后（商业住宿地点若声明了 `sleep_consumes_state`，当前不在 `lodging_stays` 有效入住期内且状态不足时，该行标为 `available: false` 并给出购买对应房晚商品的拒绝原因）。人在路上时不列任何地点的 interact 行，其他地点只列出行；没有单元的地点没有 interact 行。
 
-工具层另有 `callable_index`，两个键。`goods` 是商品品类行，`prefer_apps` 是全部下单 app 的完整名称，按 `app_id` 升序；`prefer_apps` 只取决于冻结目录，整次运行不变，不按此刻营业与否筛选，不轮转，不截断，不参加目标行分组，不进沙盒回传的差量比较，容量浓缩不删它；没有下单 app 的环境里是空数组。工具层没有搜索的动作行，搜索能力通过原生工具 `search_world` 提供。
+工具层轮转展示的店铺商品（`discovery.py`）和 `callable_index.goods` 仅筛选在**当前城市（`store.city_id == current_city`）**拥有门店售卖的店铺商品，不露出仅在其他城市售卖的商品。工具层商品购买行按没有意向的路线预览，其中即时电子商品（`instant: true`）的 `note` 显示「运费0元，付款即收货」。工具层另有 `callable_index`，两个键。`goods` 是商品品类行（仅统计当前城市有门店售卖的店铺商品品类，线上商品与同城搜索交由 `search_world` 检索），`prefer_apps` 是全部下单 app 的完整名称，按 `app_id` 升序；`prefer_apps` 只取决于冻结目录，整次运行不变，不按此刻营业与否筛选，不轮转，不截断，不参加目标行分组，不进沙盒回传的差量比较，容量浓缩不删它；没有下单 app 的环境里是空数组。工具层没有搜索的动作行，搜索能力通过原生工具 `search_world` 提供。
 
 | 动作行 | `detail` | `duration` | `note` |
 | --- | --- | --- | --- |
@@ -136,7 +138,7 @@ h 小于 0.25 写「现在不欠觉」，大于 12 写「现在睡，12 小时�
 | 正在做 | 当前地点的每条 interact 行都不可用，原因是主槽位被占 | 工具层的活动目标行，带 report_status、pause_activity、conclude_activity；系列在这一行的 `state` 里写正在做第几集、哪几集供一餐，见下文活动目标行的 `state` |
 | 刚结束待收尾 | 每条 interact 行都不可用，原因是先收尾 | 工具层的活动目标行，带 conclude_activity |
 | 被本人暂停的活动占着 | 该单元的行不可用，原因点名那项暂停的活动；其他单元的行不受影响 | 待办层 `paused_activities`，带 report_status（恢复）与 conclude_activity |
-| 凭状态而未开放 | 不列出 | 无 |
+| 凭状态而未开放，或一次性单元（`repeatable: false`）已做完一轮 | 不列出 | 无 |
 
 凭状态、未开放的单元照写名称仍由受理拒绝，它不进名称候选，规则见[模拟引擎](04-simulation-engine.md)「出行、内容与搜索」。
 完成效果不改变列出：行的字段与时长和其他单元相同，`note` 只为 `food` 多出上表那两种说法；完成效果的两项缓解和完成效果的证据不进任何提示层，
@@ -159,17 +161,19 @@ conclude_activity 一行不受影响；做完这一集还会接下一集时 `rea
 `<活动名> cannot be paused while its current episode ends in under three minutes; it then continues with the next episode.`，
 否则是 `The activity <活动名> ends in under three minutes and cannot be paused.`。
 恰好还剩 180 秒仍可暂停，整段不足 180 秒的在地点做的事从开始就不可暂停，规则与其余字段见[模拟引擎](04-simulation-engine.md)「动作、名称与并行」。
+进行中的跨城出行（起点与终点所属 `city_id` 不同）在到达之前禁止提前结束，活动目标行里的 `conclude_activity` 标为不可用，原因与提交后 `ACTIVITY_PAUSE_UNAVAILABLE` 的拒绝一字不差。
 人物从这一行知道这条限制，系统层不为它新增句子。
 
-登记了内容的内容 app 全部列出；没有登记内容的不列，名称只出现在 `prefer_apps` 里。app 的内容可以带前提，这一行的可用性、时长和推送说明都只在此刻合格的内容里算，合格内容与前提的判定见[模拟引擎](04-simulation-engine.md)。
+登记了内容的内容 app 全部列出；没有登记内容的不列，名称只出现在 `prefer_apps` 里。app 的内容与系列各集可以带前提与 `repeatable`，这一行的可用性、时长、推送说明、拒绝原因与目标 `state` 都按**未耗尽单元的待播代表集 `target_episode`** 判定（`repeatable: false` 且全集已完成一轮的单元先移出候选），合格单元与前提的判定见[模拟引擎](04-simulation-engine.md)。
 
 | 内容 app 的情形 | `available` 与 `reason` | `duration` | `note` | 目标的 `state` |
 | --- | --- | --- | --- | --- |
-| 至少一条内容合格 | 按其余受理条件 | 此刻打开会先放一条已知的内容（会被钉住的推送内容，或最近没放完的合格内容）时写「先放的一条<这条的余量>」，例如「先放的一条约 12 分钟」；否则按每条写合格内容全长的最小值到最大值，最小与最大相等写「每条<时长>」，例如「每条约 2 分钟」，不等写「每条<最小>–<最大>」，例如「每条约 5 分钟–约 40 分钟」 | 此刻打开会钉住某条推送时写「有推送：《标题》」，否则 `null` | `null` |
-| 登记了内容但都不合格 | `false`；没有更早不成立的条件时，`reason` 写明要去的地点显示名和时段，今天没有时段时写之后七天里下次开放的那天，七天里都不开放也写明，与提交后的拒绝一字不差 | `null` | `null` | 有内容写了 `opens` 时，是这些内容按 `content_id` 升序各自的时间短语（与拒绝分句里的时间部分同一个函数），去重后以 `; or ` 相连，例如 `not available today (next available Mon 10-19 08:00–10:00, 17:00–20:00)`；没有内容写 `opens` 时 `null` |
+| 至少一条未耗尽单元的 `target_episode` 合格 | 按其余受理条件 | 此刻打开会先放一条已知的内容（会被钉住的推送内容，或最近没放完的合格代表集）时写「先放的一条<这条的余量>」，例如「先放的一条约 12 分钟」；否则按每条写合格单元 `target_episode` 全长的最小值到最大值，最小与最大相等写「每条<时长>」，例如「每条约 2 分钟」，不等写「每条<最小>–<最大>」，例如「每条约 5 分钟–约 40 分钟」 | 此刻打开会钉住某条推送时写「有推送：《标题》」，否则 `null` | `null` |
+| 仍有未耗尽单元，但 `target_episode` 都不合格 | `false`；没有更早不成立的条件时，`reason` 按各未耗尽单元的 `target_episode` 写明要去的匹配 `city_ids` 与 `location_kinds` 的地点显示名（当前停留城市已知时优先本城）和时段，今天没有时段时写之后七天里下次开放的那天，七天里都不开放也写明，与提交后的 `CONTENT_PREREQUISITE_UNMET` 拒绝一字不差 | `null` | `null` | 有 `target_episode` 写了 `opens` 时，是这些 `target_episode` 按 `content_id` 升序各自的时间短语（与拒绝分句里的时间部分同一个函数），去重后以 `; or ` 相连，例如 `not available today (next available Mon 10-19 08:00–10:00, 17:00–20:00)`；没有写 `opens` 时 `null` |
+| 所有单元均已耗尽（均为 `repeatable: false` 且已完整读完一轮） | `false`；没有更早不成立的条件时，`reason` 为 `All content in <app 名称> has already been finished.`（拒绝码 `CONTENT_PREREQUISITE_UNMET`） | `null` | `null` | `无未读内容` |
 
 `duration` 里先放的那一条，就是打开顺序会先挑的被钉住的推送或最近没放完的内容，与打开时的挑选是同一个判定；打开顺序与时间短语见[模拟引擎](04-simulation-engine.md)「出行、内容与搜索」。
-目标的 `state` 不看槽位、待收尾约束：副槽位被占、要先收尾时 `reason` 写的是那一条，`state` 照样写出开放时段。
+目标的 `state` 不看槽位与待收尾约束：副槽位被占、要先收尾时 `reason` 写的是那一条，`state` 照样写出开放时段或「无未读内容」。
 「有推送」只在此刻打开会钉住那条推送时显示：推送指向的内容已不合格，或推送已经释放，都不显示。
 系统层不为前提新增句子，`available` 为 `false` 的动作仍可提交，会按 `reason` 拒绝。
 
@@ -181,7 +185,7 @@ conclude_activity 一行不受影响；做完这一集还会接下一集时 `rea
 ### 环境层
 
 环境层的身体感觉使用[交换引擎](02-exchange-engine.md)的饥饿、困倦、放松需要与社交需要四项体感。
-环境天气直接来自世界事实，模型只能据此叙述，不能写入天气；不使用关键词过滤或第二个模型判定天气真伪。
+环境天气直接来自人物当前停留或锚定地点（`agent.location_id`）所属城市（`city_id`）当日的世界天气事实（在跨城路上时 `location_id` 仍锚定出发城市，到达目的枢纽提交后切换为目的城市天气）；模型只能据此叙述，不能写入天气；不使用关键词过滤或第二个模型判定天气真伪。
 
 工作安排写在 `duty` 与 `tomorrow` 两个键里。本地日期按世界时钟和运行时区算，哪天上不上班、班次怎样只由该人物 `personas/*.toml` 的 `work_schedule`
 （`workplace`、`weekly` 与 `exceptions`）按[配置](08-configuration.md)「人物声明」的班次规则求出，不看运行日历，也不看人物在不在场。
@@ -258,7 +262,7 @@ conclude_activity 一行不受影响；做完这一集还会接下一集时 `rea
 | 睡眠 | `planned` | 空 |
 
 进度层每条记录的结果明细 `result.details` 是闭合对象，键恰为 `purchases`、`planned`、`content`、`contents`、`contents_omitted`、`search`、`arrival`、`recall`、`reason`、`next_step`、`fix`、`items`、`outcome`、`resolved`、`notes`、`errands`，全部可选，没列出的键一律不合格。
-购买的每行含 `product`、`quantity`、`channel`、`destination`、`expected_at`，以及 `price` 或 `paid` 之一。到店与外卖同时显示实际商铺的名称 `store` 和评分 `rating`；在途只显示下单预计时刻。
+购买的每行含 `product`、`quantity`、`channel`、`destination`、`expected_at`，以及 `price` 或 `paid` 之一。到店与外卖同时显示实际商铺的名称 `store` 和评分 `rating`（快递与即时电子商品不带 `store` 与 `rating`）；在途只显示下单预计时刻。
 `contents` 至多列三行，多出的行数写在 `contents_omitted`「还有 N 条没列」里。
 `content`、`contents` 的形状，`contents` 取哪几行、`contents_omitted` 何时写，见[模拟引擎](04-simulation-engine.md)「出行、内容与搜索」；`channel` 见[模拟引擎](04-simulation-engine.md)「购买、付款与收货」。
 
@@ -269,7 +273,7 @@ conclude_activity 一行不受影响；做完这一集还会接下一集时 `rea
 | `app` | `prefer` 命中并锁定的下单 app 完整名称，或未锁定 `prefer` 时经 `app_use` 归属的下单 app 完整名称；无归属时为 `null` |
 | `scope` | 「只列经这个 app 能买的」或「列出全部途径」；未锁定下单 app 时为「列出全部途径」 |
 | `goods_rows` | 经 `Fact Guard` 二次白名单核验并按搜索结束时刻实时世界状态生成的商品报价行（至多 20 项） |
-| `place_rows` | 经 `Fact Guard` 核验并按搜索结束时刻生成的同城地点行（含 `name`、`kind`、`open_now`、`today_hours`、`rating`、`units`、`travel_options`） |
+| `place_rows` | 经 `Fact Guard` 核验并按搜索结束时刻生成的同城及直达异地枢纽地点行（含 `name`、`kind`、`open_now`、`today_hours`、`rating`、`units`、`travel_options`） |
 | `summary` | 搜索子会话提交的自然语言检索说明（不含自创价格、评分或时长） |
 | `omitted` | 「还有 N 件没列」，N 是正整数；未超出列表上限时省略这个键 |
 
@@ -278,8 +282,8 @@ conclude_activity 一行不受影响；做完这一集还会接下一集时 `rea
 | 键 | 取值 |
 | --- | --- |
 | `product` | 商品的完整名称，可以照抄进购买的 `target` |
-| `route` | 「到店」「外卖」「快递」，没有途径的行可以为 `null`；「到店」与购买结果 `channel` 里的「到店」是同一个词 |
-| `store` | 地点的显示名，分店带全角括号；没有店的行为 `null` |
+| `route` | 「到店」「外卖」「快递」「即时到账」，没有途径的行可以为 `null`（由 `state/world/kinds.py` 的 `ROUTE_NAMES` 统一定义，供 `prompt_schemas.py` `_SEARCH_ROW` 与 `search_projection.py` 共用）；「到店」与购买结果 `channel` 里的「到店」是同一个词 |
+| `store` | 地点的显示名，分店带全角括号；没有店的行（快递与即时电子商品）为 `null` |
 | `rating` | 有实际卖出商铺时，显示该分店的评分 |
 | `apps` | app 的完整名称组成的数组，次序同机器形式的 `app_ids` |
 | `price` | 金额短语，例如「22 元」 |
@@ -288,7 +292,7 @@ conclude_activity 一行不受影响；做完这一集还会接下一集时 `rea
 | `now` | 「可以下单」或「不可下单」 |
 | `reason` | 「不可下单」时是下面六句之一，「可以下单」时为 `null` |
 
-六句不可下单的原因都是固定文字，花括号处填显示名：「这家店此刻已打烊」「你所在的{地点显示名}就卖这件商品，此刻购买只在所在地点到店完成，不从这家店送」「这家店没有上任何 app，要到店里买」「此刻没有营业的店卖这件商品」「上了这个 app、卖这件商品的店此刻都没有营业」「这个 app 里没有」。
+六句不可下单的原因都是固定文字，花括号处填显示名：「这家店此刻已打烊」「你所在的{地点显示名}就卖这件商品，此刻购买只在所在地点到店完成，不从这家店送」「这家店没有上任何 app，要到店里买」「此刻没有营业的店卖这件商品」「上了这个 app、卖这件商品的店此刻都没有营业」「这个 app 里没有」。`search_world` 与 `LLM Search Session` 筛选店铺商品行时只列人物当前所在城市（`store.city_id == current_city`）的门店；`instant: true` 的线上商品显示「即时到账」行（`prompt_schemas.py` `_SEARCH_ROW` 的 `route` 枚举含 `"即时到账"`），`store` 为 `null`、运费写「0 元」。
 未完成的搜索形态（被 `conclude_activity` 提前取消或运行截止被截断）恰两个键：`app`，和 `state`「没有查完」，只在事件与导出里出现。进行中的第一条结果不写 `search`。
 搜索子会话怎样筛选候选与计算实时投影见[模拟引擎](04-simulation-engine.md)「出行、内容与搜索」，机器形式见[状态与序列化](09-io-formats.md)「世界、人物与活动」。
 结果作为带入记录留到这段停留结束；人物出发后这条记录离开进度层，记忆层「今天」仅保留搜索摘要一行，完整确定性结果进条目全文的「当时查到」，当天可用 `search_memory` 查「今天」。
@@ -299,7 +303,7 @@ conclude_activity 一行不受影响；做完这一集还会接下一集时 `rea
 `B_D` 是今天的零点界，即今天本地 00:00 之前最后一个事件的序号（[模拟引擎](04-simulation-engine.md#simulation-engine-归日)「归日」）。
 序号不超过 `P_k` 的事件，要么已经写进「今天」的某一条，要么属于前一天。记忆层在同一次观察里求出 `P_k` 交给进度层，进度层不自己求 `C_{k-1}`。
 
-上一次唤醒由 `_previous_wakeup` 从「今天条目」定义好的 `wakeup_commits`（本人的世界请求按 `(wakeup_id, local_date)` 归并并按组内最小事件序号排序）读取。它的时刻是这次唤醒第一条世界请求的发生时刻，
+上一次唤醒由 `progress_layer._previous_decision` 从「今天条目」定义好的 `wakeup_commits`（本人的世界请求按 `(wakeup_id, local_date)` 归并并按组内最小事件序号排序）读取。它的时刻是这次唤醒第一条世界请求的发生时刻，
 它的观察是这次唤醒的观察里序号最大的一条。存在上一次唤醒提交而读不到它的观察是完整性故障：写英文错误日志后以 `IntegrityError` 停止。
 没有上一次唤醒时观察序号取 0，计划提醒不设时刻下界。
 
@@ -482,7 +486,7 @@ conclude_activity 一行不受影响；做完这一集还会接下一集时 `rea
 | 购买行 | 〈时刻前缀〉+「买」+〈商品段〉+「，」+〈共〉+〈金额〉+〈送达段〉 | 「买美式咖啡1份，18.3元，预计08:50送到练秋湖研发中心」「买公仔点心面（海鲜味）、高钙牛奶 10盒各1份，共21.76元，预计09:10送到练秋湖研发中心」 |
 | 〈商品段〉 | 一张订单：「〈商品名〉〈份数〉」；两张以上且份数都是 1：各商品名用「、」相连后接「各1份」；其余：「〈商品名〉〈份数〉」各段用「、」相连。订单按结果里的次序 | 「柠檬茶1份」「牛肉面1份、薯片2份」 |
 | 〈共〉〈金额〉 | 两张以上订单时写「共」；金额是各订单总价之和 | 「共21.76元」 |
-| 〈送达段〉 | 有外卖或快递订单时：「，预计」+ 这些订单的预计送达按条目时刻写法写出后去重、按时刻升序以「、」相连 +「送到」+ 它们的目的地按订单次序首次出现去重以「、」相连；目的地是住处写「家」，否则写地点的显示名。全部到店时为空 | 「，预计08:25送到家」 |
+| 〈送达段〉 | 有外卖或快递订单时：「，预计」+ 这些订单的预计送达按条目时刻写法写出后去重、按时刻升序以「、」相连 +「送到」+ 它们的目的地按订单次序首次出现去重以「、」相连；目的地是住处写「家」，否则写地点的显示名。全部到店或即时到账时为空 | 「，预计08:25送到家」 |
 | 〈时刻前缀〉 | 第一张订单的付款时刻写出后与条目「时刻」不同时，写那个时刻加一个空格；相同时为空 | 「08:36 买…」 |
 | 收货品质行 | 〈时刻前缀〉+ 实际卖出商铺、商品和这份的品质 | 「掌柜的店 · 信阳山笋炒腊肉：这份品质中」 |
 | 送达行 | 〈时刻前缀〉+「送达」+ 本人已送达订单的商品名按事件里的次序去重以「、」相连；有延误时按该趟到达事实说明一次 | 「送达美式咖啡」「送达公仔点心面（海鲜味）、高钙牛奶 10盒」 |
@@ -927,9 +931,9 @@ flowchart TD
 | 1 | 定工具面：当剩余回合数（含本回合）恰好为 1，或本回合是截断重试时，屏蔽只读工具（`recall_task_summary`、`search_memory`）与 `search_world`，只开放六个核心世界请求工具（按 `REQUEST_MODELS` 次序）；其余回合在它们后面接 `search_world`、`recall_task_summary` 与 `search_memory`，共九个原生工具 |
 | 2 | 组装请求字典，恰为 `model`、`messages`、`tools`、`tool_choice`、`max_tokens`、`extra_body` 六个键，依此次序：平时 `tool_choice` 为 `"auto"`、`extra_body` 按 `profile.thinking` 写 `{"thinking": {"type": "enabled"}}` 或 `{"type": "disabled"}`；截断重试固定为 `"required"` 与 `{"thinking": {"type": "disabled"}}`；请求里没有 `temperature`、`top_p`、`stream` 或重试次数 |
 | 3 | 容量预检：由 `prompt_capacity.py` 按当前实际消息列表与 `effective_max_tokens` 检查 `85%` 上下文窗口预算，超限时折叠连续未受保护进度记录（已删除跨轮续接前缀切分及 `fresh_messages` / `chain_length`）；发出并留证的是预检后的请求，容量浓缩不写回真实对话历史 |
-| 4 | 将 `model_request` 证据写入沙盒 `EvidenceBuffer` 后经模型客户端发送；客户端收到的与请求证据完全一致 |
-| 5 | 发送失败时将失败证据写入 `EvidenceBuffer`：`error` 是 `MODEL_SERVICE_FAILED: The model service failed before a response was available.`，`response` 只带 `protocol_feedback` 与 `transport_attempts`，再把原异常上抛，原异常的 `repr` 不进证据；主线程在中止前调用 `LifeEngine.record_failed_evidence` 补写尚未落盘的模型草稿。发送被取消时不写失败证据 |
-| 6 | 发送成功时先解析、校验回复，再写 `model_response` 证据进 `EvidenceBuffer`；带协议纠错时证据的 `response` 末尾追加 `protocol_feedback`，`error` 是纠错文字 |
+| 4 | 将 `model_request` 证据写入沙盒证据草稿列表后经模型客户端发送；客户端收到的与请求证据完全一致 |
+| 5 | 发送失败时将失败证据写入沙盒证据草稿列表：`error` 是 `MODEL_SERVICE_FAILED: The model service failed before a response was available.`，`response` 只带 `protocol_feedback` 与 `transport_attempts`，再把原异常上抛，原异常的 `repr` 不进证据；主线程在中止前调用 `LifeEngine.record_failed_evidence` 补写尚未落盘的模型草稿。发送被取消时不写失败证据 |
+| 6 | 发送成功时先解析、校验回复，再写 `model_response` 证据进沙盒证据草稿列表；带协议纠错时证据的 `response` 末尾追加 `protocol_feedback`，`error` 是纠错文字 |
 | 7 | 回复通过校验时，历史接上一条 `assistant` 消息，按回复中的先后执行每个调用：只读工具（`recall_task_summary`、`search_memory`）写回紧凑 JSON `tool` 消息；控制工具与被拒世界请求由 `AgentSandbox` 算出 `{"result": ..., "changes": ..., "events": ...}` 写回 `tool` 消息；受理持续开始动作或开始组则返回 `terminal_exit=True` 正常结束；受理 `search_world` 则保存 `SuspendedLoopState`（含 `pending_tool_call_id`）挂起退出 |
 | 8 | 回复带协议纠错时，按下文配对规则或单条 `user` 消息把纠错接进历史继续下一回合 |
 
@@ -954,7 +958,7 @@ sequenceDiagram
     Host->>Runner: asyncio.gather 并发运行独立子会话
     loop 最多 profile.max_react_turns 回合
         Runner->>View: search_goods / inspect_goods_offers / search_places
-        View-->>Runner: 当前城市且受 scoped_app_id 约束的目录检索与实时报价
+        View-->>Runner: 当前城市（地点含直达异地枢纽）且受 scoped_app_id 约束的目录检索与实时报价
     end
     Runner->>View: submit_search_results(goods_ids, place_ids, summary)
     View-->>Runner: Fact Guard ID 白名单校验通过并交回 SearchSessionOutcome
@@ -965,7 +969,7 @@ sequenceDiagram
 
 | 契约维度 | 精确约束 |
 | --- | --- |
-| 最小隔离上下文 | 仅注入 `SearchTaskSpec` 携带的 `query`、`prefer`、`scoped_app_id`、当前停留地点与城市、当地时刻、天气标签、可用应用与目录品类计数；数字人 `personas/*.toml` 人设、个人记忆、`MEMORY.md` 与资金余额绝不进入搜索子会话 |
-| 严格工具集 | 全部定义于 [search_requests.py](../../src/worldmock/state/interaction/search_requests.py) 并遵循 `deepseek_strict_schema`（无默认值、无 JSON Schema 关键字 `minLength`/`maxLength`/`minItems`/`maxItems`/`oneOf`）：`search_goods`、`inspect_goods_offers`、`search_places` 与 `submit_search_results` |
-| 交卷与 `Fact Guard` | 子会话严禁输出商品价格、运费、商铺评分、配送时长或可下单状态；仅通过 `submit_search_results` 提交至多 20 个合法 `goods_id` 与 10 个 `place_id` 及自然语言 `summary`；允许双列表均为空的零命中提交，此时 `summary` 必须明确说明未找到原因；提交时由 `SearchCatalogView.validate_submission` 校验，交回后由 `LifeEngine.complete_searches` 执行二次 `Fact Guard` 白名单核对与实时报价/营业投影 |
+| 最小隔离上下文 | 仅注入 `SearchTaskSpec` 携带的 `query`、`prefer`、`scoped_app_id`、当前停留地点与所属城市 `city_id`、当地时刻、当前城市天气标签、可用应用与目录品类计数；数字人 `personas/*.toml` 人设、个人记忆、`MEMORY.md` 与资金余额绝不进入搜索子会话 |
+| 严格工具集 | 全部定义于 [search_requests.py](../../src/worldmock/state/interaction/search_requests.py) 并遵循 `deepseek_strict_schema`（无默认值、无 JSON Schema 关键字 `minLength`/`maxLength`/`minItems`/`maxItems`/`oneOf`）：`search_goods`（限定当前城市门店及全图线上商品，含 `instant: true` 即时到账商品）、`inspect_goods_offers`、`search_places`（限定当前城市地点及从当前地点直达的异地枢纽，附带受 `city_wide`/`MapEdge` 约束的出行选项）与 `submit_search_results` |
+| 交卷与 `Fact Guard` | 子会话严禁输出商品价格、运费、商铺评分、配送时长或可下单状态；仅通过 `submit_search_results` 提交至多 20 个合法 `goods_id` 与 10 个地点 `location_id`（`place_ids` 元素）及自然语言 `summary`；允许双列表均为空的零命中提交，此时 `summary` 必须明确说明未找到原因；提交时由 `SearchCatalogView.validate_submission` 校验（门店商品限当前城市、地点限当前城市及直达异地枢纽、且受 `scoped_app_id` 约束），交回后由 `LifeEngine.complete_searches` 执行二次 `Fact Guard` 白名单核对与实时报价/营业投影（线上 `instant: true` 商品按 `prompt_schemas.py` `_SEARCH_ROW` 输出 `"即时到账"` 途径、`store=null` 与 `delivery_fee="0 元"`） |
 | 回合预算与证据归属 | 回合上限读取搜索模型档 `max_react_turns`；耗尽仍未交卷则抛出 `ProtocolError("Search session turn budget exhausted")`；每次模型请求与响应草稿均在信封标明 `EventDraft.activity_id = search_activity_id` 且 `data.purpose = "search_session"` |

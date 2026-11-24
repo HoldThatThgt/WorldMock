@@ -101,7 +101,7 @@ def test_discomfort_pulse_is_recorded_on_its_own_body_settlement(engine_factory)
     # 下单前上班与此前的脉冲已把放松需要推到上限：记账之后 S 就是 1.0，脉冲为 0、不记分录。
     pytest.param(0.98, False, id="settled-at-the-cap"),
     # 上班与此前的脉冲在送达那一秒前把放松需要抬高约 0.27：S 约 0.993，这一段的整份脉冲约 0.017 被封顶截到约 0.007。
-    pytest.param(0.72, True, id="pulse-clipped-at-the-cap"),
+    pytest.param(0.702, True, id="pulse-clipped-at-the-cap"),
 ])
 def test_discomfort_pulse_is_billed_against_the_settled_body_not_the_received_drink(engine_factory, relaxation,
                                                                                     clipped):

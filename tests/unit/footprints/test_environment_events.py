@@ -58,10 +58,12 @@ def test_time_trigger_is_closed_independent_fact():
 
 
 def test_weather_requires_actual_factor_and_canonical_date():
-    data = {"kind": "weather", "local_date": "2026-01-05", "condition": "snow",
-            "speed_factor": 0.6, "scheduled_id": "weather-2026-01-05"}
+    data = {"kind": "weather", "city_id": "test-city", "local_date": "2026-01-05", "condition": "snow",
+            "speed_factor": 0.6, "scheduled_id": "weather-test-city-2026-01-05"}
     assert fact(data).data == data
-    for payload in ({**data, "speed_factor": 1}, {**data, "local_date": "20260105"}, {**data, "extra": 1}):
+    missing_city = {key: value for key, value in data.items() if key != "city_id"}
+    for payload in ({**data, "speed_factor": 1}, {**data, "local_date": "20260105"}, {**data, "extra": 1},
+                    missing_city, {**data, "city_id": " "}, {**data, "scheduled_id": "weather-2026-01-05"}):
         with pytest.raises(ValidationError):
             fact(payload)
 

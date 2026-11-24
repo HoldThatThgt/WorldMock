@@ -37,7 +37,7 @@ def _committed(engine) -> tuple:
 
 def _diverge(engine) -> None:
     """在任何引擎调用之外改动引擎世界的一个非条目字段。"""
-    engine.context.state.weather_by_date["2000-01-01"] = "晴"
+    engine.context.state.weather_by_date["2000-01-01"] = {"test-city": "sunny"}
 
 
 def test_in_place_edit_of_a_shared_entry_is_refused_before_the_step_commits(

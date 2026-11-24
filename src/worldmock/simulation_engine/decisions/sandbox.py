@@ -472,7 +472,8 @@ def _start_effects(actions: ActionHandlers, received: EventDraft) -> list[EventD
         if draft.data.get("kind") == "goods_received" and not draft.caused_by:
             draft = draft.model_copy(update={"caused_by": [received.event_id]})
         elif draft.data.get("type") == "consume_on_start":
-            cause = CallbackCause("action", "interact", draft.agent_id, received.event_id,
+            action_kind = received.data["data"]["activities"][0]["kind"]
+            cause = CallbackCause("action", action_kind, draft.agent_id, received.event_id,
                                   f"{received.action_id}:consume")
             actions.callback_causes[draft.event_id] = cause
             draft = draft.model_copy(update={"caused_by": [cause.source_event_id]})

@@ -295,3 +295,80 @@ def test_app_use_attribution_covers_prefer_lock_majority_tie_break_and_empty_dra
                          "data": {"activity": unavail_done.model_dump(mode="json")}},
                         unavailable_engine.context.inputs, {})
     assert pub["details"]["search"] == unavail_proj
+
+
+def _multicity_search_env(tmp_path):
+    """构造含同城与异城店铺、直达枢纽、非直达城与即时电子商品的隔离环境。"""
+    root = copy_environment(tmp_path / "search-multicity")
+    locs = catalog_rows(root, "location.jsonl")
+    locs.extend([
+        {"app_ids": [], "city_id": "city-b", "kind": "park", "location_id": "b-hub", "name": "乙城前街"},
+        {"app_ids": [], "city_id": "city-b", "kind": "b_shop", "location_id": "b-shop", "name": "乙城点心屋",
+         "rating": 4.5},
+    ])
+    write_catalog_rows(root, "location.jsonl", sorted(locs, key=lambda row: row["location_id"]))
+    goods = catalog_rows(root, "merchant-catalog.jsonl")
+    goods.extend([
+        {"app_ids": ["bilibili"], "category": "goods", "goods_id": "instant-ticket",
+         "instant": True, "name": "在线电子票", "price_fen": 5000},
+        {"category": "snack", "goods_id": "b-pastry", "name": "乙城酥饼", "price_fen": 1800,
+         "store_kinds": ["b_shop"]},
+    ])
+    write_catalog_rows(root, "merchant-catalog.jsonl", sorted(goods, key=lambda row: row["goods_id"]))
+    write_catalog_rows(root, "map.jsonl", [
+        {"a": "b-hub", "b": "home", "length_m": 10000, "travel_method_ids": ["driving"]},
+    ])
+    return root
+
+
+def _start_city_place(place_name: str):
+    """返回把人物起点设在指定地点并配足时钟窗的 mutate 回调。"""
+    def mutate(persona, config):
+        persona["initial_location"] = place_name
+    return mutate
+
+
+def test_search_answer_projects_instant_route_and_enforces_same_city_isolation(engine_factory, tmp_path):
+    """instant 商品在搜索详情投成即时到账且无评分/店铺，Fact Guard 与搜索视图强制执行同城隔离。"""
+    root = _multicity_search_env(tmp_path)
+    engine = engine_factory(environment_root=root, mutate=_start_city_place("家"))
+    act(engine, "find-instant", search_world("电子票"))
+    advance_next(engine)
+    [(t_home, v_home)] = engine.due_searches()
+    instant_hits = v_home.search_goods(_search_goods_req(["电子票"]))
+    assert [row["goods_id"] for row in instant_hits["items"]] == ["instant-ticket"]
+    assert instant_hits["items"][0]["route"] == "即时到账" and instant_hits["items"][0]["delivery_fee_fen"] == 0
+    with pytest.raises(ProtocolError, match="Fact guard rejected"):
+        engine.complete_searches([SearchSessionOutcome(
+            action_id=t_home.action_id, agent_id=1, activity_id=t_home.activity_id,
+            goods_ids=("b-pastry",), place_ids=(), summary="越城店铺商品应拒",
+        )])
+    engine.complete_searches([SearchSessionOutcome(
+        action_id=t_home.action_id, agent_id=1, activity_id=t_home.activity_id,
+        goods_ids=("instant-ticket",), place_ids=("b-hub",), summary="在线电子票与乙城前街",
+    )])
+    proj_home = search_details(engine.context.state.activities[t_home.activity_id].model_dump(mode="json"),
+                               engine.context.inputs)
+    g_row = proj_home["goods_rows"][0]
+    assert g_row["route"] == "即时到账" and g_row["store"] is None and g_row["delivery_fee"] == "0 元"
+    assert "rating" not in g_row and g_row["now"] == "可以下单"
+    assert proj_home["place_rows"][0]["name"] == "乙城前街" and proj_home["place_rows"][0]["travel_options"]
+
+    # 切到 city-b 后：仅在 test-city 有售的牛肉面被屏蔽，乙城酥饼与跨城即时票券可搜索并通过核验。
+    engine_b = engine_factory(environment_root=root, mutate=_start_city_place("乙城点心屋"))
+    act(engine_b, "find-b", search_world("点心与电子票"))
+    advance_next(engine_b)
+    [(t_b, v_b)] = engine_b.due_searches()
+    assert v_b.search_goods(_search_goods_req(["牛肉面"]))["total"] == 0
+    with pytest.raises(ProtocolError, match="Fact guard rejected"):
+        engine_b.complete_searches([SearchSessionOutcome(
+            action_id=t_b.action_id, agent_id=1, activity_id=t_b.activity_id,
+            goods_ids=("beef-noodles",), place_ids=(), summary="跨城牛肉面应拒",
+        )])
+    engine_b.complete_searches([SearchSessionOutcome(
+        action_id=t_b.action_id, agent_id=1, activity_id=t_b.activity_id,
+        goods_ids=("b-pastry", "instant-ticket"), place_ids=("b-shop",), summary="乙城酥饼与在线电子票",
+    )])
+    proj_b = search_details(engine_b.context.state.activities[t_b.activity_id].model_dump(mode="json"),
+                            engine_b.context.inputs)
+    assert [row["route"] for row in proj_b["goods_rows"]] == ["到店", "即时到账"]

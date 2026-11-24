@@ -13,20 +13,22 @@ from worldmock.state.interaction.search_requests import SEARCH_SESSION_MODELS
 
 #: 搜索子会话内部工具的用途说明，只描述用途与边界，不包含任何报价或规则数值。
 SEARCH_TOOL_DESCRIPTIONS: dict[str, str] = {
-    "search_goods": "按多近义关键词与可选条件分页检索当前视野内的可售商品。",
-    "inspect_goods_offers": "批量试算候选商品的实时价格、运费、营业与送达报价。",
-    "search_places": "按关键词或地点类别检索同城地点与营业、出行摘要。",
+    "search_goods": "按多近义关键词与可选条件分页检索同城门店及线上应用的可售商品。",
+    "inspect_goods_offers": "批量试算候选商品的实时价格、运费、营业与履约送达报价。",
+    "search_places": "按关键词或地点类别检索同城地点与直达邻城枢纽的营业、出行摘要。",
     "submit_search_results": "提交经过白名单验证的最终候选商品与地点标识并结束搜索子会话。",
 }
 
 #: 搜索子会话系统层规则：强隔离输入边界并由 Fact Guard 负责真实数值投影。
 SEARCH_SYSTEM_LAYER: dict[str, Any] = {
     "layer": "搜索系统层",
-    "role": "你是同城商品与地点搜索引擎专员，在限定回合预算内从真实目录检索并筛选符合用户需求的商品编号与地点编号。",
+    "role": "你是商品与地点搜索引擎专员，在限定回合预算内从同城门店、线上应用及同城与直达邻城地点中筛选编号。",
     "rules": [
         "只依据工具返回与当前输入事实检索，严禁编造商品编号、地点编号或任何价格、运费、评分、配送时长与可下单状态。",
-        "若 scoped_app_id 非空，所有商品检索结果必须属于该限定应用；不限定时检索全城可用途径。",
-        "先调用 search_goods 或 search_places 发现候选编号，再对关键候选商品调用 inspect_goods_offers 检查实时营业与报价。",
+        ("若 scoped_app_id 非空，所有商品检索结果必须属于该限定应用；"
+         "不限定时同时检索同城门店（到店、外卖）与线上应用（快递、即时到账）全部可用途径。"),
+        ("先调用 search_goods 或 search_places（含同城地点与直达邻城枢纽）发现候选编号，"
+         "再对关键候选商品调用 inspect_goods_offers 检查实时营业与报价。"),
         "最终必须调用 submit_search_results 提交候选 goods_ids（至多 20 项）与 place_ids（至多 10 项）以及简短说明 summary。",
         "submit_search_results 的 summary 只写自然语言推荐依据、替代说明或未找到原因，严禁写出价格、运费、评分、时长或可买结论。",
         "若真实目录没有命中任何匹配项，仍须提交空的 goods_ids/place_ids 并在 summary 明确说明未找到原因。",
