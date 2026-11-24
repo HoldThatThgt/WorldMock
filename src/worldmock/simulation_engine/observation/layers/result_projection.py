@@ -15,7 +15,7 @@ from typing import Any
 from worldmock.configuration.inputs.environment import EnvironmentInputs
 from worldmock.recording_engine.projections.presentation.display_wording import TITLE_LIST_LIMIT
 from worldmock.recording_engine.projections.commerce.action_orders import placed_orders
-from worldmock.simulation_engine.activities.query.query_answer import query_details
+from worldmock.simulation_engine.observation.layers.search_projection import search_details
 from worldmock.foundation.time.readable import duration_phrase, iso_time, money_phrase, portion_phrase
 from worldmock.simulation_engine.observation.wording.settled_text import KitUse, kit_phrase
 
@@ -38,7 +38,7 @@ def _details(result: dict[str, Any], inputs: EnvironmentInputs, kits: Mapping[st
     """@brief 这条动作下的订单、计划时长、做过的内容与到达由实际快照派生，系统足迹和在驿站领取的包裹不进入购买明细。
 
     进行中的第一条结果写 planned 与 content；终态（completed、cancelled、failed）结果里 interact 活动的快照写 contents
-    （多出的行另写 contents_omitted，紧跟在 contents 之后），查询的快照投影 query：有答案的是查完的形状，没有的是「没有查完」。
+    （多出的行另写 contents_omitted，紧跟在 contents 之后），搜索快照投影 search：有答案的是查完的形状，没有的是「没有查完」。
     """
     payload = result.get("data") or {}
     details = {key: payload[key] for key in _PASSTHROUGH_DETAILS if key in payload}
@@ -55,8 +55,8 @@ def _details(result: dict[str, Any], inputs: EnvironmentInputs, kits: Mapping[st
         details["planned"] = [{"name": item["name"], "duration": duration_phrase(item["planned_duration_seconds"])}
                               for item in payload["resumed"]]
     snapshot = payload.get("activity")
-    if snapshot is not None and snapshot["kind"] == "query":
-        details["query"] = query_details(snapshot, inputs)
+    if snapshot is not None and snapshot["kind"] == "search":
+        details["search"] = search_details(snapshot, inputs)
     arrivals = [item["data"]["arrival"] for item in _activity_rows(payload) if item["data"].get("arrival")]
     if arrivals:
         row = arrivals[0]

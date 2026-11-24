@@ -31,11 +31,13 @@ class ScheduledOutcome:
     receipts: tuple[EventDraft, ...] = ()
 
 
-def time_trigger_draft(state: WorldState, key: str, scheduled_id: str | None = None) -> EventDraft:
+def time_trigger_draft(state: WorldState, key: str, scheduled_id: str | None = None,
+                       agent_id: int | None = None) -> EventDraft:
     """@brief 时间事实自身是无上游业务原因的回调触发源。"""
     identity = scheduled_id if scheduled_id is not None else f"time-{key}-{state.current_time}"
+    owner = min(state.agents) if agent_id is None else agent_id
     return EventDraft(event_type="environment_event", occurred_at=state.current_time,
-                      agent_id=next(iter(state.agents)), source_kind="environment", visibility="system",
+                      agent_id=owner, source_kind="environment", visibility="system",
                       data={"kind": "time_trigger", "key": key, "scheduled_id": identity})
 
 
@@ -47,7 +49,8 @@ def apply_scheduled_effect(state: WorldState, event: ScheduledEvent, context) ->
         from worldmock.simulation_engine.scheduling.callbacks.app_push import issue_app_push
 
         changed, data = issue_app_push(state, event, context.catalog)
-        return ScheduledOutcome(changed, data, "app_push" if "push_id" in data and not _asleep(state) else None)
+        wake = "app_push" if "push_id" in data and not _asleep(state, event.agent_id) else None
+        return ScheduledOutcome(changed, data, wake)
     if event.kind == ScheduledKind.WEATHER:
         date = event.data["local_date"]
         condition = state.weather_by_date[date]
@@ -97,7 +100,7 @@ def process_scheduled_events(state: WorldState, target: int, context) -> tuple[W
 def _scheduled_draft(state: WorldState, item: ScheduledEvent, outcome: ScheduledOutcome) -> EventDraft:
     """@brief 时间与天气使用封闭系统事实，内容推送与到货才可进入人物证据。"""
     if item.kind == ScheduledKind.TIME_TRIGGER:
-        return time_trigger_draft(state, item.data["key"], item.scheduled_id)
+        return time_trigger_draft(state, item.data["key"], item.scheduled_id, agent_id=item.agent_id)
     data = {"kind": item.kind.value, "scheduled_id": item.scheduled_id, **outcome.data}
     visible = (item.kind == ScheduledKind.DELIVERY_ARRIVAL
                or item.kind == ScheduledKind.APP_PUSH and "push_id" in outcome.data)
@@ -139,10 +142,10 @@ def _deliver_orders(state: WorldState, event: ScheduledEvent, context) -> Schedu
     if head.fulfillment == FulfillmentKind.DELIVERY and head.arrived_at > head.expected_at:
         data.update(weather_delay_seconds=head.weather_delay_seconds,
                     late_by_seconds=head.arrived_at - head.expected_at)
-    return ScheduledOutcome(state, data, None if _asleep(state) else "delivery_arrival", tuple(receipts))
+    return ScheduledOutcome(state, data, None if _asleep(state, head.agent_id) else "delivery_arrival",
+                            tuple(receipts))
 
 
-def _asleep(state: WorldState) -> bool:
-    """@brief 后台事件不得提前结束唯一人物的睡眠。"""
-    identity = next(iter(state.agents))
-    return any(activity.kind == ActivityKind.SLEEP for activity in active_activities(state, identity))
+def _asleep(state: WorldState, agent_id: int) -> bool:
+    """@brief 后台事件不得提前结束对应人物的睡眠。"""
+    return any(activity.kind == ActivityKind.SLEEP for activity in active_activities(state, agent_id))

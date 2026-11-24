@@ -1,10 +1,11 @@
-"""@brief 固定身体规则与单人人设质量组合的唯一运行视图。"""
+"""@brief 固定身体规则与数字人设质量组合的唯一运行视图。"""
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Mapping
 
-from worldmock.exchange_engine.definitions.body_constants import BODY_CONSTANTS
+from worldmock.configuration.inputs.environment import EnvironmentInputs
 from worldmock.configuration.inputs.models import PersonaConfig
+from worldmock.exchange_engine.definitions.body_constants import BODY_CONSTANTS
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,3 +32,8 @@ def assemble_body_config(persona: PersonaConfig) -> BodyConfig:
     return BodyConfig(persona.body.mass_kg, constants.maximum_energy_kcal, constants.hunger_threshold_kcal,
                       constants.emergency_threshold_kcal, constants.relaxation_need_per_awake_hour,
                       constants.activity_met)
+
+
+def assemble_bodies(inputs: EnvironmentInputs) -> dict[int, BodyConfig]:
+    """@brief 按人物编号为运行内全部数字人设装配不可变身体规则视图。"""
+    return {persona.agent_id: assemble_body_config(persona) for persona in inputs.personas}

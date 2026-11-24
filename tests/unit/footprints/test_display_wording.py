@@ -101,6 +101,22 @@ def test_unsupported_kind_and_missing_order_are_faults(caplog):
     assert "Purchase activity has no recorded order: order-gone" in logged
 
 
+def test_search_activity_phrase_formats_query_and_optional_app_and_rejects_missing_app(caplog):
+    """搜索活动按 query 与可选 app_id 生成展示文案，未登记 app 时写入错误日志并抛出 IntegrityError。"""
+    names = sample_display_names()
+    unscoped = {"kind": "search", "location_id": "home", "data": {"action": "search", "query": "咖啡", "app_id": None}}
+    scoped = {"kind": "search", "location_id": "home",
+              "data": {"action": "search", "query": "咖啡", "app_id": "meituan"}}
+    unknown = {"kind": "search", "location_id": "home",
+               "data": {"action": "search", "query": "咖啡", "app_id": "no-such-app"}}
+    assert activity_phrase(names, unscoped, [None], {}) == "搜索咖啡"
+    assert activity_phrase(names, scoped, [None], {}) == "搜索咖啡（美团）"
+    expected = "Displayed object is not registered in the frozen environment: app no-such-app"
+    with caplog.at_level(logging.ERROR), pytest.raises(IntegrityError, match=f"^{re.escape(expected)}$"):
+        activity_phrase(names, unknown, [None], {})
+    assert expected in [record.getMessage() for record in caplog.records if record.levelno == logging.ERROR]
+
+
 def test_frozen_rows_outside_the_current_row_models_are_refused(tmp_path):
     """摘要与字节数都对得上的冻结目录里，app 目录一行多一个字段：照登记时的行模型失败，原因带文件名与行号；
     同一份目录不改时读出的名称等于样例环境建出的名称。"""

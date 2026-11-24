@@ -454,9 +454,9 @@ def _custom_world(tmp_path, methods=CUSTOM_METHODS, navigation=("bike", "walking
                                   [travel_method_row(*row) for row in methods], navigation)
 
 
-def _detail_item(result):
+def _detail_item(result, code: str = "NAME_NOT_FOUND"):
     """环境复核出的唯一一条 detail 名称明细。"""
-    assert result.status == "rejected" and result.error_code == "ACTION_REQUEST_INVALID"
+    assert result.status == "rejected" and result.error_code == code
     [item] = result.data["items"]
     assert item["path"] == ["tool_calls", 0, "function", "arguments", "detail"]
     return item
@@ -550,7 +550,7 @@ def test_missing_travel_detail_is_refused_by_the_request_model_without_walking(e
     engine = engine_factory(_custom_world(tmp_path))
     request = StartMainActivityRequest.model_construct(action="travel", target="公司", detail=None)
     _, result = act(engine, "no-detail", request)
-    item = _detail_item(result)
+    item = _detail_item(result, "ACTION_REQUEST_INVALID")
     assert item["why"] == "detail is required when action is travel"
     assert (item["written"], item["allowed_values"], item["candidates"]) == (None, [], [])
     assert not engine.context.state.activities and engine.context.state.accounts["agent:1"] == 200000
@@ -578,7 +578,7 @@ def test_travel_detail_matching_two_methods_after_normalisation_is_ambiguous(eng
     methods = [("a", "专车[A]", 7, 500, 200, "light"), ("b", "专车【A】", 9, 900, 300, "light")]
     engine = engine_factory(_custom_world(tmp_path, methods, ("walking",)))
     _, result = act(engine, "ambiguous", travel("公司", "专车(A)"))
-    item = _detail_item(result)
+    item = _detail_item(result, "NAME_AMBIGUOUS")
     assert (item["error_code"], item["allowed_values"]) == ("NAME_AMBIGUOUS", ["步行", "专车[A]", "专车【A】"])
     assert item["expected"] == "One unambiguous complete detail name is required."
     assert item["why"] == "The name 专车(A) identifies several options of 公司."
@@ -637,8 +637,7 @@ def test_accepted_trip_stays_frozen_through_a_weather_change_and_a_reopened_run(
     import hashlib
     from datetime import datetime
 
-    from tests.life.conftest import context
-    from tests.life.environment_runtime import settle_decision
+    from tests.life.environment_runtime import observe_only, settle_decision
     from worldmock.exchange_engine.definitions.constants import WEATHER_FACTORS
     from worldmock.simulation_engine.engine import LifeEngine
     from worldmock.foundation.randomness import random_stream
@@ -675,7 +674,7 @@ def test_accepted_trip_stays_frozen_through_a_weather_change_and_a_reopened_run(
     assert frozen.planned_duration_seconds == 10500 and frozen.data == started.data
     # 零点之后的报价按雪天重算，已受理的行程不跟着变
     _next_decision(engine)
-    quote = engine.observe(context(engine, "after-midnight"))
+    quote = observe_only(engine, "after-midnight")
     assert travel_rows(quote, "公司")["步行"]["duration"] == "约 5 小时"
     before_close = engine.context.state.activities[result.activity_id]
     inputs, run_dir = engine.context.inputs, engine.context.store.run_dir

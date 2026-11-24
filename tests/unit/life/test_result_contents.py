@@ -23,13 +23,16 @@ _ORDERABLE = {"product": "柠檬茶", "route": "外卖", "store": "四季便利"
               "reason": None}
 _NOT_ORDERABLE = {"product": "冰美式咖啡", "route": None, "store": None, "apps": [], "price": "22 元",
                   "delivery_fee": None, "expected_at": None, "now": "不可下单", "reason": "这个 app 里没有"}
-_ANSWERED = {"app": "美团外卖", "scope": "只列经这个 app 能买的", "rows": [_ORDERABLE, _NOT_ORDERABLE],
-             "omitted": "还有 3 件没列"}
+_PLACE = {"name": "四季便利", "kind": "便利店", "open_now": True, "today_hours": ["08:00–22:00"],
+          "rating": 3.5, "units": [], "travel_options": ["步行（10 分钟）"]}
+_ANSWERED = {"app": "美团", "scope": "只列经这个 app 能买的", "goods_rows": [_ORDERABLE, _NOT_ORDERABLE],
+             "place_rows": [_PLACE], "summary": "找到柠檬茶与四季便利。", "omitted": "还有 3 件没列"}
 _UNFINISHED = {"app": "饿了么", "state": "没有查完"}
 _EVERY_KEY = {
     "purchases": [_DELIVERED], "planned": [{"name": "进行测试休息（1月5日 08:00 起）", "duration": "约 15 分钟"}],
     "content": {**_CONTENT, "app": None}, "contents": [_DONE], "contents_omitted": "还有 2 条没列",
-    "query": {"app": None, "scope": "列出全部途径", "rows": [_ORDERABLE]},
+    "search": {"app": None, "scope": "列出全部途径", "goods_rows": [_ORDERABLE],
+               "place_rows": [], "summary": "找到柠檬茶。"},
     "arrival": {"place": "公司", "access": "进入"}, "recall": {"date": "2026-01-04"},
     "reason": "测试原因。", "next_step": "测试下一步。", "fix": "测试改法。", "items": [{"written": "咖啡"}],
     "outcome": [{"activity": "进行测试休息（1月5日 08:00 起）", "outcome": "提前结束"}],
@@ -62,12 +65,12 @@ def _problem(details: dict) -> str | None:
     pytest.param({"contents": [_DONE, _DONE, _DONE], "contents_omitted": "还有 2 条没列"},
                  id="three-contents-and-how-many-are-left-out"),
     pytest.param({"purchases": [_DELIVERED, _IN_STORE]}, id="purchase-channel"),
-    pytest.param({"query": _ANSWERED}, id="query-answered"),
-    pytest.param({"query": _UNFINISHED}, id="query-unfinished"),
+    pytest.param({"search": _ANSWERED}, id="search-answered"),
+    pytest.param({"search": _UNFINISHED}, id="search-unfinished"),
     pytest.param(_EVERY_KEY, id="every-key"),
 ])
 def test_result_details_schema_accepts_every_listed_key(details):
-    """带 content、contents、三行 contents 加 contents_omitted、购买行的 channel、查完与没有查完两种 query 的进度层，
+    """带 content、contents、三行 contents 加 contents_omitted、购买行的 channel、查完与没有查完两种 search 的进度层，
     以及键表全部键同时出现的进度层，各自通过层校验。"""
     assert _problem(details) is None
 
@@ -77,10 +80,12 @@ def test_result_details_schema_accepts_every_listed_key(details):
                  id="purchase-without-channel"),
     pytest.param({"purchases": [{key: value for key, value in _DELIVERED.items() if key != "rating"}]},
                  id="purchase-store-without-rating"),
-    pytest.param({"query": {**_ANSWERED, "rows": [{**_NOT_ORDERABLE, "rating": 4}]}},
-                 id="query-rating-without-store"),
-    pytest.param({"query": {**_ANSWERED, "rows": [{key: value for key, value in _ORDERABLE.items() if key != "rating"}]}},
-                 id="query-store-without-rating"),
+    pytest.param({"search": {**_ANSWERED, "goods_rows": [{**_NOT_ORDERABLE, "rating": 4}]}},
+                 id="search-rating-without-store"),
+    pytest.param({"search": {**_ANSWERED,
+                             "goods_rows": [{key: value for key, value in _ORDERABLE.items() if key != "rating"}]}},
+                 id="search-store-without-rating"),
+    pytest.param({"query": _ANSWERED}, id="retired-query"),
     pytest.param({"contents": []}, id="empty-contents"),
     pytest.param({"contents": [_DONE, _DONE, _DONE, _UNDONE]}, id="four-contents-rows"),
     pytest.param({"contents": [_DONE, _DONE, _DONE], "contents_omitted": "还有 0 条没列"}, id="none-left-out"),

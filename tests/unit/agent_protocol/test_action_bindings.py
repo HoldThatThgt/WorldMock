@@ -1,16 +1,16 @@
-"""仅五个现行动作可登记为私有绑定的动作行，指名商品绑定带着所写的购买或查询。"""
+"""仅五个现行动作可登记为私有绑定的动作行，指名商品绑定带着所写的购买动作。"""
 import pytest
 from worldmock.exchange_engine.conditions.activity_rules import ACTIVITY_ACTIONS
 from worldmock.state.interaction.actions import START_TOOLS, binding_action, start_tool
 from worldmock.simulation_engine.actions.name_resolution import named_supply_row, sleep_row
 
 
-@pytest.mark.parametrize("action", ["travel", "purchase", "sleep", "interact", "query"])
+@pytest.mark.parametrize("action", ["travel", "purchase", "sleep", "interact", "search"])
 def test_binding_row_carries_action_detail_and_note(action):
     """动作行恒有动作、detail 与不可用备注三个键；detail 是调用里要写的名称。"""
     assert binding_action(action) == {"action": action, "detail": None, "note": None}
     assert binding_action(action, "步行") == {"action": action, "detail": "步行", "note": None}
-    assert set(ACTIVITY_ACTIONS) == {"travel", "purchase", "sleep", "interact", "query"}
+    assert set(ACTIVITY_ACTIONS) == {"travel", "purchase", "sleep", "interact", "search"}
 
 
 @pytest.mark.parametrize("action", ["walk", "drive", "take_taxi", "take_bus", "wait", "do", "travel_to", "call", ""])
@@ -32,9 +32,9 @@ def test_action_row_belongs_to_one_start_tool_by_object_kind(kind, action, tool)
     assert start_tool(kind, action) == tool and tool in START_TOOLS
 
 
-@pytest.mark.parametrize("action", ["purchase", "query"])
+@pytest.mark.parametrize("action", ["purchase"])
 def test_named_product_requests_preserve_full_name_and_the_written_action(action):
-    """未展示的商品名照原文交给环境的指名商品入口，行上带着所写的动作（购买或查询）。"""
+    """未展示的商品名照原文交给环境的指名商品入口，行上带着所写的购买动作。"""
     row = named_supply_row("牛肉面", action)
     assert row["object"] == "牛肉面" and row["object_id"] is None and row["kind"] == "named_supply"
     assert row["actions"] == [{"action": action, "detail": None, "note": None}]

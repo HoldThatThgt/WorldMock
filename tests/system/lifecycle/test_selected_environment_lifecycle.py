@@ -38,7 +38,7 @@ def test_selected_environment_runs_relocates_and_exports_its_actual_input(engine
     try:
         assert reopened.context.state.model_dump(mode="json") == saved
         assert reopened.context.store.manifest["environment_identity"] == original_identity
-        assert inputs.persona_sha256 == original_inputs.persona_sha256
+        assert inputs.persona_sha256s == original_inputs.persona_sha256s
         assert inputs.config_sha256 == original_inputs.config_sha256
         checkpoint = _complete_run(reopened, moved / "completed")
         export_run(reopened.context.store, checkpoint.last_event_seq, moved / "export")

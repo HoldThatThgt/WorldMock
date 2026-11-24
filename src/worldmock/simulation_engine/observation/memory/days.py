@@ -27,14 +27,14 @@ from worldmock.simulation_engine.observation.memory.categories import (
 from worldmock.simulation_engine.observation.memory.digests import registered_digests
 from worldmock.simulation_engine.observation.memory.entries import (
     AgentEvents,
-    Decision,
     TodayEntry,
+    WakeupCommit,
     activity_facts,
     agent_events,
     build_closing_entry,
     build_entry,
-    decision_commits,
     short_name,
+    wakeup_commits,
 )
 from worldmock.state.model.memory import MEMORY_CATEGORIES, MEMORY_DIGEST_KEYS, MemoryCategory
 from worldmock.state.world.kinds import ActivityStatus
@@ -168,25 +168,22 @@ def _cell(digest: DayDigest, day: str, category: MemoryCategory, schedule: Any |
 
 def published_today(inputs: EnvironmentInputs, store: FootprintStore, agent_id: int, moment: int,
                     cutoff: int) -> PublishedToday:
-    """@brief 一次观察的今天：日期为 moment 的本地日期、C 不超过 cutoff 的各次决策的条目，与已发布界
-    P = max(C ≤ cutoff 的最后一次决策的 C，B_today)。
-
-    :param moment: 观察时刻；只读检索时是冻结观察的时刻。
-    :param cutoff: 构建观察时是 store.last_event_seq，只读检索时是冻结观察的事件序号。
+    """@brief 一次观察的今天：日期为 moment 的本地日期、C 不超过 cutoff 的各次唤醒的条目，与已发布界
+    P = max(C ≤ cutoff 的最后一次唤醒的 C，B_today)。
     """
-    book = memory_book(store, inputs)
+    book = memory_book(store, inputs, agent_id)
     cached = agent_events(store, agent_id, inputs.catalog.kit_states())
     today = local_date(moment, inputs.config.timezone)
     bound = _bound(store, cached, today, inputs.config.timezone, moment)
-    decisions = [decision for decision in decision_commits(store, cached, cutoff) if decision.commit <= cutoff]
-    own = [decision for decision in decisions if local_date(decision.occurred_at, book.timezone) == today]
-    entries = _decision_entries(store, cached, own, bound, inputs)
-    return PublishedToday(tuple(entries), max(decisions[-1].commit if decisions else 0, bound))
+    commits = [commit for commit in wakeup_commits(store, cached, cutoff, book.timezone) if commit.commit <= cutoff]
+    own = [commit for commit in commits if commit.local_date == today]
+    entries = _wakeup_entries(store, cached, own, bound, (inputs, agent_id))
+    return PublishedToday(tuple(entries), max([*(commit.commit for commit in commits), bound]))
 
 
 def past_day_entries(inputs: EnvironmentInputs, store: FootprintStore, agent_id: int, day: str,
                      now: int) -> tuple[TodayEntry, ...]:
-    """@brief 某一往日的全部条目：那天各次决策的条目按决策次序，最后接那天的零点收尾条目（有时）。
+    """@brief 某一往日的全部条目：那天各次唤醒的条目按次序，最后接那天的零点收尾条目（有时）。
 
     :param now: 此刻；早于 day 的下一个本地零点时那天还没结束，是完整性故障。
     """
@@ -198,12 +195,11 @@ def past_day_entries(inputs: EnvironmentInputs, store: FootprintStore, agent_id:
     cached = agent_events(store, agent_id, inputs.catalog.kit_states())
     bound = _bound(store, cached, day, zone, now)
     upper = _bound(store, cached, following, zone, now)
-    own = [decision for decision in decision_commits(store, cached, upper)
-           if local_date(decision.occurred_at, zone) == day]
-    entries = _decision_entries(store, cached, own, bound, inputs)
+    own = [commit for commit in wakeup_commits(store, cached, upper, zone) if commit.local_date == day]
+    entries = _wakeup_entries(store, cached, own, bound, (inputs, agent_id))
     if day not in cached.closings:
-        lower = own[-1].commit if own else bound
-        cached.closings[day] = build_closing_entry(memory_book(store, inputs), cached, day, (lower, upper))
+        lower = max((commit.commit for commit in own), default=bound)
+        cached.closings[day] = build_closing_entry(memory_book(store, inputs, agent_id), cached, day, (lower, upper))
     closing = cached.closings[day]
     return tuple(entries) if closing is None else (*entries, closing)
 
@@ -215,15 +211,18 @@ def _bound(store: FootprintStore, cached: AgentEvents, day: str, timezone: str, 
     return cached.day_bounds[day]
 
 
-def _decision_entries(store: FootprintStore, cached: AgentEvents, decisions: list[Decision], bound: int,
-                      inputs: EnvironmentInputs) -> list[TodayEntry]:
-    """@brief 同一天各次决策的条目：第一条的窗口下界是零点界，此后是上一次决策的提交末序号；已建的从缓存取。"""
+def _wakeup_entries(store: FootprintStore, cached: AgentEvents, commits: list[WakeupCommit], bound: int,
+                    owner: tuple[EnvironmentInputs, int]) -> list[TodayEntry]:
+    """@brief 同一天各次唤醒的条目：第一条窗口下界为零点界，此后是上一次提交末序号；已建的从缓存取。"""
+    inputs, agent_id = owner
     entries, lower = [], bound
-    for decision in decisions:
-        if decision.decision_id not in cached.entries:
-            build_entry(memory_book(store, inputs), store, cached, decision, lower)
-        entries.append(cached.entries[decision.decision_id])
-        lower = max(decision.commit, bound)
+    for commit in commits:
+        key = (commit.wakeup_id, commit.local_date)
+        if key not in cached.entries:
+            entry_lower = bound if key in cached.commit_spans else lower
+            build_entry(memory_book(store, inputs, agent_id), store, cached, commit, entry_lower)
+        entries.append(cached.entries[key])
+        lower = max(commit.commit, bound)
     return entries
 
 
@@ -236,7 +235,7 @@ def count_lines(context: LayerContext, first_day: str, last_day: str) -> dict[st
     """
     store, zone, catalog = context.engine.store, context.config.timezone, context.catalog
     cached = agent_events(store, context.agent_id, catalog.kit_states())
-    book = memory_book(store, context.inputs)
+    book = memory_book(store, context.inputs, context.agent_id)
     tallies: dict[str, dict[str, list[int]]] = {category: {} for category in MEMORY_CATEGORIES}
     for event in cached.events["environment_event"]:
         if (event.data.get("kind") == "goods_received" and event.data["category"] in FOOD_GOODS_CATEGORIES

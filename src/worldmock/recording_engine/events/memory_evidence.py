@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from worldmock.foundation.serialization import is_sha256
 from typing import Any, Literal
 from worldmock.foundation.errors import ProtocolError
-from worldmock.state.decisions.round import DecisionContext
 from worldmock.state.interaction.control_items import control_items
 
 from worldmock.state.model.memory import valid_subjective_snapshots
@@ -17,14 +16,15 @@ MEMORY_WRITE_POINTS = ("activity_conclusion",)
 #: memory_updated.data 的十一个键，按引擎构造次序。
 MEMORY_UPDATE_KEYS = ("operation", "created_episode_ids", "merged_episode_ids", "episodes",
                       "memory_before_sha256", "memory_sha256", "episodes_sha256",
-                      "observation_event_id", "verified_event_ids", "trigger", "decision_id")
+                      "observation_event_id", "verified_event_ids", "trigger", "wakeup_id")
 
 
 @dataclass(frozen=True, slots=True)
 class MemoryUpdateEvidence:
     """@brief 人物工作区已落盘记忆的内容身份（步尾登记）。"""
 
-    context: DecisionContext                          # 本决策的上下文
+    wakeup_id: str                                             # 本唤醒的标识
+    agent_id: int                                              # 本人身份
     operation: Literal["append_episodes", "refresh_summary"]   # 有新建或合并为 append_episodes，否则 refresh_summary
     created_episode_ids: tuple[str, ...]              # 新建条目的身份
     merged_episode_ids: tuple[str, ...]               # 合并条目的身份
@@ -43,19 +43,19 @@ def conclusion_has_memories(request: Any) -> bool:
 
 
 
-def memory_write_points(requests: list, decision_id: str, written: bool) -> list[str]:
+def memory_write_points(requests: list, wakeup_id: str, written: bool) -> list[str]:
     """@brief 推导步尾登记的记忆写入点（只可能是 activity_conclusion），并核对来源。
 
-    结束活动对应同一决策已登记的带记忆 conclude_activity。
+    结束活动对应同一唤醒已登记的带记忆 conclude_activity。
     本步写入了条目却找不到写入点，就是宿主越过写入点写记忆，按协议违约拒绝。
 
     :param requests: 本人已持久化的 action_requested 事件。
-    :param decision_id: 本步所属决策。
+    :param wakeup_id: 本步所属唤醒。
     :param written: 本步是否新增或合并了主观条目。
     :raises ProtocolError: 写入了条目却没有任何写入点。
     """
     points = []
-    if any(event.decision_id == decision_id and event.data.get("tool_name") == "conclude_activity"
+    if any(event.wakeup_id == wakeup_id and event.data.get("tool_name") == "conclude_activity"
            and conclusion_has_memories(event.data.get("request")) for event in requests):
         points.append(MEMORY_WRITE_POINTS[0])
     if written and not points:
@@ -71,7 +71,7 @@ def memory_write_points(requests: list, decision_id: str, written: bool) -> list
 def _memory_evidence_data(evidence: Any) -> dict[str, Any]:
     """@brief 核验实际记忆操作、主观条目快照及三个文件身份；写入前摘要可为空，来源观察为非空字符串。
 
-    返回按 MEMORY_UPDATE_KEYS 前九个键次序构造的字典，trigger 与 decision_id 由引擎随后补上。
+    返回按 MEMORY_UPDATE_KEYS 前九个键次序构造的字典，trigger 与 wakeup_id 由引擎随后补上。
     """
     created = tuple(evidence.created_episode_ids)
     merged = tuple(evidence.merged_episode_ids)

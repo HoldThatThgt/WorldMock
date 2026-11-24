@@ -16,7 +16,6 @@ from tests.life.conftest import (
     advance_next,
     advance_until_ready,
     conclude_request,
-    context,
     do_at,
     main_arguments,
     sleep,
@@ -25,7 +24,7 @@ from tests.life.conftest import (
     use_app,
 )
 from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
-from tests.life.environment_runtime import act, events, finish_activity
+from tests.life.environment_runtime import act, events, finish_activity, observe_only
 from worldmock.resource_engine.registration.errors import RegistrationError
 from worldmock.resource_engine.catalog.loader import validate_catalog_files
 from worldmock.configuration.inputs.environment import load_environment
@@ -88,7 +87,7 @@ def test_other_home_locations_need_not_be_sleepable(tmp_path):
     locations = inputs.catalog.locations
     assert locations["park"].is_home and not locations["park"].sleepable
     assert locations["home"].sleepable and not locations["office"].sleepable
-    assert inputs.home_location_id == "home"
+    assert inputs.home_location_ids[1] == "home"
 
 
 def test_sleeping_sixty_minutes_at_the_sleepable_office(engine_factory):
@@ -162,7 +161,6 @@ def test_sleeping_where_it_is_not_possible_points_home(engine_factory):
     """在没标 sleepable 的地点被拒绝，原因和下一步逐字相符；那里的工具层没有 sleep 行。"""
     engine = engine_factory()
     _go(engine, "五里公园")
-    rounds = engine.context.state.agents[1].same_moment_rounds
     observed, result = act(engine, "nap", sleep(60))
     assert _sleep_row(observed, "五里公园") is None and _sleep_row(observed, "家") is None
     assert result.status == "rejected" and result.error_code == "ACTIVITY_PRECONDITION_UNMET"
@@ -175,7 +173,6 @@ def test_sleeping_where_it_is_not_possible_points_home(engine_factory):
         "expected": "Sleeping is not possible at 五里公园.", "why": "Sleeping is not possible at 五里公园.",
         "candidates": []}]
     assert not [item for item in engine.context.state.activities.values() if item.kind == "sleep"]
-    assert engine.context.state.agents[1].same_moment_rounds == rounds + 1
 
 
 def test_sleep_on_the_road_is_refused_by_the_occupied_slot(engine_factory):
@@ -230,7 +227,7 @@ def test_closed_location_cannot_start_sleep_but_does_not_wake_a_sleeper(engine_f
 def test_pre_sleep_hint_follows_the_body_and_never_shows_raw_numbers(engine_factory):
     """sleep 行的 duration 为空，note 是按半小时取整的睡前提示；醒着越久提示越长；提示里没有被禁止的身体键。"""
     engine = engine_factory()
-    first = engine.observe(context(engine, "morning"))
+    first = observe_only(engine, "morning")
     row = _sleep_row(first, "家")
     assert row == {"action": "sleep", "detail": None, "available": True, "reason": None, "price": None,
                    "duration": None, "quantity": None, "note": "现在不欠觉"}
@@ -240,7 +237,7 @@ def test_pre_sleep_hint_follows_the_body_and_never_shows_raw_numbers(engine_fact
         _, rest = act(engine, f"rest-{index}", do_at("家", "测试休息"))
         assert rest.status == "in_progress", rest.error_code
         finish_activity(engine, rest, f"rest-{index}")
-    later = engine.observe(context(engine, "later"))
+    later = engine.observations.build_wakeup_observation(engine.context.state.agents[1])[0]
     deficit = engine.context.state.agents[1].body.sleep_deficit_hours
     note = _sleep_row(later, "家")["note"]
     assert deficit > 0.25 and note == sleep_debt_phrase(deficit) and note != "现在不欠觉"
@@ -291,7 +288,6 @@ async def test_host_corrects_a_malformed_sleep_request_with_the_environment_item
     assert results[0].status == "in_progress", results[0].error_code
     registered = [row.data["request"] for row in events(engine, "action_requested")]
     assert registered == [main_arguments("sleep", "60")] and not events(engine, "action_rejected")
-    assert engine.context.state.agents[1].same_moment_rounds == 1
     bypass = engine_factory()
     _, refused = act(bypass, "bypass", StartMainActivityRequest.model_construct(**bad), MAIN_TOOL)
     assert refused.status == "rejected" and refused.error_code == "ACTION_REQUEST_INVALID"

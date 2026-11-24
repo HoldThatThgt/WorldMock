@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[3]
 #: 线路探针在基线环境里写出的固定样例。
 FIXTURE = ROOT / "tests" / "fixtures" / "model-client-wire.json"
 #: 固定样例的五个用例，次序固定。
-CASES = ("action", "continuation", "truncation_retry", "plan_day", "memory_digest")
+CASES = ("action", "in_loop", "truncation_retry", "plan_day", "memory_digest")
 #: 没有监听的本机端点。
 _REFUSED = "http://127.0.0.1:9/v1"
 #: 一律传输失败时（传输计数 1、停放预算 600 秒）每次失败发送后的等待；最后一次结束调用。

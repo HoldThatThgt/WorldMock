@@ -34,7 +34,7 @@ from worldmock.foundation.time.readable import (
 )
 from worldmock.simulation_engine.observation.layers.result_projection import public_result
 from worldmock.simulation_engine.observation.memory.days import day_bound
-from worldmock.simulation_engine.observation.memory.entries import AgentEvents, agent_events, decision_commits
+from worldmock.simulation_engine.observation.memory.entries import AgentEvents, agent_events, wakeup_commits
 from worldmock.recording_engine.projections.activities.session_bounds import session_lower
 from worldmock.simulation_engine.observation.wording.settled_text import KitUse, receipt_fields, record_lines
 from worldmock.simulation_engine.observation.targets.tool_layer import LayerContext
@@ -94,7 +94,7 @@ def progress_view(context: LayerContext, store: FootprintStore, published: int,
     """
     stay = session_bound(store, context.state, context.agent_id)
     cached = agent_events(store, context.agent_id, context.catalog.kit_states())
-    previous = _previous_decision(store, cached, context.agent_id)
+    previous = _previous_decision(store, cached, context.agent_id, context.config.timezone)
     now, zone = context.state.current_time, context.config.timezone
     day = day_bound(store, local_date(now, zone), zone, now)
     notice_after = max(0 if previous is None else previous.observation_seq, day)
@@ -111,12 +111,6 @@ def progress_view(context: LayerContext, store: FootprintStore, published: int,
                         event_ids=list(dict.fromkeys(event.event_id for item in records for event in item.sources)))
 
 
-def notice_records(context: LayerContext, store: FootprintStore, after: int) -> list[dict]:
-    """@brief 序号大于 after 的非记忆世界记录（推送、回调提醒、余额减少、事务提醒），按进度层的次序；同秒续接的 events 读它。"""
-    items = _world_records(context, store, (store.last_event_seq, after))
-    return [item.record for item in sorted(items, key=lambda item: item.key)]
-
-
 def tool_call_record(context: LayerContext, request: Event, result: Event, kits: Mapping[str, KitUse]) -> dict:
     """@brief tool_call 记录：请求时刻、工具、请求原文与 result；result 是给定结果的公开投影，kits 是同一次观察的
     ActivityFacts.kits。"""
@@ -126,18 +120,20 @@ def tool_call_record(context: LayerContext, request: Event, result: Event, kits:
             "result": public_result(result.data, context.inputs, kits)}
 
 
-def _previous_decision(store: FootprintStore, cached: AgentEvents, agent_id: int) -> _PreviousDecision | None:
-    """@brief 上一次决策（第 02 章【E1】的最后一次决策）的观察（序号最大的一条）与决策时刻；没有决策时为 None，
-    缺观察时 IntegrityError。"""
-    decisions = decision_commits(store, cached, store.last_event_seq)
-    if not decisions:
+def _previous_decision(store: FootprintStore, cached: AgentEvents, agent_id: int,
+                       timezone: str) -> _PreviousDecision | None:
+    """@brief 上一次唤醒的观察（序号最大的一条）与时刻；没有时为 None，缺观察时 IntegrityError。"""
+    commits = wakeup_commits(store, cached, store.last_event_seq, timezone)
+    if not commits:
         return None
-    last = decisions[-1]
-    observations = store.read_decision_observations(agent_id, last.decision_id, last.occurred_at)
+    last = max(commits, key=lambda item: item.commit)
+    latest = max((ev.occurred_at for ev in cached.events["action_requested"]
+                  if ev.wakeup_id == last.wakeup_id and ev.event_seq <= last.commit), default=last.occurred_at)
+    observations = store.read_wakeup_observations(agent_id, last.wakeup_id, latest)
     if not observations:
-        logging.error("Previous decision %s has no observation", last.decision_id)
-        raise IntegrityError("Previous decision has no observation")
-    return _PreviousDecision(max(event.event_seq for event in observations), last.occurred_at)
+        logging.error("Previous wakeup %s has no observation", last.wakeup_id)
+        raise IntegrityError("Previous wakeup has no observation")
+    return _PreviousDecision(max(event.event_seq for event in observations), latest)
 
 
 def _event_key(occurred_at: int, sources: list[Event]) -> tuple:
@@ -152,17 +148,17 @@ def _carried_records(context: LayerContext, store: FootprintStore, stay: tuple[i
 
 
 def _carried_activities(context: LayerContext, store: FootprintStore, stay: tuple[int, int]) -> list[ActivityState]:
-    """@brief 要带入的本人活动：占槽位的（进行中或待收尾，不分种类），加上这段停留或路程里做完的查询。"""
+    """@brief 要带入的本人活动：占槽位的（进行中或待收尾，不分种类），加上这段停留或路程里做完的搜索。"""
     carried = {activity.activity_id: activity for activity in slot_activities(context.open_activities)}
-    carried.update((activity.activity_id, activity) for activity in _finished_queries(context, store, stay))
+    carried.update((activity.activity_id, activity) for activity in _finished_searches(context, store, stay))
     return list(carried.values())
 
 
-def _finished_queries(context: LayerContext, store: FootprintStore, stay: tuple[int, int]) -> list[ActivityState]:
-    """@brief 这段停留或路程里做完的本人查询：completed、结束不早于本段开始、终态结果序号大于本段下界。"""
+def _finished_searches(context: LayerContext, store: FootprintStore, stay: tuple[int, int]) -> list[ActivityState]:
+    """@brief 这段停留或路程里做完的本人搜索：completed、结束不早于本段开始、终态结果序号大于本段下界。"""
     started_at, lower = stay
     finished = [activity for _, activity in sorted(context.state.activities.items())
-                if activity.agent_id == context.agent_id and activity.kind == ActivityKind.QUERY
+                if activity.agent_id == context.agent_id and activity.kind == ActivityKind.SEARCH
                 and activity.status == ActivityStatus.COMPLETED and activity.ended_at >= started_at]
     return [activity for activity in finished
             if _terminal_result(store, activity, store.read_event(activity.data["accepted_event_id"])).event_seq
@@ -351,10 +347,12 @@ def rejected_today(context: LayerContext, store: FootprintStore) -> list[dict]:
             continue
         registered = []
         if event.event_type == "action_rejected":
-            if event.decision_id in rejected:
+            group_key = (event.wakeup_id, tuple(event.caused_by))
+            if group_key in rejected:
                 continue
-            rejected.add(event.decision_id)
-            registered = [item for item in requests if item.decision_id == event.decision_id]
+            rejected.add(group_key)
+            registered = [item for item in requests
+                          if item.event_id in event.caused_by or item.action_id == event.action_id]
         report = (event.data.get("protocol_feedback") if event.event_type == "model_response" else event.data)
         if isinstance(report, dict) and report.get("error_code"):
             _memo_reject(rows, event, report, registered, context.config.timezone)

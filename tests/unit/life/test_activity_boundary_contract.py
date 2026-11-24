@@ -4,8 +4,8 @@ import pytest
 
 from worldmock.simulation_engine.activities.lifecycle.activity_control import open_activities
 from worldmock.foundation.errors import BusinessRuleError
+from worldmock.simulation_engine.actions.start_group import ToolInvocation
 from worldmock.simulation_engine.activities.lifecycle import activity_control, sessions
-from worldmock.simulation_engine.decisions import same_moment
 from worldmock.simulation_engine.activities.lifecycle.activities import (
     ActivityOrigin,
     ActivityStartParams,
@@ -15,10 +15,8 @@ from worldmock.simulation_engine.activities.lifecycle.activities import (
     truncate_activity,
 )
 from worldmock.simulation_engine.body.body import BodySettlement
-from worldmock.state.decisions.results import ActionReceipt
-from worldmock.state.world.kinds import ActivityChange, ActivityStatus, SameMomentStage
+from worldmock.state.world.kinds import ActivityChange, ActivityStatus
 from worldmock.state.interaction.requests import ChangeActivityRequest
-from worldmock.state.decisions.state import PendingAction, StoredAction
 
 MAIN_TOOL, SIDE_TOOL = "start_main_activity", "start_side_activity"
 
@@ -28,14 +26,14 @@ def _activity(engine, action="interact"):
     params = (ActivityStartParams(action, 600, "office", "walking", {"exertion": "walking"})
               if action == "travel" else ActivityStartParams(action, 600, data=data))
     return create_activity(engine.context.state.agents[1], params,
-        engine.context.state.current_time, ActivityOrigin("origin", "decision", "request"), engine.context.body)[1]
+        engine.context.state.current_time, ActivityOrigin("origin", "wakeup", "request"), engine.context.bodies[1])[1]
 
 
 def test_activity_creation_rejects_zero_duration_before_creating_state(engine_factory):
     engine = engine_factory()
     with pytest.raises(BusinessRuleError, match="ACTIVITY_TOO_SHORT"):
         create_activity(engine.context.state.agents[1], ActivityStartParams("sleep", 0),
-                        engine.context.state.current_time, ActivityOrigin("a", "d", "r"), engine.context.body)
+                        engine.context.state.current_time, ActivityOrigin("a", "d", "r"), engine.context.bodies[1])
     assert not engine.context.state.activities
 
 
@@ -124,44 +122,6 @@ def test_colliding_current_names_stay_unique_in_recall_and_activity_controls(eng
     assert activity_control.activity_name_refusal([next(iter(names.values()))], list(names.values())) is None
 
 
-@pytest.mark.parametrize("stage,allowed", [
-    (SameMomentStage.OPEN, True), (SameMomentStage.CONCLUDE_PENDING, False),
-    (SameMomentStage.START_OR_RESUME, True), (SameMomentStage.CONCLUDE_ONLY, False),
-])
-def test_stage_permission_accepts_only_the_current_request_kind(engine_factory, stage, allowed):
-    if allowed:
-        same_moment.require_stage_action(stage, "start")
-    else:
-        with pytest.raises(BusinessRuleError, match="SAME_MOMENT_ACTION_RESTRICTED"):
-            same_moment.require_stage_action(stage, "start")
-    assert bool(same_moment.stage_refusal(stage, "start")) is not allowed
-
-
-def test_same_second_name_feedback_is_free_twice_and_service_pulse_is_not_repeated(engine_factory):
-    engine = engine_factory()
-    state = engine.context.state.model_copy(deep=True)
-    assert same_moment.rejection_pulse(state, 1, "NAME_NOT_FOUND") is None
-
-    def rejected(decision: str, action: str, tool: str = MAIN_TOOL) -> None:
-        """登记一条本秒已结算的名称类拒绝；同一决策的两条开始动作属于同一组。"""
-        receipt = ActionReceipt(action_id=action, round_id="round", decision_id=decision, request_sha256="a" * 64)
-        state.processed_actions[action] = StoredAction(action_id=action, tool_name=tool, request_sha256="a" * 64,
-            receipt=receipt.model_dump(mode="json"), result={"agent_id": 1, "occurred_at": state.current_time,
-                "status": "rejected", "error_code": "NAME_NOT_FOUND"})
-
-    rejected("decision-0", "0")
-    rejected("decision-1", "1-main")
-    rejected("decision-1", "1-side", SIDE_TOOL)
-    assert same_moment.latest_rejection_code(state, 1) is None
-    assert same_moment.rejection_pulse(state, 1, "NAME_NOT_FOUND") == same_moment.SERVICE_REFUSED
-    rejected("decision-2", "2")
-    assert same_moment.latest_rejection_code(state, 1) == "NAME_NOT_FOUND"
-    assert same_moment.rejection_pulse(state, 1, "ACTION_REQUEST_INVALID") is None
-    agent = state.agents[1].model_copy(update={"same_moment_rounds": 3})
-    assert same_moment.next_stage(same_moment.RoundOutcome(state.current_time, agent, True, False, True)) \
-        == SameMomentStage.CONCLUDE_PENDING
-
-
 def test_session_switch_and_recall_labels_preserve_mobile_second_slot(engine_factory):
     engine = engine_factory()
     state = engine.context.state
@@ -182,11 +142,11 @@ def test_malformed_wire_mutation_is_rejected_without_partial_dispatch(engine_fac
     state = engine.context.state
     before = state.model_dump(mode="json")
 
-    def pending(action_id: str, tool: str, request: dict) -> PendingAction:
-        """同一决策里登记的一条开始动作。"""
-        return PendingAction(run_id=state.run_id, round_id="invalid", decision_id="invalid", action_id=action_id,
-            agent_id=1, observed_at=state.current_time, world_state_version=state.version, order=0,
-            tool_name=tool, request=request, request_sha256="a" * 64, requested_event_id="request")
+    def pending(action_id: str, tool: str, request: dict) -> ToolInvocation:
+        """同次唤醒里构造的一条世界工具调用。"""
+        return ToolInvocation(agent_id=1, wakeup_id="wakeup-invalid", action_id=action_id, tool_name=tool,
+                              request=request, request_sha256="a" * 64, requested_event_id="request",
+                              observation={})
 
     main = {"action": "interact", "target": "家", "detail": "测试休息"}
     side = {"action": "interact", "target": ["哔哩哔哩"], "prefer": None}
@@ -213,7 +173,7 @@ def test_shortest_planned_duration_depends_on_how_the_duration_is_derived(engine
     params = (ActivityStartParams(action, seconds, "office", "walking", {"exertion": "walking"})
               if action == "travel" else ActivityStartParams(action, seconds, data=data))
     arguments = (engine.context.state.agents[1], params, engine.context.state.current_time,
-                 ActivityOrigin("origin", "decision", "request"), engine.context.body)
+                 ActivityOrigin("origin", "wakeup", "request"), engine.context.bodies[1])
     if accepted:
         assert create_activity(*arguments)[1].planned_duration_seconds == seconds
     else:

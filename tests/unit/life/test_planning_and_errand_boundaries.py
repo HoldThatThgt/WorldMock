@@ -40,17 +40,24 @@ def plan_request(clock):
                                  "remind_time": clock, "around_time": None}])
 
 
+def _plan_model(frozen):
+    """当前冻结输入里零点日计划使用的模型档案及其元数据。"""
+    profile_id = frozen.config.model_routing.plan_day
+    return frozen.config.models[profile_id], frozen.model_metadata[profile_id]
+
+
 def test_plan_capacity_removes_oldest_real_experience_and_preserves_other_input():
     frozen = inputs()
-    payload = {"人物": {"名字": frozen.persona.name}, "个人事务": [{"名称": "补纸巾"}]}
+    profile, _ = _plan_model(frozen)
+    payload = {"人物": {"名字": frozen.personas[0].name}, "个人事务": [{"名称": "补纸巾"}]}
     sentences = ["这是已经核验的旧经历。" * 1800, "最后一次已经核验的经历。"]
-    short = prepare_plan_day({**payload, "已核验经历": sentences[1:]}, frozen.config.model.requested_model)
-    full = prepare_plan_day({**payload, "已核验经历": sentences}, frozen.config.model.requested_model)
+    short = prepare_plan_day({**payload, "已核验经历": sentences[1:]}, profile.requested_model)
+    full = prepare_plan_day({**payload, "已核验经历": sentences}, profile.requested_model)
     short["max_tokens"] = full["max_tokens"] = 1000
     threshold = (request_token_count(short) + request_token_count(full)) / 2
-    metadata = ModelMetadata(requested_model=frozen.config.model.requested_model,
-        metadata_url=frozen.config.model.metadata_url, context_window=ceil(threshold / 0.85), max_output_tokens=1000)
-    request, retained = fit_plan_day(payload, sentences, frozen.config.model.requested_model, metadata)
+    metadata = ModelMetadata(requested_model=profile.requested_model,
+        metadata_url=profile.metadata_url, context_window=ceil(threshold / 0.85), max_output_tokens=1000)
+    request, retained = fit_plan_day(payload, sentences, profile.requested_model, metadata)
     import json
     sent = json.loads(request["messages"][1]["content"])
     assert retained == 1 and sent == {**payload, "已核验经历": sentences[1:]}
@@ -59,8 +66,8 @@ def test_plan_capacity_removes_oldest_real_experience_and_preserves_other_input(
 
 def test_plan_day_keeps_its_own_eight_thousand_output_budget():
     """零点日计划用自己的 8000 输出上限，思考关闭；不随决策的 16000 改变。"""
-    frozen = inputs()
-    request = prepare_plan_day({"已核验经历": []}, frozen.config.model.requested_model)
+    profile, _ = _plan_model(inputs())
+    request = prepare_plan_day({"已核验经历": []}, profile.requested_model)
     assert request["max_tokens"] == 8000
     assert request["extra_body"] == {"thinking": {"type": "disabled"}}
 
@@ -68,8 +75,9 @@ def test_plan_day_keeps_its_own_eight_thousand_output_budget():
 def test_plan_day_request_has_exactly_the_six_draft_keys():
     """零点计划的请求与纠正请求都恰为交给模型客户端的六个键，按 REQUEST_KEYS 的次序，没有 stream 与重试次数。"""
     frozen = inputs()
-    request, _ = fit_plan_day({"人物": {"名字": frozen.persona.name}}, ["已经核验的经历。"],
-                              frozen.config.model.requested_model, frozen.model_metadata)
+    profile, metadata = _plan_model(frozen)
+    request, _ = fit_plan_day({"人物": {"名字": frozen.personas[0].name}}, ["已经核验的经历。"],
+                              profile.requested_model, metadata)
     corrected = prepare_plan_day_correction(request, plan_day_response(arguments="not json"),
                                             PlanDayOutputError("bad plan"))
     assert tuple(request) == REQUEST_KEYS
@@ -89,9 +97,9 @@ def test_plan_day_template_takes_the_day_kind_from_the_arrangement():
 
 
 def test_plan_capacity_cannot_trim_fixed_input_when_no_experiences_remain():
-    frozen = inputs()
-    metadata = ModelMetadata(requested_model=frozen.config.model.requested_model,
-        metadata_url=frozen.config.model.metadata_url, context_window=500, max_output_tokens=100)
+    profile, _ = _plan_model(inputs())
+    metadata = ModelMetadata(requested_model=profile.requested_model,
+        metadata_url=profile.metadata_url, context_window=500, max_output_tokens=100)
     with pytest.raises(RuntimeError, match="plan_day request capacity exceeded"):
         fit_plan_day({"人物": {"背景": "必须保留的背景。" * 1000}}, [], metadata.requested_model, metadata)
 

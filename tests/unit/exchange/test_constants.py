@@ -6,7 +6,7 @@ from worldmock.exchange_engine.definitions.body_constants import BODY_CONSTANTS,
 
 
 def test_fixed_travel_delivery_map_and_push_constants():
-    assert c.RULES_VERSION == 6
+    assert c.RULES_VERSION == 7
     assert (c.WALKING_TRAVEL_METHOD_ID, c.WALKING_TRAVEL_METHOD_NAME, c.WALKING_METERS_PER_SECOND) == (
         "walking", "步行", 1.2)
     assert (c.DELIVERY_METERS_PER_SECOND, c.DELIVERY_PREP_SECONDS, c.DELIVERY_FEE_FEN) == (5.0, 600, 500)
@@ -32,7 +32,7 @@ def test_body_constant_rules_have_all_actual_actions_and_four_resources():
         assert not hasattr(body, deleted)
     assert body.relaxation_need_per_awake_hour == 0.08
     assert dict(body.activity_met) == {
-        "sleep": 0.95, "walking": 3.5, "purchase": 1.0, "query": 1.0, "idle": 1.0, "light": 1.5, "moderate": 2.0,
+        "sleep": 0.95, "walking": 3.5, "purchase": 1.0, "search": 1.0, "idle": 1.0, "light": 1.5, "moderate": 2.0,
         "heavy": 5.0}
     assert set(RESOURCE_METAS) == {
         "money_fen", "energy_kcal", "sleep_deficit_hours", "relaxation_need", "social_need"}

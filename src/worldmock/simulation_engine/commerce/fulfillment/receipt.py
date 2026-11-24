@@ -97,7 +97,7 @@ def _food_effect(body, order: DeliveryState, context) -> tuple:
     from worldmock.simulation_engine.body.body import food_intake
 
     provided = evaluate_goods_receipt(order.category, order.quantity)
-    changed, intake, entries = food_intake(body, provided, context.body)
+    changed, intake, entries = food_intake(body, provided, context.bodies[order.agent_id])
     flows = [{"resource": entry.resource, "owner": f"agent:{order.agent_id}", "direction": entry.direction,
               "amount": entry.amount, "cause": entry.cause} for entry in entries]
     return changed, {**intake, "resource_flows": flows}

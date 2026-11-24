@@ -158,7 +158,7 @@ def _purchase_activity(state: WorldState, pending, orders: tuple, duration: int,
         location_id=state.agents[pending.agent_id].location_id, kind=ActivityKind.PURCHASE,
         status=ActivityStatus.ACTIVE, started_at=state.current_time, planned_end_at=state.current_time + duration,
         last_settled_at=state.current_time, elapsed_seconds=0, planned_duration_seconds=duration,
-        resource_claims={"second"}, origin_action_id=pending.action_id, origin_decision_id=pending.decision_id,
+        resource_claims={"second"}, origin_action_id=pending.action_id, origin_wakeup_id=pending.wakeup_id,
         origin_request_event_id=pending.requested_event_id, report_anchor_at=state.current_time, name=label, data=data)
 
 

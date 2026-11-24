@@ -76,12 +76,19 @@ class _Timeline:
 
 
 def workday_inputs(inputs: EnvironmentInputs) -> WorkdayInputs:
-    """@brief 人设表提供班次、地点与下班、到家窗口的原值，配置提供播报间隔；不读人物工作区。"""
-    persona = inputs.persona
-    agent = AgentWorkday(
-        persona.work_schedule, inputs.home_location_id, inputs.workplace_location_id, inputs.initial_location_id,
-        _window(persona.leave_work_window), _window(persona.arrive_home_window))
-    return WorkdayInputs({persona.agent_id: agent}, inputs.config.progress_report_interval_seconds)
+    """@brief 遍历多人物人设表收集班次、地点与下班、到家窗口的原值，配置提供播报间隔；不读人物工作区。"""
+    agents = {
+        persona.agent_id: AgentWorkday(
+            persona.work_schedule,
+            inputs.home_location_ids[persona.agent_id],
+            inputs.workplace_location_ids[persona.agent_id],
+            inputs.initial_location_ids[persona.agent_id],
+            _window(persona.leave_work_window),
+            _window(persona.arrive_home_window),
+        )
+        for persona in inputs.personas
+    }
+    return WorkdayInputs(agents, inputs.config.progress_report_interval_seconds)
 
 
 def workday_reports(events: list[dict[str, Any]], timezone: str, inputs: WorkdayInputs | None) -> dict[str, Any]:

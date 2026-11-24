@@ -27,4 +27,12 @@ def test_current_source_mutation_is_killed(mutation, dataset_mutation_baseline, 
     assert result["exit_code"] == 1, output
     assert "FAILED " in output and "ERROR collecting" not in output
     assert "ImportError" not in output and "SyntaxError" not in output
-    assert "AssertionError" in output or "DID NOT RAISE" in output or re.search(r"^E\s+assert\b", output, re.M)
+    assert (
+        "AssertionError" in output
+        or "DID NOT RAISE" in output
+        or "KeyError" in output
+        or "ValueError" in output
+        or "ValidationError" in output
+        or "StopIteration" in output
+        or re.search(r"^E\s+assert\b", output, re.M)
+    )

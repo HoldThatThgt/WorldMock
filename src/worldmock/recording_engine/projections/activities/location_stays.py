@@ -37,20 +37,29 @@ def project_location_stays(events: list[dict]) -> list[dict]:
 
 def validate_location_stays(stays: list[dict], events: list[dict], activities: list[dict], state: dict,
                             window: dict) -> None:
-    """@brief 停留行的先后、与出行的对应、与最终检查点里停留会话的对应。
+    """@brief 按人物分组核对停留行的先后、与出行的对应、以及全部停留会话与最终检查点的一致性。
 
     :param stays: 已与事件重新投影核对过的停留行。
     :param activities: 导出的活动行；出行取其中的 travel。
     :param state: 最终检查点的世界状态。
     :param window: 冻结运行清单里的运行窗口，start 与 end 是纪元秒。
     """
-    _validate_order(stays, window["start"])
+    by_agent: dict[int, list[dict]] = {}
+    for stay in stays:
+        agent_id = stay.get("agent_id")
+        if type(agent_id) is not int or agent_id <= 0:
+            raise IntegrityError(_DISORDER)
+        by_agent.setdefault(agent_id, []).append(stay)
+    if not by_agent:
+        raise IntegrityError(_DISORDER)
     sources = {event["event_id"]: event for event in events}
     trips = {row["activity_id"]: row for row in activities if row["activity_type"] == "travel"}
-    for previous, stay in zip([None, *stays], stays):
-        _validate_entry(previous, stay, sources, trips)
-        if stay["left_at"] is not None:
-            _validate_departure(stay, sources)
+    for agent_stays in by_agent.values():
+        _validate_order(agent_stays, window["start"])
+        for previous, stay in zip([None, *agent_stays], agent_stays):
+            _validate_entry(previous, stay, sources, trips)
+            if stay["left_at"] is not None:
+                _validate_departure(stay, sources)
     _validate_sessions(stays, state, window["end"])
 
 

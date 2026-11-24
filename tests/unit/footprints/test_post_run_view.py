@@ -12,7 +12,6 @@ from worldmock.recording_engine.reports import quality
 from worldmock.recording_engine.events.models import Event
 from worldmock.foundation.serialization import canonical_json
 from worldmock.recording_engine.export.post_run import DROPPED_PAYLOADS, post_run_row, post_run_view
-from worldmock.simulation_engine.decisions import decision_start
 
 #: 观察在视图里去掉的八个键（逐字写出）。
 EIGHT_KEYS = {"activity_bindings", "persona_views", "tool_layer", "interaction_bindings", "catalog_bindings",

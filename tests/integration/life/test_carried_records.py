@@ -322,6 +322,14 @@ def test_activity_finishing_at_the_arrival_second_is_carried_into_the_stay(engin
     assert sentence.endswith("，《测试慢跑》")
 
 
+def _record_stored_observe(engine) -> dict:
+    """发起一次无世界工具动作的唤醒并提交，确保 observation 事件已写入存储。"""
+    [wakeup] = engine.prepare_barrier((1,))
+    sandbox = engine.open_sandbox(wakeup)
+    engine.commit_barrier([sandbox.finish_wakeup(None)])
+    return wakeup.observation
+
+
 def _stored_observation(engine, observed: dict):
     """这次观察落库的观察事件。"""
     return next(event for event in events(engine, "observation")
@@ -335,12 +343,12 @@ def test_carried_record_sources_resolve_and_the_export_certifies(engine_factory,
     activity = engine.context.state.activities[keep.activity_id]
     request, first = activity.origin_request_event_id, activity.data["accepted_event_id"]
     assert advance_until_ready(engine) and _on_road(engine)
-    sources = _stored_observation(engine, observe_only(engine, "road")).data["progress_event_ids"]
+    sources = _stored_observation(engine, _record_stored_observe(engine)).data["progress_event_ids"]
     assert {request, first} <= set(sources)
     until_ended(engine, keep.activity_id)
     second = [row.event_id for row in events(engine, "action_result") if row.action_id == keep.action_id][-1]
     assert second != first
-    sources = _stored_observation(engine, observe_only(engine, "finished")).data["progress_event_ids"]
+    sources = _stored_observation(engine, _record_stored_observe(engine)).data["progress_event_ids"]
     assert {request, first, second} <= set(sources)
     directory = tmp_path / "export"
     export_completed(engine, directory)

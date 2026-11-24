@@ -8,7 +8,7 @@ LAYER_NAMES = ('人设层', '记忆层', '待办层', '工具层', '环境层', 
 
 
 def six_layers(progress_events=()):
-    """六层对象：各层只带层名，进度层带给定的记录（用于区分不同决策的层 JSON）。"""
+    """七层对象：各层只带层名，进度层带给定的记录（用于区分不同唤醒的层 JSON）。"""
     layers = [{'layer': name} for name in LAYER_NAMES]
     layers[-1]['events'] = list(progress_events)
     return layers

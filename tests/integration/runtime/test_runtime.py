@@ -254,11 +254,20 @@ def _host_stub(monkeypatch, *, start_error=None, run_error=None, close_error=Non
 
 def _prepared(tmp_path, **overrides) -> SimpleNamespace:
     """_execute 读取的启动输入：缺省是一个普通恢复（没有运行身份、没有干预）。"""
-    model = SimpleNamespace(api_key_env="WORLDMOCK_TEST_API_KEY")
+    frozen = inputs()
+    profile = frozen.config.models["reasoner"].model_copy(update={
+        "base_url": "https://example.invalid", "api_key_env": "WORLDMOCK_TEST_API_KEY",
+        "max_retries": 1, "transport_max_retries": 2,
+    })
+    routing = frozen.config.model_routing.model_copy(update={
+        "action": "reasoner", "search": "reasoner", "plan_day": "reasoner", "digest": "reasoner",
+        "agent_overrides": {},
+    })
+    config = frozen.config.model_copy(update={"timezone": "UTC", "models": {"reasoner": profile},
+                                              "model_routing": routing})
+    meta = {"reasoner": frozen.model_metadata["reasoner"]}
     values = dict(run_id="run", run_dir=tmp_path, start_time=datetime(2026, 1, 5, tzinfo=ZoneInfo("UTC")),
-                  inputs=SimpleNamespace(config=SimpleNamespace(timezone="UTC", model=model)),
-                  stage_identity={"base_url": "https://example.invalid", "max_retries": 1,
-                                  "transport_max_retries": 2},
+                  inputs=SimpleNamespace(config=config, model_metadata=meta),
                   agents={1: "frozen-inputs"}, memory_records={1: ()},
                   run_identity=None, intervention=None, intervention_sha256=None)
     values.update(overrides)
@@ -266,17 +275,25 @@ def _prepared(tmp_path, **overrides) -> SimpleNamespace:
 
 
 def _offline_model_client(monkeypatch) -> object:
-    """把运行装配构造模型客户端的唯一一处换成返回哨兵对象的函数，返回那个哨兵。"""
-    sentinel = object()
-    monkeypatch.setattr(runtime_module, "_model_client", lambda prepared: sentinel)
+    """把运行装配构造模型注册表的唯一一处换成返回哨兵对象的函数，返回那个哨兵。"""
+    class _Registry:
+        def resolve(self, stage, agent_id=None):
+            return self
+
+        async def close(self):
+            return None
+
+    sentinel = _Registry()
+    monkeypatch.setattr(runtime_module, "_model_registry", lambda prepared: sentinel)
     return sentinel
 
 
 @pytest.mark.asyncio
 async def test_execute_builds_one_model_client_from_the_frozen_identity(monkeypatch, tmp_path) -> None:
-    """_execute 恰构造一次模型客户端：关键字参数恰为端点、凭据与两类重试次数，取自冻结的阶段身份与配置声明的
-    凭据变量；运行宿主收到的就是这一个对象。"""
+    """_execute 恰构造一次模型客户端：关键字参数恰为端点、凭据与两类重试次数，取自冻结配置；运行宿主收到的注册表
+    解析出这一个客户端。"""
     from worldmock.configuration.model import model_client
+    from worldmock.configuration.model import model_registry
 
     constructed = []
 
@@ -284,7 +301,11 @@ async def test_execute_builds_one_model_client_from_the_frozen_identity(monkeypa
         def __init__(self, **options):
             constructed.append((self, options))
 
+        async def close(self):
+            return None
+
     monkeypatch.setattr(model_client, "ModelClient", _Client)
+    monkeypatch.setattr(model_registry, "ModelClient", _Client)
     monkeypatch.setenv("WORLDMOCK_TEST_API_KEY", "frozen-identity-secret")
     hosts = _host_stub(monkeypatch)
     prepared = _prepared(tmp_path)
@@ -295,7 +316,7 @@ async def test_execute_builds_one_model_client_from_the_frozen_identity(monkeypa
     assert options == {"base_url": "https://example.invalid", "api_key": "frozen-identity-secret",
                        "max_retries": 1, "transport_max_retries": 2}
     (host,) = hosts
-    assert host.arguments[2] is client
+    assert host.arguments[2].resolve("action").client is client
 
 
 @pytest.mark.asyncio
@@ -304,7 +325,7 @@ async def test_execute_starts_each_run_kind_with_its_own_start(monkeypatch, tmp_
     """有运行身份走新建、两者皆空走普通恢复、带干预走反事实；之后运行再关闭。"""
     hosts = _host_stub(monkeypatch)
     sentinel = _offline_model_client(monkeypatch)
-    options = {"same_second_continuation": True}
+    options = {"input_warnings": [], "persona_habit_responses": {}}
     if kind == "new":
         monkeypatch.setattr(runtime_module, "_creation_options", lambda prepared: options)
     overrides = {"new": {"run_identity": object()}, "resume": {},
@@ -313,7 +334,7 @@ async def test_execute_starts_each_run_kind_with_its_own_start(monkeypatch, tmp_
 
     await _execute(prepared)
 
-    expected = {"new": ("start_new", (prepared.run_identity, prepared.stage_identity, options)),
+    expected = {"new": ("start_new", (prepared.run_identity, options)),
                 "resume": ("start_resume", ()),
                 "counterfactual": ("start_counterfactual", (prepared.intervention, prepared.intervention_sha256))}
     (host,) = hosts

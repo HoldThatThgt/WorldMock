@@ -4,8 +4,10 @@ import copy
 import json
 import re
 from datetime import timedelta
+from types import SimpleNamespace
 
 import pytest
+from worldmock.configuration.model.model_registry import ResolvedModelBinding
 
 from tests.life.conftest import (
     advance_next,
@@ -16,7 +18,7 @@ from tests.life.conftest import (
     errand_update,
     plan_day_response,
     purchase,
-    query,
+    search_world,
     settle_midnight_tasks,
     stage_errands,
     travel,
@@ -141,14 +143,24 @@ class PlanningTransport:
         return self.responses.pop(0)
 
 
+def _plan_registry(engine, client):
+    """@brief 按当前引擎配置的 plan_day 档案构造单stage模型注册表。"""
+    cfg = engine.context.config
+    pid = cfg.model_routing.plan_day
+    prof = cfg.models[pid]
+    meta = engine.context.inputs.model_metadata[pid]
+    binding = ResolvedModelBinding(pid, prof, meta, client, min(prof.max_output_tokens, meta.max_output_tokens))
+    return SimpleNamespace(resolve=lambda stage, aid: binding)
+
+
 @pytest.mark.asyncio
 async def test_plan_transport_failure_records_request_and_failure_before_propagating(engine_factory):
     engine = engine_factory()
-    client = PlanningTransport(engine.context.inputs.config.model.requested_model,
+    client = PlanningTransport(engine.context.config.models[engine.context.config.model_routing.plan_day].requested_model,
                                error=OSError("Model transport unavailable"))
     before = engine.context.state.model_dump(mode="json")
     with pytest.raises(OSError, match="Model transport unavailable"):
-        await settle_pending_day_plans(engine, client)
+        await settle_pending_day_plans(engine, _plan_registry(engine, client))
     facts = events(engine)
     requests = [item for item in facts if item.event_type == "model_request"]
     responses = [item for item in facts if item.event_type == "model_response"]
@@ -161,14 +173,15 @@ async def test_plan_transport_failure_records_request_and_failure_before_propaga
 @pytest.mark.asyncio
 async def test_invalid_reminder_uses_only_its_validation_budget_and_retains_correction_evidence(engine_factory):
     def mutate(persona, config):
-        config["model"]["day_plan_validation_max_retries"] = 1
+        config["models"]["reasoner"]["day_plan_validation_max_retries"] = 1
 
     engine = engine_factory(mutate=mutate)
     invalid = plan_day_response(goals=[{"intent_kind": "休息", "goal": "浏览一些内容",
                                        "remind_time": "08:00", "around_time": None}])
-    client = PlanningTransport(engine.context.inputs.config.model.requested_model, [invalid, invalid])
+    client = PlanningTransport(
+        engine.context.config.models[engine.context.config.model_routing.plan_day].requested_model, [invalid, invalid])
     with pytest.raises(ProtocolError, match="plan_day output validation retries exhausted"):
-        await settle_pending_day_plans(engine, client)
+        await settle_pending_day_plans(engine, _plan_registry(engine, client))
     assert len(client.requests) == 2
     first, corrected = client.requests
     assert corrected["tools"] == first["tools"] and corrected["messages"][:2] == first["messages"]
@@ -185,7 +198,7 @@ def test_plan_inputs_word_app_use_and_location_activities_like_the_timeline(engi
     回顾时段不含生成时刻那一秒，所以收货之后先在店里查一次商品、推进一个边界再取计划输入。"""
     engine = engine_factory(environment_root=_dinner_environment(tmp_path))
     titles = _lived_day(engine)
-    _, looked = act(engine, "look", query("纸巾"))
+    _, looked = act(engine, "look", search_world("纸巾"))
     assert looked.status == "in_progress", looked.error_code
     advance_next(engine)
     planned = plan_inputs(engine.context, engine.observations, engine.midnight_rhythm_pending, 1)

@@ -7,7 +7,7 @@ import json
 import pytest
 
 from tests.integration.runtime.current_contract_fixtures import ToolResponse, decide
-from tests.life.conftest import SIDE_TOOL, advance_next, conclude_request, stage_day_plan, use_app
+from tests.life.conftest import MAIN_TOOL, SIDE_TOOL, advance_next, conclude_request, main_arguments, stage_day_plan, use_app
 from tests.life.environment_runtime import act, events
 
 
@@ -25,10 +25,10 @@ async def test_next_decision_prompt_shows_what_was_watched(engine_factory):
     assert engine.scheduling_state().ready_agent_ids == (1,)
     name = engine.context.state.activities[used.activity_id].name
     _, _, _, results = await decide(engine, "after", [
-        ToolResponse("conclude_activity", conclude_request(name).model_dump(mode="json"))])
+        ToolResponse("conclude_activity", conclude_request(name).model_dump(mode="json")),
+        ToolResponse(MAIN_TOOL, main_arguments("sleep", "60"), "call-sleep")])
     assert results[0].status == "completed", results[0].error_code
-    (request,) = [event.data["request"] for event in events(engine, "model_request")
-                  if event.decision_id == "decision-after-1"]
+    request = [event.data["request"] for event in events(engine, "model_request")][0]
     user = request["messages"][1]["content"]
     assert "测试慢跑" in user and "测试慢跑的测试用合成摘要。" in user
     (progress,) = [layer for layer in json.loads(user) if layer["layer"] == "进度层"]

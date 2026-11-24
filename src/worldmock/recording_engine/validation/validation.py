@@ -17,9 +17,16 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from pydantic import ValidationError
+
 from worldmock.foundation.errors import IntegrityError
 from worldmock.exchange_engine.definitions.constants import RULES_VERSION
-from worldmock.state.identity import RUN_MANIFEST_SCHEMA_VERSION
+from worldmock.state.identity import (
+    ModelIdentity,
+    RUN_MANIFEST_SCHEMA_VERSION,
+    check_persona_sha256s,
+    validate_persona_sha256s_input,
+)
 from worldmock.state.world.world import WORLD_SCHEMA_VERSION
 from worldmock.recording_engine.validation.ledger import validate_account_history
 from worldmock.recording_engine.events.models import AssetRef, Checkpoint, Event
@@ -260,21 +267,38 @@ def _validate_assets(root: Path, events: list[Event], checkpoint: Checkpoint, in
 
 
 def _validate_run_identity(frozen: dict) -> None:
-    """@brief 在读取工件和启动下游前验证当前运行清单及五字段环境身份。"""
+    """@brief 在读取工件和启动下游前验证当前运行清单、多人物摘要、多模型身份及五字段环境身份。"""
     identity = frozen.get("environment_identity")
     fields = {"environment_id", "environment_version", "rules_version", "catalog_content_sha256", "map_sha256"}
+    agent_ids = frozen.get("agent_ids")
+    config_sha = frozen.get("config_sha256")
     valid = (frozen.get("schema_version") == RUN_MANIFEST_SCHEMA_VERSION and isinstance(identity, dict)
-             and set(identity) == fields)
-    valid = (valid and all(isinstance(frozen.get(key), str)
-                          and re.fullmatch(r"[a-f0-9]{64}", frozen[key])
-                          for key in ("persona_sha256", "config_sha256"))
+             and set(identity) == fields and isinstance(config_sha, str)
+             and re.fullmatch(r"[a-f0-9]{64}", config_sha) is not None
+             and isinstance(agent_ids, list) and bool(agent_ids)
+             and all(type(item) is int and item > 0 for item in agent_ids) and len(set(agent_ids)) == len(agent_ids)
              and isinstance(frozen.get("environment_assets"), dict))
     if valid:
         valid = (all(isinstance(identity[key], str) and identity[key].strip()
                      for key in ("environment_id", "environment_version"))
                  and type(identity["rules_version"]) is int and identity["rules_version"] == RULES_VERSION
                  and all(isinstance(identity[key], str) and re.fullmatch(r"[a-f0-9]{64}", identity[key])
-                         for key in ("catalog_content_sha256", "map_sha256")))
+                         for key in ("catalog_content_sha256", "map_sha256"))
+                 and _valid_personas_and_model(frozen, set(agent_ids)))
     if not valid:
         logging.error("Export frozen run manifest or environment identity is invalid")
         raise IntegrityError("Export frozen run manifest or environment identity is invalid")
+
+
+def _valid_personas_and_model(frozen: dict, agent_ids: set[int]) -> bool:
+    """@brief 核对运行清单里的多人物 SHA-256 映射与多档案模型身份。"""
+    raw = frozen.get("persona_sha256s")
+    if not isinstance(raw, dict):
+        return False
+    try:
+        validate_persona_sha256s_input(raw)
+        check_persona_sha256s({int(key): value for key, value in raw.items()}, agent_ids)
+        ModelIdentity.model_validate(frozen.get("model_identity"))
+    except (ValidationError, ValueError):
+        return False
+    return True

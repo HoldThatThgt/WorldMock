@@ -1,4 +1,4 @@
-"""两个开始工具的严格请求模型：字段全必填、交叉约束逐条定位、DeepSeek strict Schema 与用途句逐字。"""
+"""开始工具与搜索启动工具的严格请求模型：字段全必填、交叉约束逐条定位与 DeepSeek strict Schema。"""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ import pytest
 from jsonschema import Draft202012Validator
 from pydantic import ValidationError
 
-from worldmock.agents.prompt.life_prompt import TOOL_DESCRIPTIONS
 from worldmock.exchange_engine.conditions.activity_rules import (
     ACTIVITY_ACTIONS,
     APP_BOUND_ACTIONS,
@@ -16,8 +15,13 @@ from worldmock.exchange_engine.conditions.activity_rules import (
     SIDE_ACTIVITY_ACTIONS,
     activity_slot,
 )
-from worldmock.state.interaction.actions import START_TOOLS
-from worldmock.state.interaction.requests import REQUEST_MODELS, StartMainActivityRequest, StartSideActivityRequest
+from worldmock.state.interaction.actions import SEARCH_TOOL, START_TOOLS
+from worldmock.state.interaction.requests import (
+    REQUEST_MODELS,
+    SearchWorldRequest,
+    StartMainActivityRequest,
+    StartSideActivityRequest,
+)
 from worldmock.state.interaction.schema import deepseek_strict_schema
 from worldmock.state.interaction.request_errors import argument_report
 from worldmock.state.interaction.sleep import (
@@ -33,12 +37,13 @@ _SIDE_VALID = (
     {"action": "purchase", "target": ["牛肉面", "柠檬茶", "柠檬茶"], "prefer": None},
     {"action": "purchase", "target": ["冰美式咖啡"], "prefer": "瑞幸咖啡"},
     {"action": "interact", "target": ["哔哩哔哩"], "prefer": None},
-    {"action": "query", "target": ["食品", "柠檬茶"], "prefer": "美团"},
-    {"action": "query", "target": ["零食"], "prefer": None},
+)
+_SEARCH_VALID = (
+    {"query": "无糖乌龙茶", "prefer": "美团"},
+    {"query": "附近的咖啡馆或茶室", "prefer": None},
 )
 #: 副工具 prefer 字段的说明原文。
-_PREFER_DESCRIPTION = ("purchase 写想用来下单的内容 app 的完整名称，query 写想在其中查询的内容 app 的完整名称，"
-                       "没有想法写 null；interact 写 null。")
+_PREFER_DESCRIPTION = "purchase 写想用来下单的内容 app 的完整名称，没有想法写 null；interact 写 null。"
 
 
 def _report(model, tool: str, arguments) -> list[tuple]:
@@ -52,33 +57,33 @@ def _report(model, tool: str, arguments) -> list[tuple]:
 
 
 def test_action_closed_sets_and_start_tools_are_declared_once():
-    """动作闭集（新动作加在末尾）、两个工具的枚举、自带 app 的活动与工具次序只在动作合同声明，两个开始工具按此顺序
-    排在请求模型最前。"""
-    assert ACTIVITY_ACTIONS == ("travel", "purchase", "sleep", "interact", "query")
-    assert APP_BOUND_ACTIONS == ("interact", "query")
+    """动作闭集、两个开始工具与搜索启动工具按顺序声明在请求模型字典最前。"""
+    assert ACTIVITY_ACTIONS == ("travel", "purchase", "sleep", "interact", "search")
+    assert APP_BOUND_ACTIONS == ("interact", "search")
     assert MAIN_ACTIVITY_ACTIONS == ("travel", "interact", "sleep")
-    assert SIDE_ACTIVITY_ACTIONS == ("purchase", "interact", "query")
+    assert SIDE_ACTIVITY_ACTIONS == ("purchase", "interact")
     assert START_TOOLS == ("start_main_activity", "start_side_activity")
-    assert list(REQUEST_MODELS) == [*START_TOOLS, "recall_task_summary", "report_status", "pause_activity",
-                                    "conclude_activity", "revise_day_plan"]
+    assert SEARCH_TOOL == "search_world"
+    assert list(REQUEST_MODELS) == [*START_TOOLS, SEARCH_TOOL, "recall_task_summary", "report_status",
+                                    "pause_activity", "conclude_activity", "revise_day_plan"]
     assert REQUEST_MODELS["start_main_activity"] is StartMainActivityRequest
     assert REQUEST_MODELS["start_side_activity"] is StartSideActivityRequest
-    assert "start_activity" not in REQUEST_MODELS and "start_activity" not in TOOL_DESCRIPTIONS
+    assert REQUEST_MODELS["search_world"] is SearchWorldRequest
+    assert "start_activity" not in REQUEST_MODELS
 
 
 @pytest.mark.parametrize("action,app_id,slot", [
     ("travel", None, "first"), ("sleep", None, "first"), ("interact", None, "first"),
-    ("purchase", None, "second"), ("interact", "bilibili", "second"), ("query", None, "second"),
-    ("query", "meituan", "second"),
+    ("purchase", None, "second"), ("interact", "bilibili", "second"), ("search", None, "second"),
+    ("search", "meituan", "second"),
 ])
 def test_slot_is_given_by_the_action_and_the_content_app(action, app_id, slot):
-    """出行、睡眠和在地点做事占槽位 1，购买、查询和用内容 app 占槽位 2，查询不论有没有 app 都占槽位 2；
-    出行只有 travel 一个动作。"""
+    """出行、睡眠和在地点做事占槽位 1，购买、搜索和用内容 app 占槽位 2，搜索不论有没有 app 都占槽位 2。"""
     assert activity_slot(action, app_id) == slot
 
 
-@pytest.mark.parametrize("action", ["wait", "do", "travel_to", "Sleep", "interact ", "", "walk", "drive", "take_taxi",
-                                    "take_bus", "walking", "driving"])
+@pytest.mark.parametrize("action", ["wait", "do", "query", "travel_to", "Sleep", "interact ", "", "walk",
+                                    "drive", "take_taxi", "take_bus", "walking", "driving"])
 def test_unknown_action_cannot_acquire_a_slot(action):
     with pytest.raises(ValueError, match="Unknown activity action"):
         activity_slot(action, None)
@@ -92,55 +97,65 @@ def test_main_request_accepts_the_three_declared_shapes(arguments):
 
 @pytest.mark.parametrize("arguments", _SIDE_VALID)
 def test_side_request_accepts_arrays_and_repeated_names(arguments):
-    """购买与查询不设上限并允许同名重复：同一个名称写两次就是两份；prefer 写名称和写 null 都通过，原文照存。"""
+    """购买不设上限并允许同名重复：同一个名称写两次就是两份；prefer 写名称和写 null 都通过，原文照存。"""
     request = StartSideActivityRequest.model_validate(arguments)
     assert request.model_dump(mode="json") == arguments
     many = {"action": "purchase", "target": ["薯片"] * 12, "prefer": None}
     assert StartSideActivityRequest.model_validate(many).target == ["薯片"] * 12
-    queried = {"action": "query", "target": ["零食", "薯片", "零食"] * 7, "prefer": None}
-    assert len(StartSideActivityRequest.model_validate(queried).target) == 21
+
+
+@pytest.mark.parametrize("arguments", _SEARCH_VALID)
+def test_search_world_request_accepts_valid_inputs(arguments):
+    """search_world 接受非空检索意图与可空意向 app。"""
+    request = SearchWorldRequest.model_validate(arguments)
+    assert request.model_dump(mode="json") == arguments
 
 
 def test_both_models_generate_closed_strict_schemas_with_verbatim_descriptions():
-    """两个模型都通过 DeepSeek strict 校验；每个参数都必填，用途句与字段说明逐字。"""
+    """开始工具与 search_world 全部通过 DeepSeek strict 校验；每个参数都必填。"""
     main = deepseek_strict_schema(StartMainActivityRequest)
     side = deepseek_strict_schema(StartSideActivityRequest)
-    for schema in (main, side):
+    search = deepseek_strict_schema(SearchWorldRequest)
+    for schema in (main, side, search):
         Draft202012Validator.check_schema(schema)
         assert schema["additionalProperties"] is False and schema["required"] == list(schema["properties"])
         assert "$ref" not in json.dumps(schema) and "description" not in schema
+        assert "maxLength" not in json.dumps(schema) and "minLength" not in json.dumps(schema)
     assert list(main["properties"]) == ["action", "target", "detail"]
     assert main["properties"]["action"]["enum"] == ["travel", "interact", "sleep"]
     assert main["properties"]["target"]["type"] == "string" and main["properties"]["target"]["pattern"] == r"\S"
     assert main["properties"]["detail"]["anyOf"] == [{"pattern": r"\S", "type": "string"}, {"type": "null"}]
     assert list(side["properties"]) == side["required"] == ["action", "target", "prefer"]
-    assert side["properties"]["action"]["enum"] == ["purchase", "interact", "query"]
+    assert side["properties"]["action"]["enum"] == ["purchase", "interact"]
     assert side["properties"]["target"]["type"] == "array"
     assert side["properties"]["target"]["items"] == {"pattern": r"\S", "type": "string"}
     assert side["properties"]["prefer"]["anyOf"] == [{"pattern": r"\S", "type": "string"}, {"type": "null"}]
     assert side["properties"]["prefer"]["anyOf"] == main["properties"]["detail"]["anyOf"]
-    assert TOOL_DESCRIPTIONS["start_main_activity"] == "开始一项占槽位 1 的活动：出行、在当前地点做一件事，或睡觉。"
-    assert TOOL_DESCRIPTIONS["start_side_activity"] == "开始一项占槽位 2 的活动：购买商品、查询商品，或使用一个内容 app。"
+    assert list(search["properties"]) == ["query", "prefer"]
+    assert search["properties"]["query"]["type"] == "string" and search["properties"]["query"]["pattern"] == r"\S"
+    assert search["properties"]["prefer"]["anyOf"] == [{"pattern": r"\S", "type": "string"}, {"type": "null"}]
     assert main["properties"]["action"]["description"] == "做什么：travel 出行，interact 在当前地点做一件事，sleep 睡觉。"
     assert main["properties"]["target"]["description"] == (
         "travel 写目的地地点的完整名称；interact 写当前所在地点的完整名称；sleep 写要睡的分钟数，只写数字，例如 470。")
     assert main["properties"]["detail"]["description"] == (
         "travel 写出行方式的名称，照工具层该目的地下列出的写；interact 写要做的那件事的名称，"
         "照工具层当前地点下列出的写；sleep 写 null。")
-    assert side["properties"]["action"]["description"] == "做什么：purchase 购买商品，interact 使用内容 app，query 查询商品。"
+    assert side["properties"]["action"]["description"] == "做什么：purchase 购买商品，interact 使用内容 app。"
     assert side["properties"]["target"]["description"] == (
-        "名称数组。purchase 逐份写商品的完整名称，同一个名称写两次就是两份；interact 只写一个内容 app 的完整名称；"
-        "query 写商品的完整名称或商品类别的名称。")
+        "名称数组。purchase 逐份写商品的完整名称，同一个名称写两次就是两份；interact 只写一个内容 app 的完整名称。")
     assert side["properties"]["prefer"]["description"] == _PREFER_DESCRIPTION
     for arguments in _MAIN_VALID:
         assert list(Draft202012Validator(main).iter_errors(arguments)) == []
     for arguments in _SIDE_VALID:
         assert list(Draft202012Validator(side).iter_errors(arguments)) == []
+    for arguments in _SEARCH_VALID:
+        assert list(Draft202012Validator(search).iter_errors(arguments)) == []
 
 
 @pytest.mark.parametrize("model,tool,valid", [
     (StartMainActivityRequest, "start_main_activity", _MAIN_VALID[0]),
     (StartSideActivityRequest, "start_side_activity", _SIDE_VALID[0]),
+    (SearchWorldRequest, "search_world", _SEARCH_VALID[0]),
 ])
 def test_every_parameter_is_required_and_extra_keys_are_refused(model, tool, valid):
     """每个参数都必须出现在请求里；多写任何键按多余字段拒绝，旧的 items 形状同样被拒。"""
@@ -162,11 +177,11 @@ def _allowed(model, field: str) -> tuple:
 
 @pytest.mark.parametrize("model,tool,valid,allowed", [
     (StartMainActivityRequest, "start_main_activity", _MAIN_VALID[0], ("travel", "interact", "sleep")),
-    (StartSideActivityRequest, "start_side_activity", _SIDE_VALID[0], ("purchase", "interact", "query")),
+    (StartSideActivityRequest, "start_side_activity", _SIDE_VALID[0], ("purchase", "interact")),
 ])
-@pytest.mark.parametrize("action", ["walk", "drive", "take_taxi", "take_bus", "Travel", "wait"])
+@pytest.mark.parametrize("action", ["walk", "drive", "take_taxi", "take_bus", "Travel", "wait", "query"])
 def test_action_outside_the_enum_is_refused_with_all_allowed_values(model, tool, valid, allowed, action):
-    """四个旧出行动作作为 action 被拒，并返回这个工具允许的全部动作。"""
+    """退役动作作为 action 被拒，并返回这个工具允许的全部动作。"""
     assert _report(model, tool, {**valid, "action": action}) == [
         (("action",), action, allowed, "The value is outside the declared allowed values.")]
 
@@ -194,8 +209,6 @@ def test_main_cross_constraints_report_one_item_per_violation(arguments, expecte
 
 @pytest.mark.parametrize("arguments,expected", [
     ({"action": "purchase", "target": [], "prefer": None},
-     [(("target",), [], (), "target requires at least one name")]),
-    ({"action": "query", "target": [], "prefer": "美团"},
      [(("target",), [], (), "target requires at least one name")]),
     ({"action": "interact", "target": [], "prefer": None},
      [(("target",), [], (), "target requires at least one name"),
@@ -252,3 +265,18 @@ def test_opening_an_app_requires_a_null_prefer(arguments, expected):
     """打开 app 时 prefer 必须为 null：报 prefer must be null when action is interact，written 是所写原值；
     同时写了两个 app 名时两条违背一次报全。"""
     assert _report(StartSideActivityRequest, "start_side_activity", arguments) == expected
+
+
+@pytest.mark.parametrize("arguments,expected", [
+    ({"query": "  ", "prefer": None},
+     [(("query",), "  ", (), "A non-blank string matching the declared format is required.")]),
+    ({"query": "乌龙茶", "prefer": " "},
+     [(("prefer",), " ", (), "A non-blank string matching the declared format is required.")]),
+    ({"query": 123, "prefer": None},
+     [(("query",), 123, (), "A JSON string is required.")]),
+    ({"query": "茶" * 201, "prefer": None},
+     [(("query",), "茶" * 201, (), "search query exceeds 200 characters")]),
+])
+def test_search_world_request_validates_query_and_prefer(arguments, expected):
+    """search_world 在严格校验里限制 query 非空且去空白后至多 200 字，prefer 非空白或 null。"""
+    assert _report(SearchWorldRequest, "search_world", arguments) == expected

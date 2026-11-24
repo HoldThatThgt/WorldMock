@@ -1,5 +1,7 @@
-"""@brief 冻结运行身份与准备人物输入的唯一职责。"""
+"""@brief 冻结运行身份与准备多人物输入的唯一职责。"""
+
 from __future__ import annotations
+
 import hashlib
 import logging
 import os
@@ -10,38 +12,49 @@ from typing import Any
 
 import worldmock
 from worldmock.configuration.inputs.environment import EnvironmentInputs
-from worldmock.foundation.errors import IntegrityError
-from worldmock.configuration.inputs.models import ModelConfig, ModelMetadata
+from worldmock.configuration.inputs.models import (
+    ModelMetadata,
+    ModelProfileConfig,
+    RunConfig,
+    referenced_profile_ids,
+)
 from worldmock.configuration.inputs.warnings import content_empty_warnings, location_name_warnings
-from worldmock.state.identity import ModelIdentity
+from worldmock.foundation.errors import IntegrityError
+from worldmock.state.identity import ModelIdentity, StageProfileIdentity
 
 logger = logging.getLogger(__name__)
 
 
-def _model_identity(config: ModelConfig) -> ModelIdentity:
-    """@brief 冻结显式模型端点、独立预算与当前提示和工具身份，不包含凭据。"""
-    from worldmock.agents.life_agent import ACTION_THINKING, ACTION_TOOL_CHOICE, life_tool_schema_sha256
+def stage_profile_identity(profile: ModelProfileConfig, metadata: ModelMetadata) -> StageProfileIdentity:
+    """@brief 由配置档与实测元数据构造冻结的单模型档身份，不包含凭据值或环境变量名。"""
+    effective = min(profile.max_output_tokens, metadata.max_output_tokens)
+    return StageProfileIdentity(
+        provider=profile.provider, base_url=profile.base_url, requested_model=profile.requested_model,
+        metadata_url=profile.metadata_url, context_window=profile.context_window, thinking=profile.thinking,
+        max_output_tokens=profile.max_output_tokens, max_retries=profile.max_retries,
+        transport_max_retries=profile.transport_max_retries, max_react_turns=profile.max_react_turns,
+        reflection_validation_max_retries=profile.reflection_validation_max_retries,
+        day_plan_validation_max_retries=profile.day_plan_validation_max_retries,
+        model_metadata=metadata, effective_max_tokens=effective,
+    )
+
+
+def model_identity(config: RunConfig, metadata: Mapping[str, ModelMetadata]) -> ModelIdentity:
+    """@brief 冻结生效模型档、四维路由与各阶段提示及工具指纹，不包含凭据。"""
+    from worldmock.agents.life_agent import life_tool_schema_sha256
     from worldmock.agents.prompt.life_prompt import life_prompt_sha256
+    from worldmock.agents.search.search_prompt import search_prompt_sha256, search_tool_schema_sha256
 
-    return ModelIdentity(provider=config.provider, base_url=config.base_url, requested_model=config.requested_model,
-                         thinking=ACTION_THINKING["thinking"]["type"], tool_choice=ACTION_TOOL_CHOICE,
-                         max_retries=config.max_retries, transport_max_retries=config.transport_max_retries,
-                         prompt_sha256=life_prompt_sha256(), tool_schema_sha256=life_tool_schema_sha256())
-
-
-def stage_model_identity(config: ModelConfig, metadata: ModelMetadata,
-                         same_second_continuation: bool = True) -> dict[str, Any]:
-    """@brief 冻结行动阶段、实际服务容量及每个独立输出校验预算。"""
-    from worldmock.agents.life_agent import ACTION_MAX_TOKENS, ACTION_THINKING, ACTION_TOOL_CHOICE
-
-    identity = config.model_dump(mode="json", exclude={"api_key_env"})
-    identity.update({"max_react_turns": config.max_react_turns, "strict": True, "reasoning_effort": None,
-                     "model_metadata": metadata.model_dump(mode="json"),
-                     "stages": {"action": {"thinking": ACTION_THINKING["thinking"]["type"],
-                                           "tool_choice": ACTION_TOOL_CHOICE,
-                                           "max_tokens": min(ACTION_MAX_TOKENS, metadata.max_output_tokens),
-                                           "same_second_continuation": same_second_continuation}}})
-    return validate_stage_model_identity(identity)
+    profiles = {
+        profile_id: stage_profile_identity(config.models[profile_id], metadata[profile_id])
+        for profile_id in referenced_profile_ids(config.model_routing)
+    }
+    return ModelIdentity(
+        profiles=profiles,
+        routing=config.model_routing.model_dump(mode="json"),
+        prompt_sha256s={"action": life_prompt_sha256(), "search": search_prompt_sha256()},
+        tool_schema_sha256s={"action": life_tool_schema_sha256(), "search": search_tool_schema_sha256()},
+    )
 
 
 def project_root() -> Path:
@@ -64,6 +77,7 @@ def _labeled_sha256(files: list[tuple[str, Path]]) -> str:
     digest = hashlib.sha256()
     for label, path in sorted(files, key=lambda item: item[0]):
         if not path.is_file() or path.is_symlink():
+            logger.error("Runtime identity source missing or unsafe: %s", label)
             raise IntegrityError("Runtime identity source is missing or unsafe")
         encoded = label.encode()
         content = path.read_bytes()
@@ -99,75 +113,24 @@ def _git_output(root: Path, *arguments: str) -> bytes | None:
     return result.stdout if result.returncode == 0 else None
 
 
-def creation_inputs(inputs: EnvironmentInputs,
-                    same_second_continuation: bool = True) -> tuple[tuple[dict[str, Any], ...], list[dict]]:
-    """@brief 由人设表直接构造唯一人物卡片，生成真实目录输入警告；不调用模型。"""
+def creation_inputs(inputs: EnvironmentInputs) -> tuple[tuple[dict[str, Any], ...], list[dict[str, Any]]]:
+    """@brief 由多人物人设表直接构造全部人物卡片，生成真实目录输入警告；不调用模型。"""
     from worldmock.configuration.persona.persona_card import persona_card, persona_card_struct
     from worldmock.configuration.persona.persona_text import render_card
 
-    persona = inputs.persona
-    card = persona_card(persona)
-    profile = persona.model_dump(mode="json")
-    profile.update({"id": persona.agent_id, "same_second_continuation": same_second_continuation,
-                    "persona_card": render_card(card), "persona_card_struct": persona_card_struct(card),
-                    "model_identity": stage_model_identity(inputs.config.model, inputs.model_metadata,
-                                                            same_second_continuation)})
-    specs = ({"id": persona.agent_id, "profile": profile},)
-    return specs, input_warnings(inputs)
+    specs = []
+    for persona in inputs.personas:
+        card = persona_card(persona)
+        profile = persona.model_dump(mode="json")
+        profile.update({"id": persona.agent_id, "persona_card": render_card(card),
+                        "persona_card_struct": persona_card_struct(card)})
+        specs.append({"id": persona.agent_id, "profile": profile})
+    return tuple(specs), input_warnings(inputs)
 
 
 def input_warnings(inputs: EnvironmentInputs) -> list[dict[str, Any]]:
-    """@brief 按真实目录计算两种运行输入警告：没有绑定内容而人物写了媒体口味，地点显示名可疑。"""
-    return [*content_empty_warnings(inputs.persona, inputs.catalog), *location_name_warnings(inputs.catalog)]
-
-
-RETIRED_STAGE_IDENTITY_KEY = "two_stage_model_identity"
-
-
-def validate_manifest_stage_identity(manifest: Mapping[str, Any]) -> dict[str, Any]:
-    """@brief 运行入口拒绝退役阶段及缺失身份，只校验实际冻结的显式身份。"""
-    if RETIRED_STAGE_IDENTITY_KEY in manifest:
-        logger.error("Run manifest key %s is retired", RETIRED_STAGE_IDENTITY_KEY)
-        raise IntegrityError(f"Run manifest key {RETIRED_STAGE_IDENTITY_KEY} is retired")
-    if "stage_model_identity" not in manifest:
-        logger.error("Run manifest decision stage identity is missing")
-        raise IntegrityError("Run manifest decision stage identity is missing")
-    return validate_stage_model_identity(manifest["stage_model_identity"])
-
-
-def validate_stage_model_identity(identity: dict[str, Any]) -> dict[str, Any]:
-    """@brief 校验唯一行动阶段与实际容量、预算；端点及模型来自运行声明。"""
-    from worldmock.agents.life_agent import ACTION_MAX_TOKENS, ACTION_THINKING, ACTION_TOOL_CHOICE
-    from pydantic import ValidationError
-
-    if not isinstance(identity, dict):
-        _identity_error("Stage model identity must be an object")
-    stages = identity.get("stages")
-    if not isinstance(stages, dict) or set(stages) != {"action"}:
-        _identity_error("Model identity stages must be exactly action")
-    try:
-        fields = set(ModelConfig.model_fields) - {"api_key_env"}
-        config = ModelConfig.model_validate({**{key: identity[key] for key in fields}, "api_key_env": "MODEL_KEY"})
-        metadata = ModelMetadata.model_validate(identity["model_metadata"])
-    except (KeyError, TypeError, ValidationError) as error:
-        _identity_error("Stage model identity has invalid configuration", error)
-    if (metadata.requested_model != config.requested_model or metadata.metadata_url != config.metadata_url
-            or metadata.context_window < config.context_window):
-        _identity_error("Stage model identity has inconsistent model metadata")
-    action = stages["action"]
-    switch = action.get("same_second_continuation") if isinstance(action, dict) else None
-    expected = {"thinking": ACTION_THINKING["thinking"]["type"], "tool_choice": ACTION_TOOL_CHOICE,
-                "max_tokens": min(ACTION_MAX_TOKENS, metadata.max_output_tokens), "same_second_continuation": switch}
-    if (not isinstance(switch, bool) or action != expected or identity.get("strict") is not True
-            or identity.get("reasoning_effort") is not None):
-        _identity_error("Stage model identity is inconsistent")
-    allowed = fields | {"model_metadata", "stages", "strict", "reasoning_effort"}
-    if set(identity) != allowed:
-        _identity_error("Stage model identity has unexpected fields")
-    return identity
-
-
-def _identity_error(message: str, cause: Exception | None = None) -> None:
-    """@brief 冻结模型身份不合法时写入英文日志并停止。"""
-    logger.error("%s", message)
-    raise IntegrityError(message) from cause
+    """@brief 按真实目录计算全部人物的媒体口味警告与地点显示名警告。"""
+    warnings = [warning for persona in inputs.personas
+                for warning in content_empty_warnings(persona, inputs.catalog)]
+    warnings.extend(location_name_warnings(inputs.catalog))
+    return warnings

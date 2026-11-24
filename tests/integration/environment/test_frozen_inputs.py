@@ -25,7 +25,7 @@ def copied_environment(tmp_path):
     return root
 
 
-@pytest.mark.parametrize("relative", ["persona.toml", "config.toml", "catalog/manifest.json",
+@pytest.mark.parametrize("relative", ["personas/persona_1.toml", "config.toml", "catalog/manifest.json",
     "catalog/app-catalog.jsonl", "catalog/location.jsonl", "catalog/merchant-catalog.jsonl", "catalog/content-catalog.jsonl",
     "catalog/callbacks.jsonl", "catalog/map.jsonl", "catalog/travel-method.jsonl"])
 def test_cache_key_covers_every_actual_input_byte(copied_environment, relative):
@@ -54,7 +54,7 @@ METHOD_ROW = ('{"exertion":"light","name":"骑车","price_per_km_fen":0,"speed_m
                          ids=["required-only", "empty-callbacks", "empty-map", "empty-methods", "all-three"])
 def test_new_run_freezes_exactly_the_listed_catalog_files_and_the_generated_map(
         copied_environment, engine_factory, files):
-    """新建运行冻结的素材恰为两份 TOML、清单、清单登记的每个目录文件，加生成的 map.json。"""
+    """新建运行冻结的素材恰为人物目录与运行配置 TOML、清单、清单登记的每个目录文件，加生成的 map.json。"""
     walking_only(copied_environment)
     for name, content in files.items():
         (copied_environment / "catalog" / name).write_bytes(content)
@@ -65,7 +65,7 @@ def test_new_run_freezes_exactly_the_listed_catalog_files_and_the_generated_map(
     assert listed == {"app-catalog.jsonl", "content-catalog.jsonl", "location.jsonl",
                       "merchant-catalog.jsonl"} | set(files)
     assets = store.manifest["environment_assets"]
-    assert set(assets) == {"persona.toml", "config.toml", "catalog/manifest.json", "map.json"} | {
+    assert set(assets) == {"personas/persona_1.toml", "config.toml", "catalog/manifest.json", "map.json"} | {
         f"catalog/{name}" for name in listed}
     for name in set(assets) - {"map.json"}:
         assert (store.run_dir / "assets" / assets[name]["sha256"]).read_bytes() == (
@@ -97,7 +97,7 @@ def test_changed_catalog_bytes_are_revalidated(copied_environment):
 def test_cache_guard_rejects_source_mutation(copied_environment):
     cache = FrozenInputs()
     cache.record(copied_environment)
-    path = copied_environment / "persona.toml"
+    path = copied_environment / "personas" / "persona_1.toml"
     path.write_bytes(path.read_bytes() + b"\n")
     with pytest.raises(AssertionError, match="source input changed"):
         cache.verify()
@@ -106,7 +106,7 @@ def test_cache_guard_rejects_source_mutation(copied_environment):
 def test_cache_guard_rejects_object_mutation(copied_environment):
     cache = FrozenInputs()
     inputs = cache.record(copied_environment)["inputs"]
-    object.__setattr__(inputs, "home_location_id", "changed")
+    object.__setattr__(inputs, "home_location_ids", MappingProxyType({1: "changed"}))
     with pytest.raises(AssertionError, match="object changed"):
         cache.verify()
 

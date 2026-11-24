@@ -32,8 +32,10 @@ def published_environment(tmp_path):
             if self.path != "/v1/models" or self.headers.get("Authorization") != "Bearer test-only-key":
                 self.send_error(401)
                 return
-            body = json.dumps({"data": [{"id": "test-model", "context_window": 524288,
-                                         "max_output_tokens": 32768}]}).encode()
+            body = json.dumps({"data": [
+                {"id": "test-model", "context_window": 524288, "max_output_tokens": 32768},
+                {"id": "test-search-model", "context_window": 524288, "max_output_tokens": 32768},
+            ]}).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
@@ -96,7 +98,7 @@ def test_validate_real_command_reads_current_inputs_without_writing_assets(publi
 
 
 def test_rejected_run_does_not_create_an_output_directory(published_environment, tmp_path):
-    (published_environment / "persona.toml").write_bytes(b"schema_version = 1\n")
+    (published_environment / "personas" / "persona_1.toml").write_bytes(b"schema_version = 1\n")
     output = tmp_path / "run"
     result = _command("run", "--environment", published_environment, "--output", output)
     assert result.returncode == 1
@@ -112,7 +114,7 @@ def test_main_validation_exit_code_matches_the_actual_input_report(
 
     monkeypatch.setenv("WORLDMOCK_TEST_API_KEY", "test-only-key")
     if not valid:
-        (published_environment / "persona.toml").write_bytes(b"schema_version = 1\n")
+        (published_environment / "personas" / "persona_1.toml").write_bytes(b"schema_version = 1\n")
     before = {path.relative_to(published_environment): path.read_bytes()
               for path in published_environment.rglob("*") if path.is_file()}
     assert main(["validate", "--environment", str(published_environment)]) == (0 if valid else 1)

@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from tests.life.conftest import advance_next, context, sleep, use_app
+from tests.life.conftest import advance_next, search_world, sleep, use_app
 from tests.life.environment_runtime import act, events
 from worldmock.foundation.errors import ProtocolError
 from worldmock.simulation_engine.scheduling.clock.rhythm import RhythmBoundary, _wake_snapshot, decide_engine_rhythm
@@ -18,17 +18,19 @@ def assert_unchanged(engine, before, sequence):
     assert engine.context.store.last_event_seq == sequence
 
 
-@pytest.mark.parametrize("open_round", [True, False], ids=["open-round", "decision-due"])
+@pytest.mark.parametrize("due_search", [True, False], ids=["due-search", "decision-due"])
 def test_advance_rejects_an_unfinished_decision_without_settling_or_writing(
-    engine_factory, caplog, open_round
+    engine_factory, caplog, due_search
 ):
     engine = engine_factory()
-    if open_round:
-        engine.begin_decision_round([context(engine, "still-open")])
+    if due_search:
+        _, started = act(engine, "due-search", search_world("柠檬茶"))
+        assert started.status == "in_progress"
+        advance_next(engine)
     before = engine.context.state.model_dump(mode="json")
     sequence = engine.context.store.last_event_seq
     target = datetime.fromtimestamp(before["current_time"] + 1, ZoneInfo(engine.context.config.timezone))
-    expected = "open decision round" if open_round else "agent decision is due"
+    expected = "due search is pending" if due_search else "agent decision is due"
     with pytest.raises(ProtocolError, match=expected):
         engine.advance(1, target)
     assert expected in caplog.text

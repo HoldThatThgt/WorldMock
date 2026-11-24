@@ -134,8 +134,6 @@ _CHECKS = (
     ("run_failures", "M9.run_failures", "==", 0),
     ("capacity_compressions", "M9.capacity_compressions", "==", 0),
     ("no_restarted_activities", "M9.restarted", "==", 0),
-    ("chain_append_only", "M9.chain.append_violations", "==", 0),
-    ("chain_without_persona_delta", "M9.chain.persona_deltas", "==", 0),
     ("digest_fallback_share", "M10.fallback.value", "<=", 0.10),
     ("one_day_digest_per_day", "M10.day_digest_problems", "==", 0),
     ("retired_calls", "M10.retired_calls", "==", 0),
@@ -167,9 +165,9 @@ class PilotExport:
 
 @dataclass(frozen=True)
 class Decision:
-    """@brief 一次决策的事件分组。"""
+    """@brief 一次唤醒的事件分组。"""
 
-    decision_id: str
+    wakeup_id: str
     occurred_at: int
     day: date
     observation: dict | None
@@ -285,22 +283,22 @@ def _summary_dishes(summary: str) -> list[str]:
 
 
 def decisions(export: PilotExport) -> list[Decision]:
-    """@brief 按 decision_started 的次序给出每次决策的事件分组。
+    """@brief 按 decision_started 的次序给出每次唤醒的事件分组。
 
-    回合请求是本决策里 purpose 缺失或为 null 的 model_request，响应按 caused_by 找到；结果是 caused_by 含本决策某条
-    世界请求的受理、结果与拒绝事件，按 event_seq 排列。
+    回合请求是本唤醒里 purpose 缺失或为 null 的 model_request（排除 search_session、plan_day 与 memory_digest），
+    响应按 caused_by 找到；结果是 caused_by 含本唤醒某条世界请求的受理、结果与拒绝事件，按 event_seq 排列。
     """
     caused = _caused_index(export)
     own: dict[str, list[dict]] = {}
     for event in export.events:
-        if event.get("decision_id"):
-            own.setdefault(event["decision_id"], []).append(event)
-    return [_decision(export, started, own.get(started["decision_id"], []), caused)
+        if event.get("wakeup_id"):
+            own.setdefault(event["wakeup_id"], []).append(event)
+    return [_decision(export, started, own.get(started["wakeup_id"], []), caused)
             for started in export.events if started["event_type"] == "decision_started"]
 
 
 def _decision(export: PilotExport, started: dict, own: list[dict], caused: Mapping[str, list[dict]]) -> Decision:
-    """@brief 一次决策的分组：观察、回合请求与响应、世界请求与它们的结果。"""
+    """@brief 一次唤醒的分组：观察、回合请求与响应、世界请求与它们的结果。"""
     requests = tuple(event for event in own
                      if event["event_type"] == "model_request" and event["data"].get("purpose") is None)
     responses = {event["event_seq"]: event for request in requests for event in caused.get(request["event_id"], ())
@@ -309,7 +307,7 @@ def _decision(export: PilotExport, started: dict, own: list[dict], caused: Mappi
     outcomes = {event["event_seq"]: event for action in actions for event in caused.get(action["event_id"], ())
                 if event["event_type"] in _OUTCOME_TYPES}
     return Decision(
-        decision_id=started["decision_id"], occurred_at=started["occurred_at"],
+        wakeup_id=started["wakeup_id"], occurred_at=started["occurred_at"],
         day=_day(export, started["occurred_at"]),
         observation=next((event for event in own if event["event_type"] == "observation"), None),
         requests=requests, responses=tuple(responses[key] for key in sorted(responses)), actions=actions,
@@ -640,19 +638,19 @@ def _fresh_requests(rows: Sequence[Decision]) -> list[dict]:
 
 
 def _commit_ends(export: PilotExport) -> dict[str, int]:
-    """@brief 每次决策的提交末序号 C_j：从它最早的 action_result 起，前后版本都相同的连续事件里最大的序号。"""
+    """@brief 每次唤醒的提交末序号 C_j：从它最早的 action_result 起，前后版本都相同的连续事件里最大的序号。"""
     events, first = export.events, {}
     for index, event in enumerate(events):
-        if event["event_type"] == "action_result" and event.get("decision_id"):
-            first.setdefault(event["decision_id"], index)
+        if event["event_type"] == "action_result" and event.get("wakeup_id"):
+            first.setdefault(event["wakeup_id"], index)
     ends = {}
-    for decision_id, index in first.items():
+    for wakeup_id, index in first.items():
         versions = (events[index]["state_version_before"], events[index]["state_version_after"])
         end = index
         while end + 1 < len(events) and (events[end + 1]["state_version_before"],
                                          events[end + 1]["state_version_after"]) == versions:
             end += 1
-        ends[decision_id] = events[end]["event_seq"]
+        ends[wakeup_id] = events[end]["event_seq"]
     return ends
 
 
@@ -809,11 +807,11 @@ def _result_items(answer: Any) -> list:
 
 
 def _successful_items(rows: Sequence[Decision]) -> dict[str, list[Mapping]]:
-    """@brief 决策身份 → 它全部成功检索的结果项（只取对象）。"""
+    """@brief 唤醒身份 → 它全部成功检索的结果项（只取对象）。"""
     items: dict[str, list[Mapping]] = {}
     for search in _searches(rows):
         if _search_status(search) == "success":
-            items.setdefault(search.decision.decision_id, []).extend(
+            items.setdefault(search.decision.wakeup_id, []).extend(
                 item for item in _result_items(search.answer) if isinstance(item, Mapping))
     return items
 
@@ -821,31 +819,47 @@ def _successful_items(rows: Sequence[Decision]) -> dict[str, list[Mapping]]:
 # ---- M1 ----
 
 def m1_past_reference(export: PilotExport, rows: list[Decision]) -> dict:
-    """@brief M1 往日引用：饮食决策中，思考或总结点到提示里往日回顾的菜名或日期的比例，按决策日期分段。
+    """@brief M1 往日引用：饮食唤醒中，思考或总结点到提示里往日回顾的菜名或日期的比例，按唤醒日期分段。
 
     :param export: 认证导出。
     :param rows: decisions(export)。
     :returns: {by_day, periods, decisions}。
     """
     orders, found = _order_goods(export), _successful_items(rows)
+    search_data = _search_snapshots(export)
     entries, marks = [], []
     for row in rows:
-        kinds = _food_kinds(export, row, orders)
+        kinds = _food_kinds(export, row, orders, search_data)
         if kinds:
-            entries.append(_past_reference(export, row, kinds, found.get(row.decision_id, [])))
+            entries.append(_past_reference(export, row, kinds, found.get(row.wakeup_id, [])))
             marks.append((row.day, entries[-1]["mentioned"]))
     return {"by_day": _by_day(export, marks), "periods": _periods(export, marks), "decisions": entries}
 
 
-def _food_kinds(export: PilotExport, row: Decision, orders: Mapping[str, str]) -> list[str]:
-    """@brief 饮食决策的种类：午饭、晚饭时段里的食品查询与购买，以及不限时段的做饭开始。"""
+def _search_snapshots(export: PilotExport) -> dict[str, Mapping]:
+    """@brief 每次搜索活动最新已提交快照的 data 字典，供 M1 读取最终归属与命中商品。"""
+    latest: dict[str, Mapping] = {}
+    for event in export.events:
+        if event["event_type"] not in {"action_accepted", "activity_progress", "action_result"}:
+            continue
+        activity = event["data"].get("activity")
+        if isinstance(activity, Mapping) and activity.get("kind") == "search" and activity.get("activity_id"):
+            data = activity.get("data")
+            if isinstance(data, Mapping):
+                latest[activity["activity_id"]] = data
+    return latest
+
+
+def _food_kinds(export: PilotExport, row: Decision, orders: Mapping[str, str],
+                search_data: Mapping[str, Mapping]) -> list[str]:
+    """@brief 饮食唤醒的种类：午饭、晚饭时段里的食品搜索与购买，以及不限时段的做饭开始。"""
     meal = bool(_meals_at(export, row.occurred_at) & {"午饭", "晚饭"})
     kinds = set()
     for activity in _accepted(row):
         data = activity.get("data") if isinstance(activity.get("data"), Mapping) else {}
-        if activity.get("kind") == "query" and meal and any(_food_target(export, item) for item in
-                                                             data.get("targets") or []):
-            kinds.add("query")
+        if activity.get("kind") == "search" and meal and _is_food_search(
+                export, search_data.get(activity.get("activity_id"), data)):
+            kinds.add("search")
         if activity.get("kind") == "purchase" and meal and any(_food_or_kit(export, orders[order]) for order in
                                                                data.get("order_ids") or []):
             kinds.add("purchase")
@@ -853,13 +867,21 @@ def _food_kinds(export: PilotExport, row: Decision, orders: Mapping[str, str]) -
         if activity.get("kind") == "interact" and not data.get("app_id") \
                 and content.get("consumes_state") in export.kit_states:
             kinds.add("cooking")
-    return [kind for kind in ("query", "purchase", "cooking") if kind in kinds]
+    return [kind for kind in ("search", "purchase", "cooking") if kind in kinds]
 
 
-def _food_target(export: PilotExport, item: Any) -> bool:
-    """@brief 查询目标是食品类别，或是食品商品与食材包。"""
-    return isinstance(item, Mapping) and (item.get("category") in _FOOD_CATEGORIES
-                                          or _food_or_kit(export, item.get("goods_id")))
+def _is_food_search(export: PilotExport, data: Mapping) -> bool:
+    """@brief 搜索命中的商品结果或检索词涉及食品类别（meal/snack/drink）、食品商品或食材包。"""
+    goods_rows = data.get("goods_rows") or []
+    for item in goods_rows:
+        if isinstance(item, Mapping) and (item.get("category") in _FOOD_CATEGORIES
+                                          or _food_or_kit(export, item.get("goods_id"))):
+            return True
+    for goods_id in data.get("goods_ids") or []:
+        if isinstance(goods_id, str) and _food_or_kit(export, goods_id):
+            return True
+    query = str(data.get("query") or "")
+    return any(word in query for word in ("食品", "零食", "饮料", "早饭", "午饭", "晚饭", *export.lexicon))
 
 
 def _food_or_kit(export: PilotExport, goods_id: str | None) -> bool:
@@ -868,12 +890,12 @@ def _food_or_kit(export: PilotExport, goods_id: str | None) -> bool:
 
 
 def _past_reference(export: PilotExport, row: Decision, kinds: list[str], items: Sequence[Mapping]) -> dict:
-    """@brief 一次饮食决策的往日名称、往日日期与是否被思考或总结点到。"""
+    """@brief 一次饮食唤醒的往日名称、往日日期与是否被思考或总结点到。"""
     texts, dates = _past_texts(row, items)
     names = list(dict.fromkeys(name for text in texts for name in _scan(text, export.lexicon)))
     said = _reasoning_text(row) + "\n" + _summary_text(row)
     forms = [form for day in sorted(dates) for form in _date_forms(day)]
-    return {"decision_id": row.decision_id, "time": _time(export, row.occurred_at), "kinds": kinds,
+    return {"wakeup_id": row.wakeup_id, "time": _time(export, row.occurred_at), "kinds": kinds,
             "past_names": names, "past_dates": sorted(dates),
             "mentioned": any(name in said for name in names) or any(form in said for form in forms)}
 
@@ -936,7 +958,7 @@ def _line_named(export: PilotExport, rows: Sequence[Decision], ends: Mapping[str
     day = _day(export, item.ended["occurred_at"])
     same_day = [row for row in rows if row.day == day]
     index = next((place for place, row in enumerate(same_day)
-                  if ends.get(row.decision_id, 0) >= item.ended["event_seq"]), None)
+                  if ends.get(row.wakeup_id, 0) >= item.ended["event_seq"]), None)
     if index is None or index == len(same_day) - 1:
         return None
     received = datetime.fromtimestamp(item.received_at, export.zone)
@@ -1230,11 +1252,11 @@ def m8_cost(export: PilotExport) -> dict:
 # ---- M9 ----
 
 def m9_guardrails(export: PilotExport, rows: list[Decision]) -> dict:
-    """@brief M9 护栏：每天决策数与带宽、拒绝与上限、回合、运行失败、容量压缩、同秒链与刚了结又重新开始。
+    """@brief M9 护栏：每天唤醒数与带宽、拒绝与上限、回合、运行失败、容量压缩与刚了结又重新开始。
 
     :param export: 认证导出。
     :param rows: decisions(export)。
-    :returns: 「分层记忆试点指标」M9 一节的十个键。
+    :returns: 「评测设计」M9 一节的九个键。
     """
     per_day = {day.isoformat(): 0 for day in export.days}
     for row in rows:
@@ -1249,7 +1271,7 @@ def m9_guardrails(export: PilotExport, rows: list[Decision]) -> dict:
         "rejection_limit": round(limit, 4), "turns": _turn_report(export, rows),
         "run_failures": sum(event["event_type"] == "run_failed" for event in export.events),
         "capacity_compressions": sum(_condensed(request) for row in rows for request in row.requests),
-        "chain": _chain_report(rows), "restarted": _restarts(export, rows),
+        "restarted": _restarts(export, rows),
     }
 
 
@@ -1258,15 +1280,24 @@ def _turns(row: Decision) -> int:
     return len({match.group(1) for request in row.requests if (match := _TURN.search(request["data"]["call_id"]))})
 
 
+def _max_react_turns(export: PilotExport) -> int:
+    """@brief 从冻结运行清单 v8 多模型身份解析本人物行动阶段绑定档的回合上限。"""
+    identity = export.manifest["frozen_run_manifest"]["model_identity"]
+    routing = identity["routing"]
+    override = (routing.get("agent_overrides") or {}).get(str(export.agent_id)) or {}
+    profile_id = override.get("action") or routing["action"]
+    return identity["profiles"][profile_id]["max_react_turns"]
+
+
 def _turn_report(export: PilotExport, rows: Sequence[Decision]) -> dict:
-    """@brief 回合：p99 与最大值只报告，回合数达到上限的决策数，回合数 ≥6 的决策逐个列出。"""
-    limit = export.manifest["frozen_run_manifest"]["stage_model_identity"]["max_react_turns"]
-    turns = {row.decision_id: _turns(row) for row in rows}
+    """@brief 回合：p99 与最大值只报告，回合数达到上限的唤醒数，回合数 ≥6 的唤醒逐个列出。"""
+    limit = _max_react_turns(export)
+    turns = {row.wakeup_id: _turns(row) for row in rows}
     ordered = sorted(turns.values())
     return {"max_react_turns": limit, "p99": round(float(_quantile(ordered, 0.99)), 1) if ordered else None,
             "max": ordered[-1] if ordered else None, "exhausted": sum(count >= limit for count in ordered),
-            "six_or_more": [{"decision_id": row.decision_id, "time": _time(export, row.occurred_at),
-                             "turns": turns[row.decision_id]} for row in rows if turns[row.decision_id] >= SIX_TURNS]}
+            "six_or_more": [{"wakeup_id": row.wakeup_id, "time": _time(export, row.occurred_at),
+                             "turns": turns[row.wakeup_id]} for row in rows if turns[row.wakeup_id] >= SIX_TURNS]}
 
 
 def _condensed(request: dict) -> bool:
@@ -1277,37 +1308,8 @@ def _condensed(request: dict) -> bool:
                                              for item in records)
 
 
-def _chain_report(rows: Sequence[Decision]) -> dict:
-    """@brief 同秒链：同秒决策数、其中的续接数与改用新快照数；续接的 changes.memory.added 必须恰是「今天」的追加，
-    changes 不得带 relationships 或 preferences。"""
-    followups = continuations = violations = deltas = 0
-    for previous, row in zip(rows, rows[1:]):
-        if row.occurred_at != previous.occurred_at:
-            continue
-        followups += 1
-        if not row.requests or len(_messages(row.requests[0])) <= 2:
-            continue
-        continuations += 1
-        changes = _last_tool_changes(row.requests[0])
-        memory = changes.get("memory")
-        added = memory.get("added") if isinstance(memory, Mapping) else None
-        expected = [_sorted_compact(entry) for entry in [*_today(previous.observation), *(added or [])]]
-        violations += expected != [_sorted_compact(entry) for entry in _today(row.observation)]
-        deltas += bool({"relationships", "preferences"} & changes.keys())
-    return {"same_second_followups": followups, "continuations": continuations,
-            "fresh_followups": followups - continuations, "append_violations": violations, "persona_deltas": deltas}
-
-
-def _last_tool_changes(request: dict) -> Mapping:
-    """@brief 请求最后一条 tool 消息内容里的 changes；没有时为空对象。"""
-    tools = [message for message in _messages(request) if message.get("role") == "tool"]
-    payload = _parse(tools[-1].get("content")) if tools else None
-    changes = payload.get("changes") if isinstance(payload, Mapping) else None
-    return changes if isinstance(changes, Mapping) else {}
-
-
 def _restarts(export: PilotExport, rows: Sequence[Decision]) -> list[dict]:
-    """@brief 结束事件落在上一次与本次决策的观察之间的活动，本决策又受理了同一目标的活动。"""
+    """@brief 结束事件落在上一次与本次唤醒的观察之间的活动，本唤醒又受理了同一目标的活动。"""
     orders, listed = _order_goods(export), []
     endings = [(event["event_seq"], _compact(_target(export, snapshot, orders)))
                for event, snapshot in _endings(export).values()]
@@ -1319,13 +1321,13 @@ def _restarts(export: PilotExport, rows: Sequence[Decision]) -> list[dict]:
         for activity in _accepted(row):
             target = _target(export, activity, orders)
             if _compact(target) in ended:
-                listed.append({"decision_id": row.decision_id, "time": _time(export, row.occurred_at),
+                listed.append({"wakeup_id": row.wakeup_id, "time": _time(export, row.occurred_at),
                                "target": target})
     return listed
 
 
 def _target(export: PilotExport, activity: Mapping, orders: Mapping[str, str]) -> list:
-    """@brief 活动的目标：app、地点内容（系列标题或内容身份）、购买商品、查询范围、出行目的地或睡眠。"""
+    """@brief 活动的目标：app、地点内容（系列标题或内容身份）、购买商品、搜索、出行目的地或睡眠。"""
     data = activity.get("data") if isinstance(activity.get("data"), Mapping) else {}
     kind = activity.get("kind")
     if kind == "interact" and data.get("app_id"):
@@ -1335,9 +1337,8 @@ def _target(export: PilotExport, activity: Mapping, orders: Mapping[str, str]) -
         return ["content", series.get("title") or data.get("content_id")]
     if kind == "purchase":
         return ["purchase", sorted(orders[order] for order in data.get("order_ids") or [])]
-    if kind == "query":
-        return ["query", data.get("app_id"), sorted(str(item.get("category") or item.get("goods_id"))
-                                                     for item in data.get("targets") or [])]
+    if kind == "search":
+        return ["search", data.get("app_id"), data.get("query")]
     if kind == "travel":
         return ["travel", activity.get("destination_id")]
     return [str(kind)]
@@ -1497,7 +1498,7 @@ def _digest_cited(rows: Sequence[Decision], events: Sequence[dict]) -> dict:
     seen = []
     for row in rows:
         visible = {(category, cell.get("日期")) for category, cell in _recent_cells(row.observation)}
-        visible |= {(item.get("类别"), item.get("日期")) for item in found.get(row.decision_id, [])
+        visible |= {(item.get("类别"), item.get("日期")) for item in found.get(row.wakeup_id, [])
                     if isinstance(item.get("回顾"), str)}
         seen.append((visible, _windows(_model_text(row))))
     cited = sum(any((category, period) in visible and _windows(text) & windows for visible, windows in seen)
@@ -1713,7 +1714,7 @@ def _view_reliance(export: PilotExport, rows: Sequence[Decision], views: Sequenc
             elif any(window not in request for window in _windows(view["text"]) & windows):
                 relied.append({"about": view["about"], "date": view["day"].isoformat(), "by": "echo"})
         if relied:
-            listed.append({"decision_id": row.decision_id, "time": _time(export, row.occurred_at), "views": relied})
+            listed.append({"wakeup_id": row.wakeup_id, "time": _time(export, row.occurred_at), "views": relied})
     return {"decisions": len(rows), "relying": len(listed),
             "value": round(len(listed) / len(rows), 4) if rows else None, "rows": listed}
 

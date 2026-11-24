@@ -5,8 +5,8 @@ import logging
 
 import pytest
 
-from tests.integration.runtime.current_contract_fixtures import ScriptedModel, person, profile
-from tests.life.conftest import advance_until_ready, conclude_request, context, do_at
+from tests.integration.runtime.current_contract_fixtures import ToolResponse, decide, profile
+from tests.life.conftest import advance_until_ready, conclude_request, do_at, main_arguments
 from tests.life.environment_runtime import act
 from worldmock.agents.prompt import life_prompt
 from worldmock.agents.prompt.life_persona import persona_layer
@@ -19,39 +19,29 @@ _VIEWS = [[{"type": "preference", "about": "纸巾", "text": "喜欢柔软的纸
             "keywords": ["母亲"]}]]
 
 
-def _prepared(engine, label: str):
-    """以此刻的真实观察准备一次生活决策，返回观察、准备好的 LifeAgent、容量预算与起始消息。"""
-    decision = context(engine, label)
-    observed = engine.observe(decision)
-    agent = person(engine, decision, ScriptedModel([]))
-    agent._context = decision
-    budget, history = agent._prepare(observed)
-    return observed, agent, budget, history
-
-
-def test_persona_layer_is_the_card_and_unchanged_by_conclusion_views(engine_factory):
-    """收尾前后两次准备的人设层逐字节相同，就是卡片人设层；看法只在 persona_views 里，不进 user 消息的人设层；
-    已知人物是卡片关系名与已有关系看法的人物。"""
+@pytest.mark.asyncio
+async def test_persona_layer_is_the_card_and_unchanged_by_conclusion_views(engine_factory):
+    """收尾前后两次真实唤醒的人设层逐字节相同，就是卡片人设层；看法只在 persona_views 里，不进 user 消息的人设层。"""
     engine = engine_factory()
-    _, started = act(engine, "rest", do_at("家", "测试休息"))
+    _, [first_req], _, [started] = await decide(engine, "rest", [
+        ToolResponse("start_main_activity", main_arguments("interact", "家", "测试休息"))])
     assert advance_until_ready(engine)
-    _, before, before_budget, _ = _prepared(engine, "before-views")
     name = engine.context.state.activities[started.activity_id].name
     _, concluded = act(engine, "conclude-views", conclude_request(name, views=_VIEWS), "conclude_activity")
     assert concluded.status == "completed"
-    observed, after, after_budget, history = _prepared(engine, "after-views")
+    observed, [second_req], _, _ = await decide(engine, "after-views", [
+        ToolResponse("start_main_activity", main_arguments("interact", "家", "测试闲聊"))])
     assert observed["persona_views"]["relationships"] == [{"person": "母亲", "view": "她总惦记我吃饭。"}]
     assert [row["preference"] for row in observed["persona_views"]["preferences"]] == ["喜欢柔软的纸巾。"]
-    first = render_layer_json(user_layer(before_budget.layers, "人设层"))
-    second = render_layer_json(user_layer(after_budget.layers, "人设层"))
+    first = render_layer_json(user_layer(json.loads(first_req["messages"][1]["content"]), "人设层"))
+    second_user = json.loads(second_req["messages"][1]["content"])
+    second = render_layer_json(user_layer(second_user, "人设层"))
     assert first == second == render_layer_json(persona_layer(profile()["persona_card_struct"], "林舟"))
-    user = json.loads(history[1]["content"])
-    persona_text = render_layer_json(user_layer(user, "人设层"))
-    assert "喜欢柔软的纸巾" not in persona_text and "她总惦记我吃饭" not in persona_text
-    assert after._names["known_persons"] == frozenset({"母亲", "老周"})
+    assert "喜欢柔软的纸巾" not in second and "她总惦记我吃饭" not in second
 
 
-def test_progress_layer_must_be_the_last_user_layer(engine_factory, monkeypatch, caplog):
+@pytest.mark.asyncio
+async def test_progress_layer_must_be_the_last_user_layer(engine_factory, monkeypatch, caplog):
     """层数组不以进度层收尾时，LifeAgent 在任何模型调用之前以英文错误停止，错误日志写出最后一层的层名。"""
     from worldmock.agents import life_agent
 
@@ -60,5 +50,5 @@ def test_progress_layer_must_be_the_last_user_layer(engine_factory, monkeypatch,
     engine = engine_factory()
     with caplog.at_level(logging.ERROR), pytest.raises(RuntimeError,
                                                        match="^Progress layer must be the last user layer$"):
-        _prepared(engine, "reversed")
+        await decide(engine, "reversed", [ToolResponse("start_main_activity", main_arguments("interact", "家", "测试休息"))])
     assert "User layers end with 人设层 instead of 进度层" in caplog.text

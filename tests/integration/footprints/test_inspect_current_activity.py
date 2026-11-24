@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from scripts import inspect_run
-from tests.integration.host_run_fixtures import host_run
+from tests.integration.host_run_fixtures import host_run, memory
 from tests.integration.runtime.current_contract_fixtures import ToolResponse, decide
 from tests.life.conftest import action_identity, advance_next, do_at, purchase, sleep, stage_day_plan, travel, use_app
 from tests.life.environment_runtime import act, conclude_app_use, events, finish_activity, reach
@@ -85,21 +85,21 @@ def test_rerun_walking_share_counts_only_the_built_in_walking_among_all_travel(e
     """
     engine = engine_factory()
     store = engine.context.store
-    home = engine.context.catalog.locations[engine.context.inputs.home_location_id].display_name
+    home = engine.context.catalog.locations[engine.context.inputs.home_location_ids[1]].display_name
 
     def measured():
         """只读打开运行库，返回步行占比和复验报告里的那一行。"""
         with inspect_run._connect(store.run_dir) as conn:
             share = inspect_run.walking_share(conn)
             inspect_run.cmd_rerun(conn, argparse.Namespace())
-        return share, [line for line in capsys.readouterr().out.splitlines() if line.startswith("7. ")]
+        return share, [line for line in capsys.readouterr().out.splitlines() if line.startswith("6. ")]
 
     _, drive = act(engine, "drive", travel("公司", "驾车"))
     assert drive.status == "in_progress", drive.error_code
     finish_activity(engine, drive, "drive")
     driven = engine.context.state.activities[drive.activity_id].elapsed_seconds
     assert measured() == ({"walking_seconds": 0, "travel_seconds": driven, "available": False},
-                          ["7. 步行占比：不适用（没有步行）"])
+                          ["6. 步行占比：不适用（没有步行）"])
     _, walk = act(engine, "walk", travel(home))
     assert walk.status == "in_progress", walk.error_code
     finish_activity(engine, walk, "walk")
@@ -108,7 +108,7 @@ def test_rerun_walking_share_counts_only_the_built_in_walking_among_all_travel(e
     point = store.last_event_seq
     assert measured() == (
         {"walking_seconds": walked, "travel_seconds": driven + walked, "available": True},
-        [f"7. 步行占比：{walked}/{driven + walked}（{walked / (driven + walked):.0%}）"])
+        [f"6. 步行占比：{walked}/{driven + walked}（{walked / (driven + walked):.0%}）"])
     assert store.last_event_seq == point
 
 
@@ -207,10 +207,14 @@ async def test_inspector_plan_revision_and_memory_lines(engine_factory, capsys, 
     的条数等于事件 episodes 的条数，且不为 0。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    _, _, answer, _ = await decide(engine, "plan", [ToolResponse("revise_day_plan", {"goals": []})])
-    assert answer == ["revise_day_plan"]
+    _, _, answer, _ = await decide(engine, "plan", [
+        ToolResponse("revise_day_plan", {"goals": []}),
+        ToolResponse("start_main_activity", {"action": "interact", "target": "家", "detail": "测试休息"}),
+    ])
+    assert answer == ["revise_day_plan", "start_main_activity"]
     person = await host_run(engine, tmp_path / "agent")
-    await person.rest_and_note("休息让我心情轻松。")
+    await person.until_ready()
+    await person.conclude(memory("休息让我心情轻松。"))
     lines = _events(engine, capsys)
     [revised] = [row for row in events(engine, "action_accepted") if row.data.get("message") == "Day plan revised"]
     assert _line(lines, revised.event_seq).endswith("action_accepted      Day plan revised → completed")

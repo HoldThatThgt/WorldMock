@@ -1,7 +1,7 @@
 """试点指标单元测试的最小导出形状。
 
 PilotExportBuilder 在临时目录写出 tools.analysis.memory_pilot 读的五样：manifest.json（带 frozen_run_manifest 的
-agent_ids、environment_assets、stage_model_identity.max_react_turns 与 window）、events.jsonl、purchases.jsonl、
+agent_ids、environment_assets、model_identity.profiles[action].max_react_turns 与 window）、events.jsonl、purchases.jsonl、
 quality.json（带 model_usage）与 assets/，并按需追加决策、观察、请求、响应、世界请求、回顾事件与目录行。活动进入终态时
 同一提交里另写给开始它的世界请求的第二条 action_result（src/worldmock/simulation_engine/evidence/actions.py 的
 _activity_terminal_draft）；时钟推进里结束的活动在它之前有进入终态的 activity_progress，收尾结束（取消）的进行中活动在它
@@ -58,9 +58,9 @@ CONTENTS = (
 CALLBACKS = ({"cap": 1, "initial": 0, "reset_on_goods": ["kit-chestnut", "kit-wings"], "state": "groceries"},
              {"cap": 3, "initial": 3, "reset_on_goods": [], "state": "pantry"},
              {"cap": 1, "initial": 0, "reset_on_goods": ["detergent"], "state": "laundry"})
-#: 七个调用类。
-CALL_CLASSES = ("fresh_decision_turn", "turn_with_history", "truncation_retry", "consolidation", "reflection",
-                "plan_day", "memory_digest")
+#: 八个调用类。
+CALL_CLASSES = ("fresh_decision_turn", "turn_with_history", "truncation_retry", "search_session", "consolidation",
+                "reflection", "plan_day", "memory_digest")
 #: 冻结的峰时与非峰时价（每百万 token 美元）。
 PRICING = {"off_peak": {"cache_hit_input": 0.003, "cache_miss_input": 0.15, "output": 0.6},
            "peak": {"cache_hit_input": 0.006, "cache_miss_input": 0.3, "output": 1.2}}
@@ -162,13 +162,13 @@ class PilotExportBuilder:
         """第 day 个运行日的 ISO 日期。"""
         return self.days[day - 1].isoformat()
 
-    def add(self, event_type: str, occurred_at: int, data: dict | None = None, *, decision_id: str | None = None,
+    def add(self, event_type: str, occurred_at: int, data: dict | None = None, *, wakeup_id: str | None = None,
             action_id: str | None = None, activity_id: str | None = None, caused_by=()) -> dict:
         """追加一条事件；在 commit() 里的事件版本为 (v, v+1)，否则为 (v, v)。"""
         seq = len(self.events) + 1
         after = self.version + 1 if self._committing else self.version
         event = {"event_id": f"evt-{seq:05d}", "event_seq": seq, "event_type": event_type,
-                 "occurred_at": occurred_at, "agent_id": self.agent_ids[0], "decision_id": decision_id,
+                 "occurred_at": occurred_at, "agent_id": self.agent_ids[0], "wakeup_id": wakeup_id,
                  "action_id": action_id, "activity_id": activity_id, "caused_by": list(caused_by),
                  "data": data or {}, "run_id": "run-pilot", "state_version_before": self.version,
                  "state_version_after": after, "visibility": "agent", "source_kind": "environment"}
@@ -188,42 +188,40 @@ class PilotExportBuilder:
             self._committing = False
             self.version += 1
 
-    # ---- 决策 ----
+    # ---- 唤醒 ----
 
     def decision(self, day: int, clock: str, *, memory: dict | None = None, environment: dict | None = None,
-                 progress: dict | None = None, decision_id: str | None = None) -> str:
-        """一次决策的开头：decision_started 与它的观察。"""
-        decision_id = decision_id or f"decision-{len(self._turns) + 1:03d}"
-        self._turns[decision_id] = 0
+                 progress: dict | None = None, wakeup_id: str | None = None) -> str:
+        """一次唤醒的开头：decision_started 与它的观察。"""
+        wakeup_id = wakeup_id or f"wakeup-{len(self._turns) + 1:03d}"
+        self._turns[wakeup_id] = 0
         moment = self.at(day, clock)
-        self.add("decision_started", moment, {"round_id": decision_id, "round_order": 0,
-                                              "world_state_version": self.version, "wake_reasons": []},
-                 decision_id=decision_id)
-        self.observation(moment, decision_id=decision_id, memory=memory, environment=environment,
-                         progress=progress)
-        return decision_id
+        self.add("decision_started", moment, {"wakeup_id": wakeup_id, "world_state_version": self.version,
+                                              "wake_reasons": []}, wakeup_id=wakeup_id)
+        self.observation(moment, wakeup_id=wakeup_id, memory=memory, environment=environment, progress=progress)
+        return wakeup_id
 
-    def observation(self, at: int, *, decision_id: str | None = None, memory: dict | None = None,
+    def observation(self, at: int, *, wakeup_id: str | None = None, memory: dict | None = None,
                     environment: dict | None = None, progress: dict | None = None) -> dict:
         """一条观察：记忆层、环境层与进度层。"""
         data = {"memory_layer": memory if memory is not None else memory_layer(),
                 "environment_layer": environment if environment is not None else {"layer": "环境层", "duty": None},
                 "progress_layer": progress if progress is not None else {"layer": "进度层", "events": []}}
-        return self.add("observation", at, data, decision_id=decision_id)
+        return self.add("observation", at, data, wakeup_id=wakeup_id)
 
-    def request(self, decision_id: str, at: int, layers=None, *, history=(), turn: int | None = None,
+    def request(self, wakeup_id: str, at: int, layers=None, *, history=(), turn: int | None = None,
                 attempt: int = 1, system: str = "生活系统层", tools=None) -> dict:
         """一条回合请求：system、user（层数组）与续接历史；call_id 带回合号。"""
         if turn is None:
-            self._turns[decision_id] = self._turns.get(decision_id, 0) + 1
-            turn = self._turns[decision_id]
+            self._turns[wakeup_id] = self._turns.get(wakeup_id, 0) + 1
+            turn = self._turns[wakeup_id]
         messages = [{"role": "system", "content": system},
                     {"role": "user", "content": compact(list(layers or [memory_layer()]))}, *history]
         body = {"messages": messages, "tools": tools if tools is not None else [{"type": "function",
                 "function": {"name": "start_main_activity"}}]}
         return self.add("model_request", at, {"phase": "request", "call_id":
-                        f"{decision_id}:model:{turn:04d}:attempt:{attempt}", "attempt": attempt, "request": body},
-                        decision_id=decision_id)
+                        f"{wakeup_id}:model:{turn:04d}:attempt:{attempt}", "attempt": attempt, "request": body},
+                        wakeup_id=wakeup_id)
 
     def response(self, request: dict, *, reasoning: str | None = None, content: str | None = None,
                  tool_calls=(), prompt_tokens: int | None = None, error: str | None = None,
@@ -238,52 +236,50 @@ class PilotExportBuilder:
         return self.add("model_response", request["occurred_at"],
                         {"phase": phase, "call_id": request["data"]["call_id"], "request": None,
                          "response": body if phase == "response" else None, "error": error},
-                        decision_id=request["decision_id"], caused_by=[request["event_id"]])
+                        wakeup_id=request["wakeup_id"], caused_by=[request["event_id"]])
 
-    def turn(self, decision_id: str, at: int, *, layers=None, history=(), **reply: Any) -> tuple[dict, dict]:
+    def turn(self, wakeup_id: str, at: int, *, layers=None, history=(), **reply: Any) -> tuple[dict, dict]:
         """一个回合：请求与它的响应。"""
-        request = self.request(decision_id, at, layers, history=history)
+        request = self.request(wakeup_id, at, layers, history=history)
         return request, self.response(request, **reply)
 
-    def search(self, decision_id: str, at: int, arguments: dict, answer: Any = None, *, call_id: str = "call-s",
+    def search(self, wakeup_id: str, at: int, arguments: dict, answer: Any = None, *, call_id: str = "call-s",
                error: str | None = None, reasoning: str | None = None, answered: bool = True) -> dict:
         """一次检索：带 search_memory 调用的回合，回答在下一条回合请求的 tool 消息里（answered 为假时没有下一条）。"""
         call = search_call(call_id, arguments)
-        _, response = self.turn(decision_id, at, reasoning=reasoning, tool_calls=[call], error=error)
+        _, response = self.turn(wakeup_id, at, reasoning=reasoning, tool_calls=[call], error=error)
         if answered:
             history = [{"role": "assistant", "content": None, "tool_calls": [call]},
                        {"role": "tool", "tool_call_id": call_id, "content": compact(answer)}]
-            self.request(decision_id, at, history=history)
+            self.request(wakeup_id, at, history=history)
         return response
 
-    def action(self, decision_id: str, at: int, tool_name: str, request: dict | None = None) -> dict:
+    def action(self, wakeup_id: str, at: int, tool_name: str, request: dict | None = None) -> dict:
         """一条世界请求 action_requested。"""
         action_id = f"action-{len(self.events) + 1:05d}"
         return self.add("action_requested", at, {"tool_name": tool_name, "request": request or {}},
-                        decision_id=decision_id, action_id=action_id)
+                        wakeup_id=wakeup_id, action_id=action_id)
 
-    def world(self, decision_id: str, at: int, tool_name: str, request: dict | None = None, *,
+    def world(self, wakeup_id: str, at: int, tool_name: str, request: dict | None = None, *,
               activities=(), status: str = "completed", activity_ids=None) -> dict:
         """一条世界请求与它的提交：每项受理活动一条 action_accepted，再一条 action_result；结果为 completed 的收尾
         其后给每项所收的活动写 activity_concluded（_concluded）。"""
-        action = self.action(decision_id, at, tool_name, request)
+        action = self.action(wakeup_id, at, tool_name, request)
         with self.commit():
             for snapshot in activities:
                 self.add("action_accepted", at, {"status": "accepted", "activity": snapshot},
-                         decision_id=decision_id, action_id=action["action_id"],
+                         wakeup_id=wakeup_id, action_id=action["action_id"],
                          activity_id=snapshot["activity_id"], caused_by=[action["event_id"]])
                 self._starts[snapshot["activity_id"]] = (action, snapshot)
             self.add("action_result", at, {"status": status, "data": {"activity_ids": list(activity_ids or [])}},
-                     decision_id=decision_id, action_id=action["action_id"], caused_by=[action["event_id"]])
+                     wakeup_id=wakeup_id, action_id=action["action_id"], caused_by=[action["event_id"]])
             if tool_name == "conclude_activity" and status == "completed":
                 for activity_id in activity_ids or []:
                     self._concluded(action, activity_id, at)
         return action
 
     def _concluded(self, action: dict, activity_id: str, at: int) -> None:
-        """收尾一项开始过、还没收尾的活动：一条 activity_concluded 环境事件（决策、动作与原因都是这次收尾）。进行中的活动
-        由此取消，事件带取消快照，再给开始它的请求写终态结果，原因另链这次收尾；已结束、待收尾（completed、failed、
-        cancelled）的活动终态不变，事件带它的终态快照，不再写终态结果。都不写 activity_progress。"""
+        """收尾一项开始过、还没收尾的活动：一条 activity_concluded 环境事件（唤醒、动作与原因都是这次收尾）。"""
         if activity_id not in self._starts or activity_id in self._wrapped:
             return
         ended = self._ended.get(activity_id)
@@ -292,12 +288,12 @@ class PilotExportBuilder:
         self._wrapped.add(activity_id)
         final = ended or {**self._starts[activity_id][1], "status": "cancelled"}
         self.add("environment_event", at, {"kind": "activity_concluded", "activity_id": activity_id, "activity": final},
-                 decision_id=action["decision_id"], action_id=action["action_id"], activity_id=activity_id,
+                 wakeup_id=action["wakeup_id"], action_id=action["action_id"], activity_id=activity_id,
                  caused_by=[action["event_id"]])
         self._terminal(activity_id, "cancelled", at, [action["event_id"]])
 
     def _terminal(self, activity_id: str, status: str, at: int, causes=()) -> None:
-        """开始过、还没终结的活动进入终态：给开始它的请求写第二条 action_result（带原决策身份与活动快照）。"""
+        """开始过、还没终结的活动进入终态：给开始它的请求写第二条 action_result（带原唤醒身份与活动快照）。"""
         if activity_id not in self._starts or activity_id in self._ended:
             return
         start, snapshot = self._starts[activity_id]
@@ -305,21 +301,21 @@ class PilotExportBuilder:
         self._ended[activity_id] = final
         self.add("action_result", at, {"status": TERMINAL_RESULTS[status], "activity": final,
                                        "data": {"activity": final, "orders": []}},
-                 decision_id=start["decision_id"], action_id=start["action_id"], activity_id=activity_id,
+                 wakeup_id=start["wakeup_id"], action_id=start["action_id"], activity_id=activity_id,
                  caused_by=[start["event_id"], *causes])
 
-    def reject(self, decision_id: str, at: int, tool_name: str = "start_main_activity") -> dict:
+    def reject(self, wakeup_id: str, at: int, tool_name: str = "start_main_activity") -> dict:
         """一条被拒的世界请求。"""
-        action = self.action(decision_id, at, tool_name)
+        action = self.action(wakeup_id, at, tool_name)
         with self.commit():
-            return self.add("action_rejected", at, {"error_code": "SUPPLY_NOT_FOUND"}, decision_id=decision_id,
+            return self.add("action_rejected", at, {"error_code": "SUPPLY_NOT_FOUND"}, wakeup_id=wakeup_id,
                             action_id=action["action_id"], caused_by=[action["event_id"]])
 
     def progress(self, snapshot: dict, at: int, status: str = "completed", causes=()) -> dict:
-        """一次提交里的活动进度事件，快照换成给定状态；开始过的活动带开始它的决策与请求，进入终态时同一提交里再写
+        """一次提交里的活动进度事件，快照换成给定状态；开始过的活动带开始它的唤醒与请求，进入终态时同一提交里再写
         终态结果（causes 是终态结果另链的原因）。"""
         start = self._starts[snapshot["activity_id"]][0] if snapshot["activity_id"] in self._starts else None
-        origin = {} if start is None else {"decision_id": start["decision_id"], "action_id": start["action_id"],
+        origin = {} if start is None else {"wakeup_id": start["wakeup_id"], "action_id": start["action_id"],
                                            "caused_by": [start["event_id"]]}
         with self.commit():
             event = self.add("activity_progress", at, {"activity": {**snapshot, "status": status}},
@@ -344,22 +340,22 @@ class PilotExportBuilder:
         return self.environment("callback_effect", at, caused_by=[receipt["event_id"]], type="reset_to_cap",
                                 rule_id=None, state=state, goods_id=goods_id, before=0, after=1)
 
-    def cook(self, decision_id: str, at: int, activity_id: str, content_id: str = "cook-1",
+    def cook(self, wakeup_id: str, at: int, activity_id: str, content_id: str = "cook-1",
              state: str = "groceries") -> dict:
         """开始凭状态的内容（默认在家做饭）：受理活动，同一提交里写 state 的 consume_on_start；返回活动快照。"""
         snapshot = activity(activity_id, "interact", name=f"{activity_id}做饭", action="interact",
                             content_id=content_id)
-        action = self.world(decision_id, at, "start_main_activity", activities=[snapshot])
+        action = self.world(wakeup_id, at, "start_main_activity", activities=[snapshot])
         accepted = next(event for event in self.events if event["event_type"] == "action_accepted"
                         and event["caused_by"] == [action["event_id"]])
         self.environment("callback_effect", at, caused_by=[accepted["event_id"]], type="consume_on_start",
                          rule_id=None, state=state, content_id=content_id, before=1, after=0)
         return snapshot
 
-    def conclude(self, decision_id: str, at: int, items: list[dict], activity_ids: list[str],
+    def conclude(self, wakeup_id: str, at: int, items: list[dict], activity_ids: list[str],
                  status: str = "completed") -> dict:
         """一次收尾：items 带 summary、views、memories，结果的 data.data.activity_ids 与它们一一对应。"""
-        return self.world(decision_id, at, "conclude_activity", {"items": items}, status=status,
+        return self.world(wakeup_id, at, "conclude_activity", {"items": items}, status=status,
                           activity_ids=activity_ids)
 
     # ---- 回顾 ----
@@ -437,8 +433,10 @@ class PilotExportBuilder:
         manifest = {"run_id": "run-pilot", "window": window, "daily_coverage": [day.isoformat() for day in self.days],
                     "frozen_run_manifest": {"run_id": "run-pilot", "agent_ids": self.agent_ids,
                                             "environment_assets": assets,
-                                            "stage_model_identity": {"max_react_turns": self.max_react_turns}}}
-        quality = {"schema_version": 10, "model_usage": {
+                                            "model_identity": {"profiles": {"default": {"max_react_turns":
+                                                                                        self.max_react_turns}},
+                                                               "routing": {"action": "default"}}}}
+        quality = {"schema_version": 11, "model_usage": {
             "by_call_class": list(self.call_classes.values()), "pricing_snapshot": PRICING,
             "estimated_cost": {"complete": self.complete}}}
         (self.root / "manifest.json").write_text(compact(manifest), encoding="utf-8")

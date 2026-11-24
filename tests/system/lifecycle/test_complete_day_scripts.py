@@ -20,12 +20,13 @@ PROJECT = Path(__file__).resolve().parents[3]
 
 
 def _requests(case: Path) -> list[tuple[str, dict]]:
-    """运行落库的全部开始请求：（工具名，所写参数），按事件次序。"""
+    """运行落库的全部开始与搜索请求：（工具名，所写参数），按事件次序。"""
     with sqlite3.connect(case / "run" / "footprints.sqlite") as connection:
         rows = connection.execute("SELECT body FROM events ORDER BY event_seq").fetchall()
     bodies = [json.loads(row[0]) for row in rows]
     return [(body["data"]["tool_name"], body["data"]["request"]) for body in bodies
-            if body["event_type"] == "action_requested" and body["data"]["tool_name"].startswith("start_")]
+            if body["event_type"] == "action_requested"
+            and (body["data"]["tool_name"].startswith("start_") or body["data"]["tool_name"] == "search_world")]
 
 
 def _concluded_names(case: Path) -> list[str]:
@@ -46,13 +47,13 @@ def test_activity_day_names_units_buys_portions_and_sleeps_at_the_office(monkeyp
     observations = record_observations(monkeypatch)
     recorded = record_complete_day(monkeypatch, case, PROJECT, "activity")
     _assert_every_observation_round_trips(case, observations)
-    assert set(recorded) == {"persona_sha256", "config_sha256", "environment_identity", "seed", "summary"}
+    assert set(recorded) == {"persona_sha256s", "config_sha256", "environment_identity", "seed", "summary"}
     assert recorded["seed"] == 20260105
     starts = _requests(case)
     assert starts[:7] == [
         ("start_main_activity", {"action": "interact", "target": "家", "detail": "测试休息"}),
         ("start_side_activity", {"action": "purchase", "target": ["牛肉面", "薯片", "薯片"], "prefer": "饿了么"}),
-        ("start_side_activity", {"action": "query", "target": ["柠檬茶"], "prefer": None}),
+        ("search_world", {"query": "柠檬茶", "prefer": None}),
         ("start_main_activity", {"action": "travel", "target": "公司", "detail": "驾车"}),
         ("start_side_activity", {"action": "interact", "target": ["哔哩哔哩"], "prefer": None}),
         ("start_main_activity", {"action": "interact", "target": "公司", "detail": "季度销售数据整理"}),
@@ -115,23 +116,23 @@ def _assert_preferred_orders_and_a_self_ending_query(case: Path) -> None:
     placed = [row for row in artifact_rows(export, "app_usage")
               if row["fact_kind"] == "order_notification" and row["title"] == "订单已下单"]
     assert sorted(row["app_id"] for row in placed) == ["eleme", "meituan"]
-    queries = [row for row in artifact_rows(export, "activities") if row["activity_type"] == "query"]
-    assert [row["status"] for row in queries] == ["completed"]
-    assert queries[0]["name"] not in _concluded_names(case)
+    searches = [row for row in artifact_rows(export, "activities") if row["activity_type"] == "search"]
+    assert [row["status"] for row in searches] == ["completed"]
+    assert searches[0]["name"] not in _concluded_names(case)
 
 
 def _assert_six_artifacts_with_phone_records(export: Path, scratch: Path) -> None:
     """活动日的导出含六份工件和各类手机记录；把任何一份带新记录的工件改写后重新签名，认证都拒绝。"""
     manifest, _ = read_export(export)
-    assert manifest["schema_version"] == 8
+    assert manifest["schema_version"] == 9
     assert set(manifest["artifacts"]) == {"events", "activities", "verified_experiences", "purchases", "app_usage",
                                           "location_stays"}
     usage, stays = artifact_rows(export, "app_usage"), artifact_rows(export, "location_stays")
     kinds = {row["activity_id"]: row["activity_type"] for row in artifact_rows(export, "activities")}
-    # app 使用行既有人物点名使用的（interact），也有引擎代为使用的导航（travel）、下单与支付（purchase）和查询那几分钟
-    # 所在的 app（query）。
+    # app 使用行既有人物点名使用的（interact），也有引擎代为使用的导航（travel）、下单与支付（purchase）和搜索那几分钟
+    # 所在的 app（search）。
     assert {kinds[row["activity_id"]] for row in usage if row["fact_kind"] == "app_use"} == {
-        "interact", "travel", "purchase", "query"}
+        "interact", "travel", "purchase", "search"}
     assert {row["title"] for row in usage if row["fact_kind"] == "order_notification"} == {
         "订单已下单", "订单已发货", "订单已送达"}
     assert not [row for row in usage if row["fact_kind"] == "app_touch"]

@@ -10,7 +10,8 @@ from typing import Any
 import pytest
 
 from tests.engine_fixture import engine_factory as _engine_factory  # noqa: F401
-from tests.life.conftest import MAIN_TOOL, SIDE_TOOL, context, main_arguments, stage_day_plan  # noqa: F401
+from tests.integration.runtime.current_contract_fixtures import resolved_binding
+from tests.life.conftest import MAIN_TOOL, SIDE_TOOL, main_arguments, stage_day_plan  # noqa: F401
 from worldmock.agents.life_agent import LifeAgent, life_action_tool_names, life_query_tool_names, person_inputs
 from worldmock.foundation.serialization import canonical_json
 from worldmock.recording_engine.storage.store import FootprintStore
@@ -52,6 +53,8 @@ class _PersistentResponse:
 class _CorrectionDispatcher:
     """先返回未知工具，再返回在家里合法的开始请求。"""
 
+    model_name = "test-model"
+
     def __init__(self) -> None:
         self.requests: list[dict[str, Any]] = []
         valid = json.dumps(main_arguments("interact", "家", "测试休息"), ensure_ascii=False)
@@ -65,13 +68,13 @@ class _CorrectionDispatcher:
         self.requests.append(request)
         return self.responses.pop(0)
 
+    async def close(self) -> None:
+        return None
 
-def _person(engine: Any, model: Any = None, turns: int | None = None) -> LifeAgent:
-    """按引擎清单冻结的模型身份与人设表建一次决策的真实 LifeAgent；只跑回合循环，记忆存储为空。"""
-    inputs = person_inputs(engine.context.inputs.persona, engine.context.store.manifest["stage_model_identity"])
-    if turns is not None:
-        inputs = replace(inputs, model_identity={**inputs.model_identity, "max_react_turns": turns})
-    return LifeAgent(inputs, engine, model, None)
+
+def _person(engine: Any) -> LifeAgent:
+    """按人设表构造无状态 LifeAgent。"""
+    return LifeAgent(person_inputs(engine.context.inputs.persona_by_id[1]))
 
 
 def _start_fields(tools: list[dict]) -> dict[str, dict]:
@@ -89,29 +92,31 @@ def _assert_names_are_not_enumerated(fields: dict[str, dict]) -> None:
     assert "enum" not in json.dumps(names, ensure_ascii=False)
 
 
-def _prepared_tools(engine, ctx, observation):
-    """用真实引擎的首观察准备一次决策，生成实际原生工具声明。"""
-    agent = _person(engine)
-    agent._context = ctx
-    agent._prepare(observation)
-    return agent, agent.turn_tools(2, False)
-
-
 def test_model_request_persists_exact_grounded_tools(_engine_factory):  # noqa: F811
     """真实环境观察生成的完整工具请求经关闭重开数据库后保持原值；工具不带逐轮枚举，消息不附加预算文字。"""
     engine = _engine_factory()
     stage_day_plan(engine)
-    ctx = context(engine, "grounded-wire")
-    engine.begin_decision_round([ctx])
-    observation = engine.observe(ctx)
-    agent, tools = _prepared_tools(engine, ctx, observation)
-    wire = agent.turn_request([{"role": "user", "content": "Choose a visible activity."}], tools, False)
+    [wakeup] = engine.prepare_barrier((1,))
+    sandbox = engine.open_sandbox(wakeup)
+    agent = _person(engine)
+    tools = agent.turn_tools(2, False)
+    wire = {
+        "model": "test-model",
+        "messages": [{"role": "user", "content": "Choose a visible activity."}],
+        "tools": tools,
+        "tool_choice": "auto",
+        "max_tokens": 4096,
+        "extra_body": {"thinking": {"type": "enabled"}},
+    }
     expected = canonical_json(wire)
     fields = _start_fields(tools)
     assert set(fields[MAIN_TOOL]) == {"action", "target", "detail"}
     assert set(fields[SIDE_TOOL]) == {"action", "target", "prefer"}
     _assert_names_are_not_enumerated(fields)
-    engine.record_model_exchange(ModelCallEvidence(ctx, "grounded-call", "request", 1, wire))
+    sandbox.record_model_exchange(ModelCallEvidence(
+        wakeup_id=wakeup.wakeup_id, agent_id=1, call_id="grounded-call", phase="request", attempt=1, request=wire,
+    ))
+    engine.commit_barrier([sandbox.finish_wakeup(None)])
     cutoff = engine.context.store.last_event_seq
     directory = engine.context.store.run_dir
     engine.close()
@@ -127,11 +132,13 @@ def test_model_request_persists_exact_grounded_tools(_engine_factory):  # noqa: 
         reopened.close()
 
 
-async def _run_persisted_protocol_correction(engine, ctx) -> Path:
-    """通过真实人物、回合循环与引擎证据接口执行一次协议纠正，纠正后的开始请求登记成功。"""
-    agent = _person(engine, _CorrectionDispatcher(), turns=3)
-    registered = await agent.run_turns(ctx, engine.observe(ctx))
-    assert [decision.action for decision in registered] == [MAIN_TOOL]
+async def _run_persisted_protocol_correction(engine) -> Path:
+    """通过真实人物、沙盒、AgentLoop 与屏障提交执行一次协议纠正，纠正后的开始请求登记成功。"""
+    [wakeup] = engine.prepare_barrier((1,))
+    sandbox = engine.open_sandbox(wakeup)
+    binding = resolved_binding(_CorrectionDispatcher(), frozen=engine.context.inputs, stage="action", max_turns=3)
+    outcome = await _person(engine).decide_wakeup(wakeup, sandbox, binding)
+    engine.commit_barrier([outcome])
     return engine.context.store.run_dir
 
 
@@ -141,9 +148,7 @@ def test_protocol_feedback_is_persisted_in_next_model_request(_engine_factory): 
 
     engine = _engine_factory()
     stage_day_plan(engine)
-    ctx = context(engine, "protocol-feedback")
-    engine.begin_decision_round([ctx])
-    directory = asyncio.run(_run_persisted_protocol_correction(engine, ctx))
+    directory = asyncio.run(_run_persisted_protocol_correction(engine))
     engine.close()
 
     reopened = FootprintStore(directory)
@@ -197,10 +202,9 @@ def test_grounded_tool_uses_unique_readable_names_without_internal_ids(_engine_f
     """本轮工具层的目标名称唯一且与私有绑定一一对应，原生工具不带名称枚举，也不泄露内部对象身份。"""
     engine = _engine_factory()
     stage_day_plan(engine)
-    ctx = context(engine, "cross-catalog-id")
-    engine.begin_decision_round([ctx])
-    observation = engine.observe(ctx)
-    _, tools = _prepared_tools(engine, ctx, observation)
+    [wakeup] = engine.prepare_barrier((1,))
+    observation = wakeup.observation
+    tools = _person(engine).turn_tools(2, False)
     _assert_names_are_not_enumerated(_start_fields(tools))
     public = [row["name"] for row in observation["tool_layer"]["targets"]]
     private = [row["object_id"] for row in observation["interaction_bindings"]]

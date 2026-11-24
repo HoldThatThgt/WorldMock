@@ -137,18 +137,19 @@ class _Unit:
     order: tuple
 
 
-def search_memory(context: EngineContext, agent_id: int, request: SearchMemoryRequest, observation: Event) -> dict:
-    """@brief 检索记忆的回答：从冻结观察所在序号及以前的事件与冻结输入取数，再按请求作答。"""
-    return answer_search(request, memory_sources(context, agent_id, observation))
+def search_memory(context: EngineContext, agent_id: int, request: SearchMemoryRequest,
+                  cutoff_seq: int | None = None, occurred_at: int | None = None) -> dict:
+    """@brief 检索记忆的回答：从截止序号及以前的事件与冻结输入取数，再按请求作答。"""
+    return answer_search(request, memory_sources(context, agent_id, cutoff_seq, occurred_at))
 
 
-def memory_sources(context: EngineContext, agent_id: int, observation: Event) -> MemorySources:
-    """@brief 一次检索的输入：今天、此刻、最早日期、今天的已发布条目、截止序号及以前的回顾与往日条目的取法；不读世界状态。
-
-    :param observation: 本次决策的冻结观察；它的 event_seq 是截止序号，occurred_at 是此刻。
-    """
+def memory_sources(context: EngineContext, agent_id: int,
+                   cutoff_seq: int | None = None, occurred_at: int | None = None) -> MemorySources:
+    """@brief 一次检索的输入：今天、此刻、最早日期、今天的已发布条目、截止序号及以前的回顾与往日条目的取法；不读世界状态。"""
     inputs, store = context.inputs, context.store
-    zone, cutoff, moment = inputs.config.timezone, observation.event_seq, observation.occurred_at
+    cutoff = store.last_event_seq if cutoff_seq is None else cutoff_seq
+    moment = context.state.current_time if occurred_at is None else occurred_at
+    zone = inputs.config.timezone
     published = published_today(inputs, store, agent_id, moment, cutoff)
     events = sorted((event for event in registered_digests(store, agent_id).values() if event.event_seq <= cutoff),
                     key=lambda event: event.event_seq)

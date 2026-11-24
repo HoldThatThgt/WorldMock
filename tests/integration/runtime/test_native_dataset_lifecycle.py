@@ -4,6 +4,7 @@ import pytest
 from tests.integration.runtime.native_runtime_fixtures import native_runtime  # noqa: F401
 from worldmock.configuration.model.model_client import REQUEST_KEYS
 from worldmock.recording_engine.storage.store import FootprintStore
+from worldmock.runtime.framework.setup import model_identity
 from worldmock.state.decisions.results import CounterfactualIntervention
 from worldmock.runtime.lifecycle.runner import (
     CounterfactualRequest,
@@ -32,13 +33,14 @@ async def test_native_dataset_run_resume_and_replay_finish_with_real_frozen_work
         checkpoint = next(event.data["checkpoint_id"] for event in events
                           if event.event_type == "checkpoint_created" and event.event_seq > observed.event_seq)
         manifest = store.manifest
-        assert manifest["schema_version"] == 7
+        assert manifest["schema_version"] == 8
         assert set(manifest["environment_assets"]) == {
-            "persona.toml", "config.toml", "map.json", "catalog/manifest.json",
+            "personas/persona_1.toml", "config.toml", "map.json", "catalog/manifest.json",
             *(f"catalog/{entry.path}" for entry in frozen.catalog.manifest.files)}
-        assert manifest["persona_sha256"] == frozen.persona_sha256
+        assert manifest["persona_sha256s"] == {"1": frozen.persona_sha256s[1]}
         assert manifest["config_sha256"] == frozen.config_sha256
-        assert manifest["stage_model_identity"]["model_metadata"] == frozen.model_metadata.model_dump(mode="json")
+        assert manifest["model_identity"] == model_identity(
+            frozen.config, frozen.model_metadata).model_dump(mode="json")
     finally:
         store.close()
     workspace = result.run_dir / "agents" / "agent_0001"

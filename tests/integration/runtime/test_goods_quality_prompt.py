@@ -13,7 +13,7 @@ import pytest
 
 from tests.engine_fixture import engine_factory_at
 from tests.integration.runtime.current_contract_fixtures import ToolResponse, decide
-from tests.life.conftest import conclude_request, context, purchase, stage_day_plan
+from tests.life.conftest import MAIN_TOOL, conclude_request, main_arguments, purchase, stage_day_plan
 from tests.life.environment_runtime import act, events, until_ended
 from worldmock.agents.prompt.prompt_schemas import validate_layer
 
@@ -27,7 +27,7 @@ async def _receipt_request(create, sample, quality):
     stage_day_plan(engine, submitted=True)
     _, started = act(engine, "tea", purchase("柠檬茶"))
     shop = engine.context.catalog.locations["store"]
-    before = engine.observe(context(engine, "in-progress"))["progress_layer"]
+    before = engine.observations._observation_data(engine.context.state.agents[1])["progress_layer"]
     quoted = next(row["result"]["details"]["purchases"][0] for row in before["events"] if row["type"] == "tool_call")
     assert (quoted["store"], quoted["rating"]) == (shop.display_name, shop.rating)
     assert not any(row["type"] == "receipt" for row in before["events"])
@@ -37,10 +37,12 @@ async def _receipt_request(create, sample, quality):
     draw.assert_called_once_with(shop.rating, 1)
     activity = engine.context.state.activities[started.activity_id]
     conclude = conclude_request(activity.name).model_dump(mode="json")
-    observation, [request], _, [result] = await decide(engine, "after", [ToolResponse("conclude_activity", conclude)])
+    observation, [request, _], _, [result, _] = await decide(engine, "after", [
+        ToolResponse("conclude_activity", conclude),
+        ToolResponse(MAIN_TOOL, main_arguments("travel", "家", "步行"), "after-home"),
+    ])
     assert result.status == "completed"
-    captured = next(event.data["request"] for event in events(engine, "model_request")
-                    if event.decision_id == "decision-after-1")
+    captured = [event.data["request"] for event in events(engine, "model_request")][0]
     assert captured["messages"] == request["messages"]
     progress = next(layer for layer in json.loads(request["messages"][1]["content"]) if layer["layer"] == "进度层")
     validate_layer(progress)
@@ -51,7 +53,7 @@ async def _receipt_request(create, sample, quality):
     assert (fact["order_id"], fact["source_event_id"], fact["store_id"], fact["quality"]) == (
         source.data["order_id"], source.event_id, shop.location_id, quality)
     assert source.event_id in observation["progress_event_ids"]
-    after = engine.observe(context(engine, "remember"))
+    after = engine.observations._observation_data(engine.context.state.agents[1])
     lines = [line for entry in after["memory_layer"]["今天"] for line in entry.get("核验", [])]
     assert any(f"{shop.display_name} · 柠檬茶：这份品质{quality}" in line for line in lines)
     assert not any(row["type"] == "receipt" for row in after["progress_layer"]["events"])

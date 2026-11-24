@@ -45,7 +45,7 @@ def test_each_concrete_action_resolves_only_to_its_declared_target(tool, kind, w
 
 def test_sleep_resolves_to_its_minutes_without_any_named_object():
     """五个动作里只有睡眠不查名称：没有任何对象时分钟数合格就解析成功，只带分钟数。"""
-    assert ACTIVITY_ACTIONS == ("travel", "purchase", "sleep", "interact", "query")
+    assert ACTIVITY_ACTIONS == ("travel", "purchase", "sleep", "interact", "search")
     outcome = resolve_start(NameBook(()), MAIN_TOOL, main_request("sleep", "450"))
     assert outcome.failures == () and outcome.rows == (sleep_row(450),)
 
@@ -69,7 +69,7 @@ def test_request_schema_closes_the_action_set_of_each_start_tool():
     main = StartMainActivityRequest.model_json_schema()["properties"]["action"]
     side = StartSideActivityRequest.model_json_schema()["properties"]["action"]
     assert (main["enum"], main["type"]) == (["travel", "interact", "sleep"], "string")
-    assert (side["enum"], side["type"]) == (["purchase", "interact", "query"], "string")
+    assert (side["enum"], side["type"]) == (["purchase", "interact"], "string")
     with pytest.raises(ValidationError):
         StartMainActivityRequest.model_validate({"action": "purchase", "target": "家", "detail": None})
     with pytest.raises(ValidationError):

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from types import SimpleNamespace
 
 from tests.life.conftest import (
     StubMemoryDigestClient,
@@ -18,6 +19,7 @@ from tests.life.conftest import (
 )
 from tests.life.environment_runtime import act, events, observe_only
 from worldmock.agents.prompt.narration import render_layer_json
+from worldmock.configuration.model.model_registry import ResolvedModelBinding
 from worldmock.foundation.time.readable import local_date
 from worldmock.runtime.lifecycle.midnight import settle_pending_day_plans, settle_pending_memory_digests
 from worldmock.simulation_engine.observation.memory.days import day_bound, day_window
@@ -113,10 +115,17 @@ def test_recent_days_and_searchable_stay_byte_identical_through_a_day(engine_fac
     while not engine.midnight_rhythm_pending:
         state = engine.scheduling_state()
         engine.advance(int(state.next_event_at.timestamp()) - engine.context.state.current_time, state.next_event_at)
-    model = {"requested_model": engine.context.config.model.requested_model}
-    assert [item["period"] for item in drive(settle_pending_memory_digests(engine, StubMemoryDigestClient(model)))] == [
+    cfg = engine.context.config
+    bindings = {}
+    for stage, cls in (("digest", StubMemoryDigestClient), ("plan_day", StubPlanDayClient)):
+        pid = getattr(cfg.model_routing, stage)
+        prof, meta = cfg.models[pid], engine.context.inputs.model_metadata[pid]
+        cli = cls({"requested_model": prof.requested_model})
+        bindings[stage] = ResolvedModelBinding(pid, prof, meta, cli, min(prof.max_output_tokens, meta.max_output_tokens))
+    registry = SimpleNamespace(resolve=lambda stage, aid: bindings[stage])
+    assert [item["period"] for item in drive(settle_pending_memory_digests(engine, registry))] == [
         "2026-01-05"]
-    drive(settle_pending_day_plans(engine, StubPlanDayClient(model)))
+    drive(settle_pending_day_plans(engine, registry))
     engine.decide_midnight_rhythm()
     layers = [observe_only(engine, "midnight")["memory_layer"]]
     assert advance_until_ready(engine)

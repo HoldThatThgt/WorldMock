@@ -64,7 +64,7 @@ def test_export_rejects_corrupt_frozen_input(completed_engine, tmp_path):
     output = tmp_path / "export"
     store = completed_engine[0].context.store
     export_run(store, store.last_event_seq, output)
-    identity = store.manifest["environment_assets"]["persona.toml"]["sha256"]
+    identity = store.manifest["environment_assets"]["personas/persona_1.toml"]["sha256"]
     (output / "assets" / identity).write_bytes(b"corrupt")
     with pytest.raises(IntegrityError):
         validate_export(output)

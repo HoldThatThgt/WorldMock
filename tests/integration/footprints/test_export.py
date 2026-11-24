@@ -29,7 +29,7 @@ def test_final_checkpoint_completes_only_the_full_committed_cutoff(engine_factor
 def test_corrupt_source_asset_never_publishes_export(engine_factory, tmp_path):
     engine, point = recorded_engine(engine_factory)
     store = engine.context.store
-    ref = store.manifest["environment_assets"]["persona.toml"]
+    ref = store.manifest["environment_assets"]["personas/persona_1.toml"]
     (store.assets.root / ref["sha256"]).write_bytes(b"broken")
     output = tmp_path / "export"
     with pytest.raises(IntegrityError):
@@ -38,13 +38,13 @@ def test_corrupt_source_asset_never_publishes_export(engine_factory, tmp_path):
 
 
 def test_timeline_and_quality_are_hash_bound_projections_of_actual_run(engine_factory, tmp_path):
-    """导出的时间线写出 app 名、内容标题、商品名与下单渠道；质量报告检查的正是这些行、零发现，结构号是 9；
+    """导出的时间线写出 app 名、内容标题、商品名与下单渠道；质量报告检查的正是这些行、零发现，结构号是 11；
     认证时从导出目录里冻结的环境目录取名称重算，通过。"""
     engine, point = recorded_engine(engine_factory)
     directory = tmp_path / "export"
     manifest = export_run(engine.context.store, point.last_event_seq, directory)
     quality = json.loads((directory / "quality.json").read_bytes())
-    assert quality["schema_version"] == 10
+    assert quality["schema_version"] == 11
     assert quality["activities"]["person_elapsed_seconds_by_agent"]["1"] == 3600
     assert manifest["quality_report"]["sha256"] == hashlib.sha256((directory / "quality.json").read_bytes()).hexdigest()
     rows = []

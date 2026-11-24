@@ -5,41 +5,39 @@
 
 
 from __future__ import annotations
+
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
-from worldmock.state.decisions.round import DecisionContext
+
 from worldmock.state.interaction.actions import START_TOOLS
-
-
 
 #: 零点计划请求与响应的用途标记；交付窗口、决策统计、行为指标与质量报告按它区分。
 PLAN_DAY_PURPOSE = "plan_day"
 #: 日、月、年回顾请求与响应的用途标记。
 MEMORY_DIGEST_PURPOSE = "memory_digest"
-
+#: 搜索子会话请求与响应的用途标记。
+SEARCH_SESSION_PURPOSE = "search_session"
 
 #: 行动请求才开放的世界请求工具（start_main_activity）。
 _ACTION_TOOL = START_TOOLS[0]
 
 
-
 def is_action_request(request: Any) -> bool:
-    """@brief 行动请求的唯一判定：没有 purpose、tools 含 start_main_activity 且 thinking 开启。
+    """@brief 行动请求的唯一判定：没有 purpose、tool_choice 为 auto 且 tools 含 start_main_activity。
 
-    与存储侧 SQL 谓词同义（docs/design/06-agent.md「宿主模型协议」）；工作验收、零点计划与日、月、年回顾带 purpose。
+    与存储侧 SQL 谓词同义（docs/design/06-agent.md「宿主模型协议」）；检索子会话、零点计划与回顾带 purpose，
+    截断重试的 tool_choice 为 required。
     """
     if not isinstance(request, dict) or request.get("purpose") is not None:
         return False
-    extra_body = request.get("extra_body")
-    if not isinstance(extra_body, dict) or extra_body.get("thinking") != {"type": "enabled"}:
+    if request.get("tool_choice") != "auto":
         return False
     tools = request.get("tools")
     if not isinstance(tools, list):
         return False
     return any(isinstance(item, dict) and isinstance(item.get("function"), dict)
                and item["function"].get("name") == _ACTION_TOOL for item in tools)
-
 
 
 def response_self_note(response: Any) -> str | None:
@@ -52,7 +50,6 @@ def response_self_note(response: Any) -> str | None:
     return text or None
 
 
-
 def request_tool_names(request: Any) -> list[str]:
     """@brief 一次模型请求实际开放的工具名；没有工具或形状不符时为空列表（行为指标与质量报告的调用类共用）。"""
     tools = request.get("tools") if isinstance(request, Mapping) else None
@@ -60,12 +57,12 @@ def request_tool_names(request: Any) -> list[str]:
             and isinstance(item.get("function"), Mapping)] if isinstance(tools, list) else []
 
 
-
 @dataclass(frozen=True, slots=True)
 class ModelCallEvidence:
-    """@brief 一次人物模型调用的请求、响应或失败证据；引擎按属性读取。"""
+    """@brief 一次人物或搜索子会话模型调用的请求、响应或失败证据；引擎按属性读取。"""
 
-    context: DecisionContext
+    wakeup_id: str
+    agent_id: int
     call_id: str
     phase: Literal["request", "response", "failure"]
     attempt: int
@@ -73,14 +70,14 @@ class ModelCallEvidence:
     response: dict[str, Any] | None = None
     error: str | None = None
     transport_attempts: tuple[dict[str, Any], ...] = ()
-
+    purpose: str | None = None
+    activity_id: str | None = None
 
 
 def wire_tool_call(identity: Any, name: Any, arguments: Any) -> dict[str, Any]:
     """@brief 一个原生工具调用的发送形状：键依次为 id、type、function（name、arguments），参数缺省为 "{}"。"""
     return {"id": str(identity or ""), "type": "function",
             "function": {"name": str(name or ""), "arguments": str(arguments or "{}")}}
-
 
 
 def assistant_message(content: Any, tool_calls: list[dict[str, Any]], reasoning: Any) -> dict[str, Any]:

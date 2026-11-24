@@ -80,7 +80,7 @@ def test_meal_count_adds_location_meals_to_food_receipts(engine_factory, tmp_pat
     [received] = [row for row in events(engine, "environment_event") if row.data.get("kind") == "goods_received"]
     done = _finished(engine, rest.activity_id)
     metrics, meals, lines = _rerun(engine, capsys)
-    assert metrics["meal_count"] == count and f"6. 进食次数：{count}" in lines
+    assert metrics["meal_count"] == count and f"5. 进食次数：{count}" in lines
     assert meals == ([(1, done.occurred_at)] if "food" in effects else [])
     first = min([received.occurred_at, *(moment for _, moment in meals)])
     [row] = metrics["lowest_energy_before_meal"]
@@ -96,7 +96,7 @@ def test_a_day_with_only_a_location_meal_counts_as_eating(engine_factory, tmp_pa
     metrics, meals, lines = _rerun(engine, capsys)
     assert meals == [] and metrics["meal_count"] == 0
     assert [row["ate"] for row in metrics["lowest_energy_before_meal"]] == [False]
-    assert any(line.startswith("5. ") and NO_MEAL in line for line in lines)
+    assert any(line.startswith("4. ") and NO_MEAL in line for line in lines)
     until_ended(engine, rest.activity_id)
     done = _finished(engine, rest.activity_id)
     metrics, meals, lines = _rerun(engine, capsys)

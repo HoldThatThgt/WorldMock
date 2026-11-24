@@ -13,12 +13,11 @@ from worldmock.agents.life_agent import life_tool_schema_sha256
 from worldmock.configuration.model.model_client import REQUEST_KEYS
 from worldmock.foundation.serialization import canonical_json
 
-#: 生活决策的八个原生工具，按计算工具指纹的次序：七个请求工具（两个开始工具在前）与 search_memory。
-_NATIVE_TOOLS = ("start_main_activity", "start_side_activity", "recall_task_summary", "report_status",
-                 "pause_activity", "conclude_activity", "revise_day_plan", "search_memory")
-#: 每次模型请求的 tools 数组次序：六个世界请求、回看任务与检索记忆。
-_REQUEST_ORDER = ("start_main_activity", "start_side_activity", "report_status", "pause_activity",
-                  "conclude_activity", "revise_day_plan", "recall_task_summary", "search_memory")
+#: 生活决策的九个原生工具，按计算工具指纹与请求 tools 数组的相同次序。
+_NATIVE_TOOLS = ("start_main_activity", "start_side_activity", "report_status", "pause_activity",
+                 "conclude_activity", "revise_day_plan", "search_world", "recall_task_summary", "search_memory")
+#: 每次模型请求的 tools 数组次序：六个核心世界请求、搜寻世界、回看任务与检索记忆。
+_REQUEST_ORDER = _NATIVE_TOOLS
 
 
 @pytest.mark.asyncio
@@ -38,12 +37,12 @@ async def test_current_host_request_has_one_system_layer_and_six_user_layers(eng
     from worldmock.agents.prompt.tool_groups import expand_tool_layer
     assert expand_tool_layer(user_layer(layers, "工具层")) == observation["tool_layer"]
     assert sorted(request) == sorted(REQUEST_KEYS)
-    assert len(request["tools"]) == 8
+    assert len(request["tools"]) == 9
     assert tuple(row["function"]["name"] for row in request["tools"]) == _REQUEST_ORDER
-    from worldmock.agents.life_agent import _TOOL_MODELS
-    assert tuple(_TOOL_MODELS) == _NATIVE_TOOLS
+    from worldmock.agents.life_agent import _FULL_MODELS
+    assert tuple(_FULL_MODELS) == _NATIVE_TOOLS
     schemas = {row["function"]["name"]: row for row in request["tools"]}
-    ordered = [schemas[name] for name in _TOOL_MODELS]
+    ordered = [schemas[name] for name in _FULL_MODELS]
     assert life_tool_schema_sha256() == hashlib.sha256(canonical_json({"tool_schemas": ordered})).hexdigest()
 
 
@@ -59,8 +58,9 @@ async def test_consecutive_fresh_requests_share_the_prefix_through_today(engine_
     assert advance_until_ready(engine)
     activity = engine.context.state.activities[started.activity_id]
     assert activity.status != "active"
-    _, [second], _, [concluded] = await decide(engine, "conclude", [
-        ToolResponse("conclude_activity", conclude_request(activity.name).model_dump(mode="json"))])
+    _, [second, _], _, [concluded, _] = await decide(engine, "conclude", [
+        ToolResponse("conclude_activity", conclude_request(activity.name).model_dump(mode="json")),
+        ToolResponse(MAIN_TOOL, main_arguments("sleep", "60"), "call-sleep")])
     assert concluded.status == "completed"
     assert [[item["role"] for item in request["messages"]] for request in (first, second)] == [["system", "user"]] * 2
     persona = user_layer(json.loads(first["messages"][1]["content"]), "人设层")
@@ -69,12 +69,12 @@ async def test_consecutive_fresh_requests_share_the_prefix_through_today(engine_
 
 
 @pytest.mark.parametrize("tool", _NATIVE_TOOLS)
-def test_tool_identity_covers_each_of_the_eight_native_tool_descriptions(monkeypatch, tool):
-    """工具指纹恰好覆盖八个原生工具：改动其中任何一个的用途句都改变工具指纹，提示指纹不变；复原后两个指纹都能重算
+def test_tool_identity_covers_each_of_the_nine_native_tool_descriptions(monkeypatch, tool):
+    """工具指纹恰好覆盖九个原生工具：改动其中任何一个的用途句都改变工具指纹，提示指纹不变；复原后两个指纹都能重算
     回原值。"""
     from worldmock.agents import life_agent
     from worldmock.agents.prompt import life_prompt
-    assert len(life_agent._TOOL_MODELS) == 8 and tool in life_agent._TOOL_MODELS
+    assert len(life_agent._FULL_MODELS) == 9 and tool in life_agent._FULL_MODELS
     tools, prompt = life_tool_schema_sha256(), life_prompt_sha256()
     assert life_agent.TOOL_DESCRIPTIONS is life_prompt.TOOL_DESCRIPTIONS
     with monkeypatch.context() as patch:

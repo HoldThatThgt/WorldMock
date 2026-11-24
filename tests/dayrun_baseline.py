@@ -27,13 +27,16 @@ class _RecordedTime(datetime):
 
 def deterministic_day_runtime(monkeypatch) -> None:
     """@brief 仅在完整日测试内固定记录身份与计时，不修改生产代码。"""
+    import worldmock.agents.search.search_session as search_session
     import worldmock.recording_engine.storage.checkpoint as checkpoint
     import worldmock.recording_engine.events.models as models
     import worldmock.recording_engine.storage.store as store
+    import worldmock.simulation_engine.decisions.merger as merger
+    import worldmock.simulation_engine.decisions.sandbox as sandbox
 
     sequence = itertools.count(1)
     fixed_uuid = lambda: UUID(int=next(sequence))
-    for module in (models, checkpoint, store):
+    for module in (models, checkpoint, store, merger, sandbox, search_session):
         monkeypatch.setattr(module, "uuid4", fixed_uuid)
     monkeypatch.setattr(store, "datetime", _RecordedTime)
     monkeypatch.setattr(store, "time", SimpleNamespace(monotonic=lambda: 0.0))
@@ -112,7 +115,8 @@ class DayBaseline:
             return content
         if tarfile.is_tarfile(io.BytesIO(content)):
             destination = io.BytesIO()
-            with tarfile.open(fileobj=io.BytesIO(content)) as source, tarfile.open(fileobj=destination, mode="w") as out:
+            with (tarfile.open(fileobj=io.BytesIO(content)) as source,
+                  tarfile.open(fileobj=destination, mode="w") as out):
                 for member in source.getmembers():
                     assert member.isfile(), "baseline workspace contains a non-file member"
                     raw = source.extractfile(member).read()
@@ -130,10 +134,13 @@ class DayBaseline:
     def prepare(self) -> list[dict]:
         """@brief 重新计算输入、运行清单、素材与检查点的规范化摘要，先验证原始哈希完整性。"""
         from worldmock.recording_engine.validation.frozen_environment import validate_frozen_environment
+        from worldmock.state.identity import RUN_MANIFEST_SCHEMA_VERSION
 
         manifest_raw = (self.case / "run/manifest.json").read_bytes()
         manifest = json.loads(manifest_raw)
-        assert manifest["schema_version"] == 7, "baseline run manifest is not the current format"
+        assert manifest["schema_version"] == RUN_MANIFEST_SCHEMA_VERSION, (
+            "baseline run manifest is not the current format"
+        )
         assert "scenario_sha256" not in manifest, "baseline run manifest contains a retired input identity"
         self.code_sha256 = manifest.get("code_sha256")
         validate_frozen_environment(self.case / "run", manifest, [], [])

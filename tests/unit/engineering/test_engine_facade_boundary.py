@@ -1,4 +1,4 @@
-"""@brief 引擎门面的边界：旧环境类与只读转发已删除且名字不再出现、模拟引擎不导入已删除的框架、人物使用的五个引擎方法都是同步方法（docs/design/10-runtime.md）。"""
+"""@brief 引擎门面的边界：旧环境类与只读转发已删除且名字不再出现、模拟引擎不导入已删除的框架、LifeEngine 全部公开方法与属性都是同步入口（docs/design/10-runtime.md）。"""
 
 from __future__ import annotations
 
@@ -36,13 +36,28 @@ _RETIRED_CHECKS = (
 )
 #: 已删除框架与它的进程框架的顶层模块名，由片段拼成。
 _REMOVED_MODULES = frozenset({"agent" + "society2", "r" + "ay"})
-#: 人物使用的五个引擎方法与各自的参数名（含 self）。
-_PERSON_METHODS = {
-    "observe": ["self", "context"],
-    "submit_action": ["self", "call"],
-    "read_query": ["self", "context", "tool", "request"],
-    "record_model_exchange": ["self", "exchange"],
-    "record_memory_update": ["self", "evidence"],
+#: LifeEngine 公开同步方法与各自的参数名列表（classmethod 已绑定 cls，不含 cls；实例方法含 self）。
+_SYNC_FACADE_METHODS = {
+    "create": ["environment", "run_dir", "identity", "model_identity", "options"],
+    "open": ["environment", "run_dir"],
+    "scheduling_state": ["self"],
+    "advance": ["self", "tick", "target"],
+    "prepare_barrier": ["self", "agent_ids"],
+    "open_sandbox": ["self", "wakeup"],
+    "commit_barrier": ["self", "outcomes"],
+    "due_searches": ["self"],
+    "complete_searches": ["self", "outcomes"],
+    "record_failed_evidence": ["self", "agent_id", "wakeup_id", "drafts"],
+    "decide_midnight_rhythm": ["self", "decision"],
+    "register_day_plan": ["self", "agent_id", "request", "sources", "evidence"],
+    "register_memory_digest": ["self", "agent_id", "outcome", "evidence"],
+    "read_task_summary": ["self", "agent_id", "request", "observed"],
+    "search_memory": ["self", "agent_id", "request", "cutoff_seq"],
+    "apply_counterfactual": ["self", "intervention"],
+    "meal_windows_by_agent": ["self"],
+    "fail_run": ["self", "reason", "code"],
+    "checkpoint": ["self", "agent_snapshots"],
+    "close": ["self"],
 }
 
 
@@ -84,9 +99,13 @@ def test_simulation_engine_imports_no_framework():
     assert found == []
 
 
-def test_person_facing_engine_methods_are_synchronous():
-    """人物使用的五个引擎方法都是普通同步方法（去掉自动启用的已提交世界守卫之后看），参数名依次固定。"""
-    for name, parameters in _PERSON_METHODS.items():
+def test_facade_public_methods_and_properties_are_synchronous():
+    """@brief LifeEngine 的全部公开方法与属性都是普通同步入口，参数名依次固定。"""
+    public = {name for name in LifeEngine.__dict__ if not name.startswith("_")}
+    assert public == set(_SYNC_FACADE_METHODS) | {"midnight_rhythm_pending"}
+    prop = LifeEngine.__dict__["midnight_rhythm_pending"]
+    assert isinstance(prop, property) and not inspect.iscoroutinefunction(prop.fget)
+    for name, parameters in _SYNC_FACADE_METHODS.items():
         method = inspect.unwrap(getattr(LifeEngine, name))
         assert not inspect.iscoroutinefunction(method), name
         assert list(inspect.signature(method).parameters) == parameters, name

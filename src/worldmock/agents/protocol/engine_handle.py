@@ -1,34 +1,52 @@
-"""@brief 人物接触引擎的唯一句柄：五个同步方法，名字与参数名同 LifeEngine 的同名方法。
-
-运行宿主把 LifeEngine 本身交给 LifeAgent；人物模块不导入引擎，只按这个协议调用，调用时不 await。
-"""
+"""@brief 人物决策与搜索子会话调用引擎能力的抽象协议边界。"""
 
 from __future__ import annotations
 
-from typing import Any, Protocol
+from typing import Any, Mapping, Protocol
 
 from pydantic import BaseModel
 
-from worldmock.recording_engine.events.memory_evidence import MemoryUpdateEvidence
-from worldmock.state.decisions.results import ActionReceipt
-from worldmock.state.decisions.round import DecisionContext, DirectToolCall
+from worldmock.state.decisions.barrier import SandboxOutcome, ToolDispatchResult
+from worldmock.state.decisions.suspended import SuspendedLoopState
 from worldmock.state.model.exchange import ModelCallEvidence
 
 
-class EngineHandle(Protocol):
-    """@brief 人物一侧声明的引擎句柄：观察、登记请求、只读查询与两类证据写入。"""
+class SandboxHandle(Protocol):
+    """@brief SimulationEngine 为单次人物唤醒提供的沙盒状态与工具调度句柄。"""
 
-    def observe(self, context: DecisionContext) -> dict[str, Any]:
-        """@brief 取本次决策唯一的一份冻结观察（深拷贝）。"""
+    def search_memory(self, request: BaseModel) -> dict[str, Any]:
+        """@brief 执行记忆检索只读查询。"""
 
-    def submit_action(self, call: DirectToolCall) -> ActionReceipt:
-        """@brief 登记一条宿主补齐身份的世界请求，返回受理回执。"""
+    def recall_task_summary(self, request: BaseModel) -> dict[str, Any]:
+        """@brief 读取当前同一活动最近一次阶段摘要。"""
 
-    def read_query(self, context: DecisionContext, tool: str, request: BaseModel) -> dict[str, Any]:
-        """@brief 按本次决策的冻结观察当场回答一个只读查询（深拷贝）。"""
+    def dispatch_world_tool(
+        self,
+        tool_name: str,
+        arguments: BaseModel | Mapping[str, Any],
+        call_id: str,
+        note: str | None = None,
+    ) -> ToolDispatchResult:
+        """@brief 在沙盒内调度单次世界控制或行动工具，返回即时结算结果。"""
 
     def record_model_exchange(self, exchange: ModelCallEvidence) -> None:
-        """@brief 写入一份人物模型调用证据。"""
+        """@brief 在当前沙盒证据缓冲中登记一次模型请求、响应或失败。"""
 
-    def record_memory_update(self, evidence: MemoryUpdateEvidence) -> None:
-        """@brief 登记步尾已落盘记忆的内容身份。"""
+    def finish_wakeup(self, suspended: SuspendedLoopState | None) -> SandboxOutcome:
+        """@brief 封口本次唤醒沙盒并返回不可变的唤醒产出对象。"""
+
+
+class SearchCatalogHandle(Protocol):
+    """@brief SimulationEngine 为异步搜索子会话绑定的只读目录检索与 Fact Guard 句柄。"""
+
+    def search_goods(self, request: BaseModel) -> dict[str, Any]:
+        """@brief 在绑定地点与时间视角下按关键词与过滤条件检索候选商品。"""
+
+    def inspect_goods_offers(self, request: BaseModel) -> dict[str, Any]:
+        """@brief 批量查询指定商品编号的实时权威报价与门店营业状态。"""
+
+    def search_places(self, request: BaseModel) -> dict[str, Any]:
+        """@brief 在当前域与同城可到达地点目录中检索候选地点与出行选项。"""
+
+    def validate_submission(self, request: BaseModel) -> dict[str, Any]:
+        """@brief 核验子会话提交的商品与地点编号全部来自本轮真实检索结果且未越界。"""

@@ -8,6 +8,7 @@ from worldmock.state.interaction.actions import START_TOOLS
 from worldmock.state.model.exchange import (
     MEMORY_DIGEST_PURPOSE,
     PLAN_DAY_PURPOSE,
+    SEARCH_SESSION_PURPOSE,
     is_action_request,
     request_tool_names,
 )
@@ -47,11 +48,11 @@ _MEMORY_ERROR_WORDS = ("memory", "memories", "views")
 #: 输出截断按用途分列时，无 purpose 的请求的分组名。
 _DECISION_PURPOSE = "decision"
 
-#: 模型调用按请求形状分的七类，model_usage.by_call_class 按这个次序逐类列出
+#: 模型调用按请求形状分的八类，model_usage.by_call_class 按这个次序逐类列出
 #: （docs/design/05-recording-engine.md「完整导出认证」）。
-CALL_CLASSES = ("fresh_decision_turn", "turn_with_history", "truncation_retry", "consolidation", "reflection",
-                "plan_day", "memory_digest")
-#: 请求形状不属于七类、或终态响应没有对应请求事件的调用的分组名；只在出现时列在七类之后。
+CALL_CLASSES = ("fresh_decision_turn", "turn_with_history", "truncation_retry", "search_session",
+                "consolidation", "reflection", "plan_day", "memory_digest")
+#: 请求形状不属于八类、或终态响应没有对应请求事件的调用的分组名；只在出现时列在八类之后。
 _UNRECOGNIZED_CLASS = "unrecognized"
 #: 可计价响应按计价拆开的三种 token。
 _PRICED_TOKEN_KEYS = ("cache_hit_input_tokens", "cache_miss_input_tokens", "output_tokens")
@@ -72,10 +73,9 @@ _PRICING = {
 def build_quality_report(events: list[Event], activities: list[dict], manifest: dict, names: DisplayNames) -> dict:
     """@brief 汇总完成、异常、内容、效率、记忆、模型用量、实测加速比、当日目标、个人事务与收尾记忆、运行输入警告与输出截断。
 
-    报告结构 10（docs/design/05-recording-engine.md「完整导出认证」）：input_warnings.code_counts 的键恰为运行输入警告码
-    闭集的两个值；lineage 节报告父运行各段的结束原因与停机秒数；调用类 memory_digest（日、月、年回顾）是结构号升到 10 的
-    原因。两个只报告分组 errand_metrics、conclusion_memories 紧随 day_plan_metrics；三者读同一份事件字典，
-    按事件模型的 JSON 形状只构造一次。
+    报告结构 11（docs/design/05-recording-engine.md「完整导出认证」）：CALL_CLASSES 新增 search_session，
+    decision_rhythm 去除 same_moment_round_counts 并统计 decision_started 的 wakeup_id 计数，
+    errand_metrics.conclusion_memories 按 (agent_id, wakeup_id) 关联。
 
     @param events 已经认证且按 event_seq 排序的完整事件。
     @param activities 已经认证的活动终态视图。
@@ -87,7 +87,7 @@ def build_quality_report(events: list[Event], activities: list[dict], manifest: 
     _validate_inputs(events, activities, manifest)
     rows = [{**event.model_dump(mode="json"), "code_sha256": manifest.get("code_sha256")} for event in events]
     return {
-        "schema_version": 10,
+        "schema_version": 11,
         "run_id": manifest["run_id"],
         "source_group_id": manifest["source_group_id"],
         "event_range": {
@@ -314,11 +314,11 @@ def _weighted_efficiency(samples: list[tuple[float, float]], missing: int, empty
 
 
 def _decision_rhythm_quality(events: list[Event]) -> dict:
-    """@brief 统计静默边界、唤醒原因分布与同刻轮次，只透传原始计数。
+    """@brief 统计静默边界、唤醒原因分布与唯一唤醒标识数，只透传原始计数。
 
     占比与存在率指标由 evaluation/behavior_metrics 从这些计数推导；旧事件
     （缺省增量字段）计入缺失分母，不被当作任何一种边界。边界的唤醒原因取共同身体结算，
-    决策轮的唤醒原因取 decision_started（同刻轮次不写共同身体结算），两份分列。跨决策预算耗尽的技术停顿
+    唤醒事件的唤醒原因取 decision_started，两份分列。跨决策预算耗尽的技术停顿
     （environment_event 种类 decision_budget_exhausted，docs/design/06-agent.md）单独计数。
     """
     boundaries = body_settlements(events)
@@ -327,6 +327,7 @@ def _decision_rhythm_quality(events: list[Event]) -> dict:
     known_reasons, unrecognized_reasons, reason_events = _wake_reason_distribution(boundaries)
     started = [event for event in events if event.event_type == "decision_started"]
     started_known, started_unrecognized, _ = _wake_reason_distribution(started)
+    unique_wakeups = len({wid for event in started if (wid := event.wakeup_id or event.data.get("wakeup_id"))})
     return {
         "body_settlement_events": len(boundaries),
         "boundaries_with_decision_field": offered + silent,
@@ -337,21 +338,12 @@ def _decision_rhythm_quality(events: list[Event]) -> dict:
         "wake_category_counts": _wake_category_distribution(boundaries),
         "unrecognized_wake_reason_counts": dict(sorted(unrecognized_reasons.items())),
         "decision_started_events": len(started),
-        "same_moment_round_counts": _same_moment_round_counts(started),
+        "unique_wakeup_ids": unique_wakeups,
         "decision_started_wake_reason_counts": dict(sorted(started_known.items())),
         "decision_started_wake_category_counts": _wake_category_distribution(started),
         "unrecognized_decision_started_wake_reason_counts": dict(sorted(started_unrecognized.items())),
         "method": "Raw counts from shared body settlement and decision started events",
     }
-
-
-
-
-def _same_moment_round_counts(started: list[Event]) -> dict[str, int]:
-    """@brief 同刻轮数分布：按（人物, 模拟秒）计 decision_started 轮数，返回 {轮数: 出现次数}，按轮数升序。"""
-    rounds = Counter((event.agent_id, event.occurred_at) for event in started)
-    distribution = Counter(rounds.values())
-    return {str(count): distribution[count] for count in sorted(distribution)}
 
 
 
@@ -419,11 +411,11 @@ def _memory_quality(events: list[Event]) -> dict:
 
 
 def _inspect_conclusion_request(event: Event, state: dict) -> None:
-    """@brief 登记每个决策的 conclude_activity 请求；经 control_items 读出后带任何记忆或看法的，
-    应在同一决策写出收尾记忆。"""
+    """@brief 登记每个唤醒的 conclude_activity 请求；经 control_items 读出后带任何记忆或看法的，
+    应在同一唤醒写出收尾记忆。"""
     if event.data.get("tool_name") != "conclude_activity":
         return
-    key = (event.agent_id, event.decision_id)
+    key = (event.agent_id, event.wakeup_id)
     state["requests"].add(key)
     if any(item.memories for item in control_items("conclude_activity", event.data.get("request"))):
         state["conclusions"].setdefault(key, event.event_id)
@@ -432,7 +424,7 @@ def _inspect_conclusion_request(event: Event, state: dict) -> None:
 def _inspect_memory_response(event: Event, state: dict) -> None:
     """@brief 人物决策的结构化错误路径指向 memories 或 views 时记为记忆协议问题。
 
-    带 purpose 的系统请求（工作验收、零点计划 plan_day、日月年回顾 memory_digest）不是记忆写入点，其响应错误不计入记忆问题。
+    带 purpose 的请求（search_session、工作验收、零点计划 plan_day、日月年回顾 memory_digest）不是记忆写入点，其响应错误不计入记忆问题。
     """
     if event.data.get("purpose"):
         return
@@ -443,7 +435,7 @@ def _inspect_memory_response(event: Event, state: dict) -> None:
 
 
 def _inspect_memory_observation(event: Event, state: dict) -> None:
-    """@brief 观察中的事实窗口与进度层来源必须真实存在且已经发生；记下本决策的窗口。
+    """@brief 观察中的事实窗口与进度层来源必须真实存在且已经发生；记下本唤醒的窗口。
 
     进度层来源 progress_event_ids 的每个身份都须解析到本人更早提交的事件，否则记 invalid_observed_result_reference。
     """
@@ -465,7 +457,7 @@ def _inspect_memory_observation(event: Event, state: dict) -> None:
         if source is None or source.agent_id != event.agent_id or source.event_seq >= event.event_seq:
             _add_memory_problem(state, "invalid_observed_result_reference", event.event_id, event.agent_id,
                                 [identity] if isinstance(identity, str) else [])
-    key = (event.agent_id, event.decision_id)
+    key = (event.agent_id, event.wakeup_id)
     state["windows"][key] = (event.event_id, {item["source_event_id"] for item in facts})
 
 
@@ -497,7 +489,7 @@ def _inspect_memory_update(event: Event, state: dict) -> None:
     state["known"][event.agent_id].update(created)
     state["episodes"] += len(created)
     state["update_events"] += 1
-    key = (event.agent_id, event.decision_id)
+    key = (event.agent_id, event.wakeup_id)
     window = state["windows"].get(key)
     if (window is None or data.get("observation_event_id") != window[0]
             or set(data.get("verified_event_ids", [])) != window[1]):
@@ -506,13 +498,13 @@ def _inspect_memory_update(event: Event, state: dict) -> None:
 
 
 def _valid_write_points(data: dict, event: Event) -> bool:
-    """@brief trigger 是写入点闭集的有序无重复子列表，decision_id 与事件所属决策一致。"""
+    """@brief trigger 是写入点闭集的有序无重复子列表，wakeup_id 与事件所属唤醒一致。"""
     trigger = data.get("trigger")
     if not isinstance(trigger, list) or any(point not in MEMORY_WRITE_POINTS for point in trigger):
         return False
     ordered = sorted(trigger, key=MEMORY_WRITE_POINTS.index)
     return (trigger == ordered and len(set(trigger)) == len(trigger)
-            and isinstance(event.decision_id, str) and data.get("decision_id") == event.decision_id)
+            and isinstance(event.wakeup_id, str) and data.get("wakeup_id") == event.wakeup_id)
 
 
 def _check_write_points(event: Event, key: tuple, state: dict) -> None:
@@ -760,21 +752,24 @@ def _usage_by_model(usage: list[dict]) -> list[dict]:
 
 def _call_class(data: dict) -> str:
     """@brief 一次模型调用的类，只凭它的 model_request 事件判定，不读响应里的请求副本：purpose 为 plan_day 是零点计划；
-    purpose 为 memory_digest 是日、月、年回顾；没有 purpose 时，行动请求（decision_start.is_action_request）消息恰为
-    system、user 两条是新决策回合，更多是带历史的回合；工具含 start_main_activity 且思考开关是截断重试的那一个
-    （life_truncation.RETRY_THINKING）是截断重试；不带工具是记忆巩固；工具恰为 submit_reflection 是就寝反思；其余为
-    unrecognized。就寝反思与记忆巩固的请求只出现在本规格交付之前的历史运行里，新运行中为零。"""
+    purpose 为 memory_digest 是日、月、年回顾；purpose 为 search_session 是搜索子会话；没有 purpose 时，行动请求
+    （exchange.is_action_request）消息恰为 system、user 两条是新决策回合，更多是带历史的回合；工具含 start_main_activity、
+    tool_choice 为 required 且思考开关是截断重试的那一个（truncation.RETRY_THINKING）是截断重试；不带工具是记忆巩固；
+    工具恰为 submit_reflection 是就寝反思；其余为 unrecognized。"""
     purpose, request = data.get("purpose"), data.get("request")
     if purpose == PLAN_DAY_PURPOSE:
         return "plan_day"
     if purpose == MEMORY_DIGEST_PURPOSE:
         return "memory_digest"
+    if purpose == SEARCH_SESSION_PURPOSE:
+        return "search_session"
     if purpose is not None or not isinstance(request, dict):
         return _UNRECOGNIZED_CLASS
     if is_action_request(request):
         return "fresh_decision_turn" if _message_roles(request) == ["system", "user"] else "turn_with_history"
     names = request_tool_names(request)
-    if START_TOOLS[0] in names and request.get("extra_body") == RETRY_THINKING:
+    if (START_TOOLS[0] in names and request.get("tool_choice") == "required"
+            and request.get("extra_body") == RETRY_THINKING):
         return "truncation_retry"
     if not names:
         return "consolidation"

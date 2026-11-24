@@ -54,10 +54,12 @@ def test_persona_schema_rejects_views_and_view_only_rows(change):
 
 
 def test_retired_persona_view_paths_are_gone():
-    """看法进人设层的旧路径已删除：没有 _relationships 与 _persona_views，宿主改用 _relationship_persons；persona_layer
+    """看法进人设层的旧路径已删除：没有 _relationships 与 _persona_views；persona_layer
     只收结构化卡片与姓名；人设层 Schema 没有 preferences，关系行恰为四个键。"""
     assert not hasattr(life_persona, "_relationships")
-    assert not hasattr(life_agent, "_persona_views") and hasattr(life_agent, "_relationship_persons")
+    assert not hasattr(life_agent, "_persona_views")
+    assert not hasattr(life_agent, "_relationship_persons")
+    assert hasattr(life_agent, "person_inputs")
     assert list(inspect.signature(persona_layer).parameters) == ["card", "name"]
     assert "preferences" not in PERSONA_LAYER_SCHEMA["properties"]
     rows = PERSONA_LAYER_SCHEMA["properties"]["relationships"]["items"]["properties"]

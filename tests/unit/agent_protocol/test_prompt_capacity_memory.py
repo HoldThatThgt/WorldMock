@@ -31,8 +31,7 @@ def _layers() -> list[dict]:
     built = {"人设层": {"layer": "人设层", "identity": {"name": "林舟"}},
              "记忆层": assemble_layer("2026-01-05", {}, today),
              "待办层": {"layer": "待办层", "paused_activities": [], "errands": [], "day_plan": None},
-             "工具层": {"layer": "工具层", "targets": [], "callable_index": {"navigation_apps": [], "payment_apps": [],
-                                                                  "goods": [], "prefer_apps": []}},
+             "工具层": {"layer": "工具层", "targets": [], "callable_index": {"goods": [], "prefer_apps": []}},
              "环境层": {"layer": "环境层", "observed_at": "2026-01-05T09:05:00+08:00"},
              "进度层": {"layer": "进度层", "session_started_at": "2026-01-05T08:00:00+08:00", "events": records}}
     return [built[name] for name in USER_LAYER_NAMES]

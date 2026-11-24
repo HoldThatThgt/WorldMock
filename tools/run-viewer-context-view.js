@@ -4,16 +4,17 @@
 const ContextView = {};
 {
   const state = {items:null, seq:null, stage:'all', view:'structure', block:null, rule:null, ticket:0};
-  const stages = {all:'全部调用', action:'选择动作', other:'其他调用'};
+  const stages = {all:'全部调用', action:'选择动作', search_session:'搜索子会话', other:'其他调用'};
   const views = {structure:'结构与填充', growth:'增长与退出', comparison:'前后输入对照'};
   const statusNames = {added:'新增', changed:'内容变化', unchanged:'未变', removed:'退出当前输入'};
 
-  /** @brief 只投影请求元数据，避免提前读取整日提示正文。 */
+  /** @brief 只投影请求元数据，避免提前读取整日提示正文；提取 wakeup_id 与 activity_id 归属。 */
   function index() {
     if (state.items) return state.items;
     const rows = q(`SELECT event_seq AS seq, json_extract(body,'$.event_id') AS id,
       json_extract(body,'$.agent_id') AS agent, json_extract(body,'$.occurred_at') AS t,
-      json_extract(body,'$.decision_id') AS decision, json_extract(body,'$.data.purpose') AS purpose,
+      json_extract(body,'$.wakeup_id') AS wakeup, json_extract(body,'$.activity_id') AS activity,
+      json_extract(body,'$.data.purpose') AS purpose,
       json_extract(body,'$.data.request.messages[0].content') AS system,
       json_extract(body,'$.data.request.messages[0].role') AS role,
       json_type(body,'$.data.request.messages[0].content') AS content_type,
@@ -23,7 +24,7 @@ const ContextView = {};
       const request = {messages:[{role:row.role,content:row.content_type === 'text' ? row.system : null}]};
       if (row.tools_type !== null) request.tools = row.tools_type === 'array' ? [] : null;
       const kind = ViewerContext.classify(request, row.purpose);
-      return {seq:row.seq, id:row.id, agent:row.agent, t:row.t, decision:row.decision,
+      return {seq:row.seq, id:row.id, agent:row.agent, t:row.t, wakeup:row.wakeup, activity:row.activity,
         stage:kind.stage, label:kind.label};
     });
     return state.items;
@@ -39,33 +40,21 @@ const ContextView = {};
     return {seq:rows[0].seq, event:JSON.parse(await fetchBody(rows[0].seq))};
   }
 
-  /** @brief 一次决策的首个请求才可能是续接：前序 assistant 的每个 tool_call 身份在本人更早的模型响应中找来源决策。 */
-  function continuationFor(item, event) {
-    if (index().some(row => row.decision === item.decision && row.seq < item.seq)) return null;
-    const sources = {};
-    for (const id of ViewerContext.prefixCallIds(event?.data?.request)) {
-      const rows = q(`SELECT json_extract(events.body,'$.decision_id') AS decision,
-        json_extract(events.body,'$.occurred_at') AS t FROM events,
-        json_each(events.body,'$.data.response.choices[0].message.tool_calls') AS call
-        WHERE json_extract(events.body,'$.event_type')='model_response' AND json_extract(call.value,'$.id')=?
-        AND json_extract(events.body,'$.agent_id')=? AND events.event_seq<?
-        ORDER BY events.event_seq DESC LIMIT 1`, [id, item.agent, item.seq]);
-      if (rows.length) sources[id] = `${fmtT(rows[0].t)} · ${rows[0].decision}`;
-    }
-    return {sources};
-  }
-
-  /** @brief 读取选中请求及同人物同阶段的前一次输入，全文按字节区间读出；决策首个请求多于两条消息时按续接解析。 */
+  /** @brief 读取选中请求及同人物同阶段（搜索子会话按同一 activity_id）的前一次输入，全文按字节区间读出。 */
   async function read(seq) {
     const item = index().find(row => row.seq === seq);
     if (!item) throw new Error('Model request is not present in the loaded run');
-    const previous = index().filter(row => row.seq < seq && row.agent === item.agent &&
-      row.stage === item.stage).at(-1);
+    const previous = index().filter(row => row.seq < seq && row.agent === item.agent && row.stage === item.stage &&
+      (item.stage !== 'search_session' || row.activity === item.activity)).at(-1);
     const event = JSON.parse(await fetchBody(seq));
-    const current = ViewerContext.parseRequest(event, continuationFor(item, event));
+    const current = ViewerContext.parseRequest(event);
     const prior = previous ? JSON.parse(await fetchBody(previous.seq)) : null;
-    const before = prior ? ViewerContext.parseRequest(prior, continuationFor(previous, prior)) : null;
-    return {item, event, current, previous, before, response:await responseFor(item),
+    const before = prior ? ViewerContext.parseRequest(prior) : null;
+    const sessionItems = item.stage === 'search_session' && item.activity
+      ? index().filter(row => row.agent === item.agent && row.activity === item.activity &&
+        row.stage === 'search_session')
+      : [];
+    return {item, event, current, previous, before, sessionItems, response:await responseFor(item),
       changes:before ? ViewerContext.compare(current.blocks, before.blocks) : []};
   }
 
@@ -80,10 +69,11 @@ const ContextView = {};
     return `<details><summary>${esc(label)}</summary><pre>${esc(text)}</pre></details>`;
   }
 
-  /** @brief 构造请求、阶段与分析视图选择控件。 */
+  /** @brief 构造请求、阶段与分析视图选择控件（保留唤醒与活动归属显示）。 */
   function controls(items) {
     const entries = items.map(item => [item.seq,
-      `${fmtT(item.t)} · ${agentName(item.agent)} · ${item.label} · 事件 ${item.seq}`]);
+      `${fmtT(item.t)} · ${agentName(item.agent)} · ${item.label}` +
+      `${item.activity ? ' · ' + item.activity : ''} · 事件 ${item.seq}`]);
     return `<div class="cx-controls">
       <label>调用阶段<select id="ctx-stage">${options(Object.entries(stages), state.stage)}</select></label>
       <label class="cx-request">实际请求<select id="ctx-request">${options(entries, state.seq)}</select></label>
@@ -91,12 +81,17 @@ const ContextView = {};
       <label>查看内容<select id="ctx-view">${options(Object.entries(views), state.view)}</select></label></div>`;
   }
 
-  /** @brief 显示单一行动阶段的决策顺序；其他调用不套用人物决策阶段。 */
+  /** @brief 按调用阶段显示当前处理流程。 */
   function flow(stage) {
     if (stage === 'other') return '<div class="cx-meta">其他模型调用按原始消息结构展示。</div>';
+    if (stage === 'search_session') {
+      return `<div class="cx-flow" aria-label="搜索子会话流程"><span>主循环 search_world</span><span>→</span>
+        <span class="active">LLM Search Session 多轮目录检索</span><span>→</span>
+        <span>submit_search_results / Fact Guard</span></div>`;
+    }
     return `<div class="cx-flow" aria-label="人物决策流程"><span>冻结观察</span><span>→</span>
-      <span class="active">系统层与六层输入 → 选择世界请求</span><span>→</span>
-      <span>世界执行 → 下一轮重建</span></div>`;
+      <span class="active">系统层与六层输入 → 世界请求或挂起搜索</span><span>→</span>
+      <span>沙盒执行与屏障提交</span></div>`;
   }
 
   /** @brief 绘制按请求实际顺序排列的内容块与字符数量条。 */
@@ -180,6 +175,16 @@ const ContextView = {};
       ${reasoning ? disclosure('本次思考原文', reasoning) : ''}</div>`;
   }
 
+  /** @brief 搜索子会话同活动多轮内部轨迹折叠面板。 */
+  function searchTrace(sessionItems, activeSeq, activityId) {
+    if (!sessionItems?.length) return '';
+    const buttons = sessionItems.map((row, idx) => `<button type="button" data-context-seq="${row.seq}"` +
+      `${row.seq === activeSeq ? ' aria-current="true"' : ''}>第 ${idx + 1} 轮 · ${fmtT(row.t)} · ` +
+      `${esc(agentName(row.agent))} · 事件 ${row.seq}</button>`).join('');
+    return `<details class="cx-trace"><summary>LLM Search Session 内部轨迹（活动 ${esc(activityId)} · ` +
+      `共 ${sessionItems.length} 轮）</summary><div class="cx-trace-list">${buttons}</div></details>`;
+  }
+
   /** @brief 展示当前请求结构、规则或前后对照。 */
   function content(model) {
     const blocks = model.current.blocks;
@@ -190,14 +195,15 @@ const ContextView = {};
     const displayed = state.view === 'comparison' ? [...blocks, ...(model.before?.blocks || [])] : blocks;
     const provenance = (displayed.some(block => block.interpretation === 'layer') ?
       '<p class="cx-meta">首个 user 按顶层数组无损切片，每片可解析且层序符合七层合同；「自述」与「回顾」未经核验。</p>' : '') +
-      (model.current.continuation ? '<p class="cx-meta">同秒续接：本决策首个请求多于两条消息；前序 assistant 按 ' +
-        'tool_call 身份匹配来源决策，回复正文未经核验，回传思考单列，不另计字符。</p>' : '');
+      (model.item.wakeup ? `<p class="cx-meta">所属唤醒：${esc(model.item.wakeup)}` +
+        `${model.item.activity ? ' · 归属活动：' + esc(model.item.activity) : ''}</p>` : '');
+    const trace = searchTrace(model.sessionItems, model.item.seq, model.item.activity);
     const detail = state.view === 'growth' ? growth(block) : blockDetail(block);
     const body = state.view === 'comparison' ? comparison(model) :
       `<div class="cx-layout">${blockList(blocks)}${detail}</div>`;
     return `${flow(model.current.stage)}<p class="cx-meta">${esc(model.current.stageLabel)} ·
       消息 ${nf(model.current.messageChars)} 字符 · 工具定义 ${nf(model.current.toolChars)} 字符。
-      Unicode 字符计数，分隔符计入随后块，对象按 JSON 计量；不等于 token。</p>${provenance}${warnings}${body}
+      Unicode 字符计数，分隔符计入随后块，对象按 JSON 计量；不等于 token。</p>${provenance}${trace}${warnings}${body}
       ${output(model)}${disclosure('完整请求消息与工具', JSON.stringify(model.event.data.request,null,2))}`;
   }
 
@@ -217,6 +223,9 @@ const ContextView = {};
         state.rule = model.current.blocks.find(block => block.id === state.block)?.rule || null;
         return render();
       };
+    });
+    $$('#ctx-body [data-context-seq]').forEach(button => {
+      button.onclick = () => {state.seq = Number(button.dataset.contextSeq); state.block = null; return render();};
     });
     if (state.view === 'growth' && model) {
       $('#ctx-rule').onchange = event => {state.rule = event.target.value; return render();};

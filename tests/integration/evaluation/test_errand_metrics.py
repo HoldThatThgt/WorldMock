@@ -53,10 +53,10 @@ class _Log:
         self.events: list[dict] = []
 
     def add(self, event_type: str, when: str, data: dict, **fields) -> dict:
-        """追加一条事件；fields 可给 agent_id（缺省 1）、decision_id、action_id、caused_by 与 visibility（缺省 agent）。"""
+        """追加一条事件；fields 可给 agent_id（缺省 1）、wakeup_id、action_id、caused_by 与 visibility（缺省 agent）。"""
         sequence = len(self.events) + 1
         event = Event(event_id=f"event-{sequence}", event_type=event_type, occurred_at=_at(when),
-                      agent_id=fields.get("agent_id", 1), decision_id=fields.get("decision_id"),
+                      agent_id=fields.get("agent_id", 1), wakeup_id=fields.get("wakeup_id"),
                       action_id=fields.get("action_id"), caused_by=list(fields.get("caused_by", ())), data=data,
                       visibility=fields.get("visibility", "agent"), run_id="run", event_seq=sequence,
                       recorded_at="2026-01-05T00:00:00+00:00", wall_elapsed_ms=sequence,
@@ -65,19 +65,19 @@ class _Log:
         return self.events[-1]
 
     def errand(self, kind: str, when: str, snapshot: dict, **fields) -> dict:
-        """一条事务事件（环境写出，决策与动作身份为空）：提醒与办成人物可见，其余系统可见；fields 另可给 caused_by、
+        """一条事务事件（环境写出，唤醒与动作身份为空）：提醒与办成人物可见，其余系统可见；fields 另可给 caused_by、
         agent_id 与载荷的附加键（quantity_added、reason）。"""
         caused_by, agent_id = fields.pop("caused_by", ()), fields.pop("agent_id", 1)
         visibility = "agent" if kind in AGENT_VISIBLE_KINDS else "system"
         return self.add("environment_event", when, {"kind": kind, "errand": snapshot, **fields},
                         caused_by=caused_by, agent_id=agent_id, visibility=visibility)
 
-    def observation(self, when: str, names: tuple[str, ...], agent_id: int = 1, decision_id: str = "observed") -> dict:
+    def observation(self, when: str, names: tuple[str, ...], agent_id: int = 1, wakeup_id: str = "observed") -> dict:
         """本人一次观察：待办层的事务行只给名称（指标只读名称）。"""
         rows = [{"name": name} for name in names]
         return self.add("observation", when, {"todo_layer": {"layer": "待办层", "paused_activities": [],
                                                              "errands": rows, "day_plan": None}},
-                        agent_id=agent_id, decision_id=decision_id)
+                        agent_id=agent_id, wakeup_id=wakeup_id)
 
     def bought(self, when: str, product_id: str, **fields) -> dict:
         """一次购买的结果事件：顶层订单一个（status 缺省 delivered，收货人缺省本人）；event_type 缺省 action_result。"""
@@ -279,15 +279,15 @@ def test_no_errand_or_no_conclusion_memory_gives_null() -> None:
     与偏好、播报也不算收尾记忆时 conclusion_memories 为 null，报告里两组都是 null。有一条记下的事务而别无
     命中时各计数为 0、不为 null。"""
     log = _Log()
-    log.observation("2026-01-05 10:00", ("买牛奶",), decision_id="decision-1")
+    log.observation("2026-01-05 10:00", ("买牛奶",), wakeup_id="wakeup-1")
     log.errand(REMINDED_KIND, "2026-01-05 10:05", _snapshot("a", "买牛奶", MILK, "2026-01-04 10:00"))
     view = {"type": "relationship", "about": "王磊", "text": "王磊做事总拖。", "importance": 0.5, "keywords": ["同事"]}
     request = {"items": [{"activity_name": "等待", "summary": "等完了。", "memories": [], "views": [view]}],
                "errands": []}
     data = {"tool_name": "conclude_activity", "reused": False, "request": request}
-    log.add("action_requested", "2026-01-05 10:10", data, decision_id="decision-1", action_id="conclude")
+    log.add("action_requested", "2026-01-05 10:10", data, wakeup_id="wakeup-1", action_id="conclude")
     log.add("action_requested", "2026-01-05 10:20", {"tool_name": "report_status", "request": {
-        "items": [{"activity_name": "等待", "summary": "还在等。"}], "errands": []}}, decision_id="decision-2")
+        "items": [{"activity_name": "等待", "summary": "还在等。"}], "errands": []}}, wakeup_id="wakeup-2")
 
     assert errand_metrics(log.events, _ZONE) is None and conclusion_memories(log.events) is None
     report = _report(log)
@@ -299,36 +299,36 @@ def test_no_errand_or_no_conclusion_memory_gives_null() -> None:
 
 def test_conclusion_memories_count_routine_and_errand_overlap() -> None:
     """收尾记忆是 conclude_activity 请求里 items[].memories 的条目（不论之后是否被受理），看法与偏好不计：六条里作息
-    两条；文字包含同一决策观察里未完成事务的名称（待办层）或其商品名称（私有绑定）的两条——商品名只认未完成事务的商品，
-    同一观察里别的商品名不算，另一决策的观察里没有事务、没有观察的决策也都不算重合。"""
+    两条；文字包含同一唤醒观察里未完成事务的名称（待办层）或其商品名称（私有绑定）的两条——商品名只认未完成事务的商品，
+    同一观察里别的商品名不算，另一唤醒的观察里没有事务、没有观察的唤醒也都不算重合。"""
     log = _Log()
     bindings = [{"name": "补一份食材包", "errand_id": "a", "product_id": KIT},
                 {"name": "买冰红茶", "errand_id": "b", "product_id": TEA}]
     items = [{"name": "素炒什锦食材包", "product_id": KIT}, {"name": "康师傅 冰红茶", "product_id": TEA},
              {"name": "纯牛奶", "product_id": MILK}]
-    first = log.observation("2026-01-05 21:00", ("补一份食材包", "买冰红茶"), decision_id="decision-1")
+    first = log.observation("2026-01-05 21:00", ("补一份食材包", "买冰红茶"), wakeup_id="wakeup-1")
     first["data"].update(errand_bindings=bindings, errand_item_bindings=items)
-    log.observation("2026-01-05 21:00", (), decision_id="decision-2")
+    log.observation("2026-01-05 21:00", (), wakeup_id="wakeup-2")
 
     def memo(kind: str, text: str) -> dict:
         """一条收尾记忆（请求形状）。"""
         return {"type": kind, "text": text, "importance": 0.4, "keywords": ["生活"]}
 
-    def concluded(decision_id: str, *groups: list[dict]) -> dict:
+    def concluded(wakeup_id: str, *groups: list[dict]) -> dict:
         """一次收尾请求：每组记忆对应一项活动，每项另有一条提到事务名的看法。"""
         view = {"type": "preference", "about": "超市", "text": "补一份食材包还是去超市好。", "importance": 0.5,
                 "keywords": ["超市"]}
         request = {"items": [{"activity_name": f"等待{index}", "summary": "收尾。", "memories": list(group),
                               "views": [view]} for index, group in enumerate(groups)], "errands": []}
         return log.add("action_requested", "2026-01-05 21:05", {"tool_name": "conclude_activity", "reused": False,
-                                                                "request": request}, decision_id=decision_id)
+                                                                "request": request}, wakeup_id=wakeup_id)
 
-    concluded("decision-1", [memo("routine", "每晚十点前到家。"), memo("reflection", "家里的素炒什锦食材包又见底了。"),
-                             memo("goal", "周末记得买冰红茶。")], [memo("routine", "喝纯牛奶前先热一下。")])
-    concluded("decision-2", [memo("goal", "明天也记得买冰红茶。")])
+    concluded("wakeup-1", [memo("routine", "每晚十点前到家。"), memo("reflection", "家里的素炒什锦食材包又见底了。"),
+                           memo("goal", "周末记得买冰红茶。")], [memo("routine", "喝纯牛奶前先热一下。")])
+    concluded("wakeup-2", [memo("goal", "明天也记得买冰红茶。")])
     log.add("action_rejected", "2026-01-05 21:05", {"error_code": "ACTIVITY_CONCLUSION_REQUIRED"},
-            decision_id="decision-2")
-    concluded("decision-3", [memo("identity", "我是会自己补食材包的人。")])
+            wakeup_id="wakeup-2")
+    concluded("wakeup-3", [memo("identity", "我是会自己补食材包的人。")])
 
     expected = {"total_count": 6, "routine_count": 2, "errand_overlap_count": 2}
     assert conclusion_memories(log.events) == expected

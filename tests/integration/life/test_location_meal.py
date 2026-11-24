@@ -14,7 +14,6 @@ from tests.life.conftest import (
     advance_next,
     advance_until_ready,
     conclude_request,
-    context,
     do_at,
     pause_request,
     purchase,
@@ -23,7 +22,16 @@ from tests.life.conftest import (
 )
 from tests.life.current_world import stage_moment
 from tests.life.environment_inputs import catalog_rows, meal_environment, set_content, write_catalog_rows
-from tests.life.environment_runtime import act, act_group, events, every_five_minutes, one_hour, reach, until_ended
+from tests.life.environment_runtime import (
+    act,
+    act_group,
+    events,
+    every_five_minutes,
+    observe_only,
+    one_hour,
+    reach,
+    until_ended,
+)
 from worldmock.exchange_engine.definitions.constants import GOODS_ENERGY_KCAL
 from worldmock.recording_engine.storage.checkpoint import restore_branch, snapshot_directory
 from worldmock.simulation_engine.body.body import food_intake
@@ -88,7 +96,7 @@ def energy_now(engine):
 def expected_food(engine, moment, tier="meal"):
     """生产函数对那一秒共同身体结算之后的身体结算一份 tier 的补能：返回（结算后的能量，{provided, applied, efficiency}）。"""
     after = BodyState.model_validate(settled_at(engine, moment).data["body_settlement"]["after"])
-    _, intake, _ = food_intake(after, GOODS_ENERGY_KCAL[tier], engine.context.body)
+    _, intake, _ = food_intake(after, GOODS_ENERGY_KCAL[tier], engine.context.bodies[1])
     return after.energy_kcal, intake
 
 
@@ -480,7 +488,7 @@ def test_appetite_after_the_meal_reads_the_new_energy(engine_factory, tmp_path, 
     assert observed["environment_layer"]["body"]["appetite"] == appetite_before
     until_ended(engine, rest.activity_id)
     [done] = fed(engine)
-    after = engine.observe(context(engine, "after"))["environment_layer"]["body"]["appetite"]
+    after = observe_only(engine, "after")["environment_layer"]["body"]["appetite"]
     assert after == appetite_after
     assert "felt_band_change" in settled_at(engine, done.occurred_at).data["wake_reasons"]
 
@@ -559,6 +567,6 @@ def test_relief_members_change_no_prompt_layer(engine_factory, tmp_path):
     for engine in (relieved, plain):
         observed, _ = act(engine, "chat", do_at("家", "测试闲聊"))
         assert advance_until_ready(engine)
-        midway = engine.observe(context(engine, "midway"))
+        midway = observe_only(engine, "midway")
         seen.append([{key: layer[key] for key in PROMPT_LAYERS} for layer in (observed, midway)])
     assert seen[0] == seen[1]

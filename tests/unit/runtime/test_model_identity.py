@@ -1,93 +1,149 @@
-"""真实环境配置、权威容量和独立预算的冻结身份。"""
+"""多模型档运行身份、提示与工具指纹以及多人物摘要校验的冻结契约。"""
 
-import copy
+from __future__ import annotations
+
+from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
-from tests.integration.runtime.current_contract_fixtures import inputs
-from worldmock.foundation.errors import IntegrityError
-from worldmock.runtime.framework.setup import _model_identity, stage_model_identity, validate_stage_model_identity
+from tests.frozen_inputs import fixture_metadata
+from worldmock.configuration.inputs.environment import load_environment
+from worldmock.configuration.inputs.models import referenced_profile_ids
+from worldmock.state.identity import (
+    RUN_MANIFEST_SCHEMA_VERSION,
+    ModelIdentity,
+    RunIdentity,
+    StageProfileIdentity,
+    check_persona_sha256s,
+    validate_persona_sha256s_input,
+)
+
+SOURCE = Path(__file__).resolve().parents[2] / "fixtures/dataset-environment"
+_SHA_A = "a" * 64
+_SHA_B = "b" * 64
+_SHA_C = "c" * 64
 
 
-def test_model_identity_freezes_explicit_endpoint_and_separate_retry_budgets():
-    """运行身份来自声明，凭据名称与凭据值不进入身份。"""
-    frozen = inputs()
-    config = frozen.config.model
-    identity = _model_identity(config).model_dump(mode="json")
-    assert identity["base_url"] == config.base_url
-    assert identity["requested_model"] == config.requested_model
-    assert identity["provider"] == config.provider
-    assert identity["max_retries"] == config.max_retries
-    assert identity["transport_max_retries"] == config.transport_max_retries
-    assert "api_key_env" not in identity
-    assert identity["thinking"] == "enabled" and identity["tool_choice"] == "auto"
+def _profile_identity(profile, metadata) -> StageProfileIdentity:
+    """用配置档和权威元数据构造不含凭据的冻结模型档身份。"""
+    return StageProfileIdentity(
+        provider=profile.provider,
+        base_url=profile.base_url,
+        requested_model=profile.requested_model,
+        metadata_url=profile.metadata_url,
+        context_window=profile.context_window,
+        thinking=profile.thinking,
+        max_output_tokens=profile.max_output_tokens,
+        max_retries=profile.max_retries,
+        transport_max_retries=profile.transport_max_retries,
+        max_react_turns=profile.max_react_turns,
+        reflection_validation_max_retries=profile.reflection_validation_max_retries,
+        day_plan_validation_max_retries=profile.day_plan_validation_max_retries,
+        model_metadata=metadata,
+        effective_max_tokens=min(profile.max_output_tokens, metadata.max_output_tokens),
+    )
 
 
-def test_stage_identity_freezes_actual_capacity_and_all_validation_budgets():
-    """只有行动阶段，真实输出上限约束请求；全部独立预算保留原值。"""
-    from worldmock.agents.life_agent import ACTION_MAX_TOKENS
-
-    frozen = inputs()
-    identity = stage_model_identity(frozen.config.model, frozen.model_metadata)
-    assert identity["model_metadata"] == frozen.model_metadata.model_dump(mode="json")
-    assert set(identity["stages"]) == {"action"}
-    assert identity["stages"]["action"] == {
-        "thinking": "enabled", "tool_choice": "auto",
-        "max_tokens": min(ACTION_MAX_TOKENS, frozen.model_metadata.max_output_tokens),
-        "same_second_continuation": True,
+def _model_identity_from_fixture() -> ModelIdentity:
+    loaded = load_environment(SOURCE, metadata_loader=fixture_metadata)
+    profiles = {
+        profile_id: _profile_identity(loaded.config.models[profile_id], loaded.model_metadata[profile_id])
+        for profile_id in referenced_profile_ids(loaded.config.model_routing)
     }
-    for field in ("reflection_validation_max_retries", "day_plan_validation_max_retries", "max_react_turns"):
-        assert identity[field] == getattr(frozen.config.model, field)
-    assert "persona_validation_max_retries" not in identity
-    with pytest.raises(IntegrityError, match="Stage model identity has unexpected fields"):
-        validate_stage_model_identity({**identity, "persona_validation_max_retries": 2})
-    disabled = stage_model_identity(frozen.config.model, frozen.model_metadata, False)
-    assert disabled["stages"]["action"]["same_second_continuation"] is False
-    assert validate_stage_model_identity(identity) == identity
+    return ModelIdentity(
+        profiles=profiles,
+        routing=loaded.config.model_routing.model_dump(mode="json"),
+        prompt_sha256s={"action": _SHA_A, "search": _SHA_B},
+        tool_schema_sha256s={"action": _SHA_B, "search": _SHA_C},
+    )
 
 
-@pytest.mark.parametrize("change", [
-    lambda row: row["stages"]["action"].update(max_tokens=4000),
-    lambda row: row["stages"]["action"].update(max_tokens=8000),
-    lambda row: row.update(reasoning_effort="high"),
-    lambda row: row.update(strict=False),
-    lambda row: row.update(api_key_env="SECRET"),
-    lambda row: row["model_metadata"].update(requested_model="different-model"),
-    lambda row: row["model_metadata"].update(context_window=262143),
-    lambda row: row.update(stages={}),
-    lambda row: row.pop("model_metadata"),
-])
-def test_tampered_identity_is_rejected(change):
-    """冻结阶段身份中的参数、容量、额外字段或缺失声明都明确拒绝。"""
-    frozen = inputs()
-    identity = copy.deepcopy(stage_model_identity(frozen.config.model, frozen.model_metadata))
-    change(identity)
-    with pytest.raises(IntegrityError):
-        validate_stage_model_identity(identity)
+def test_run_manifest_schema_version_and_stage_profile_excludes_credentials():
+    """运行清单结构版本为 8，StageProfileIdentity 冻结端点和有效输出上限且不含凭据字段。"""
+    assert RUN_MANIFEST_SCHEMA_VERSION == 8
+    loaded = load_environment(SOURCE, metadata_loader=fixture_metadata)
+    reasoner = loaded.config.models["reasoner"]
+    reasoner_meta = loaded.model_metadata["reasoner"]
+    identity = _profile_identity(reasoner, reasoner_meta)
+    dumped = identity.model_dump(mode="json")
+    assert "api_key_env" not in dumped
+    assert dumped["effective_max_tokens"] == min(16000, reasoner_meta.max_output_tokens) == 16000
+    assert dumped["thinking"] is True
+    assert dumped["max_react_turns"] == 16
+
+    capped_meta = reasoner_meta.model_copy(update={"max_output_tokens": 8192})
+    capped = _profile_identity(reasoner, capped_meta)
+    assert capped.effective_max_tokens == 8192
+
+    bad_payload = {**dumped, "effective_max_tokens": 8000}
+    with pytest.raises(ValidationError, match="effective_max_tokens"):
+        StageProfileIdentity.model_validate(bad_payload)
+
+    bad_meta = {**dumped, "model_metadata": reasoner_meta.model_copy(update={"requested_model": "other"})}
+    with pytest.raises(ValidationError, match="stage profile model metadata disagrees"):
+        StageProfileIdentity.model_validate(bad_meta)
 
 
-def test_action_budget_is_sixteen_thousand_capped_by_the_service_and_an_old_budget_is_refused():
-    """决策的输出上限是 16000 与服务输出上限中较小的一个；服务上限 8192 时冻结 8192；冻结身份写着旧的 8000 时
-    以身份不一致拒绝。"""
-    frozen = inputs()
-    assert frozen.model_metadata.max_output_tokens == 32768
-    identity = stage_model_identity(frozen.config.model, frozen.model_metadata)
-    assert identity["stages"]["action"]["max_tokens"] == 16000
-    capped = stage_model_identity(frozen.config.model,
-                                  frozen.model_metadata.model_copy(update={"max_output_tokens": 8192}))
-    assert capped["stages"]["action"]["max_tokens"] == 8192
-    identity["stages"]["action"]["max_tokens"] = 8000
-    with pytest.raises(IntegrityError, match="^Stage model identity is inconsistent$"):
-        validate_stage_model_identity(identity)
+def test_model_identity_requires_exact_routed_profiles_and_stage_digests():
+    """ModelIdentity 核对 profiles 与 routing 引用集完全一致，且主/搜索提示与工具指纹成对完整。"""
+    identity = _model_identity_from_fixture()
+    assert set(identity.profiles) == {"reasoner", "fast_search"}
+    assert identity.model_dump(mode="json")["routing"]["search"] == "fast_search"
+
+    extra_profiles = {**identity.profiles, "unused": identity.profiles["reasoner"]}
+    with pytest.raises(ValidationError, match="referenced by routing"):
+        ModelIdentity(
+            profiles=extra_profiles,
+            routing=identity.routing,
+            prompt_sha256s=identity.prompt_sha256s,
+            tool_schema_sha256s=identity.tool_schema_sha256s,
+        )
+
+    for bad_digests in ({"action": _SHA_A}, {"action": _SHA_A, "search": "not-sha256"}):
+        with pytest.raises(ValidationError, match="prompt_sha256s"):
+            ModelIdentity(
+                profiles=identity.profiles,
+                routing=identity.routing,
+                prompt_sha256s=bad_digests,
+                tool_schema_sha256s=identity.tool_schema_sha256s,
+            )
 
 
-def test_endpoint_change_is_valid_only_with_matching_declared_metadata():
-    """服务端点可以配置，身份校验拒绝端点与实际元数据来源不一致。"""
-    frozen = inputs()
-    identity = stage_model_identity(frozen.config.model, frozen.model_metadata)
-    identity["base_url"] = "https://elsewhere.example/v1"
-    identity["metadata_url"] = "https://elsewhere.example/v1/models"
-    with pytest.raises(IntegrityError, match="metadata"):
-        validate_stage_model_identity(identity)
-    identity["model_metadata"]["metadata_url"] = identity["metadata_url"]
-    assert validate_stage_model_identity(identity)["base_url"] == "https://elsewhere.example/v1"
+def test_run_identity_and_persona_sha256s_validation():
+    """RunIdentity 严格校验人物集合、数字摘要键与提交元数据成对出现。"""
+    model_identity = _model_identity_from_fixture()
+    run = RunIdentity(
+        run_id="run-multi",
+        source_group_id="group-1",
+        agent_ids=(1, 2),
+        persona_sha256s={"1": _SHA_A, "2": _SHA_B},
+        start_at="2026-01-05T08:00:00+08:00",
+        end_at="2026-01-06T08:00:00+08:00",
+        timezone="Asia/Shanghai",
+        code_sha256=_SHA_C,
+        model_identity=model_identity,
+        git_commit="a" * 40,
+        git_dirty=False,
+    )
+    assert run.persona_sha256s == {1: _SHA_A, 2: _SHA_B}
+    assert validate_persona_sha256s_input([1, 2]) == [1, 2]
+
+    for bad_keys in ({True: _SHA_A}, {"01": _SHA_A}, {0: _SHA_A}, {1.5: _SHA_A}):
+        with pytest.raises((ValueError, ValidationError), match="positive integers"):
+            validate_persona_sha256s_input(bad_keys)
+
+    with pytest.raises(ValueError, match="agent_ids"):
+        check_persona_sha256s({1: _SHA_A}, {1, 2})
+    with pytest.raises(ValueError, match="SHA-256"):
+        check_persona_sha256s({1: "bad"}, {1})
+
+    base = run.model_dump(mode="python")
+    for field_override, pattern in (
+        ({"agent_ids": [True]}, "positive integers"),
+        ({"agent_ids": []}, "positive integers"),
+        ({"agent_ids": [1, 1], "persona_sha256s": {1: _SHA_A}}, "positive integers"),
+        ({"git_commit": "a" * 40, "git_dirty": None}, "both be recorded"),
+    ):
+        with pytest.raises(ValidationError, match=pattern):
+            RunIdentity.model_validate({**base, **field_override})

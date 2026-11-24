@@ -24,12 +24,20 @@ def _sha(value) -> bool:
     return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
 
 
+def _persona_sha256s(value) -> bool:
+    """@brief 检查候选中的多人物人设 SHA-256 映射。"""
+    return (isinstance(value, dict) and bool(value)
+            and all(isinstance(key, str) and key.isascii() and key.isdigit()
+                    and int(key) > 0 and str(int(key)) == key and _sha(digest)
+                    for key, digest in value.items()))
+
+
 def _candidate(path: Path) -> dict:
     """@brief 读取完整摘要，拒绝旧格式、缺失身份及部分摘要。"""
     candidate = json.loads(path.read_text(encoding="utf-8"))
     valid = (isinstance(candidate, dict) and set(candidate) == {
-        "persona_sha256", "config_sha256", "environment_identity", "seed", "summary"}
-        and _sha(candidate["persona_sha256"]) and _sha(candidate["config_sha256"])
+        "persona_sha256s", "config_sha256", "environment_identity", "seed", "summary"}
+        and _persona_sha256s(candidate["persona_sha256s"]) and _sha(candidate["config_sha256"])
         and type(candidate["seed"]) is int and _environment_identity(candidate["environment_identity"]))
     summary = candidate.get("summary") if isinstance(candidate, dict) else None
     valid = valid and isinstance(summary, dict) and set(summary) == {

@@ -73,13 +73,13 @@ def test_app_touch_is_only_a_callback_footprint_and_the_automatic_touches_are_re
 
 
 @pytest.mark.parametrize("app_id", ["meituan", None])
-def test_query_snapshot_is_admitted_by_every_downstream_projection(app_id):
-    """种类为 query 的快照经 app 使用投影（受理与进度两处种类闭集）、活动重建和已核验经历投影都不被拒：带 app 的查询
-    恰一行 app_use，区间等于执行区间；没有 app 的查询没有 app 使用的行；查询没有已核验经历。"""
+def test_search_snapshot_is_admitted_by_every_downstream_projection(app_id):
+    """种类为 search 的快照经 app 使用投影（受理与进度两处种类闭集）、活动重建和已核验经历投影都不被拒：带 app 的搜索
+    恰一行 app_use，区间等于执行区间；没有 app 的搜索没有 app 使用的行；搜索没有已核验经历。"""
     from worldmock.recording_engine.export.export import reconstruct_activities
-    query = {**_activity("query"), "data": {"action": "query", "app_id": app_id}}
-    events = [_event(1, "action_accepted", {"activity": query}),
-              _event(2, "activity_progress", {"activity": {**query, "elapsed_seconds": 10}, "interval_start": 100,
+    search = {**_activity("search"), "data": {"action": "search", "query": "咖啡", "app_id": app_id}}
+    events = [_event(1, "action_accepted", {"activity": search}),
+              _event(2, "activity_progress", {"activity": {**search, "elapsed_seconds": 10}, "interval_start": 100,
                                                "interval_end": 110}, at=110)]
     events = [event.model_copy(update={"activity_id": "activity"}) for event in events]
     segments = [{"started_at": 100, "ended_at": 110}]
@@ -87,7 +87,7 @@ def test_query_snapshot_is_admitted_by_every_downstream_projection(app_id):
                  "source_event_id": "event-2", "status": "active", "segments": segments}] if app_id else []
     assert project_app_usage([event.model_dump() for event in events]) == expected
     [record] = reconstruct_activities(events)
-    assert (record["activity_type"], record["data"], record["segments"]) == ("query", query["data"], segments)
+    assert (record["activity_type"], record["data"], record["segments"]) == ("search", search["data"], segments)
     assert project_verified_experiences(events, agent_id=1, cutoff_seq=2) == []
 
 
@@ -259,7 +259,7 @@ def test_wake_categories_count_each_category_once_per_real_boundary():
     from worldmock.recording_engine.reports.quality import _decision_rhythm_quality
     boundary = _event(1, "environment_event", {"kind": "body_settlement", "decision_offered": True,
                       "wake_reasons": ["planned_end", "session_open", "reminder_due", "app_push"]})
-    started = _event(2, "decision_started", {"round_id": "round", "round_order": 0,
+    started = _event(2, "decision_started", {"wakeup_id": "wakeup",
                      "world_state_version": 1, "wake_reasons": ["planned_end", "session_open"]})
     result = _decision_rhythm_quality([boundary, started])
     assert result["wake_category_counts"] == {"reminder_due": 1, "time_boundary": 1}

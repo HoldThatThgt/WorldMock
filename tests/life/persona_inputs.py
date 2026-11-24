@@ -1,4 +1,4 @@
-"""在冻结环境副本的 persona.toml 里改人设表的字段，以及不落盘的人设表副本。"""
+"""在冻结环境副本的 personas/ 下改人设表的字段，以及不落盘的人设表副本。"""
 
 import tomllib
 from pathlib import Path
@@ -21,9 +21,9 @@ REQUIRED_PERSONA_FIELDS = (
 )
 
 
-def edit_persona(root: Path, mutate) -> Path:
-    """用 mutate(document) 改环境副本的人设表（tomlkit 文档，保留 LF 与表结构），返回 persona.toml 的路径。"""
-    path = Path(root) / "persona.toml"
+def edit_persona(root: Path, mutate, filename: str = "persona_1.toml") -> Path:
+    """用 mutate(document) 改环境副本的人设表（tomlkit 文档，保留 LF 与表结构），返回人设文件的路径。"""
+    path = Path(root) / "personas" / filename
     document = tomlkit.parse(path.read_text(encoding="utf-8"))
     mutate(document)
     path.write_bytes(tomlkit.dumps(document).encode("utf-8"))
@@ -53,7 +53,7 @@ def drop_field(document, dotted: str) -> None:
 
 def persona_document(**values) -> dict:
     """夹具人设表的普通字典副本，顶层字段按 values 替换，值为 None 表示删掉这个键。"""
-    document = tomllib.loads((ENVIRONMENT_ROOT / "persona.toml").read_text(encoding="utf-8"))
+    document = tomllib.loads((ENVIRONMENT_ROOT / "personas" / "persona_1.toml").read_text(encoding="utf-8"))
     for name, value in values.items():
         if value is None:
             document.pop(name, None)

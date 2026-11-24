@@ -49,6 +49,8 @@ MANIFEST_MASKS = frozenset({
     "code_sha256", "git_commit", "git_dirty",
     "model_identity.base_url", "stage_model_identity.base_url", "stage_model_identity.metadata_url",
     "stage_model_identity.model_metadata.metadata_url", "model_metadata.metadata_url",
+    "model_identity.profiles.*.base_url", "model_identity.profiles.*.metadata_url",
+    "model_identity.profiles.*.model_metadata.metadata_url",
     "lineage[].last_recorded_at", "lineage[].branched_at",
     "lineage[].last_event_seq", "lineage[].last_event_time", "lineage[].discarded_events", "lineage[].end_reason",
     "lineage[].end_error",
@@ -480,7 +482,7 @@ class NormalizeContext:
     digests: Digests  #: 两侧摘要映射
     rules: tuple[AppliedRule, ...]  #: 启用的规则
     requests: dict[str, dict]  #: 头一侧按事件身份暂存的 model_request 请求，等到其响应
-    urls: tuple[str, str] = ("", "")  #: 这一侧运行清单的 base_url 与 metadata_url
+    urls: tuple[str, ...] = ()  #: 这一侧运行清单的全部模型服务 base_url 与 metadata_url
     code_sha256: str | None = None  #: 这一侧最后一段清单的代码摘要
     masks: dict[str, Counter] = field(default_factory=dict)  #: 每种记录里每条屏蔽路径生效的次数
 
@@ -542,11 +544,23 @@ def leaf_diff(base: object, head: object, limit: int | None = PATH_LIMIT) -> lis
     return paths
 
 
+_PROFILE_SEGMENT = re.compile(r"\.profiles\.[^.]+\.")
+
+
+def _masked_path(path: str, paths: frozenset[str]) -> str | None:
+    """@brief 返回生效的屏蔽声明路径：精确路径或 profiles 通配路径。"""
+    if path in paths:
+        return path
+    wildcard = _PROFILE_SEGMENT.sub(".profiles.*.", path)
+    return wildcard if wildcard != path and wildcard in paths else None
+
+
 def mask_paths(value: object, paths: frozenset[str], path: str = "", counts: Counter | None = None) -> object:
     """@brief 只在精确路径上屏蔽：值换成 MASK，键保留；counts 记每条路径生效的次数。"""
-    if path in paths:
+    matched = _masked_path(path, paths)
+    if matched is not None:
         if counts is not None:
-            counts[path] += 1
+            counts[matched] += 1
         return MASK
     if isinstance(value, dict):
         return {key: mask_paths(item, paths, f"{path}.{key}" if path else key, counts) for key, item in value.items()}
@@ -664,13 +678,13 @@ def normalize_asset(content: bytes, reference: dict, context: NormalizeContext) 
     return content
 
 
-def _config_content(content: bytes, urls: tuple[str, str]) -> bytes:
-    """@brief config.toml 里这一侧的两个带引号的模型地址各恰好一次，换成 "<model-url>"。"""
+def _config_content(content: bytes, urls: tuple[str, ...]) -> bytes:
+    """@brief config.toml 里这一侧的全部模型地址各替换成 "<model-url>"。"""
     text = content.decode("utf-8")
-    for url in urls:
+    for url in sorted(dict.fromkeys(urls), key=len, reverse=True):
         quoted = json.dumps(url)
-        if text.count(quoted) != 1:
-            _refuse("Frozen config.toml must contain each model URL exactly once")
+        if text.count(quoted) < 1:
+            _refuse("Frozen config.toml must contain each model URL")
         text = text.replace(quoted, '"<model-url>"')
     return text.encode("utf-8")
 
@@ -1525,10 +1539,16 @@ def _resolve_cutoff(base: Side, head: Side, requested: int | None) -> tuple[int,
     return lasts["base"], []
 
 
-def _model_urls(chain: Chain) -> tuple[str, str]:
-    """@brief 一侧最后一段清单冻结的 base_url 与 metadata_url。"""
-    identity = chain.manifests[-1].get("stage_model_identity") or {}
-    return identity.get("base_url", ""), identity.get("metadata_url", "")
+def _model_urls(chain: Chain) -> tuple[str, ...]:
+    """@brief 一侧最后一段清单冻结的全部模型服务 base_url 与 metadata_url。"""
+    manifest = chain.manifests[-1]
+    model_identity = manifest.get("model_identity")
+    if isinstance(model_identity, dict) and isinstance(model_identity.get("profiles"), dict):
+        urls = [url for profile in model_identity["profiles"].values() if isinstance(profile, dict)
+                for url in (profile.get("base_url", ""), profile.get("metadata_url", "")) if url]
+        return tuple(dict.fromkeys(urls))
+    identity = manifest.get("stage_model_identity") or {}
+    return tuple(url for url in (identity.get("base_url", ""), identity.get("metadata_url", "")) if url)
 
 
 def _contexts(base: Side, head: Side, ids: IdMaps, rules: tuple[AppliedRule, ...]) -> dict[str, NormalizeContext]:

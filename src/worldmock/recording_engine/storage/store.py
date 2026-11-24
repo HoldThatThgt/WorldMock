@@ -324,14 +324,14 @@ class FootprintStore:
     def last_agent_action_request_seq(self, agent_id: int) -> int:
         """@brief 最近一次行动请求的事件序号（没有时为 0）。
 
-        行动请求的唯一判定（docs/design/06-agent.md「宿主模型协议」）：不带 purpose、thinking 开启、
-        原生 tools 含 start_main_activity 的 model_request；零点计划与工作评审都不算。不读提示文本。
+        行动请求的唯一判定（docs/design/06-agent.md「宿主模型协议」）：不带 purpose、tool_choice 为 auto、
+        原生 tools 含 start_main_activity 的 model_request；检索子会话、零点计划、回顾与截断重试均不算。不读提示文本。
         """
         row = self.connection.execute("""
             SELECT max(event_seq) FROM events WHERE json_extract(body,'$.agent_id')=?
             AND json_extract(body,'$.event_type')='model_request'
             AND json_extract(body,'$.data.purpose') IS NULL
-            AND json_extract(body,'$.data.request.extra_body.thinking.type')='enabled'
+            AND json_extract(body,'$.data.request.tool_choice')='auto'
             AND EXISTS (SELECT 1 FROM json_each(body,'$.data.request.tools')
                         WHERE json_extract(value,'$.function.name')='start_main_activity')
         """, (agent_id,)).fetchone()
@@ -507,16 +507,16 @@ class FootprintStore:
             (agent_id, after, action_id)).fetchone()
         return row[0] if row is not None else None
 
-    def read_decision_observations(self, agent_id: int, decision_id: str, observed_at: int) -> list[Event]:
-        """@brief 只解码人物、决策和发生时刻精确匹配的观察，保留全部匹配记录供唯一性复核。
+    def read_wakeup_observations(self, agent_id: int, wakeup_id: str, observed_at: int) -> list[Event]:
+        """@brief 只解码人物、唤醒和发生时刻精确匹配的观察，保留全部匹配记录供步尾唯一性复核。
 
         发生时刻随序号单调，匹配的观察都在 observed_at 之前最后一个事件之后；沿人物与类型索引只读这一段，不扫描更早的历史。
         """
         rows = self.connection.execute("""
             SELECT body FROM events WHERE json_extract(body,'$.agent_id')=?
             AND json_extract(body,'$.event_type')='observation' AND event_seq>?
-            AND json_extract(body,'$.decision_id')=? AND json_extract(body,'$.occurred_at')=? ORDER BY event_seq
-        """, (agent_id, self.last_event_seq_before(observed_at), decision_id, observed_at))
+            AND json_extract(body,'$.wakeup_id')=? AND json_extract(body,'$.occurred_at')=? ORDER BY event_seq
+        """, (agent_id, self.last_event_seq_before(observed_at), wakeup_id, observed_at))
         return [self._decode(row[0]) for row in rows]
 
     def read_recent_experience_sources(self, agent_id: int, before_seq: int, limit: int) -> list[Event]:

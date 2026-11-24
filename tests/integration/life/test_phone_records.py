@@ -9,7 +9,6 @@ from tests.life.conftest import (
     advance_next,
     advance_until_ready,
     conclude_request,
-    context,
     do_at,
     purchase,
     sleep,
@@ -168,10 +167,11 @@ def test_shipping_notice_gives_no_decision_opportunity_and_no_new_wake_reason(en
     at_shipping = [row.data.get("kind") for row in events(engine, "environment_event") if row.occurred_at == SHIPPED]
     assert sorted(at_shipping) == ["body_settlement", "order_notification"]
     reach(engine, DELIVERED)
-    started = [row for row in events(engine, "decision_started")]
-    assert {reason for row in started for reason in row.data["wake_reasons"]} <= {
+    observations = [row for row in events(engine, "observation")]
+    assert ({reason for row in observations for reason in row.data["wake_reasons"]}
+            | set(engine.context.state.agents[1].pending_wake_reasons)) <= {
         "session_open", "planned_end", "delivery_arrival", "no_active_activity", "progress_report_due"}
-    assert not [row for row in started if PAID < row.occurred_at < DELIVERED]
+    assert not [row for row in observations if PAID < row.occurred_at < DELIVERED]
 
 
 def test_shipping_and_delivery_notices_are_written_while_the_person_sleeps_without_waking(engine_factory, tmp_path):
@@ -192,7 +192,7 @@ def test_shipping_and_delivery_notices_are_written_while_the_person_sleeps_witho
                                                                   (order.expected_at, "订单已送达")]
     assert engine.context.state.deliveries[order.order_id].status == "delivered"
     assert offered(engine, shipped) == [False] and offered(engine, order.expected_at) == [False]
-    assert not [row for row in events(engine, "decision_started") if paid < row.occurred_at < woke]
+    assert not [row for row in events(engine, "observation") if paid < row.occurred_at < woke]
     assert engine.context.state.activities[nap.activity_id].ended_at == woke
 
 
@@ -384,7 +384,8 @@ def test_arrival_at_the_run_cutoff_still_enters_the_destination(engine_factory, 
 
 def user_prompt(engine, label):
     """这一刻人物会看到的两条消息：系统层与六个用户层，取自一次真实观察。"""
-    observed = engine.observe(context(engine, label))
+    del label
+    observed = engine.observations.build_wakeup_observation(engine.context.state.agents[1])[0]
     layers = life_user_layers(observed, {"layer": "人设层"})
     return system_message()["content"], user_message(layers)["content"], observed
 
@@ -393,7 +394,7 @@ def test_phone_records_never_reach_any_prompt_layer(engine_factory, tmp_path):
     engine, bought, order_id = coffee(engine_factory, tmp_path, "alipay")
     reach(engine, PAID)
     # 下单 app 的名称作为购买结果的事实（channel）出现在收尾之前那条带入的购买记录里。
-    paid = engine.observe(context(engine, "before-conclusion"))
+    paid = engine.observations.build_wakeup_observation(engine.context.state.agents[1])[0]
     purchases = [row for record in paid["progress_layer"]["events"] if record.get("tool") == "start_side_activity"
                  for row in record["result"]["details"]["purchases"]]
     assert [(row["product"], row["channel"]) for row in purchases] == [("冰美式", "瑞幸咖啡")]

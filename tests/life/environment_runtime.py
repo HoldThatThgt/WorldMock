@@ -2,35 +2,53 @@
 
 from datetime import timedelta
 
-from tests.life.conftest import advance_next, conclude_request, context, report_request, sleep, tool_of, travel
-from worldmock.state.decisions.round import DirectToolCall
+from tests.life.conftest import action_identity, advance_next, advance_next_async, conclude_request, report_request, sleep, tool_of, travel
+from worldmock.state.decisions.barrier import SearchSessionOutcome
+from worldmock.state.decisions.suspended import SuspendedLoopState
+
+
+def _suspended_for(wakeup, action_id: str, payload: dict) -> SuspendedLoopState:
+    """@brief 为测试挂起分支构造确定性 SuspendedLoopState。"""
+    return SuspendedLoopState(
+        wakeup_id=wakeup.wakeup_id, action_id=action_id, activity_id=payload["activity_id"],
+        pending_tool_call_id="call-1", messages=(), turn_used=1, memory_search_count=0,
+        accepted_action_ids=(action_id,), pending_memories=(), verified_experiences=(),
+        local_rejection_counts={}, observation_event_id=wakeup.observation["observation_event_id"],
+        observation_parts=dict(wakeup.observation_parts), suspended_at=wakeup.observed_at,
+        base_layers=(),
+    )
 
 
 def act(engine, label, request, tool=None, action_id=None):
     """从当前观察登记一项真实请求并原子结算；工具名缺省由请求模型给出。"""
-    decision = context(engine, label)
-    engine.begin_decision_round([decision])
-    observed = engine.observe(decision)
-    identity = action_id or f"{decision.decision_id}:action:0001"
-    engine.submit_action(DirectToolCall(decision, identity, tool or tool_of(request), request))
-    return observed, engine.commit_decision_round(label)[0]
+    [wakeup] = engine.prepare_barrier((1,))
+    sandbox = engine.open_sandbox(wakeup)
+    identity = action_id or action_identity(label, 1, wakeup.agent_id)
+    res = sandbox.dispatch_world_tool(tool or tool_of(request), request, identity)
+    suspended = _suspended_for(wakeup, identity, res.tool_message_payload) if res.suspended else None
+    outcome = sandbox.finish_wakeup(suspended)
+    engine.commit_barrier([outcome])
+    return wakeup.observation, action_result(engine, identity)
 
 
 def act_group(engine, label, *requests):
-    """同一决策里按给定先后登记一个开始组（两个开始工具各一条）并整组结算。
+    """同一唤醒里按给定先后在沙盒登记多条请求并整组原子提交。"""
+    from worldmock.state.interaction.actions import START_TOOLS
 
-    返回观察与各动作的最终存档结果（按登记次序）；两条结果都已落库。
-    """
-    decision = context(engine, label)
-    engine.begin_decision_round([decision])
-    observed = engine.observe(decision)
-    identities = [f"{decision.decision_id}:action:{index:04d}" for index, _ in enumerate(requests, start=1)]
-    for identity, request in zip(identities, requests, strict=True):
-        engine.submit_action(DirectToolCall(decision, identity, tool_of(request), request))
-    returned = engine.commit_decision_round(label)
-    assert [item.action_id for item in returned] == identities
-    results = [action_result(engine, identity) for identity in identities]
-    return observed, results
+    [wakeup] = engine.prepare_barrier((1,))
+    sandbox = engine.open_sandbox(wakeup)
+    identities = [action_identity(label, index, wakeup.agent_id) for index, _ in enumerate(requests, start=1)]
+    if len(requests) == 2 and {tool_of(request) for request in requests} == set(START_TOOLS):
+        sandbox._dispatch_start_group([
+            (tool_of(request), request, identity, None)
+            for identity, request in zip(identities, requests, strict=True)
+        ])
+    else:
+        for identity, request in zip(identities, requests, strict=True):
+            sandbox.dispatch_world_tool(tool_of(request), request, identity)
+    outcome = sandbox.finish_wakeup(None)
+    engine.commit_barrier([outcome])
+    return wakeup.observation, [action_result(engine, identity) for identity in identities]
 
 
 def action_result(engine, action_id):
@@ -58,15 +76,30 @@ def settle_decision(engine, label):
     if active:
         return act(engine, label, report_request(*active), "report_status")
     person = state.agents[1]
-    home = engine.context.catalog.locations[engine.context.inputs.home_location_id].display_name
-    at_home = person.location_id == engine.context.inputs.home_location_id
+    home = engine.context.catalog.locations[engine.context.inputs.home_location_ids[1]].display_name
+    at_home = person.location_id == engine.context.inputs.home_location_ids[1]
     return act(engine, label, sleep() if at_home else travel(home))
+
+
+def _settle_due_searches(engine) -> bool:
+    """若有到期搜索活动，提交零结果搜索完成以释放副槽位。"""
+    due = engine.due_searches()
+    if not due:
+        return False
+    engine.complete_searches([
+        SearchSessionOutcome(action_id=task.action_id, agent_id=task.agent_id,
+                             activity_id=task.activity_id, goods_ids=(), place_ids=(), summary="测试完成")
+        for task, _ in due
+    ])
+    return True
 
 
 def reach(engine, target):
     """逐边界推进并处理实际决策机会，不跳过付款或内容边界。"""
     counter = 0
     while engine.context.state.current_time < target:
+        if _settle_due_searches(engine):
+            continue
         if engine.scheduling_state().ready_agent_ids:
             counter += 1
             settle_decision(engine, f"reach-report-{counter}-{engine.context.state.current_time}")
@@ -81,6 +114,8 @@ def finish_activity(engine, result, label):
     """推进原始活动到真实终局，再按本人活动名称收尾。"""
     identity = result.activity_id
     while engine.context.state.activities[identity].status == "active":
+        if _settle_due_searches(engine):
+            continue
         if engine.scheduling_state().ready_agent_ids:
             settle_decision(engine, f"{label}-report-{engine.context.state.current_time}")
         else:
@@ -91,18 +126,36 @@ def finish_activity(engine, result, label):
     return current
 
 
+def _step_to_end(engine, counter: int) -> bool:
+    """@brief 处理当前时刻的到期搜索或就绪决策，需要推进时间边界时返回 False。"""
+    assert counter < 2000
+    if _settle_due_searches(engine):
+        return True
+    if engine.scheduling_state().ready_agent_ids:
+        _, result = settle_decision(engine, f"finish-{counter}")
+        assert result.status in {"in_progress", "completed"}, result.error_code
+        return True
+    assert engine.scheduling_state().next_event_at is not None
+    return False
+
+
 def run_to_end(engine):
     """一直处理真实活动和决策，直到运行正常截止。"""
     counter = 0
     while engine.context.state.current_time < engine.context.state.end_time:
         counter += 1
-        assert counter < 2000
-        if engine.scheduling_state().ready_agent_ids:
-            _, result = settle_decision(engine, f"finish-{counter}")
-            assert result.status in {"in_progress", "completed"}, result.error_code
-        else:
-            assert engine.scheduling_state().next_event_at is not None
+        if not _step_to_end(engine, counter):
             advance_next(engine)
+    return events(engine)
+
+
+async def run_to_end_async(engine):
+    """@brief 异步一直处理真实活动与零点后台任务，直到运行正常截止。"""
+    counter = 0
+    while engine.context.state.current_time < engine.context.state.end_time:
+        counter += 1
+        if not _step_to_end(engine, counter):
+            await advance_next_async(engine)
     return events(engine)
 
 
@@ -145,14 +198,15 @@ def conclude_app_use(engine, activity_id, label, items=1):
     return act(engine, f"{label}-conclude", conclude_request(activity.name, *others), "conclude_activity")[1]
 
 
-def observe_only(engine, label):
-    """人物此刻的一次观察（只读，不登记请求）；轮次身份带上此刻，同一标签可以在不同时刻重复使用。"""
-    return engine.observe(context(engine, f"{label}-{engine.context.state.current_time}"))
+def observe_only(engine, label=None):
+    """人物此刻的一次只读观察（不写任何事件）。"""
+    obs = engine.observations.build_wakeup_observation(engine.context.state.agents[1])[0]
+    obs.setdefault("observation_event_id", f"readonly-{label or 'obs'}")
+    return obs
 
 
 def check_every_step(monkeypatch, engine, check) -> None:
-    """在引擎实例上包住 commit_decision_round、advance 与 decide_midnight_rhythm：调用原方法之后（零点判定未完成时除外）
-    执行 check(engine, origins)；origins 是最近一次 advance 调用之前进行中或暂停活动的 origin_action_id 集合。"""
+    """在引擎实例上包住 commit_barrier、advance 与 decide_midnight_rhythm。"""
     origins = [frozenset()]
 
     def wrapped(name):
@@ -170,7 +224,7 @@ def check_every_step(monkeypatch, engine, check) -> None:
 
         return step
 
-    for name in ("commit_decision_round", "advance", "decide_midnight_rhythm"):
+    for name in ("commit_barrier", "advance", "decide_midnight_rhythm"):
         monkeypatch.setattr(engine, name, wrapped(name))
 
 

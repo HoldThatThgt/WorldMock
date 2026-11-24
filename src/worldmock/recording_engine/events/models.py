@@ -38,7 +38,7 @@ WAKE_REASONS_FIELD = "wake_reasons"
 
 
 #: decision_started.data 的闭集（docs/design/06-agent.md「宿主模型协议」）。
-DECISION_STARTED_FIELDS = frozenset({"round_id", "round_order", "world_state_version", WAKE_REASONS_FIELD})
+DECISION_STARTED_FIELDS = frozenset({"wakeup_id", "world_state_version", WAKE_REASONS_FIELD})
 
 #: 已退役的决策自述名（decision_started 字段与清单阶段键）：带它的事件与清单以英文错误拒绝。
 RETIRED_DECISION_STATEMENT = "decision_statement"
@@ -92,7 +92,7 @@ def validate_decision_rhythm(data: dict[str, Any]) -> None:
 
 
 def validate_decision_started(data: dict[str, Any]) -> None:
-    """@brief 校验 decision_started.data 恰为闭集 {round_id, round_order, world_state_version, wake_reasons}。
+    """@brief 校验 decision_started.data 恰为闭集 {wakeup_id, world_state_version, wake_reasons}。
 
     :param data: decision_started 事件的 data 字典。
     :raises ValueError: 带退役的决策自述字段，或键集与闭集不符时 fail-closed。
@@ -102,8 +102,7 @@ def validate_decision_started(data: dict[str, Any]) -> None:
         raise ValueError(f"decision_started.data carries the retired field {RETIRED_DECISION_STATEMENT}")
     if set(data) != DECISION_STARTED_FIELDS:
         logging.error("decision_started data keys are outside the closed set: %s", sorted(data))
-        raise ValueError("decision_started.data must be exactly round_id, round_order, world_state_version, "
-                         "wake_reasons")
+        raise ValueError("decision_started.data must be exactly wakeup_id, world_state_version, wake_reasons")
 
 
 
@@ -141,7 +140,7 @@ class EventDraft(BaseModel):
     event_type: EventType
     occurred_at: int
     agent_id: int | None = None
-    decision_id: str | None = None
+    wakeup_id: str | None = None
     action_id: str | None = None
     activity_id: str | None = None
     caused_by: list[str] = Field(default_factory=list)
@@ -161,6 +160,8 @@ class EventDraft(BaseModel):
             raise ValueError("Event data carries retired resource_changes")
         if self.event_type == "decision_started":
             validate_decision_started(self.data)
+            if type(self) is EventDraft:
+                validate_decision_rhythm(self.data)
         if self.event_type == "environment_event":
             from worldmock.recording_engine.events.environment_events import validate_environment_event
 

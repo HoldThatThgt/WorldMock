@@ -31,7 +31,7 @@ from worldmock.simulation_engine.observation.wording.settled_text import (
 from worldmock.agents.prompt import prompt_capacity
 from worldmock.foundation.errors import IntegrityError
 from worldmock.simulation_engine.observation.layers.progress_layer import progress_view, tool_call_record
-from worldmock.simulation_engine.observation.memory.entries import AgentEvents, Decision
+from worldmock.simulation_engine.observation.memory.entries import AgentEvents, WakeupCommit
 from worldmock.state.interaction import control_items
 
 
@@ -45,7 +45,7 @@ def inputs():
 
 def layer_context(inputs, state=None):
     return SimpleNamespace(inputs=inputs, config=inputs.config, catalog=inputs.catalog,
-                           persona=inputs.persona, state=state or world(), agent_id=1,
+                           persona=inputs.persona_by_id[1], state=state or world(), agent_id=1,
                            names={"activities": {}})
 
 
@@ -134,11 +134,11 @@ def test_step_tail_write_points_are_only_registered_conclusions():
     assert memory_write_points([], "decision", False) == []
     item = {"activity_name": "休息", "summary": "收尾。", "views": [],
             "memories": [{"type": "routine", "text": "歇好了。", "importance": 0.3, "keywords": []}]}
-    concluded = SimpleNamespace(decision_id="decision", data={
+    concluded = SimpleNamespace(wakeup_id="wakeup", data={
         "tool_name": "conclude_activity", "request": {"items": [item], "errands": []}})
-    assert memory_write_points([concluded], "decision", True) == ["activity_conclusion"]
+    assert memory_write_points([concluded], "wakeup", True) == ["activity_conclusion"]
     with pytest.raises(ProtocolError, match="no registered write point"):
-        memory_write_points([concluded], "another-decision", True)
+        memory_write_points([concluded], "another-wakeup", True)
 
 
 def test_partial_content_requires_real_positive_progress():
@@ -252,7 +252,7 @@ def test_rejected_today_counts_only_evidence_from_local_midnight_to_now(tmp_path
     def rejected(moment: int, code: str) -> EventDraft:
         item = {"path": ["tool_calls", 0, "arguments", code], "written": code, "why": code}
         return EventDraft(event_type="action_rejected", occurred_at=moment, agent_id=1,
-                          decision_id=f"decision-{code}", action_id=f"action-{code}",
+                          wakeup_id=f"wakeup-{code}", action_id=f"action-{code}",
                           data={"error_code": code, "reason": code, "items": [item]})
 
     moments = {"YESTERDAY": midnight - 1, "MIDNIGHT": midnight, "MORNING": midnight + 7 * 3600, "NOW": now,
@@ -281,31 +281,31 @@ def test_world_records_take_facts_after_the_published_bound_and_notices_after_th
     assert kinds((0, 7)) == ["errand_completed"]
 
 
-class _DecisionStore:
-    """上一次决策的假存储：最后一个事件序号与这次决策读到的观察。"""
+class _WakeupStore:
+    """上一次唤醒的假存储：最后一个事件序号与这次唤醒读到的观察。"""
 
     last_event_seq = 9
 
     def __init__(self, observations):
         self.observations = observations
 
-    def read_decision_observations(self, agent_id, decision_id, observed_at):
-        assert (agent_id, decision_id, observed_at) == (1, "decision-x", 100)
+    def read_wakeup_observations(self, agent_id, wakeup_id, observed_at):
+        assert (agent_id, wakeup_id, observed_at) == (1, "wakeup-x", 100)
         return self.observations
 
 
 def test_a_previous_decision_without_its_observation_is_an_integrity_fault(monkeypatch, caplog):
-    """有上一次决策而读不到它的观察是完整性故障；没有决策时为 None；有两条观察时取序号大的一条与决策时刻。"""
-    decisions = [(Decision("decision-x", 100, 7),)]
-    monkeypatch.setattr(progress_layer, "decision_commits", lambda store, cached, cutoff: decisions[0])
-    with pytest.raises(IntegrityError, match="^Previous decision has no observation$"):
-        progress_layer._previous_decision(_DecisionStore([]), AgentEvents(), 1)
-    assert "Previous decision decision-x has no observation" in caplog.text
-    decisions[0] = ()
-    assert progress_layer._previous_decision(_DecisionStore([]), AgentEvents(), 1) is None
-    decisions[0] = (Decision("decision-x", 100, 7),)
+    """有上一次唤醒而读不到它的观察是完整性故障；没有唤醒时为 None；有两条观察时取序号大的一条与唤醒时刻。"""
+    commits = [(WakeupCommit("wakeup-x", "1970-01-01", 100, 7),)]
+    monkeypatch.setattr(progress_layer, "wakeup_commits", lambda store, cached, cutoff, tz: commits[0])
+    with pytest.raises(IntegrityError, match="^Previous wakeup has no observation$"):
+        progress_layer._previous_decision(_WakeupStore([]), AgentEvents(), 1, "Asia/Shanghai")
+    assert "Previous wakeup wakeup-x has no observation" in caplog.text
+    commits[0] = ()
+    assert progress_layer._previous_decision(_WakeupStore([]), AgentEvents(), 1, "Asia/Shanghai") is None
+    commits[0] = (WakeupCommit("wakeup-x", "1970-01-01", 100, 7),)
     observed = [SimpleNamespace(event_seq=3), SimpleNamespace(event_seq=5)]
-    assert progress_layer._previous_decision(_DecisionStore(observed), AgentEvents(), 1) == \
+    assert progress_layer._previous_decision(_WakeupStore(observed), AgentEvents(), 1, "Asia/Shanghai") == \
         progress_layer._PreviousDecision(5, 100)
 
 

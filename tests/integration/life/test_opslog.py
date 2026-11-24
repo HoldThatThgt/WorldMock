@@ -6,26 +6,10 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from worldmock.recording_engine.events.memory_evidence import MemoryUpdateEvidence
-from worldmock.state.decisions.round import DirectToolCall
-from worldmock.state.model.exchange import ModelCallEvidence
-
-from tests.life.conftest import (
-    action_identity,
-    advance_until_ready,
-    conclude_request,
-    context,
-    pending_names,
-    purchase,
-    query,
-    stage_day_plan,
-    submit_round,
-    travel,
-    use_app,
-)
+from tests.life.conftest import action_identity, purchase, search_world, stage_day_plan, travel, use_app
 from tests.life.environment_runtime import act, act_group
-from worldmock.simulation_engine.engine import LifeEngine
 from worldmock.recording_engine.storage.opslog import OPS_COMPONENTS, OPS_LEVELS, OpsLogger
+from worldmock.simulation_engine.engine import LifeEngine
 
 
 def _records(engine: LifeEngine) -> list[dict]:
@@ -39,8 +23,8 @@ def test_opslog_writer_emits_complete_fields(tmp_path: Path) -> None:
     """一条记录包含全部固定字段、非空关联键，且 None 键不落盘。"""
     day1 = int(datetime(2026, 1, 4, 16, 30, tzinfo=timezone.utc).timestamp())
     writer = OpsLogger(tmp_path, "Asia/Shanghai")
-    writer.log(day1, "engine", "info", {"code": "DECISION_ROUND_COMMITTED", "detail": "Round committed",
-               "agent_id": 1, "decision_id": "decision-x", "round_id": "ops", "action_id": "a-1",
+    writer.log(day1, "engine", "info", {"code": "BARRIER_COMMITTED", "detail": "Barrier committed",
+               "agent_id": 1, "wakeup_id": "wakeup-x", "action_id": "a-1",
                "event_seq_first": 3, "event_seq_last": 9, "tokens_in": 11, "tokens_out": 7,
                "model": "deepseek-flash", "omitted_key": None})
     writer.close()
@@ -50,10 +34,9 @@ def test_opslog_writer_emits_complete_fields(tmp_path: Path) -> None:
     assert record["sim_time"] == "2026-01-05T00:30:00+08:00"
     assert record["component"] == "engine" and record["component"] in OPS_COMPONENTS
     assert record["level"] == "info" and record["level"] in OPS_LEVELS
-    assert record["code"] == "DECISION_ROUND_COMMITTED"
-    assert record["detail"] == "Round committed"
-    assert record["agent_id"] == 1 and record["decision_id"] == "decision-x"
-    assert record["round_id"] == "ops" and record["action_id"] == "a-1"
+    assert record["code"] == "BARRIER_COMMITTED"
+    assert record["detail"] == "Barrier committed"
+    assert record["agent_id"] == 1 and record["wakeup_id"] == "wakeup-x" and record["action_id"] == "a-1"
     assert record["event_seq_first"] == 3 and record["event_seq_last"] == 9
     assert record["tokens_in"] == 11 and record["tokens_out"] == 7
     assert record["model"] == "deepseek-flash" and "omitted_key" not in record
@@ -94,27 +77,21 @@ def test_opslog_writer_appends_across_instances(tmp_path: Path) -> None:
     assert [json.loads(line)["code"] for line in lines] == ["RUN_STARTED", "RUN_ENDED"]
 
 
-def test_opslog_component_follows_each_start_call(engine_factory) -> None:
-    """操作日志的组件按调用判定：出行记在 travel，购买记在 commerce，其余（这里是用内容 app 与查询）记在 engine；
-    开始组的两条动作各写一条，带各自的动作身份与工具名。"""
+def test_opslog_records_barrier_commits_for_start_and_search_wakeups(engine_factory) -> None:
+    """拒绝、开始组与搜索唤醒经 commit_barrier 提交后各写一条 BARRIER_COMMITTED，带已提交人物列表。"""
     engine = engine_factory()
+    stage_day_plan(engine)
     _, refused = act(engine, "ops-app", use_app("不存在"))
-    assert refused.status == "rejected" and refused.error_code == "ACTION_REQUEST_INVALID"
+    assert refused.status == "rejected" and refused.error_code == "NAME_NOT_FOUND"
     _, started = act_group(engine, "ops-group", travel("公司"), purchase("平台笔记本"))
     assert [item.status for item in started] == ["in_progress", "in_progress"]
-    records = [record for record in _records(engine) if record["code"] in {"ACTION_ACCEPTED", "ACTION_REJECTED"}]
-    assert [(record["code"], record["component"], record["level"], record["action_id"], record["tool_name"])
-            for record in records] == [
-        ("ACTION_REJECTED", "engine", "error", action_identity("ops-app"), "start_side_activity"),
-        ("ACTION_ACCEPTED", "travel", "info", action_identity("ops-group", 1), "start_main_activity"),
-        ("ACTION_ACCEPTED", "commerce", "info", action_identity("ops-group", 2), "start_side_activity")]
-    assert records[0]["error_code"] == "ACTION_REQUEST_INVALID"
-    assert all("error_code" not in record for record in records[1:])
-    assert {record["component"] for record in records} <= OPS_COMPONENTS
-    assert len({record["decision_id"] for record in records[1:]}) == 1
+    committed = [record for record in _records(engine) if record["code"] == "BARRIER_COMMITTED"]
+    assert len(committed) == 2
+    assert all(record["committed_agent_ids"] == [1] and record["conflict_requeued_agent_ids"] == []
+               for record in committed)
     asking = engine_factory()
-    _, asked = act(asking, "ops-query", query("柠檬茶"))
+    _, asked = act(asking, "ops-search", search_world("柠檬茶"))
     assert asked.status == "in_progress"
-    [accepted] = [record for record in _records(asking) if record["code"] == "ACTION_ACCEPTED"]
-    assert (accepted["component"], accepted["action_id"], accepted["tool_name"]) == (
-        "engine", action_identity("ops-query"), "start_side_activity")
+    assert [record["code"] for record in _records(asking) if record["code"] == "BARRIER_COMMITTED"] == [
+        "BARRIER_COMMITTED"]
+    assert action_identity("ops-search") in asking.context.state.processed_actions

@@ -27,10 +27,7 @@ def build_parser() -> argparse.ArgumentParser:
         command = commands.add_parser(name, help="run a new world" if name == "run" else "restore into a new branch")
         command.add_argument("--environment", type=Path, required=True)
         command.add_argument("--output", type=Path, required=True)
-        if name == "run":
-            # 同秒续接开关只在新建运行时给出；恢复与重放继承父清单的值，不能覆盖（第二章「同秒续接」）。
-            command.add_argument("--same-second-continuation", choices=("on", "off"), default="on")
-        else:
+        if name != "run":
             command.add_argument("--parent", type=Path, required=True)
             command.add_argument("--checkpoint", required=True)
         if name == "replay":
@@ -92,7 +89,7 @@ def _run_command(arguments) -> dict:
     try:
         if arguments.command == "run":
             identity = uuid4().hex
-            request = RunRequest(environment, output, identity, identity, arguments.same_second_continuation == "on")
+            request = RunRequest(environment, output, identity, identity)
             result = asyncio.run(run_world(request))
         else:
             request = ResumeRequest(environment, arguments.parent.resolve(), arguments.checkpoint, output)

@@ -11,7 +11,6 @@ from typing import Any
 
 from worldmock.agents.memory.life_memory_store import WorldMockMemoryStore
 from worldmock.recording_engine.events.memory_evidence import MemoryUpdateEvidence
-from worldmock.state.decisions.round import DecisionContext
 from worldmock.state.model.memory import valid_subjective_snapshot
 
 #: 记忆更新快照的四个基本字段（与 SUBJECTIVE_SNAPSHOT_FIELDS 同一组，按快照的写出次序）。
@@ -28,7 +27,7 @@ class MemoryStep:
     facts: tuple[dict[str, Any], ...]          # 本决策冻结观察的已核验经历，至多五条，已按事件序排好
     observation_event_id: str                  # 本决策冻结观察的事件身份
     memories: tuple[Mapping[str, Any], ...]    # conclude_activity 经 control_items 读出的存储形状记忆，原样
-    now: datetime                              # 本决策的观察时刻（DecisionContext.observed_at）
+    now: datetime                              # 本次唤醒的观察时刻
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,7 +109,7 @@ def _classify_episodes(
     return created, merged
 
 
-def memory_update_evidence(context: DecisionContext, store: WorldMockMemoryStore,
+def memory_update_evidence(wakeup_id: str, agent_id: int, store: WorldMockMemoryStore,
                            outcome: MemoryStepOutcome) -> MemoryUpdateEvidence | None:
     """@brief 步尾已落盘记忆的证据（docs/design/05-recording-engine.md「事件与来源」）；既没有新增或合并条目、视图也
     没有变化时返回 None（不登记）。写入前摘要原样交出：人物第一次保存时为 None。
@@ -122,7 +121,8 @@ def memory_update_evidence(context: DecisionContext, store: WorldMockMemoryStore
         return None
     snapshots = tuple(_episode_snapshot(item) for item in outcome.created_episodes + outcome.merged_episodes)
     return MemoryUpdateEvidence(
-        context=context, operation="append_episodes" if created or merged else "refresh_summary",
+        wakeup_id=wakeup_id, agent_id=agent_id,
+        operation="append_episodes" if created or merged else "refresh_summary",
         created_episode_ids=created, merged_episode_ids=merged, episodes=snapshots,
         memory_before_sha256=outcome.memory_before_sha256, memory_sha256=memory_sha256,
         episodes_sha256=_file_sha256(store.episodes_path), observation_event_id=outcome.observation_event_id,

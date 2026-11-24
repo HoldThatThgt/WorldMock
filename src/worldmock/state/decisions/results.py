@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 from worldmock.foundation.models import FrozenModel
-import re
 from typing import Any, Literal
 from pydantic import Field, model_validator
 
@@ -42,17 +41,6 @@ class CounterfactualReceipt(FrozenModel):
 
 
 
-class ActionReceipt(FrozenModel):
-    """@brief 决策阶段成功登记动作的回执。"""
-
-    action_id: str = Field(min_length=1)
-    round_id: str = Field(min_length=1)
-    decision_id: str = Field(min_length=1)
-    status: Literal["submitted"] = "submitted"
-    request_sha256: str = Field(min_length=64, max_length=64)
-
-
-
 class ActionResult(FrozenModel):
     """@brief 结算后返回给人物的权威动作结果。"""
 
@@ -64,18 +52,3 @@ class ActionResult(FrozenModel):
     error_code: str | None = None
     message: str
     data: dict[str, Any] = Field(default_factory=dict)
-
-
-
-def rejection_reason_text(error: Exception) -> str:
-    """@brief 拒绝的英文日志文本：业务错误码加完整链式底层原因，只清除十六进制身份。
-
-    只写进运行日志，不进入结果：拒绝结果的 message 与 details 取 life.guidance 生成的公开原因
-    （docs/design/04-simulation-engine.md「动作、名称与并行」），链式底层异常（骨架校验等）可能是请求模型的校验转储。
-    """
-    reason = str(error)
-    cause = error.__cause__
-    if cause is not None:
-        detail = re.sub(r"[0-9a-fA-F]{8,}", "-", " ".join(str(cause).split()))
-        reason = f"{reason}: {detail}"
-    return reason

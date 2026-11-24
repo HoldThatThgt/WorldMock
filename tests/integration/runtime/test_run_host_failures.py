@@ -1,7 +1,7 @@
 """运行宿主的故障路径：真实引擎、真实 SQLite、真实 RunHost 与真实 LifeAgent，只把模型客户端换成按脚本作答的替身。
 
-原异常直接到达宿主；只在引擎的决策轮仍开着时中止，中止原因与运行级登记都写原异常的 repr；中止或登记本身失败时
-两项异常都保留在一个异常组里；不是 Exception 的 BaseException 不中止、不登记。
+原异常直接到达宿主；失败前补写未落盘的模型与沙盒证据草稿，运行级登记写原异常的 repr；证据补写或故障登记本身失败时
+两项异常都保留在一个异常组里；不是 Exception 的 BaseException 不登记。
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ from litellm import ModelResponse
 from tests.engine_fixture import engine_factory  # noqa: F401
 from tests.integration.host_run_fixtures import _evening
 from tests.life.conftest import MAIN_TOOL, SIDE_TOOL, main_arguments, side_arguments, stage_day_plan
+from worldmock.agents.protocol.agent_loop import TURNS_EXHAUSTED
 from worldmock.configuration.model.model_client import LLMDispatchError
 from worldmock.foundation.errors import ProtocolError
 from worldmock.runtime.lifecycle.run_host import RunHost
@@ -24,17 +25,15 @@ from worldmock.runtime.monitoring.status import failure_message
 #: 人物一侧模型调用最终失败时模型客户端抛出的异常。
 MODEL_FAILURE = LLMDispatchError("Failed to get valid response after 3 attempts in 12.0 s. Last error type: "
                                  "InternalServerError. Error chain: InternalServerError <- ConnectError")
-#: 三种阶段码的固定文字（人物一侧带调用位置的故障）。
+#: 两种阶段码的固定文字（人物一侧带调用位置的故障）。
 MODEL_SERVICE_FAILED = "MODEL_SERVICE_FAILED: The model service failed before a response was available."
 TOOL_SERVICE_FAILED = "TOOL_SERVICE_FAILED: The tool service failed before a result was available."
-#: 回合上限个模型回合都没有登记世界请求时的异常文字。
-TURNS_EXHAUSTED = "ReAct decision budget exhausted without a world request"
-#: 替身每个回复都带的思考（同秒续接要求本决策的 assistant 回合都有思考）。
+#: 替身每个回复都带的思考（常规唤醒开启思考）。
 THINKING = "先想一想眼下该做什么。"
 
 
 class _Stop(BaseException):
-    """不是 Exception 的 BaseException：宿主既不中止也不登记，原样传出。"""
+    """不是 Exception 的 BaseException：宿主不登记，原样传出。"""
 
 
 def _reply(label: int, calls: list[tuple[str, dict]], content: str) -> ModelResponse:
@@ -56,7 +55,6 @@ class _Model:
     给了 midnight 时抛出它，否则当场失败。"""
 
     def __init__(self, script: list, midnight: BaseException | None = None) -> None:
-        """脚本每项是要抛出的异常，或（工具调用列表，正文）。"""
         self.script, self.midnight, self.decisions = list(script), midnight, 0
 
     async def call(self, request: dict) -> ModelResponse:
@@ -75,7 +73,7 @@ class _Model:
 
 
 def _attach(host_factory, engine, script: list, midnight: BaseException | None = None) -> tuple[RunHost, _Model]:
-    """先预置当日计划（零点计划不在开头触发），再把真实运行宿主挂到这台引擎上，模型客户端是按脚本作答的替身。"""
+    """预置当日计划并把真实运行宿主挂到引擎上。"""
     stage_day_plan(engine, submitted=True)
     model = _Model(script, midnight)
     host = host_factory(engine, model)
@@ -84,8 +82,8 @@ def _attach(host_factory, engine, script: list, midnight: BaseException | None =
 
 
 def _two_turns(persona, config) -> None:
-    """一次决策至多两个模型回合。"""
-    config["model"]["max_react_turns"] = 2
+    """一次唤醒至多两个模型回合。"""
+    config["models"]["reasoner"]["max_react_turns"] = 2
 
 
 def _ops(engine) -> list[dict]:
@@ -111,55 +109,33 @@ def _events(engine, event_type: str) -> list[dict]:
     return [event for event in map(json.loads, _bodies(engine)) if event["event_type"] == event_type]
 
 
-def _aborts(engine) -> list[dict]:
-    """库里全部 decision_round_aborted 环境事件。"""
-    return [event for event in _events(engine, "environment_event")
-            if event["data"].get("kind") == "decision_round_aborted"]
-
-
-def _round_id(engine) -> str:
-    """最后一轮的 round_id（取自它的 decision_started）。"""
-    return _events(engine, "decision_started")[-1]["data"]["round_id"]
-
-
-def _logged(caplog, message: str) -> list[logging.LogRecord]:
-    """正文恰为 message 的 ERROR 日志记录。"""
+def _logged_prefixes(caplog, prefix: str) -> list[logging.LogRecord]:
+    """正文以 prefix 开头的 ERROR 日志记录。"""
     return [record for record in caplog.records
-            if record.getMessage() == message and record.levelno == logging.ERROR]
-
-
-def _messages(caplog) -> list[str]:
-    """捕获的全部日志正文。"""
-    return [record.getMessage() for record in caplog.records]
+            if record.getMessage().startswith(prefix) and record.levelno == logging.ERROR]
 
 
 def _host_records(caplog) -> list[logging.LogRecord]:
-    """运行宿主模块日志器写下的全部记录（人物一侧的故障宿主不另写日志，这里应为空）。"""
+    """运行宿主模块日志器写下的全部记录。"""
     return [record for record in caplog.records if record.name == "worldmock.runtime.lifecycle.run_host"]
 
 
-async def test_agent_failure_aborts_the_round_with_the_original_repr(engine_factory, host_factory, caplog):
-    """人物一侧的模型调用最终失败：宿主捕获的就是模型客户端抛出的那个对象；中止原因、运行失败与运维日志都是它的
-    repr，失败证据记模型服务的阶段码，宿主不另写日志，任何记录都没有包装文字。"""
+async def test_agent_failure_registers_run_failed_with_the_original_repr(engine_factory, host_factory, caplog):
+    """人物一侧的模型调用最终失败：宿主补写失败前模型证据草稿并写入 run_failed 与 RUN_FAILED，原样传播异常。"""
     engine = engine_factory()
     host, _ = _attach(host_factory, engine, [MODEL_FAILURE])
     with caplog.at_level(logging.ERROR), pytest.raises(LLMDispatchError) as caught:
         await host.run()
     assert caught.value is MODEL_FAILURE
-    round_id = _round_id(engine)
     assert _events(engine, "action_result") == []
-    assert [event["data"] for event in _aborts(engine)] == [
-        {"kind": "decision_round_aborted", "round_id": round_id, "error": repr(MODEL_FAILURE)}]
     assert [event["data"] for event in _events(engine, "run_failed")] == [
-        {"error_type": "RuntimeError", "error": repr(MODEL_FAILURE), "round_id": round_id}]
+        {"error_type": "RuntimeError", "error": repr(MODEL_FAILURE)}]
     failures = [event["data"] for event in _events(engine, "model_response") if event["data"].get("phase") == "failure"]
     assert [data["error"] for data in failures] == [MODEL_SERVICE_FAILED]
-    assert _ops_details(engine, "DECISION_ROUND_ABORTED") == [
-        f"Decision round aborted after 0 actions: {repr(MODEL_FAILURE)}"]
-    assert _ops_details(engine, "RUN_FAILED") == []
-    assert len(_logged(caplog, "LifeAgent decision failed for agent 1")) == 1
+    assert _ops_details(engine, "RUN_FAILED") == [f"Run failed: {repr(MODEL_FAILURE)}"]
+    assert len(_logged_prefixes(caplog, "Model service failed during model call")) == 1
+    assert len(_logged_prefixes(caplog, "LifeAgent wakeup failed for agent 1 (")) == 1
     assert _host_records(caplog) == []
-    assert not any("Decision round abort failed" in message for message in _messages(caplog))
     assert failure_message(MODEL_FAILURE) == (
         "LLMDispatchError: Failed to get valid response after 3 attempts in 12.0 s. Last error type: "
         "InternalServerError. Error chain: InternalServerError <- ConnectError")
@@ -167,154 +143,128 @@ async def test_agent_failure_aborts_the_round_with_the_original_repr(engine_fact
     assert not any("Agent decision failed: " in text for text in texts)
 
 
-async def test_registered_start_is_aborted_with_the_tool_stage_repr(engine_factory, host_factory, caplog,
-                                                                    monkeypatch):
-    """开始组的第二条登记时工具服务失败：人物抛出带工具阶段码的 RuntimeError（根因是注入的异常）；已登记的第一条
-    动作被中止，它的结果、中止事件、运行失败与运维日志都写这个异常的 repr。"""
+async def test_tool_dispatch_failure_preserves_cause_and_records_evidence(
+    engine_factory, host_factory, caplog, monkeypatch,
+):
+    """成对开始工具第二条调度时沙盒服务失败：人物抛出 TOOL_SERVICE_FAILED（根因是注入异常），已登记草稿补写，
+    运行故障登记这个异常的 repr。"""
     engine = engine_factory()
     start = [(MAIN_TOOL, main_arguments("interact", "家", "测试休息")),
              (SIDE_TOOL, side_arguments("interact", "哔哩哔哩"))]
     host, _ = _attach(host_factory, engine, [(start, "")])
-    injected, real, calls = sqlite3.OperationalError("database is locked"), engine.submit_action, []
+    injected, calls = sqlite3.OperationalError("database is locked"), []
+    real_open = engine.open_sandbox
 
-    def submit(call):
-        """第一次交给真实方法，第二次抛出注入的异常。"""
-        calls.append(call)
-        if len(calls) == 1:
-            return real(call)
-        raise injected
+    def wrapped_open(wakeup):
+        sandbox = real_open(wakeup)
+        real_dispatch = sandbox.dispatch_world_tool
 
-    monkeypatch.setattr(engine, "submit_action", submit)
+        def dispatch(tool_name, request, action_id, note=None):
+            calls.append(tool_name)
+            if len(calls) == 1:
+                return real_dispatch(tool_name, request, action_id, note)
+            raise injected
+
+        sandbox.dispatch_world_tool = dispatch
+        return sandbox
+
+    monkeypatch.setattr(engine, "open_sandbox", wrapped_open)
     with caplog.at_level(logging.ERROR), pytest.raises(RuntimeError) as caught:
         await host.run()
     assert type(caught.value) is RuntimeError
     assert str(caught.value) == TOOL_SERVICE_FAILED
     assert caught.value.__cause__ is injected
-    assert len(_logged(caplog, "LifeAgent tool dispatch failed: start_side_activity")) == 1
+    assert len(_logged_prefixes(caplog, "Tool service failed during start_side_activity")) == 1
     assert _host_records(caplog) == []
     reason = f"RuntimeError('{TOOL_SERVICE_FAILED}')"
-    requested = _events(engine, "action_requested")
-    results = _events(engine, "action_result")
-    assert len(requested) == 1 and len(results) == 1
-    assert results[0]["action_id"] == requested[0]["action_id"]
-    assert (results[0]["data"]["status"], results[0]["data"]["error_code"], results[0]["data"]["message"]) == (
-        "failed", "DECISION_ROUND_ABORTED", reason)
-    assert [event["data"]["error"] for event in _aborts(engine)] == [reason]
+    assert len(_events(engine, "model_request")) == 1
+    assert len(_events(engine, "model_response")) == 1
+    assert _events(engine, "action_requested") == []
+    assert _events(engine, "action_result") == []
     assert [event["data"]["error"] for event in _events(engine, "run_failed")] == [reason]
-    assert _ops_details(engine, "DECISION_ROUND_ABORTED") == [f"Decision round aborted after 1 actions: {reason}"]
+    assert _ops_details(engine, "RUN_FAILED") == [f"Run failed: {reason}"]
 
 
-async def test_turn_exhaustion_aborts_with_the_text_without_finish(engine_factory, host_factory, caplog):
-    """回合上限个模型回合都没有登记世界请求：回合循环写一条错误日志后抛出不再提 finish 的文字，宿主以它的 repr 中止。"""
+async def test_turn_exhaustion_fails_without_finish(engine_factory, host_factory, caplog):
+    """回合上限个模型回合都没有结束唤醒：通用循环写错误日志并抛出 ProtocolError，宿主登记它的 repr。"""
     engine = engine_factory(mutate=_two_turns)
     thinking = ([], "我再想想。")
     host, model = _attach(host_factory, engine, [thinking, thinking])
-    with caplog.at_level(logging.ERROR), pytest.raises(RuntimeError) as caught:
+    with caplog.at_level(logging.ERROR), pytest.raises(ProtocolError) as caught:
         await host.run()
     error = caught.value
-    assert type(error) is RuntimeError and str(error) == TURNS_EXHAUSTED
-    assert len(_logged(caplog, "LifeAgent 1 used all 2 model turns without a world request")) == 1
+    assert type(error) is ProtocolError and str(error) == TURNS_EXHAUSTED
+    assert len(_logged_prefixes(caplog, TURNS_EXHAUSTED)) == 1
     assert _host_records(caplog) == []
     assert model.decisions == 2
-    reason = f"RuntimeError('{TURNS_EXHAUSTED}')"
-    assert [event["data"]["error"] for event in _aborts(engine)] == [reason]
-    assert [event["data"]["error"] for event in _events(engine, "run_failed")] == [reason]
-    assert failure_message(error) == f"RuntimeError: {TURNS_EXHAUSTED}"
+    reason = f"ProtocolError('{TURNS_EXHAUSTED}')"
+    assert [event["data"] for event in _events(engine, "run_failed")] == [
+        {"error_type": "RuntimeError", "error": reason}]
+    assert _ops_details(engine, "RUN_FAILED") == [f"Run failed: {reason}"]
+    assert failure_message(error) == f"ProtocolError: {TURNS_EXHAUSTED}"
     assert "finish" not in failure_message(error)
 
 
-async def test_budget_exhaustion_after_commit_stops_with_one_protocol_error(engine_factory, host_factory, caplog):
-    """同一秒的第六轮提交写下 decision_budget_exhausted 与 run_failed 并关闭本轮后才抛出：宿主不中止，没有假的
-    「决策轮没有开着」，运行以那个 ProtocolError 停下，提交写下的 run_failed 是库里最后一条事件。"""
-    engine = engine_factory()
-    revise = ([("revise_day_plan", {"goals": []})], "")
-    host, _ = _attach(host_factory, engine, [revise] * 6)
-    # 接住任何异常，由下面的精确类型断言判定：错误的异常（如中止失败的异常组）以断言失败报出，而不是逃出 raises。
-    with caplog.at_level(logging.ERROR), pytest.raises(BaseException) as caught:
-        await host.run()
-    error = caught.value
-    assert type(error) is ProtocolError and str(error) == "decision_budget_exhausted"
-    failed = _events(engine, "run_failed")
-    assert [event["data"] for event in failed] == [
-        {"error_type": "RuntimeError", "error": "decision_budget_exhausted", "round_id": _round_id(engine)}]
-    assert failed[0]["event_seq"] == max(json.loads(body)["event_seq"] for body in _bodies(engine))
-    assert _aborts(engine) == []
-    assert _ops_details(engine, "DECISION_ROUND_ABORTED") == [] and _ops_details(engine, "RUN_FAILED") == []
-    messages = _messages(caplog)
-    assert not any("Decision round is not open" in message for message in messages)
-    assert not any("Decision round abort failed" in message for message in messages)
-    assert failure_message(error) == "ProtocolError: decision_budget_exhausted"
-    assert type(error).__name__ == "ProtocolError"
-
-
-async def test_begin_failure_is_registered_without_an_abort(engine_factory, host_factory, caplog, monkeypatch):
-    """开轮调用在打开本轮之前抛出：宿主不中止，只做一次运行级登记（round_id 为 null），原样传出同一对象。"""
+async def test_prepare_barrier_failure_is_registered_directly(engine_factory, host_factory, caplog, monkeypatch):
+    """prepare_barrier 抛出异常：宿主只做一次运行级登记，原样传出同一对象。"""
     engine = engine_factory()
     host, _ = _attach(host_factory, engine, [])
-    error = ProtocolError("Decision round contexts must match the scheduled agent order")
+    error = ProtocolError("Scheduled agents do not match current barrier")
 
-    def begin(contexts):
-        """不打开本轮就抛出。"""
+    def prepare(agent_ids=None):
         raise error
 
-    monkeypatch.setattr(engine, "begin_decision_round", begin)
-    # 接住任何异常，由下面的同一对象断言判定：错误的异常（如中止失败的异常组）以断言失败报出，而不是逃出 raises。
+    monkeypatch.setattr(engine, "prepare_barrier", prepare)
     with caplog.at_level(logging.ERROR), pytest.raises(BaseException) as caught:
         await host.run()
     assert caught.value is error
-    assert _aborts(engine) == []
     assert [event["data"] for event in _events(engine, "run_failed")] == [
-        {"error_type": "RuntimeError",
-         "error": "ProtocolError('Decision round contexts must match the scheduled agent order')", "round_id": None}]
-    assert _ops_details(engine, "RUN_FAILED") == [
-        "Run failed: ProtocolError('Decision round contexts must match the scheduled agent order')"]
-    assert not any("Decision round is not open" in message for message in _messages(caplog))
+        {"error_type": "RuntimeError", "error": repr(error)}]
+    assert _ops_details(engine, "RUN_FAILED") == [f"Run failed: {repr(error)}"]
 
 
-async def test_abort_failure_keeps_both_errors_in_one_group(engine_factory, host_factory, caplog, monkeypatch):
-    """中止本身也失败：宿主写一条带回溯的错误日志，抛出保留两项异常的异常组；运行级登记写这个异常组的 repr。"""
+async def test_failed_evidence_recording_failure_keeps_both_errors_in_one_group(
+    engine_factory, host_factory, caplog, monkeypatch,
+):
+    """补写失败草稿也失败：宿主写带回溯的错误日志，抛出保留两项异常的异常组，运行级登记写异常组 repr。"""
     engine = engine_factory()
     host, _ = _attach(host_factory, engine, [MODEL_FAILURE])
     injected = sqlite3.OperationalError("database is locked")
 
-    def abort(round_id, reason):
-        """中止时抛出注入的异常。"""
+    def record_failed(agent_id, wakeup_id, drafts):
         raise injected
 
-    monkeypatch.setattr(engine, "abort_decision_round", abort)
+    monkeypatch.setattr(engine, "record_failed_evidence", record_failed)
     with caplog.at_level(logging.ERROR), pytest.raises(ExceptionGroup) as caught:
         await host.run()
     group = caught.value
-    assert group.message == "Decision round and abort both failed"
+    assert group.message == "Run and failure recording both failed"
     assert len(group.exceptions) == 2
     assert group.exceptions[0] is MODEL_FAILURE and group.exceptions[1] is injected
     assert group.__cause__ is MODEL_FAILURE
-    records = _logged(caplog, "Decision round abort failed")
+    records = _logged_prefixes(caplog, "Failed evidence recording failed for agent 1")
     assert len(records) == 1 and records[0].exc_info is not None
-    assert _aborts(engine) == []
     failed = _events(engine, "run_failed")
-    assert len(failed) == 1
-    assert failed[0]["data"]["error"] == repr(group) and failed[0]["data"]["round_id"] is None
+    assert len(failed) == 1 and failed[0]["data"]["error"] == repr(group)
     assert failure_message(group) == failure_message(MODEL_FAILURE) + " | OperationalError: database is locked"
 
 
-async def test_failure_recording_failure_keeps_both_errors_in_one_group(engine_factory, host_factory, caplog,
-                                                                        monkeypatch):
-    """运行级登记本身也失败：宿主写一条错误日志，抛出保留开轮异常与登记异常的异常组，库里没有 run_failed。"""
+async def test_failure_recording_failure_keeps_both_errors_in_one_group(
+    engine_factory, host_factory, caplog, monkeypatch,
+):
+    """运行级登记本身也失败：宿主写错误日志，抛出保留原始异常与登记异常的异常组，库里没有 run_failed。"""
     engine = engine_factory()
     host, _ = _attach(host_factory, engine, [])
-    error = ProtocolError("Decision round contexts must match the scheduled agent order")
+    error = ProtocolError("Barrier prepare failed")
     injected = sqlite3.OperationalError("database is locked")
 
-    def begin(contexts):
-        """不打开本轮就抛出。"""
+    def prepare(agent_ids=None):
         raise error
 
     def fail_run(reason):
-        """登记运行故障时抛出注入的异常。"""
         raise injected
 
-    monkeypatch.setattr(engine, "begin_decision_round", begin)
+    monkeypatch.setattr(engine, "prepare_barrier", prepare)
     monkeypatch.setattr(engine, "fail_run", fail_run)
     with caplog.at_level(logging.ERROR), pytest.raises(ExceptionGroup) as caught:
         await host.run()
@@ -323,13 +273,12 @@ async def test_failure_recording_failure_keeps_both_errors_in_one_group(engine_f
     assert len(group.exceptions) == 2
     assert group.exceptions[0] is error and group.exceptions[1] is injected
     assert group.__cause__ is error
-    assert len(_logged(caplog, "Run failure recording failed")) == 1
+    assert len(_logged_prefixes(caplog, "Run failure recording failed")) == 1
     assert _events(engine, "run_failed") == []
 
 
-async def test_midnight_failure_outside_a_round_records_the_original_repr(engine_factory, host_factory):
-    """周一 20:00 睡下后第一个零点调用失败（决策轮之外）：运行级登记写原异常的 repr，round_id 为 null，不中止；
-    这次零点调用的失败证据照常写下，任何文本都没有远端任务错误的类名。"""
+async def test_midnight_failure_outside_a_barrier_records_the_original_repr(engine_factory, host_factory):
+    """周一 20:00 睡下后第一个零点调用失败：运行级登记写原异常的 repr；失败证据照常写下。"""
     engine = engine_factory(mutate=_evening)
     error = LLMDispatchError("Failed to get valid response after 1 attempts in 0.0 s. Last error type: "
                              "AuthenticationError. Error chain: AuthenticationError")
@@ -338,9 +287,8 @@ async def test_midnight_failure_outside_a_round_records_the_original_repr(engine
         await host.run()
     assert caught.value is error
     assert [event["data"] for event in _events(engine, "run_failed")] == [
-        {"error_type": "RuntimeError", "error": repr(error), "round_id": None}]
+        {"error_type": "RuntimeError", "error": repr(error)}]
     assert _ops_details(engine, "RUN_FAILED") == [f"Run failed: {repr(error)}"]
-    assert _aborts(engine) == []
     failures = [event["data"] for event in _events(engine, "model_response")
                 if event["data"].get("phase") == "failure"]
     assert len(failures) == 1
@@ -351,12 +299,12 @@ async def test_midnight_failure_outside_a_round_records_the_original_repr(engine
 
 
 async def test_base_exception_is_neither_aborted_nor_registered(engine_factory, host_factory):
-    """人物决策抛出不是 Exception 的 BaseException：宿主不中止、不登记，原样传出同一对象。"""
+    """人物唤醒抛出不是 Exception 的 BaseException：宿主不登记，原样传出同一对象。"""
     engine = engine_factory()
     stop = _Stop()
     host, _ = _attach(host_factory, engine, [stop])
     with pytest.raises(_Stop) as caught:
         await host.run()
     assert caught.value is stop
-    assert _aborts(engine) == [] and _events(engine, "run_failed") == []
-    assert _ops_details(engine, "DECISION_ROUND_ABORTED") == [] and _ops_details(engine, "RUN_FAILED") == []
+    assert _events(engine, "run_failed") == []
+    assert _ops_details(engine, "RUN_FAILED") == []

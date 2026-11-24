@@ -12,6 +12,7 @@ import json
 import logging
 from datetime import date, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from litellm.exceptions import APIConnectionError
@@ -22,25 +23,29 @@ from tests.integration.runtime_fixtures import write_agent_workspace
 from tests.life.conftest import (
     StubMemoryDigestClient,
     StubPlanDayClient,
+    action_identity,
     activity_name,
+    advance_next,
     advance_until_ready,
     conclude_request,
     do_at,
     drive,
     memory_digest_response,
     purchase,
-    query,
     report_request,
+    search_world,
     settle_midnight_tasks,
+    settle_midnight_tasks_async,
     sleep,
     stage_day_plan,
     travel,
 )
 from tests.integration.life.test_grocery_cooking import cook, grocery_engine, receive
 from tests.life.environment_inputs import catalog_rows, write_catalog_rows
-from tests.life.environment_runtime import act, act_group, events, settle_decision, until_ended
+from tests.life.environment_runtime import _suspended_for, act, act_group, events, settle_decision, until_ended
 from tests.unit.runtime.model_client_fixtures import provider_error, scripted_client
 from worldmock.configuration.model.model_client import ModelClient
+from worldmock.configuration.model.model_registry import ResolvedModelBinding
 from worldmock.configuration.persona.persona_card import persona_card
 from worldmock.configuration.persona.persona_text import render_card
 from worldmock.configuration.persona.work_schedule import shift_on
@@ -56,6 +61,7 @@ from worldmock.simulation_engine.observation.memory.categories import memory_boo
 from worldmock.simulation_engine.observation.memory.digests import registered_digests
 from worldmock.simulation_engine.observation.memory.entries import short_name
 from worldmock.simulation_engine.world.world_updates import _request_sha
+from worldmock.state.decisions.barrier import SearchSessionOutcome
 from worldmock.state.decisions.results import CounterfactualIntervention
 from worldmock.state.world.kinds import ActivityKind
 
@@ -95,15 +101,28 @@ def _live(engine, until: int | None = None, decide=settle_decision) -> None:
                            state.next_event_at)
 
 
+def _stage_registry(engine, stage: str, client):
+    """@brief 按当前引擎配置的阶段模型档案构造最小注册表。"""
+    cfg = engine.context.config
+    pid = getattr(cfg.model_routing, stage)
+    prof, meta = cfg.models[pid], engine.context.inputs.model_metadata[pid]
+    binding = ResolvedModelBinding(pid, prof, meta, client, min(prof.max_output_tokens, meta.max_output_tokens))
+    return SimpleNamespace(resolve=lambda _stage, _aid: binding)
+
+
 def _finish_midnight(engine) -> None:
     """零点只跑零点计划与节律，不跑回顾。"""
-    drive(settle_pending_day_plans(engine, StubPlanDayClient({"requested_model": "test-model"})))
+    cfg = engine.context.config
+    plan_client = StubPlanDayClient({"requested_model": cfg.models[cfg.model_routing.plan_day].requested_model})
+    drive(settle_pending_day_plans(engine, _stage_registry(engine, "plan_day", plan_client)))
     engine.decide_midnight_rhythm()
 
 
 def _digests(engine, client=None) -> list[dict]:
     """执行回顾任务，缺省用确定性桩。"""
-    return drive(settle_pending_memory_digests(engine, client or StubMemoryDigestClient()))
+    cfg = engine.context.config
+    default = StubMemoryDigestClient({"requested_model": cfg.models[cfg.model_routing.digest].requested_model})
+    return drive(settle_pending_memory_digests(engine, _stage_registry(engine, "digest", client or default)))
 
 
 def _digest_events(engine) -> list:
@@ -118,14 +137,26 @@ def _digest_rows(engine, phase: str) -> list:
 
 
 def _rich_day(engine) -> None:
-    """2026-01-05 的一天：测试闲聊与查询柠檬茶同组开始、查询做完时播报、收尾后买柠檬茶，之后照常睡觉，最后一觉跨过零点；
+    """2026-01-05 的一天：测试闲聊与搜索柠檬茶同醒开始、搜索交卷并同醒播报、收尾后买柠檬茶，之后照常睡觉，最后一觉跨过零点；
     停在 01-06 零点。"""
     stage_day_plan(engine, submitted=True)
-    _, started = act_group(engine, "pair", do_at("家", "测试闲聊"), query("柠檬茶"))
-    assert advance_until_ready(engine)
-    act(engine, "report", report_request(activity_name(engine, started[0].activity_id)), "report_status")
-    until_ended(engine, started[0].activity_id)
-    act(engine, "end", conclude_request(activity_name(engine, started[0].activity_id)), "conclude_activity")
+    [w1] = engine.prepare_barrier((1,))
+    sb1 = engine.open_sandbox(w1)
+    chat_id = action_identity("pair", 1, w1.agent_id)
+    ask_id = action_identity("pair", 2, w1.agent_id)
+    r_chat = sb1.dispatch_world_tool("start_main_activity", do_at("家", "测试闲聊"), chat_id)
+    r_ask = sb1.dispatch_world_tool("search_world", search_world("柠檬茶", prefer="饿了么"), ask_id)
+    engine.commit_barrier([sb1.finish_wakeup(_suspended_for(w1, ask_id, r_ask.tool_message_payload))])
+    chat_aid = r_chat.tool_message_payload["activity_id"]
+    advance_next(engine)
+    [(task, _)] = engine.due_searches()
+    engine.complete_searches([SearchSessionOutcome(
+        action_id=task.action_id, agent_id=1, activity_id=task.activity_id,
+        goods_ids=("lemon-tea",), place_ids=(), summary="找到柠檬茶",
+    )])
+    act(engine, "report", report_request(activity_name(engine, chat_aid)), "report_status")
+    until_ended(engine, chat_aid)
+    act(engine, "end", conclude_request(activity_name(engine, chat_aid)), "conclude_activity")
     _, tea = act(engine, "buy", purchase("柠檬茶"))
     assert tea.status == "in_progress", tea.error_code
     _live(engine)
@@ -175,26 +206,24 @@ def test_day_digest_payload_numbers_category_parts_of_full_entries(engine_factor
     assert _digests(engine, client) == [{"agent_id": 1, "tier": "day", "period": "2026-01-05", "fallback": []}]
     [request] = client.calls
     expected = {
-        "人物卡片": render_card(persona_card(engine.context.persona)),
+        "人物卡片": render_card(persona_card(engine.context.persona_by_id[1])),
         "饮食": [
-            {"编号": "n1", "时刻": "08:07", "核验": ["查完饿了么·柠檬茶：1项可买，12–12元"],
-             "当时查到": ["08:07 在饿了么查柠檬茶", "柠檬茶 12元", "柠檬茶 12元", "柠檬茶 12元，当时不可买",
-                          "柠檬茶 12元，当时不可买"]},
+            {"编号": "n1", "时刻": "08:00", "核验": ["搜索饿了么：查到 1 项商品、0 个地点"],
+             "当时查到": ["08:05 在饿了么搜柠檬茶", "柠檬茶 12元"]},
             {"编号": "n2", "时刻": "08:10", "核验": ["开始购买柠檬茶"]},
             {"编号": "n3", "时刻": "08:12", "核验": ["买柠檬茶1份，17元，预计08:29送到家"], "自述": ["购买柠檬茶：收尾。"]},
             {"编号": "n4", "时刻": "15:42", "核验": ["08:29 送达柠檬茶。天气使配送多用了1分钟30秒，比下单预计晚45秒",
-                                           "08:29 一心面馆 · 柠檬茶：这份品质中"]}],
+                                           "08:29 一心面馆 · 柠檬茶：这份品质好"]}],
         "工作": [],
         "生活": [
-            {"编号": "n5", "时刻": "08:00", "核验": ["开始测试闲聊、查询柠檬茶"]},
-            {"编号": "n6", "时刻": "08:07", "自述": ["进展·测试闲聊：继续。"]},
-            {"编号": "n7", "时刻": "08:10", "核验": ["测试闲聊 08:00–08:10"], "自述": ["测试闲聊：收尾。"]},
-            {"编号": "n8", "时刻": "08:12", "核验": ["开始睡觉"]},
-            {"编号": "n9", "时刻": "15:42", "核验": ["睡觉 08:12–15:42"], "自述": ["睡觉：收尾。"]},
-            {"编号": "n10", "时刻": "15:42", "核验": ["开始睡觉"]},
-            {"编号": "n11", "时刻": "23:12", "核验": ["睡觉 15:42–23:12"], "自述": ["睡觉：收尾。"]},
-            {"编号": "n12", "时刻": "23:12", "核验": ["开始睡觉"]},
-            {"编号": "n13", "时刻": "24:00", "核验": ["23:12 开始睡觉，跨过零点"]}]}
+            {"编号": "n5", "时刻": "08:00", "核验": ["开始测试闲聊、搜索柠檬茶"], "自述": ["进展·测试闲聊：继续。"]},
+            {"编号": "n6", "时刻": "08:10", "核验": ["测试闲聊 08:00–08:10"], "自述": ["测试闲聊：收尾。"]},
+            {"编号": "n7", "时刻": "08:12", "核验": ["开始睡觉"]},
+            {"编号": "n8", "时刻": "15:42", "核验": ["睡觉 08:12–15:42"], "自述": ["睡觉：收尾。"]},
+            {"编号": "n9", "时刻": "15:42", "核验": ["开始睡觉"]},
+            {"编号": "n10", "时刻": "23:12", "核验": ["睡觉 15:42–23:12"], "自述": ["睡觉：收尾。"]},
+            {"编号": "n11", "时刻": "23:12", "核验": ["开始睡觉"]},
+            {"编号": "n12", "时刻": "24:00", "核验": ["23:12 开始睡觉，跨过零点"]}]}
     assert request["messages"][1]["content"] == json.dumps(expected, ensure_ascii=False, separators=(",", ":"))
 
 
@@ -208,10 +237,12 @@ def test_day_without_entries_calls_no_model_and_is_remembered(engine_factory, mo
     _night(engine)
     built, calls = _Built(monkeypatch), _counted_entries(monkeypatch, empty=True)
     before = engine.context.store.last_event_seq
-    assert drive(settle_pending_memory_digests(engine, StubMemoryDigestClient())) == []
+    assert drive(settle_pending_memory_digests(
+        engine, _stage_registry(engine, "digest", StubMemoryDigestClient()))) == []
     assert built.clients == [] and calls and engine.context.store.last_event_seq == before
     calls.clear()
-    assert drive(settle_pending_memory_digests(engine, StubMemoryDigestClient())) == []
+    assert drive(settle_pending_memory_digests(
+        engine, _stage_registry(engine, "digest", StubMemoryDigestClient()))) == []
     assert calls == [] and built.clients == []
 
 
@@ -278,7 +309,7 @@ def test_registration_commits_evidence_and_event_in_one_version(engine_factory, 
     request, response, event = rows
     assert (event.event_type, event.agent_id, event.occurred_at) == ("environment_event", 1, _at("2026-01-06T00:00:00"))
     assert (event.source_kind, event.visibility, event.resource_changes) == ("model", "system", {})
-    assert (event.decision_id, event.action_id, event.activity_id) == (None, None, None)
+    assert (event.wakeup_id, event.action_id, event.activity_id) == (None, None, None)
     assert event.caused_by == [response.event_id] and response.caused_by == [request.event_id]
     assert event.data["kind"] == "memory_digest_generated" and event.data["period"] == "2026-01-05"
 
@@ -364,7 +395,7 @@ def _retries(count: int):
     """回顾校验重试上限为 count 的运行配置（其余同 _stop 到 01-07 08:00）。"""
     def mutate(persona, config):
         _stop("2026-01-07T08:00:00")(persona, config)
-        config["model"]["reflection_validation_max_retries"] = count
+        config["models"]["reasoner"]["reflection_validation_max_retries"] = count
     return mutate
 
 
@@ -623,7 +654,8 @@ def test_run_end_generates_no_digest(engine_factory, monkeypatch, stop):
         _live(engine)
     assert engine.context.state.current_time == engine.context.state.end_time
     built = _Built(monkeypatch)
-    assert drive(settle_pending_memory_digests(engine, StubMemoryDigestClient())) == []
+    assert drive(settle_pending_memory_digests(
+        engine, _stage_registry(engine, "digest", StubMemoryDigestClient()))) == []
     assert built.clients == [] and _digest_events(engine) == []
 
 
@@ -640,12 +672,12 @@ def _commuting(engine, label) -> None:
     """当班日在家没事做时去公司一次（住处与班次地点之间的出行归工作），其余照 settle_decision。"""
     state = engine.context.state
     today = local_date(state.current_time, ZONE)
-    schedule = engine.context.persona.work_schedule
+    schedule = engine.context.persona_by_id[1].work_schedule
     busy = [item for item in state.activities.values()
             if item.status in {"active", "paused"} or item.concluded_at is None]
     went = any(item.kind == ActivityKind.TRAVEL and local_date(item.started_at, ZONE) == today
                for item in state.activities.values())
-    at_home = state.agents[1].location_id == engine.context.inputs.home_location_id
+    at_home = state.agents[1].location_id == engine.context.inputs.home_location_ids[1]
     if not busy and not went and at_home and shift_on(schedule, date.fromisoformat(today)) is not None:
         act(engine, label, travel("公司"))
     else:
@@ -681,7 +713,7 @@ async def test_checkpoint_after_registration_builds_no_entries(engine_factory, h
     """登记之后运行宿主连续两次写共同检查点（各自跑一次零点任务）：不再读任何往日的条目，除两次检查点自己以外不写事件。"""
     engine = engine_factory(mutate=_late)
     _night(engine)
-    settle_midnight_tasks(engine)
+    await settle_midnight_tasks_async(engine)
     assert len(_digest_events(engine)) == 1
     calls, built = _counted_entries(monkeypatch), _Built(monkeypatch)
     host = host_factory(engine, StubMemoryDigestClient())
@@ -756,9 +788,10 @@ async def test_digest_ops_records_and_transport_waits(engine_factory, monkeypatc
     _rich_day(engine)
     [inputs] = memory_digest.pending_inputs(engine.context, engine.observations, 1, "day")
     good = memory_digest_response(StubMemoryDigestClient().answer(inputs.payload))
-    identity = engine.context.store.manifest["stage_model_identity"]
+    identity = engine.context.store.manifest["model_identity"]["profiles"][engine.context.config.model_routing.digest]
     caller = _digest_caller(monkeypatch, identity, [provider_error(APIConnectionError), _bad_food(engine), good])
-    assert [item["fallback"] for item in await settle_pending_memory_digests(engine, caller)] == [[]]
+    assert [item["fallback"] for item in await settle_pending_memory_digests(
+        engine, _stage_registry(engine, "digest", caller))] == [[]]
     records = _records(engine)
     calls = [row for row in records if row["code"] == "MEMORY_DIGEST_CALL"]
     assert [(row["call_id"], row["outcome"], row["level"]) for row in calls] == [

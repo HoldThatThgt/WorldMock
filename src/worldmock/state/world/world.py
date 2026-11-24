@@ -10,15 +10,16 @@ from typing import Any, Literal
 from pydantic import Field, field_serializer, field_validator, model_validator
 from worldmock.state.planning.events import ScheduledEvent
 
+from worldmock.state.identity import check_persona_sha256s, validate_persona_sha256s_input
 from worldmock.state.world.kinds import ActivityKind, ActivityStatus, CONCLUDABLE_TERMINAL_STATUSES, SessionStatus
 from worldmock.state.world.activity import ActivityState
 from worldmock.state.world.agent import AgentState, SessionState
 from worldmock.state.world.orders import DeliveryState
-from worldmock.state.decisions.state import SameMomentPresentation, StoredAction
+from worldmock.state.decisions.state import StoredAction
 from worldmock.state.logging import _LOGGER
 
 #: 世界状态结构版本：版本不符的检查点与导出直接拒绝，不迁移。
-WORLD_SCHEMA_VERSION = 16
+WORLD_SCHEMA_VERSION = 17
 
 
 
@@ -37,7 +38,7 @@ class WorldState(StrictModel):
     end_time: int = Field(gt=0)
     run_id: str = Field(min_length=1)
     timezone: str = Field(min_length=1)
-    persona_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    persona_sha256s: dict[int, str]
     config_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     agents: dict[int, AgentState]
     accounts: dict[str, int]
@@ -52,13 +53,13 @@ class WorldState(StrictModel):
     #: 呈现派生量（docs/design/09-io-formats.md「世界、人物与活动」）：按（人物, 对象标识）记录上次呈现
     #: 时刻（UTC 纪元秒），是曝光轮转的判据，不含任何偏好推断。
     presentation_state: dict[int, dict[str, int]] = Field(default_factory=dict)
-    #: 按人物暂存的本秒呈现留痕：同一秒各轮沿用该秒首轮的呈现窗口，时钟推进时逐人并入 presentation_state 并清空。
-    same_moment_presentation: dict[int, SameMomentPresentation] = Field(default_factory=dict)
     weather_by_date: dict[str, str] = Field(default_factory=dict)
     run_start_callbacks_applied: bool = False
     run_stop_callbacks_applied: bool = False
     random_seed: int
     random_state: str = Field(min_length=1)
+
+    _validate_persona_keys = field_validator("persona_sha256s", mode="before")(validate_persona_sha256s_input)
 
     def __deepcopy__(self, memo: dict[int, Any] | None = None) -> "WorldState":
         """@brief 深复制世界：activities 与 processed_actions 换新字典、共享条目，其余字段照常深复制。
@@ -106,9 +107,10 @@ class WorldState(StrictModel):
         if self.current_time > self.end_time:
             raise ValueError("world current time exceeds experiment end")
         expected = {f"agent:{agent_id}" for agent_id in self.agents} | {"external:scenario"}
-        if len(self.agents) != 1 or set(self.accounts) != expected:
-            _LOGGER.error("World must contain exactly one agent and its two accounts")
-            raise ValueError("World must contain exactly one agent and its two accounts")
+        if not self.agents or set(self.accounts) != expected:
+            _LOGGER.error("World must contain at least one agent and its N+1 accounts")
+            raise ValueError("World must contain at least one agent and its N+1 accounts")
+        check_persona_sha256s(self.persona_sha256s, set(self.agents))
         if any(self.accounts[f"agent:{agent_id}"] < 0 for agent_id in self.agents):
             _LOGGER.error("Agent account balance cannot be negative")
             raise ValueError("Agent account balance cannot be negative")
@@ -135,7 +137,7 @@ def active_activities(state: WorldState, agent_id: int) -> tuple[ActivityState, 
 
 
 def active_side_activities(state: WorldState, agent_id: int) -> tuple[ActivityState, ...]:
-    """@brief 人物进行中的槽位 2 活动：状态为进行中、占槽位 2 的购买、查询或用 app。导航在不在前台只看它。"""
+    """@brief 人物进行中的槽位 2 活动：状态为进行中、占槽位 2 的购买、搜索或用 app。导航在不在前台只看它。"""
     return tuple(activity for activity in active_activities(state, agent_id)
                  if "second" in activity.resource_claims)
 

@@ -52,7 +52,7 @@ def test_summary_prints_the_same_lines_as_counting_every_event(engine_factory, c
 def test_summary_orders_equal_counts_by_first_occurrence(tmp_path, capsys):
     run_dir = tmp_path / "run"
     store = FootprintStore.create(run_dir, {"run_id": "run", "agent_ids": [1]}, {"version": 0, "current_time": 100})
-    started = {"round_id": "round", "round_order": 0, "world_state_version": 0, "wake_reasons": []}
+    started = {"wakeup_id": "wakeup-1", "world_state_version": 0, "wake_reasons": []}
     store.append_evidence([EventDraft(event_type="observation", occurred_at=100, agent_id=1),
                            EventDraft(event_type="decision_started", occurred_at=100, agent_id=1, data=started),
                            EventDraft(event_type="decision_started", occurred_at=100, agent_id=1, data=started),

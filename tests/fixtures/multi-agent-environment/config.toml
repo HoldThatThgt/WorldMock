@@ -1,0 +1,50 @@
+schema_version = 3
+seed = 7
+timezone = "Asia/Shanghai"
+start_time = 2026-01-05T08:00:00+08:00
+stop_time = 2026-01-06T08:00:00+08:00
+activity_feedback_seconds = 900
+reconsideration_interval_seconds = 5400
+progress_report_interval_seconds = 1800
+candidate_presentation_limit = 20
+rotation_quota_ratio = 0.15
+rotation_stale_seconds = 86400
+
+[calendar]
+spring_festival_dates = ["2026-02-17"]
+makeup_work_dates = ["2026-02-14"]
+overtime_opportunity_dates = ["2026-01-10"]
+sick_leave_date = "2026-01-12"
+personal_leave_date = "2026-01-13"
+social_dinner_date = "2026-01-16"
+
+[models.reasoner]
+provider = "openai_compatible"
+base_url = "https://model.example.invalid/v1"
+requested_model = "test-model"
+api_key_env = "WORLDMOCK_TEST_API_KEY"
+metadata_url = "https://model.example.invalid/v1/models"
+context_window = 262144
+thinking = true
+max_output_tokens = 16000
+max_react_turns = 16
+
+[models.fast_search]
+provider = "openai_compatible"
+base_url = "https://model.example.invalid/v1"
+requested_model = "test-search-model"
+api_key_env = "WORLDMOCK_TEST_API_KEY"
+metadata_url = "https://model.example.invalid/v1/models"
+context_window = 262144
+thinking = false
+max_output_tokens = 4096
+max_react_turns = 6
+
+[model_routing]
+action = "reasoner"
+search = "fast_search"
+plan_day = "reasoner"
+digest = "reasoner"
+
+[model_routing.agent_overrides."2"]
+action = "fast_search"

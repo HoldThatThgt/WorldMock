@@ -15,14 +15,14 @@ from tests.life.conftest import (
     activity_name,
     advance_next,
     conclude_request,
-    context,
     MAIN_TOOL,
     SIDE_TOOL,
     report_request,
     travel,
     use_app,
+    wakeup_for,
 )
-from worldmock.state.decisions.round import DirectToolCall
+from tests.life.environment_runtime import action_result
 from worldmock.simulation_engine.activities.lifecycle.activity_control import open_activities
 from worldmock.state.world.kinds import ActivityStatus
 from worldmock.state.world.world import active_activities
@@ -354,14 +354,15 @@ def test_workday_inputs_use_resolved_persona_places_and_config(frozen_inputs):
     from tests.life.persona_inputs import persona_with
 
     frozen = frozen_inputs.record(ENVIRONMENT_ROOT)["inputs"]
-    document = replace(frozen, persona=persona_with(leave_work_window=(18.0, 18.5)))
+    updated = persona_with(leave_work_window=(18.0, 18.5))
+    document = replace(frozen, personas=(updated,), persona_by_id={updated.agent_id: updated})
     inputs = workday_inputs(document)
     assert inputs.report_interval_seconds == document.config.progress_report_interval_seconds
-    assert set(inputs.agents) == {document.persona.agent_id}
+    assert set(inputs.agents) == {updated.agent_id}
     first = inputs.agents[1]
-    assert first.work_schedule == document.persona.work_schedule
+    assert first.work_schedule == updated.work_schedule
     assert (first.home_location_id, first.workplace_location_id, first.initial_location_id) == (
-        document.home_location_id, document.workplace_location_id, document.initial_location_id)
+        document.home_location_ids[1], document.workplace_location_ids[1], document.initial_location_ids[1])
     assert (first.leave_work_window, first.arrive_home_window) == ((18.0, 18.5), None)
     assert workday_inputs(frozen).agents[1].leave_work_window is None
 
@@ -381,12 +382,15 @@ def _clock(clock):
 
 
 def _decide(engine, name, tool, request):
-    decision = context(engine, name)
-    engine.begin_decision_round([decision])
-    observed = engine.observe(decision)
-    engine.submit_action(DirectToolCall(decision, f"{decision.decision_id}:action:0001", tool,
-                                       request(observed) if callable(request) else request))
-    return engine.commit_decision_round(name)[0]
+    del name
+    wakeup = wakeup_for(engine)
+    sandbox = engine.open_sandbox(wakeup)
+    action_id = f"{wakeup.wakeup_id}:action:0001"
+    payload = request(wakeup.observation) if callable(request) else request
+    sandbox.dispatch_world_tool(tool, payload, action_id)
+    outcome = sandbox.finish_wakeup(None)
+    engine.commit_barrier([outcome])
+    return action_result(engine, action_id)
 
 
 def _drive(engine, name, done):

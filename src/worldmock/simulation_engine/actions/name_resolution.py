@@ -4,7 +4,6 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, TypeVar
-from worldmock.exchange_engine.definitions.types import GOODS_CATEGORY_LABELS
 from worldmock.simulation_engine.observation.targets import object_labels
 from worldmock.state.interaction.actions import START_TOOLS, binding_action, start_tool
 from worldmock.state.interaction.errors import MAX_CANDIDATES, Candidate, ErrorItem
@@ -12,10 +11,10 @@ from worldmock.state.interaction.sleep import parse_sleep_minutes
 
 _Entry = TypeVar("_Entry")
 MAIN_TOOL, SIDE_TOOL = START_TOOLS
-#: 只用于下单和查询的 app 在名称簿里的对象类型：没有内部身份、没有动作行、不当近名候选，只为退回时认得它。
+#: 只用于下单和搜索的 app 在名称簿里的对象类型：没有内部身份、没有动作行、不当近名候选，只为退回时认得它。
 ORDER_APP_KIND = "order_app"
-#: 副工具各动作允许的对象类型：购买与查询认商品，interact 认内容 app。
-_SIDE_KINDS = {"purchase": "supply", "interact": "app", "query": "supply"}
+#: 副工具各动作允许的对象类型：购买认商品，interact 认内容 app。
+_SIDE_KINDS = {"purchase": "supply", "interact": "app"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,16 +84,9 @@ class StartOutcome:
 
 
 def named_supply_row(name: str, action: str) -> dict:
-    """@brief 未展示商品交给唯一指名商品解析入口；行上带着所写的动作（购买或查询）。"""
+    """@brief 未展示商品交给唯一指名商品解析入口。"""
     binding = binding_action(action)
     return {"object": name, "kind": "named_supply", "object_id": None,
-            "actions": [binding], "selected_action": binding}
-
-
-def category_row(category: str) -> dict:
-    """@brief 查询写的一个商品类别：类别键与中文名，不经绑定行。"""
-    binding = binding_action("query")
-    return {"object": GOODS_CATEGORY_LABELS[category], "kind": "category", "object_id": None, "category": category,
             "actions": [binding], "selected_action": binding}
 
 
@@ -212,8 +204,7 @@ def resolve_start(book: NameBook, tool: str, request: Any) -> StartOutcome:
 
 
 def _kinds(item: StartItem) -> frozenset[str]:
-    """@brief 各动作规整时允许的对象类型：主工具只认地点；副工具按动作各取一种（购买与查询认商品，interact 认能打开的
-    app），三种都另认 order_app，好把写进 target 的只用于下单和查询的 app 退回。"""
+    """@brief 各动作规整时允许的对象类型：主工具只认地点；副工具按购买/interact 认商品或能打开的 app，并另认 order_app。"""
     if item.tool == MAIN_TOOL:
         return frozenset({"location"})
     return frozenset({_SIDE_KINDS[item.action], ORDER_APP_KIND})
@@ -225,8 +216,6 @@ def _resolve_item(book: NameBook, item: StartItem) -> tuple:
         minutes = parse_sleep_minutes(item.target)
         records = () if str(minutes) == item.target else ({"written": item.target, "as": str(minutes)},)
         return sleep_row(minutes), None, records
-    if item.action == "query":
-        return _resolve_query(book, item)
     matches = lookup(item.target, book.targets, _kinds(item), book.home)
     if len(matches) > 1:
         return None, _ambiguous_object(matches, item), ()
@@ -247,31 +236,6 @@ def _resolve_item(book: NameBook, item: StartItem) -> tuple:
     return _resolve_detail(target, options, item, records)
 
 
-def _resolve_query(book: NameBook, item: StartItem) -> tuple:
-    """@brief 查询的一项按次序认：先在四个类别名里规整后唯一对上（类别优先）；再把本轮展示的商品和只用于下单和查询的
-    app（order_app 对象）放在一起逐级规整匹配一次：唯一对上商品就是这件商品，唯一对上 order_app 给与打开、购买同一条
-    退回，对上多个给 NAME_AMBIGUOUS 与查询候选（order_app 不出候选）；其余交给环境在全量商品里找。地点和能打开的 app
-    不参加。
-
-    类别名或展示的商品名规整后与所写不同时记一条归一。
-    """
-    category = object_labels.resolve_name(item.target, GOODS_CATEGORY_LABELS.values())
-    if category.name is not None:
-        key = next(key for key, label in GOODS_CATEGORY_LABELS.items() if label == category.name)
-        records = () if category.name == item.target else ({"written": item.target, "as": category.name},)
-        return category_row(key), None, records
-    matches = lookup(item.target, tuple(target for target in book.targets if target.kind in _kinds(item)))
-    if len(matches) > 1:
-        return None, _ambiguous_object(matches, item), ()
-    if not matches:
-        return named_supply_row(item.target, item.action), None, ()
-    target = matches[0]
-    if target.kind == ORDER_APP_KIND:
-        return None, _order_app_failure(target, item), ()
-    records = () if target.label == item.target else ({"written": item.target, "as": target.label},)
-    return {**target.row, "selected_action": binding_action(item.action)}, None, records
-
-
 def _resolve_detail(target: Target, options: tuple[Option, ...], item: StartItem, records: tuple) -> tuple:
     """@brief detail 在该对象该动作各行的名称里逐级匹配，唯一才受理；归一后与所写不同的记一条。"""
     match = object_labels.resolve_name(item.detail, [option.detail for option in options])
@@ -288,15 +252,7 @@ def _target_path(item: StartItem) -> tuple:
 
 
 def call_candidate(target: Target, option: Option, item: StartItem) -> Candidate:
-    """@brief 对象的一条动作行写成可以照抄提交的完整调用；购买候选只替换所写数组里出错的那个元素。
-
-    副工具的候选恒为 action、target、prefer 三个键：购买候选的 prefer 照被退回的请求所写原样带上（主工具的调用和
-    打开 app 没有写过意向，就是 None），打开 app 的候选恒为 None。查询的候选是查询调用：只替换出错的那一项，prefer 照
-    所写原样带上，note 为 None（查询在工具层没有动作行，没有可用性与时长可写）。
-    """
-    if item.action == "query":
-        written = [target.label if position == item.index else name for position, name in enumerate(item.written)]
-        return Candidate(SIDE_TOOL, {"action": "query", "target": written, "prefer": item.prefer}, None)
+    """@brief 对象的一条动作行写成可以照抄提交的完整调用；购买候选只替换所写数组里出错的那个元素。"""
     note = option.blocked or option.duration
     if target.kind == "location":
         return Candidate(MAIN_TOOL, {"action": option.action, "target": target.label, "detail": option.detail}, note)
@@ -374,7 +330,7 @@ def _order_app_failure(target: Target, item: StartItem) -> Failure:
 
     三种副工具动作与主工具共用同一句 why 与 expected。
     """
-    why = (f"Write {target.label} in prefer of purchase or query, not in target: "
+    why = (f"Write {target.label} in prefer of purchase or search_world, not in target: "
            "this app only takes orders and has no content to open.")
     error = ErrorItem(("action",), item.action, "ACTION_NOT_OFFERED", (),
                       "A target that the written action accepts is required; an app that only takes orders is "

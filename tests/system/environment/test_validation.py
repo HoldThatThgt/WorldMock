@@ -21,11 +21,11 @@ def report(root):
 
 def test_independent_invalid_sources_are_all_reported(published_environment):
     root = published_environment
-    (root / "persona.toml").write_bytes(b"schema_version = 1\n")
+    (root / "personas" / "persona_1.toml").write_bytes(b"schema_version = 1\n")
     (root / "config.toml").write_bytes(b"schema_version = 2\n")
     (root / "catalog/app-catalog.jsonl").write_bytes(b"[]\n")
     errors = report(root)
-    assert {row["path"] for row in errors} == {"catalog", "persona.toml", "config.toml"}
+    assert {row["path"] for row in errors} == {"catalog", "personas/persona_1.toml", "config.toml"}
     assert {row["code"] for row in errors} >= {"PERSONA_INVALID", "RUN_CONFIG_INVALID"}
 
 
@@ -38,8 +38,8 @@ def test_obsolete_catalog_files_are_rejected(published_environment, relative):
 
 
 @pytest.mark.parametrize("relative,payload,code", [
-    ("persona.toml", b"\xef\xbb\xbfschema_version = 1\n", "PERSONA_INVALID"),
-    ("persona.toml", b"schema_version = 1\r\n", "PERSONA_INVALID"),
+    ("personas/persona_1.toml", b"\xef\xbb\xbfschema_version = 1\n", "PERSONA_INVALID"),
+    ("personas/persona_1.toml", b"schema_version = 1\r\n", "PERSONA_INVALID"),
     ("config.toml", b"\xff\n", "RUN_CONFIG_INVALID"),
     ("config.toml", b"schema_version = 2", "RUN_CONFIG_INVALID"),
 ])
@@ -61,7 +61,9 @@ def test_even_republished_jsonl_rejects_blank_lines(published_environment):
     assert any(row["path"] == "catalog" for row in report(published_environment))
 
 
-@pytest.mark.parametrize("missing", ["persona.toml", "config.toml", "catalog/location.jsonl", "catalog/manifest.json"])
+@pytest.mark.parametrize("missing", [
+    "personas/persona_1.toml", "config.toml", "catalog/location.jsonl", "catalog/manifest.json",
+])
 def test_each_required_source_is_mandatory(published_environment, missing):
     (published_environment / missing).unlink()
     assert report(published_environment)
@@ -70,11 +72,11 @@ def test_each_required_source_is_mandatory(published_environment, missing):
 @pytest.mark.parametrize("field,original", [("home_location", b'home_location = "\xe5\xae\xb6"'),
                                            ("initial_location", b'initial_location = "\xe5\xae\xb6"')])
 def test_persona_location_reference_uses_exact_registered_display_names(published_environment, field, original):
-    path = published_environment / "persona.toml"
+    path = published_environment / "personas" / "persona_1.toml"
     assert original in path.read_bytes()
     path.write_bytes(path.read_bytes().replace(original, f'{field} = "unknown"'.encode()))
     expected = "HOME_LOCATION_REQUIRED" if field == "home_location" else "ENVIRONMENT_REF_UNKNOWN"
-    assert any(row["path"] == "persona.toml" and row["code"] == expected
+    assert any(row["path"] == "personas" and row["code"] == expected
                for row in report(published_environment))
 
 
@@ -100,7 +102,7 @@ def test_persona_home_that_is_not_sleepable_is_a_registration_failure(published_
 
     republish_rows(published_environment, "location.jsonl", unmark)
     assert report(published_environment) == [{
-        "path": "persona.toml", "code": "HOME_NOT_SLEEPABLE",
+        "path": "personas", "code": "HOME_NOT_SLEEPABLE",
         "reason": "The persona home must be marked sleepable. persona.home_location"}]
 
 
@@ -135,44 +137,54 @@ def test_republished_fixture_copy_with_a_distinct_unit_name_stays_valid(publishe
 
 
 @pytest.mark.parametrize("original,replacement,reason", [
-    (b"schema_version = 2\n", b"schema_version = 1\n", "schema_version: Input should be 2"),
+    (b"schema_version = 3\n", b"schema_version = 2\n", "schema_version: Input should be 3"),
     (b"coping = \"\xe6\x8b\xbc\xe9\xab\x98\xe8\xbe\xbe\xe6\xa8\xa1\xe5\x9e\x8b\"\n", b"", "coping is required"),
     (b"social_need_growth_per_hour = 0.06\n", b"", "social_need_growth_per_hour is required"),
     (b"wake_window = [7.0, 7.5]\n", b"", "wake_window is required"),
     (b"age = 32\n", b"", "identity.age is required"),
     (b"lunch_window = [12.0, 13.0]\n", b"lunch_window = [13.0, 12.0]\n",
      "lunch_window: must be two finite hours with start < end"),
-    (b"sleep_need_hours = 7.5\n", b"sleep_need_hours = 7.5\nbig_five = 4\n", "big_five is not a persona.toml field"),
+    (b"sleep_need_hours = 7.5\n", b"sleep_need_hours = 7.5\nbig_five = 4\n", "big_five is not a persona field"),
 ])
 def test_persona_table_failures_are_reported_with_the_field_named(published_environment, original, replacement,
                                                                    reason):
-    """@brief 结构版本 1、缺少必填的卡片字段、不合格的时段和未知键都让 validate 非零退出，输出里是 persona.toml、
+    """@brief 结构版本 2、缺少必填的卡片字段、不合格的时段和未知键都让 validate 非零退出，输出里是 personas/persona_1.toml、
     PERSONA_INVALID 和写出字段的英文原因。"""
-    path = published_environment / "persona.toml"
+    path = published_environment / "personas" / "persona_1.toml"
     assert path.read_bytes().count(original) == 1
     path.write_bytes(path.read_bytes().replace(original, replacement))
-    assert report(published_environment) == [{"path": "persona.toml", "code": "PERSONA_INVALID", "reason": reason}]
+    assert report(published_environment) == [
+        {"path": "personas/persona_1.toml", "code": "PERSONA_INVALID", "reason": reason}]
 
 
 @pytest.mark.parametrize("original,replacement,reason", [
-    (b"schema_version = 2\n", b"schema_version = 1\n", "schema_version: Input should be 2"),
-    (b"schema_version = 2\n", b"", "schema_version is required"),
-    (b"context_window = 262144\n", b"context_window = 262144\npersona_validation_max_retries = 3\n",
+    (b"schema_version = 3\n", b"schema_version = 2\n", "schema_version: Input should be 3"),
+    (b"schema_version = 3\n", b"", "schema_version is required"),
+    (b"max_output_tokens = 16000\n", b"max_output_tokens = 16000\npersona_validation_max_retries = 3\n",
      "Run config validation failed"),
+    (b'digest = "reasoner"', b'digest = "reasoner"\n\n[model_routing.agent_overrides."99"]\naction = "reasoner"',
+     "agent_overrides references unknown agent_id: 99"),
 ])
 def test_config_of_the_previous_structure_is_rejected_by_validate(published_environment, original, replacement,
                                                                   reason):
-    """@brief config.toml 的结构版本是 2：还写着上一版的 1、不写这一行，或者 [model] 里还留着已删除的人物卡片校验预算，
-    validate 都非零退出，输出里是 config.toml、RUN_CONFIG_INVALID 和英文原因。"""
+    """@brief config.toml 的结构版本是 3：上一版版本、缺版本号、未知字段或引用未加载 agent_id 都让 validate 非零退出。"""
     path = published_environment / "config.toml"
     assert path.read_bytes().count(original) == 1
     path.write_bytes(path.read_bytes().replace(original, replacement))
     assert report(published_environment) == [{"path": "config.toml", "code": "RUN_CONFIG_INVALID", "reason": reason}]
 
 
+def test_stale_root_persona_toml_is_rejected_as_stale_entry(published_environment):
+    """@brief 根目录遗留已退役的 persona.toml 文件时，环境准入以 ENVIRONMENT_STALE_FILE 拒绝。"""
+    stale = published_environment / "persona.toml"
+    stale.write_bytes(b"schema_version = 2\n")
+    errors = report(published_environment)
+    assert any(row["path"] == "catalog" and row["code"] == "ENVIRONMENT_STALE_FILE" for row in errors)
+
+
 def test_windows_without_any_plausible_order_pass_validation(published_environment):
     """@brief 时段之间没有任何检查：早于晚饭的就寝、清晨才开始的就寝写法、午夜之后的下班和重叠的午饭晚饭都通过 validate。"""
-    path = published_environment / "persona.toml"
+    path = published_environment / "personas" / "persona_1.toml"
     content = path.read_bytes()
     for original, replacement in (
             (b"lunch_window = [12.0, 13.0]\n", b"lunch_window = [12.0, 19.0]\n"),
@@ -248,12 +260,12 @@ def test_package_with_or_without_optional_catalog_files_is_valid(published_envir
 
 
 @pytest.mark.parametrize("change,code,reason", [
-    ({"rules_version": 5}, "RULES_VERSION_MISMATCH", "The environment was published for a different rules version."),
-    ({"rules_version": 5, "format_version": 4}, "RULES_VERSION_MISMATCH",
+    ({"rules_version": 6}, "RULES_VERSION_MISMATCH", "The environment was published for a different rules version."),
+    ({"rules_version": 6, "format_version": 6}, "RULES_VERSION_MISMATCH",
      "The environment was published for a different rules version."),
 ])
 def test_package_published_for_the_previous_rules_version_is_refused(published_environment, change, code, reason):
-    """@brief 规则版本是 5 的夹具副本：输出 {path, code, reason}，非零退出，原因没有详情时只有固定原因。"""
+    """@brief 规则版本是 6 的夹具副本：输出 {path, code, reason}，非零退出，原因没有详情时只有固定原因。"""
     path = published_environment / "catalog/manifest.json"
     path.write_bytes(json.dumps({**json.loads(path.read_bytes()), **change}, separators=(",", ":")).encode() + b"\n")
     assert report(published_environment) == [{"path": "catalog", "code": code, "reason": reason}]
@@ -261,7 +273,7 @@ def test_package_published_for_the_previous_rules_version_is_refused(published_e
 
 def test_previous_manifest_format_is_refused_after_the_rules_version_matches(published_environment):
     path = published_environment / "catalog/manifest.json"
-    manifest = {**json.loads(path.read_bytes()), "format_version": 4}
+    manifest = {**json.loads(path.read_bytes()), "format_version": 6}
     path.write_bytes(json.dumps(manifest, separators=(",", ":")).encode() + b"\n")
     error = catalog_error(published_environment, "ENVIRONMENT_KIND_INVALID")
     assert error["reason"].startswith("A declared kind is outside the fixed set. ") and "format_version" in error["reason"]

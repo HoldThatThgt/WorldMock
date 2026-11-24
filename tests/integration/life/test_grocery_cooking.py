@@ -20,7 +20,6 @@ from tests.life.conftest import (
     advance_next,
     advance_until_ready,
     conclude_request,
-    context,
     do_at,
     pause_request,
     progress_calls,
@@ -97,7 +96,8 @@ def accepted(engine, action_id):
 
 def home_units(engine, label):
     """人物此刻的一次观察里，家在工具层列出的单元名。"""
-    observed = engine.observe(context(engine, f"{label}-{engine.context.state.current_time}"))
+    del label
+    observed = engine.observations.build_wakeup_observation(engine.context.state.agents[1])[0]
     home = next(row for row in observed["tool_layer"]["targets"] if row["name"] == "家")
     return {row["detail"]: row for row in home["actions"] if row["action"] == "interact"}
 
@@ -484,7 +484,7 @@ def test_an_open_consumed_state_adds_only_the_kit_sentence_to_the_prompt_layers(
     for engine in (consuming, plain):
         observed, _ = act(engine, "cook", do_at("家", "做饭"))
         assert advance_until_ready(engine)
-        midway = engine.observe(context(engine, "midway"))
+        midway = engine.observations.build_wakeup_observation(engine.context.state.agents[1])[0]
         seen.append([{key: canonical_json(layer[key]).decode() for key in PROMPT_LAYERS}
                      for layer in (observed, midway)])
     assert (groceries(consuming), groceries(plain)) == (1, 2)
@@ -502,7 +502,8 @@ _COOK_SUMMARY = "用买来的食材做一顿饭，吃完收拾。"
 
 def _cook_details(engine, label: str) -> dict:
     """此刻一次观察里「做饭」那条带入记录的结果明细：做饭进行中时是开始结果，做完待收尾时是终结结果。"""
-    observed = engine.observe(context(engine, f"{label}-{engine.context.state.current_time}"))
+    del label
+    observed = engine.observations.build_wakeup_observation(engine.context.state.agents[1])[0]
     (record,) = [row for row in progress_calls(observed, "start_main_activity") if row["arguments"]["detail"] == "做饭"]
     return record["result"]["details"]
 

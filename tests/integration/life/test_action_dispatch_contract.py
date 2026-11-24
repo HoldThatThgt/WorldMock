@@ -7,7 +7,7 @@ import logging
 import pytest
 
 from worldmock.foundation.errors import BusinessRuleError
-from worldmock.state.decisions.state import PendingAction
+from worldmock.simulation_engine.actions.start_group import ToolInvocation
 
 
 @pytest.mark.parametrize("tool_name, arguments", [
@@ -25,11 +25,10 @@ def test_read_only_tools_cannot_enter_action_dispatch(engine_factory, caplog, to
     persisted = store.state
     sequence = store.last_event_seq
     events = list(store.iter_events(sequence))
-    pending = PendingAction(
-        run_id=state.run_id, round_id="misrouted-read-only", decision_id="read-only-decision",
-        action_id="read-only-action", agent_id=min(state.agents), observed_at=state.current_time,
-        world_state_version=state.version, order=0, tool_name=tool_name, request=arguments,
-        request_sha256="0" * 64, requested_event_id="read-only-request",
+    pending = ToolInvocation(
+        agent_id=min(state.agents), wakeup_id="read-only-wakeup", action_id="read-only-action",
+        tool_name=tool_name, request=arguments, request_sha256="0" * 64,
+        requested_event_id="read-only-request", observation={},
     )
     caplog.clear()
     with caplog.at_level(logging.ERROR), pytest.raises(BusinessRuleError, match="^ACTION_REQUEST_INVALID$"):

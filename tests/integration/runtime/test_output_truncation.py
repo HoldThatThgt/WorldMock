@@ -1,15 +1,15 @@
-"""输出截断与思考螺旋的验收（docs/design/10-runtime.md ，裁决 D10；验收台账「截断处理」）。
+"""输出截断与思考螺旋验收（docs/design/10-runtime.md，AgentLoop 截断重试合同）。
 
-真实 LifeEngine 与 SQLite 上，脚本化模型经真实 LifeAgent 决策（WorldMock 的回合循环，只替换远程传输）：
-思考用尽输出上限的截断回合（finish_reason=length、正文为空、没有工具调用）不进入后续请求，纠错为 OUTPUT_TRUNCATED 且在
-本次决策中只出现一次（相同的纠错替换、不叠加，续接链前缀不动）；截断之后的那一次重试关闭思考并 tool_choice=required，max_tokens 不变、只开放
-世界请求，其余请求的参数不变；正文写到上限、空的 stop 回复、参数被截断的工具调用与没有选项的回复都不是截断回合，照现行
-协议纠错、不重试；重试仍没有工具调用时按现行回合预算处理；重试的回合不留下缺思考的 assistant，
-重试给出的世界请求结束本次决策、同一秒下一次决策断链；导出的质量报告 truncations 与运行记录的模型响应一致。
+真实 LifeEngine 与 SQLite 上，脚本化模型经真实 LifeAgent.decide_wakeup 运行：
+thinking 用尽输出上限的截断回合（finish_reason=length、正文为空、没有工具调用）不进入后续请求，纠错为
+OUTPUT_TRUNCATED；紧随其后的一次重试关闭思考并 tool_choice=required、仅开放六个核心世界请求、max_tokens 不变；
+正文写到上限、空 stop 回复、参数截断或空 choices 都按常规协议纠错而非截断重试；重试后正常世界请求或控制请求
+恢复后续回合思考；质量报告 truncations 与记录的截断响应一致。
 """
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import os
@@ -19,41 +19,57 @@ import pytest
 
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
-from worldmock.agents.protocol.life_feedback import FEEDBACK_INSTRUCTION  # noqa: E402
-from worldmock.agents.protocol.life_truncation import TRUNCATION_DETAIL, TRUNCATION_CONTENT  # noqa: E402
-from tests.integration.life_host_fixtures import TruncatedResponse  # noqa: E402
-from tests.integration.runtime.test_same_second_continuation import (
-    _PLAN,
-    _decide,
-    _plan_reply,
-    _reply,
-    _single,
-    _wait_reply,
-)
 from tests.engine_fixture import engine_factory as _engine_factory  # noqa: F401
-from tests.life.conftest import MAIN_TOOL, advance_next, context, main_arguments, stage_day_plan  # noqa: F401
-from worldmock.recording_engine.export.export import export_run  # noqa: E402
+from tests.integration.life_host_fixtures import TruncatedResponse  # noqa: E402
+from tests.integration.runtime.current_contract_fixtures import (  # noqa: E402
+    ScriptedModel,
+    decide,
+    resolved_binding,
+)
+from tests.life.conftest import MAIN_TOOL, advance_next, main_arguments, stage_day_plan  # noqa: E402
+from worldmock.agents.life_agent import (  # noqa: E402
+    LifeAgent,
+    life_action_tool_names,
+    life_query_tool_names,
+    person_inputs,
+)
 from worldmock.agents.prompt import prompt_capacity  # noqa: E402
+from worldmock.agents.protocol.agent_loop import TURNS_EXHAUSTED  # noqa: E402
+from worldmock.agents.protocol.life_truncation import TRUNCATION_CONTENT, TRUNCATION_DETAIL  # noqa: E402
 from worldmock.configuration.model.model_client import REQUEST_KEYS  # noqa: E402
-from worldmock.state.interaction.requests import QUERY_MODELS, REQUEST_MODELS  # noqa: E402
+from worldmock.foundation.errors import ProtocolError  # noqa: E402
+from worldmock.recording_engine.export.export import export_run  # noqa: E402
+from worldmock.state.interaction.actions import SEARCH_TOOL  # noqa: E402
 
-#: 截断回合的思考（每次不同，用来确认它不进入任何后续请求）。
+#: 截断回合的思考文本。
 _SPIRALS = ("先想想要不要回家，家里没有吃的，外卖要等，还是先去楼下……", "再算一遍：回家要四十分钟，楼下那家没有菜单……")
-#: 在家点名歇一会儿：start_main_activity 的完整参数（夹具里家的内容单元「测试休息」）。
+#: 在家点名测试休息的参数与修订计划参数。
 _WAIT = main_arguments("interact", "家", "测试休息")
-_MEMORY_TOOLS = set(QUERY_MODELS)
-#: 截断纠错回给模型的正文（第四章结构，登记的原因与改法）。
+_PLAN = {"goals": [{"intent_kind": "休息", "goal": "下午在家休息一会儿", "remind_time": None, "around_time": None}]}
+_FULL_TOOLS = set(life_action_tool_names()) | set(life_query_tool_names())
+_CORE_TOOLS = set(life_action_tool_names()) - {SEARCH_TOOL, "recall_task_summary"}
 _TRUNCATION_FEEDBACK = json.loads(TRUNCATION_CONTENT)
 
 
 @pytest.fixture(autouse=True)
 def _fixed_context_window(monkeypatch) -> None:
-    """测试使用固定供应商窗口，只验证请求与纠错合同。"""
     monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model, metadata: metadata.context_window)
 
 
+def _reply(call_id: str, name: str, arguments: dict, reasoning: str | None = "先想清楚再动手。",
+           content: str = "") -> SimpleNamespace:
+    tool_call = {"id": call_id, "type": "function",
+                 "function": {"name": name, "arguments": json.dumps(arguments, ensure_ascii=False)}}
+    doc = {"choices": [{"finish_reason": "tool_calls", "index": 0, "message": {
+        "content": content, "reasoning_content": reasoning, "tool_calls": [tool_call]}}]}
+    msg = SimpleNamespace(content=content, reasoning_content=reasoning, tool_calls=[
+        SimpleNamespace(id=call_id, type="function", function=SimpleNamespace(**tool_call["function"]))])
+    return SimpleNamespace(choices=[SimpleNamespace(finish_reason="tool_calls", index=0, message=msg)],
+                           model_dump=lambda *, mode: copy.deepcopy(doc))
+
+
 class _TextOnly:
-    """只有正文、没有工具调用的回复（finish_reason=stop）：不是截断，按没有原生工具调用纠错（TOOL_CALL_REQUIRED）。"""
+    """只有正文、没有工具调用的回复（finish_reason=stop）。"""
 
     def __init__(self, content: str = "我先想一想再说。") -> None:
         self._content = content
@@ -61,14 +77,14 @@ class _TextOnly:
         self.choices = [SimpleNamespace(finish_reason="stop", index=0, message=message)]
 
     def model_dump(self, *, mode: str) -> dict:
-        """提供商形状的回复。"""
         assert mode == "json"
-        message = {"role": "assistant", "content": self._content, "tool_calls": None}
-        return {"model": "deepseek-flash", "choices": [{"finish_reason": "stop", "index": 0, "message": message}]}
+        return {"model": "test-model", "choices": [{"finish_reason": "stop", "index": 0,
+                                                    "message": {"role": "assistant", "content": self._content,
+                                                                "tool_calls": None}}]}
 
 
 class _Finished:
-    """不是思考写满的回复：给定 finish_reason 与正文，可带一个开始活动的工具调用（参数原文可以是被截断的 JSON）。"""
+    """非截断回合形态（length 带正文、stop 为空或截断了工具 JSON）。"""
 
     _REASONING = "想一想再调用工具。"
 
@@ -76,33 +92,31 @@ class _Finished:
         self._finish, self._content, self._arguments = finish_reason, content, arguments
         calls = None if arguments is None else [SimpleNamespace(
             id="call-cut", type="function", function=SimpleNamespace(name=MAIN_TOOL, arguments=arguments))]
-        message = SimpleNamespace(content=content, tool_calls=calls, reasoning_content=self._REASONING)
-        self.choices = [SimpleNamespace(finish_reason=finish_reason, index=0, message=message)]
+        self.choices = [SimpleNamespace(finish_reason=finish_reason, index=0,
+                                        message=SimpleNamespace(content=content, tool_calls=calls,
+                                                                reasoning_content=self._REASONING))]
 
     def model_dump(self, *, mode: str) -> dict:
-        """提供商形状的回复。"""
         assert mode == "json"
-        calls = None if self._arguments is None else [{"id": "call-cut", "type": "function", "function": {
-            "name": MAIN_TOOL, "arguments": self._arguments}}]
-        message = {"role": "assistant", "content": self._content, "tool_calls": calls,
-                   "reasoning_content": self._REASONING}
-        return {"model": "deepseek-flash", "choices": [{"finish_reason": self._finish, "index": 0, "message": message}]}
+        calls = None if self._arguments is None else [{"id": "call-cut", "type": "function",
+                                                       "function": {"name": MAIN_TOOL, "arguments": self._arguments}}]
+        return {"model": "test-model", "choices": [{"finish_reason": self._finish, "index": 0, "message": {
+            "role": "assistant", "content": self._content, "tool_calls": calls,
+            "reasoning_content": self._REASONING}}]}
 
 
 class _NoChoices:
-    """一个选项也没有的回复（choices 为空）：不是截断回合，同样按没有原生工具调用纠错（TOOL_CALL_REQUIRED）。"""
+    """没有选项的空回复。"""
 
     def __init__(self) -> None:
         self.choices: list = []
 
     def model_dump(self, *, mode: str) -> dict:
-        """提供商形状的回复。"""
         assert mode == "json"
-        return {"model": "deepseek-flash", "choices": []}
+        return {"model": "test-model", "choices": []}
 
 
 def _is_retry(request: dict) -> bool:
-    """请求是截断重试：关闭思考、tool_choice=required；另核对两类请求共有的参数不变。"""
     assert request["max_tokens"] == 16000 and sorted(request) == sorted(REQUEST_KEYS)
     assert "reasoning_effort" not in request and "temperature" not in request
     assert all(item["function"]["strict"] is True for item in request["tools"])
@@ -112,89 +126,75 @@ def _is_retry(request: dict) -> bool:
 
 
 def _tools(request: dict) -> set[str]:
-    """请求实际开放的原生工具名。"""
     return {item["function"]["name"] for item in request["tools"]}
 
 
 def _corrections(request: dict) -> list[str]:
-    """请求中作为 user 消息的纠错（按出现先后的错误码）。"""
-    codes = []
-    for message in request["messages"][2:]:
-        if message["role"] == "user":
-            codes.append(json.loads(message["content"])["error_code"])
-    return codes
+    return [json.loads(m["content"])["error_code"]
+            for m in request["messages"][2:] if m["role"] == "user"]
 
 
-def _decision_responses(engine, decision_id: str) -> list:
-    """本决策落库的模型响应事件（按提交先后）。"""
-    return [event for event in engine.context.store.read_agent_events("model_response", 1) if event.decision_id == decision_id]
+def _wakeup_responses(engine, wakeup_id: str) -> list:
+    return [e for e in engine.context.store.read_agent_events("model_response", 1) if e.wakeup_id == wakeup_id]
 
 
 @pytest.mark.asyncio
 async def test_a_truncated_turn_is_dropped_and_retried_once_without_thinking(_engine_factory, caplog) -> None:
-    """截断回合不进入后续请求：重试请求的消息是首个请求的两条消息加一条截断纠错（第四章结构，原因与改法是登记的说法），
-    其中没有截断回合的思考；重试关闭思考、tool_choice=required、max_tokens 仍为 16000，只开放世界请求工具；重试给出的
-    世界请求照常登记与结算，回复正文成为 self_note；证据里截断回合的协议错误串以 OUTPUT_TRUNCATED 开头，决策开始只写一次；
-    这次截断回合期间恰好写一条「输出被截断」的错误日志。"""
+    """截断回合不进历史：重试仅保留首轮消息加一条截断纠错，关思考、required、仅开 6 个核心世界工具。"""
     engine = _engine_factory()
     stage_day_plan(engine)
     with caplog.at_level(logging.ERROR):
-        _, requests, _ = await _single(engine, "spiral", [
-            TruncatedResponse(_SPIRALS[0]), _reply("call-wait", MAIN_TOOL, _WAIT, None, "先歇一会儿。")])
-    assert [record.getMessage() for record in caplog.records
-            if record.getMessage().startswith("Life tool protocol rejected: OUTPUT_TRUNCATED")] == [
+        _, requests, _, _ = await decide(engine, "spiral", [
+            TruncatedResponse(_SPIRALS[0]),
+            _reply("call-wait", MAIN_TOOL, _WAIT, None, "先歇一会儿。"),
+        ])
+    assert [r.getMessage() for r in caplog.records
+            if r.getMessage().startswith("Life tool protocol rejected: OUTPUT_TRUNCATED")] == [
         f"Life tool protocol rejected: OUTPUT_TRUNCATED: {TRUNCATION_DETAIL}"]
     first, retry = requests
     assert [_is_retry(item) for item in requests] == [False, True]
-    assert _tools(first) == set(REQUEST_MODELS) | _MEMORY_TOOLS and _tools(retry) == set(REQUEST_MODELS) - {"recall_task_summary"}
+    assert _tools(first) == _FULL_TOOLS and _tools(retry) == _CORE_TOOLS
     assert retry["messages"][:2] == first["messages"] and len(retry["messages"]) == 3
     feedback = retry["messages"][2]
     assert feedback["role"] == "user" and json.loads(feedback["content"]) == _TRUNCATION_FEEDBACK
     assert _SPIRALS[0] not in json.dumps(retry, ensure_ascii=False)
-    truncated, answered = _decision_responses(engine, "decision-spiral-1")
+    [registered] = engine.context.store.read_agent_events("action_requested", 1)
+    assert registered.data["tool_name"] == MAIN_TOOL and registered.data["self_note"] == "先歇一会儿。"
+    truncated, answered = _wakeup_responses(engine, registered.wakeup_id)
     assert truncated.data["error"] == f"OUTPUT_TRUNCATED: {TRUNCATION_DETAIL}" and answered.data["error"] is None
     assert truncated.data["response"]["choices"][0]["message"]["reasoning_content"] == _SPIRALS[0]
-    [registered] = [event for event in engine.context.store.read_agent_events("action_requested", 1)
-                    if event.decision_id == "decision-spiral-1"]
-    assert registered.data["tool_name"] == MAIN_TOOL and registered.data["self_note"] == "先歇一会儿。"
-    assert (registered.action_id, registered.data["request"]) == ("decision-spiral-1:action:0001", _WAIT)
     assert engine.context.store.read_agent_events("action_result", 1)[-1].data["error_code"] is None
-    assert [event.decision_id for event in engine.context.store.read_agent_events("decision_started", 1)].count(
-        "decision-spiral-1") == 1
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(("reply", "code"), [
-    pytest.param(_Finished("length", "我先想想要不要回家，家里没有吃的，外卖要等……"), "TOOL_CALL_REQUIRED",
-                 id="length_with_text"),
+    pytest.param(_Finished("length", "我先想想要不要回家，家里没有吃的……"), "TOOL_CALL_REQUIRED", id="length_with_text"),
     pytest.param(_Finished("stop", ""), "TOOL_CALL_REQUIRED", id="empty_stop"),
     pytest.param(_Finished("length", "", '{"action": "interact", "target": "家", "detail": "测试'), "ARGUMENTS_NOT_JSON",
                  id="length_with_cut_tool_call"),
     pytest.param(_NoChoices(), "TOOL_CALL_REQUIRED", id="no_choices"),
 ])
 async def test_only_a_reply_that_ran_out_while_thinking_is_a_truncation(_engine_factory, reply, code: str) -> None:
-    """截断回合只指 finish_reason=length、正文为空且没有工具调用的回复（规格 7.2）：写到上限的正文、空的 stop 回复、
-    参数被截断的工具调用与一个选项也没有的回复都不是思考写满——按现行协议纠错（没有工具调用、参数不是 JSON），证据不记
-    OUTPUT_TRUNCATED，下一次请求照常开启思考、tool_choice=auto，不发截断重试。"""
+    """非「思考写满无调用无正文」形态按现行协议纠错、不发截断重试。"""
     engine = _engine_factory()
     stage_day_plan(engine)
-    _, requests, _ = await _single(engine, "not-truncated", [reply, *_wait_reply()])
+    _, requests, _, _ = await decide(engine, "not-truncated", [reply, _reply("call-w", MAIN_TOOL, _WAIT)])
     assert [_is_retry(item) for item in requests] == [False, False]
     assert json.loads(requests[1]["messages"][-1]["content"])["error_code"] == code
-    assert _tools(requests[1]) == set(REQUEST_MODELS) | _MEMORY_TOOLS
-    first, answered = _decision_responses(engine, "decision-not-truncated-1")
+    assert _tools(requests[1]) == _FULL_TOOLS
+    [registered] = engine.context.store.read_agent_events("action_requested", 1)
+    first, answered = _wakeup_responses(engine, registered.wakeup_id)
     assert not first.data["error"].startswith("OUTPUT_TRUNCATED") and answered.data["error"] is None
 
 
 @pytest.mark.asyncio
 async def test_identical_corrections_replace_each_other_across_consecutive_truncations(_engine_factory) -> None:
-    """连续截断：截断、重试只写了正文、再截断、再重试。第二次截断的纠错替换第一次的（去掉旧的，接在末尾），每个请求里
-    截断纠错至多一条；重试没有工具调用的那一回合同样丢弃，只留它的纠错；两次截断的思考都不进入任何后续请求。"""
+    """连续截断时后一次 OUTPUT_TRUNCATED 替换前一次而不叠加；截断思考与非法无调用文本均不进后续消息。"""
     engine = _engine_factory()
     stage_day_plan(engine)
     responses = [TruncatedResponse(_SPIRALS[0]), _TextOnly(), TruncatedResponse(_SPIRALS[1]),
                  _reply("call-wait", MAIN_TOOL, _WAIT, None)]
-    _, requests, _ = await _single(engine, "twice", responses)
+    _, requests, _, _ = await decide(engine, "twice", responses)
     assert [_is_retry(item) for item in requests] == [False, True, False, True]
     assert [_corrections(item) for item in requests] == [
         [], ["OUTPUT_TRUNCATED"], ["OUTPUT_TRUNCATED", "TOOL_CALL_REQUIRED"],
@@ -202,132 +202,107 @@ async def test_identical_corrections_replace_each_other_across_consecutive_trunc
     assert all(item["role"] != "assistant" for request in requests for item in request["messages"])
     wire = json.dumps(requests[1:], ensure_ascii=False)
     assert _SPIRALS[0] not in wire and _SPIRALS[1] not in wire and "我先想一想再说。" not in wire
-    errors = [event.data["error"] for event in _decision_responses(engine, "decision-twice-1")]
-    assert errors == [f"OUTPUT_TRUNCATED: {TRUNCATION_DETAIL}", "TOOL_CALL_REQUIRED: At least one complete native tool call is required.",
-                      f"OUTPUT_TRUNCATED: {TRUNCATION_DETAIL}", None]
+    [registered] = engine.context.store.read_agent_events("action_requested", 1)
+    errors = [event.data["error"] for event in _wakeup_responses(engine, registered.wakeup_id)]
+    assert errors == [
+        f"OUTPUT_TRUNCATED: {TRUNCATION_DETAIL}",
+        "TOOL_CALL_REQUIRED: At least one complete native tool call is required.",
+        f"OUTPUT_TRUNCATED: {TRUNCATION_DETAIL}",
+        None,
+    ]
 
 
 @pytest.mark.asyncio
 async def test_a_retry_that_is_truncated_again_is_not_retried_again(_engine_factory) -> None:
-    """重试只发一次：重试本身又被截断时，它的纠错与前一条相同，替换而不叠加；下一次请求回到行动参数（开启思考、
-    tool_choice=auto、检索记忆照常开放），不再重试。"""
+    """重试本身再次截断时不再连续发截断重试，下一请求回到开启思考与全量 9 工具。"""
     engine = _engine_factory()
     stage_day_plan(engine)
-    responses = [TruncatedResponse(_SPIRALS[0]), TruncatedResponse(_SPIRALS[1]), *_wait_reply()]
-    _, requests, _ = await _single(engine, "again", responses)
+    responses = [TruncatedResponse(_SPIRALS[0]), TruncatedResponse(_SPIRALS[1]), _reply("call-w", MAIN_TOOL, _WAIT)]
+    _, requests, _, _ = await decide(engine, "again", responses)
     assert [_is_retry(item) for item in requests] == [False, True, False]
     assert [_corrections(item) for item in requests] == [[], ["OUTPUT_TRUNCATED"], ["OUTPUT_TRUNCATED"]]
-    assert _tools(requests[2]) == set(REQUEST_MODELS) | _MEMORY_TOOLS
+    assert _tools(requests[2]) == _FULL_TOOLS
     assert requests[2]["messages"] == requests[1]["messages"]
 
 
 @pytest.mark.asyncio
 async def test_a_retry_still_without_a_tool_call_follows_the_turn_budget(_engine_factory) -> None:
-    """重试仍没有工具调用时按现行回合预算处理：此后的请求照常开启思考（不再重试），每个非法回复耗一个回合，相同的纠错
-    替换；四个回合用完仍没有世界请求即本次决策失败，不登记任何世界请求。"""
+    """四个回合全部耗尽且包含截断与无工具调用：抛出 ProtocolError(TURNS_EXHAUSTED)，不登记任何动作。"""
     engine = _engine_factory()
     stage_day_plan(engine)
-    ctx = context(engine, "exhausted")
-    engine.begin_decision_round([ctx])
-    responses = [TruncatedResponse(_SPIRALS[0]), _TextOnly(), _TextOnly("还是再想想。"), _TextOnly("再等等。")]
-    with pytest.raises(RuntimeError, match="ReAct decision budget exhausted"):
-        await _decide(engine, ctx, responses)
-    requests = [event.data["request"] for event in engine.context.store.read_agent_events("model_request", 1)
-                if event.decision_id == "decision-exhausted-1"]
+    [wakeup] = engine.prepare_barrier((1,))
+    sb = engine.open_sandbox(wakeup)
+    model = ScriptedModel([TruncatedResponse(_SPIRALS[0]), _TextOnly(), _TextOnly("还是再想想。"), _TextOnly("再等等。")])
+    binding = resolved_binding(model, frozen=engine.context.inputs, max_turns=4)
+    with pytest.raises(ProtocolError, match=f"^{TURNS_EXHAUSTED}$"):
+        await LifeAgent(person_inputs(engine.context.inputs.persona_by_id[1])).decide_wakeup(wakeup, sb, binding)
+    engine.record_failed_evidence(1, wakeup.wakeup_id, sb.drain_evidence())
+    requests = model.requests
     assert [_is_retry(item) for item in requests] == [False, True, False, False]
     assert [_corrections(item) for item in requests] == [
         [], ["OUTPUT_TRUNCATED"], ["OUTPUT_TRUNCATED", "TOOL_CALL_REQUIRED"],
         ["OUTPUT_TRUNCATED", "TOOL_CALL_REQUIRED", "TOOL_CALL_REQUIRED"]]
-    feedback = [json.loads(item["content"]) for item in requests[3]["messages"]
-                if item["role"] == "user" and item["content"].startswith('{"error_code"')]
-    assert feedback[-2]["items"][0]["allowed_values"] != feedback[-1]["items"][0]["allowed_values"]
-    assert _tools(requests[2]) == set(REQUEST_MODELS) | _MEMORY_TOOLS and _tools(requests[3]) == set(REQUEST_MODELS) - {"recall_task_summary"}
-    assert [event for event in engine.context.store.read_agent_events("action_requested", 1)
-            if event.decision_id == "decision-exhausted-1"] == []
+    assert _tools(requests[2]) == _FULL_TOOLS and _tools(requests[3]) == _CORE_TOOLS
+    assert engine.context.store.read_agent_events("action_requested", 1) == []
 
 
 @pytest.mark.asyncio
-async def test_a_world_request_from_the_retry_ends_the_decision_and_breaks_the_same_second_chain(
-        _engine_factory) -> None:
-    """重试请求没有思考，续接链按无思考回合处理：重试给出的瞬时世界请求（修订今日计划）结束本次决策，同一秒的下一次
-    决策不续接，首个请求只有系统层与六层两条消息；对照组（没有截断、回复带思考）同一秒照常续接。"""
+async def test_control_call_on_retry_keeps_thinking_enabled_for_next_turn_in_same_wakeup(_engine_factory) -> None:
+    """同一连续唤醒中截断重试提交 revise_day_plan（关闭思考）后，下一回合立刻恢复思考并继续决策，截断思考不入历史。"""
     engine = _engine_factory()
     stage_day_plan(engine)
-    _, planned, _ = await _single(engine, "plan", [TruncatedResponse(_SPIRALS[0]),
-                                                        _reply("call-plan", "revise_day_plan", _PLAN, None)])
-    assert [_is_retry(item) for item in planned] == [False, True]
-    assert engine.context.store.read_agent_events("action_result", 1)[-1].data["error_code"] is None
-    observation, [request], _ = await _single(engine, "wait", _wait_reply())
-    assert observation["continuation"] is None and len(request["messages"]) == 2
-    control = _engine_factory()
-    stage_day_plan(control)
-    await _single(control, "plan", _plan_reply())
-    observation, [request], _ = await _single(control, "wait", _wait_reply())
-    assert observation["continuation"] is not None and len(request["messages"]) > 2
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(("retried", "code", "named"), [
-    pytest.param(("call-bad", MAIN_TOOL, main_arguments("interact", "家", "不存在的对象")),
-                 "NAME_NOT_FOUND", "不存在的对象", id="misspelled_name"),
-    pytest.param(("call-memory", "search_memory", {"category": "全部", "time": "今天", "keyword": None}),
-                 "TOOL_CALL_REQUIRED", "search_memory", id="memory_query"),
-])
-async def test_a_rejected_retry_turn_is_dropped_so_a_continued_decision_keeps_every_thought(
-        _engine_factory, retried: tuple, code: str, named: str) -> None:
-    """同一秒续接的决策里截断后，重试写错名称或去查记忆（重试不开放检索记忆，不执行）都被纠错：重试的回合同截断回合
-    一样不留在历史中，纠错作为 user 消息接在后面；下一次请求续接链前缀逐字节不变，其中每个 assistant 都带思考（发送前
-    自检不失败），最后带思考的世界请求照常登记。"""
-    engine = _engine_factory()
-    stage_day_plan(engine)
-    await _single(engine, "plan", _plan_reply())
-    call_id, tool, arguments = retried
-    observation, requests, _ = await _single(engine, "wait", [
-        TruncatedResponse(_SPIRALS[0]), _reply(call_id, tool, arguments, None), *_wait_reply()])
-    assert observation["continuation"] is not None
-    first, retry, last = requests
+    _, requests, answer, _ = await decide(engine, "in-loop-retry", [
+        TruncatedResponse(_SPIRALS[0]),
+        _reply("call-plan", "revise_day_plan", _PLAN, None),
+        _reply("call-wait", MAIN_TOOL, _WAIT, "计划调完了，开始休息。"),
+    ])
+    assert answer == ["revise_day_plan", MAIN_TOOL]
     assert [_is_retry(item) for item in requests] == [False, True, False]
-    chain = first["messages"]
-    assert retry["messages"][:-1] == chain and json.loads(retry["messages"][-1]["content"]) == _TRUNCATION_FEEDBACK
-    assert last["messages"][:len(chain)] == chain
-    assert [json.loads(item["content"])["error_code"] for item in last["messages"][len(chain):]] == [
-        "OUTPUT_TRUNCATED", code]
-    detail = json.loads(last["messages"][-1]["content"])["items"]
-    assert any(item["written"] == named for item in detail)
-    assert all(item["role"] == "user" for item in last["messages"][len(chain):])
-    assert all(item.get("reasoning_content") for item in last["messages"] if item["role"] == "assistant")
-    assert call_id not in json.dumps(last, ensure_ascii=False)
-    [registered] = [event for event in engine.context.store.read_agent_events("action_requested", 1)
-                    if event.decision_id == "decision-wait-1"]
-    assert registered.data["tool_name"] == MAIN_TOOL
+    assert _tools(requests[1]) == _CORE_TOOLS and _tools(requests[2]) == _FULL_TOOLS
+    third_msgs = requests[2]["messages"]
+    assert [m["role"] for m in third_msgs] == ["system", "user", "user", "assistant", "tool"]
+    assert third_msgs[3]["tool_calls"][0]["id"] == "call-plan"
+    assert "reasoning_content" not in third_msgs[3]
+    assert _SPIRALS[0] not in json.dumps(third_msgs, ensure_ascii=False)
 
 
 @pytest.mark.asyncio
-async def test_a_truncation_in_a_continued_decision_leaves_the_chain_prefix_untouched(_engine_factory) -> None:
-    """替换只在本次决策自有的消息里进行：同一秒的上一决策有过截断（重试只写了正文），最后以带思考的世界请求结束，链照常
-    成立、链里带着那条截断纠错；本决策再截断时，新的截断纠错接在链后，链前缀逐字节不变，链里那条相同的纠错不去掉。"""
+async def test_rejected_retry_turns_are_dropped_while_valid_assistant_thoughts_remain(_engine_factory) -> None:
+    """先 revise_day_plan 保留思考，再截断并尝试在重试调用不在工具面内的 search_memory：被拒重试不留助手消息。"""
     engine = _engine_factory()
     stage_day_plan(engine)
-    _, planned, _ = await _single(engine, "plan", [TruncatedResponse(_SPIRALS[0]), _TextOnly(), *_plan_reply()])
-    assert [_is_retry(item) for item in planned] == [False, True, False]
-    observation, requests, _ = await _single(engine, "wait", [TruncatedResponse(_SPIRALS[1]), *_wait_reply()])
-    assert observation["continuation"] is not None
-    first, retry = requests
-    assert first["messages"][:len(planned[-1]["messages"])] == planned[-1]["messages"]
-    assert retry["messages"][:-1] == first["messages"] and _is_retry(retry)
-    assert _corrections(retry) == ["OUTPUT_TRUNCATED", "TOOL_CALL_REQUIRED", "OUTPUT_TRUNCATED"]
+    _, requests, _, _ = await decide(engine, "rejected-retry", [
+        _reply("call-plan", "revise_day_plan", _PLAN, "先把计划写好。"),
+        TruncatedResponse(_SPIRALS[0]),
+        _reply("call-mem", "search_memory", {"category": "全部", "time": "今天", "keyword": None}, None),
+        _reply("call-wait", MAIN_TOOL, _WAIT, "接着开始休息。"),
+    ])
+    assert [_is_retry(item) for item in requests] == [False, False, True, False]
+    last_msgs = requests[3]["messages"]
+    assistants = [m for m in last_msgs if m["role"] == "assistant"]
+    assert len(assistants) == 1 and assistants[0]["reasoning_content"] == "先把计划写好。"
+    assert "call-mem" not in json.dumps(last_msgs, ensure_ascii=False)
+    assert _SPIRALS[0] not in json.dumps(last_msgs, ensure_ascii=False)
+    assert [m for m in last_msgs if m["role"] == "user" and m["content"].startswith('{"error_code"')]
 
 
 @pytest.mark.asyncio
 async def test_the_exported_quality_report_counts_the_truncations_the_run_recorded(_engine_factory, tmp_path) -> None:
-    """真实导出路径：两次决策共三次截断（其中一次输出 8001 个 token），导出的 quality.json 的 truncations 与导出事件中
-    finish_reason=length 的模型响应逐项一致：次数、按用途分列、浪费的输出 token 与其中的思考 token。"""
+    """两次独立唤醒共三次截断：导出质量报告 quality.json(v11) 与事件逐项一致。"""
     engine = _engine_factory()
     stage_day_plan(engine)
-    await _single(engine, "plan", [TruncatedResponse(_SPIRALS[0], 8001),
-                                        _reply("call-plan", "revise_day_plan", _PLAN, None)])
-    await _single(engine, "wait", [TruncatedResponse(_SPIRALS[1]), _TextOnly(), TruncatedResponse(_SPIRALS[0]),
-                                        _reply("call-wait", MAIN_TOOL, _WAIT, None)])
+    await decide(engine, "plan", [TruncatedResponse(_SPIRALS[0], 8001),
+                                  _reply("call-plan", "revise_day_plan", _PLAN, None),
+                                  _reply("call-wait1", MAIN_TOOL, _WAIT, None)])
+    advance_next(engine)
+    # 结束前次睡眠后唤醒再产生两次截断
+    name = next(iter(engine.context.state.activities.values())).name
+    await decide(engine, "wait", [
+        TruncatedResponse(_SPIRALS[1]), _TextOnly(), TruncatedResponse(_SPIRALS[0]),
+        _reply("call-conclude", "conclude_activity", {
+            "items": [{"activity_name": name, "summary": "好了。", "memories": [], "views": []}], "errands": []}, None),
+        _reply("call-wait2", MAIN_TOOL, _WAIT, None),
+    ])
     advance_next(engine)
     export = tmp_path / "export"
     export_run(engine.context.store, engine.context.store.last_event_seq, export)
@@ -341,44 +316,30 @@ async def test_the_exported_quality_report_counts_the_truncations_the_run_record
         "wasted_output_tokens": sum(item["usage"]["completion_tokens"] for item in recorded),
         "reasoning_tokens": sum(item["usage"]["completion_tokens_details"]["reasoning_tokens"] for item in recorded),
         "responses_missing_output_tokens": 0, "responses_missing_reasoning_tokens": 0,
-        "method": quality["truncations"]["method"]}
+        "method": quality["truncations"]["method"],
+    }
     assert quality["truncations"]["wasted_output_tokens"] == 24001 == quality["truncations"]["reasoning_tokens"]
-    assert quality["schema_version"] == 10
-
-
-def _exported_files(directory) -> dict:
-    """导出目录里每个文件的相对路径与字节。"""
-    return {path.relative_to(directory).as_posix(): path.read_bytes()
-            for path in sorted(directory.rglob("*")) if path.is_file()}
+    assert quality["schema_version"] == 11
 
 
 @pytest.mark.asyncio
 async def test_export_with_model_calls_is_byte_identical_with_and_without_the_post_run_view(
-        _engine_factory, tmp_path, monkeypatch) -> None:
-    """带真实模型请求与响应的导出：内存里的请求只留提纲、响应去掉候选的 message，导出的每个字节（含质量报告的
-    model_usage 与 truncations）与按完整事件导出的相同。"""
+    _engine_factory, tmp_path, monkeypatch,
+) -> None:
+    """运行后提纲视图投影不影响完整导出报告或事件的逐字节结果。"""
     from worldmock.recording_engine.export import export as export_module
 
     engine = _engine_factory()
     stage_day_plan(engine)
-    await _single(engine, "plan", [TruncatedResponse(_SPIRALS[0], 8001),
-                                        _reply("call-plan", "revise_day_plan", _PLAN, None)])
-    await _single(engine, "wait", [TruncatedResponse(_SPIRALS[1]), _TextOnly(), TruncatedResponse(_SPIRALS[0]),
-                                        _reply("call-wait", MAIN_TOOL, _WAIT, None)])
+    await decide(engine, "plan", [TruncatedResponse(_SPIRALS[0], 8001),
+                                  _reply("call-wait", MAIN_TOOL, _WAIT, None)])
     advance_next(engine)
     store = engine.context.store
-    stored = list(store.iter_events(store.last_event_seq))
-    requests = [event.data["request"] for event in stored if event.event_type == "model_request"]
-    responses = [event.data["response"] for event in stored if event.event_type == "model_response"
-                 and isinstance(event.data.get("response"), dict)]
-    assert any("content" in message for request in requests for message in request["messages"])
-    assert any("parameters" in tool["function"] for request in requests for tool in request.get("tools") or [])
-    assert any("message" in choice for response in responses for choice in response["choices"])
     captured, original = [], export_module.build_quality_report
 
-    def capture(events, *args):
-        captured.extend(events)
-        return original(events, *args)
+    def capture(evts, *args):
+        captured.extend(evts)
+        return original(evts, *args)
 
     with monkeypatch.context() as patched:
         patched.setattr(export_module, "build_quality_report", capture)
@@ -386,13 +347,9 @@ async def test_export_with_model_calls_is_byte_identical_with_and_without_the_po
     with monkeypatch.context() as patched:
         patched.setattr(export_module, "post_run_view", lambda event: event)
         export_run(store, store.last_event_seq, tmp_path / "full")
-    assert _exported_files(tmp_path / "views") == _exported_files(tmp_path / "full")
-    outlines = [event.data["request"] for event in captured if event.event_type in {"model_request", "model_response"}
-                and isinstance(event.data.get("request"), dict)]
-    assert outlines and not any({"content", "reasoning_content"} & set(message) for request in outlines
-                                for message in request["messages"])
-    assert not any({"description", "parameters"} & set(tool["function"]) for request in outlines
-                   for tool in request.get("tools") or [])
-    kept = [event.data["response"] for event in captured if event.event_type == "model_response"
-            and isinstance(event.data.get("response"), dict)]
-    assert kept and not any("message" in choice for response in kept for choice in response["choices"])
+    views = {p.relative_to(tmp_path / "views").as_posix(): p.read_bytes() for p in sorted((tmp_path / "views").rglob("*")) if p.is_file()}
+    full = {p.relative_to(tmp_path / "full").as_posix(): p.read_bytes() for p in sorted((tmp_path / "full").rglob("*")) if p.is_file()}
+    assert views == full
+    outlines = [e.data["request"] for e in captured if e.event_type in {"model_request", "model_response"}
+                and isinstance(e.data.get("request"), dict)]
+    assert outlines and not any({"content", "reasoning_content"} & set(m) for r in outlines for m in r["messages"])

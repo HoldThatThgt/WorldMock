@@ -23,7 +23,7 @@ from worldmock.state.world.kinds import ActivityKind
 
 @pytest.fixture
 def body_inputs():
-    raw = tomllib.loads(Path('tests/fixtures/dataset-environment/persona.toml').read_text(encoding='utf-8'))
+    raw = tomllib.loads(Path('tests/fixtures/dataset-environment/personas/persona_1.toml').read_text(encoding='utf-8'))
     persona = PersonaConfig.model_validate(raw)
     config = assemble_body_config(persona)
     body = initial_body(config, 8.0, persona)
@@ -38,7 +38,7 @@ def test_awake_growth_is_added_once_across_both_slots(body_inputs):
     assert result.after.social_need == pytest.approx(body.social_need + 0.06)
     assert result.basal_energy_kcal == 65
     assert result.extra_energy_kcal == 2.5 * 65
-    raw = tomllib.loads(Path('tests/fixtures/dataset-environment/persona.toml').read_text(encoding='utf-8'))
+    raw = tomllib.loads(Path('tests/fixtures/dataset-environment/personas/persona_1.toml').read_text(encoding='utf-8'))
     heavier = assemble_body_config(PersonaConfig.model_validate({**raw, 'body': {**raw['body'], 'mass_kg': 70.0}}))
     other = settle_shared_body(body, activities, 3600, heavier)
     assert (other.basal_energy_kcal, other.extra_energy_kcal) == (70, 2.5 * 70)
@@ -187,9 +187,9 @@ def test_travel_burns_energy_by_the_exertion_key_frozen_at_departure(body_inputs
 
 
 def test_activity_met_table_has_walking_and_the_four_exertion_levels_but_no_fixed_vehicles(body_inputs):
-    """身体常量表里出行只剩自带步行的 walking 一个键，驾车、打车、公共交通三行与旧的 walk 键都已删除；查询按自己的
-    query 键取 1.0，恰八项、次序如表。"""
+    """身体常量表里出行只剩自带步行的 walking 一个键，驾车、打车、公共交通三行与旧的 walk 键都已删除；搜索按自己的
+    search 键取 1.0，恰八项、次序如表。"""
     config, _ = body_inputs
-    assert list(config.activity_met.items()) == [("sleep", 0.95), ("walking", 3.5), ("purchase", 1.0), ("query", 1.0),
+    assert list(config.activity_met.items()) == [("sleep", 0.95), ("walking", 3.5), ("purchase", 1.0), ("search", 1.0),
                                                  ("idle", 1.0), ("light", 1.5), ("moderate", 2.0), ("heavy", 5.0)]
     assert not {"walk", "drive", "take_taxi", "take_bus", "travel"} & set(config.activity_met)

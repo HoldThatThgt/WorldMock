@@ -1,5 +1,5 @@
 """共同检查点保存真实个人事务，分支观察不重复登记事务。"""
-from tests.life.conftest import stage_day_plan, do_at, conclude_request, errand_add, context, advance_until_ready
+from tests.life.conftest import stage_day_plan, do_at, conclude_request, errand_add, advance_until_ready
 from tests.life.environment_runtime import act
 from worldmock.recording_engine.storage.checkpoint import restore_branch
 from worldmock.simulation_engine.engine import LifeEngine
@@ -25,8 +25,8 @@ def test_checkpoint_restores_identical_errands_and_todo_without_renoting(engine_
     child = LifeEngine.open(engine.context.inputs, tmp_path / "branch")
     try:
         assert child.context.state.agents[1].errands == expected
-        parent_view = engine.observe(context(engine, "parent-view"))
-        child_view = child.observe(context(child, "child-view"))
+        parent_view = engine.observations._observation_data(engine.context.state.agents[1])
+        child_view = child.observations._observation_data(child.context.state.agents[1])
         assert child_view["todo_layer"] == parent_view["todo_layer"]
         noted = [row for row in list(child.context.store.iter_events(child.context.store.last_event_seq))
                  if row.event_type == "environment_event" and row.data.get("kind") == "errand_registered"]

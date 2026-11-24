@@ -1,4 +1,4 @@
-"""@brief 单人人设与运行配置的严格 TOML 输入模型。"""
+"""@brief 多数字人设与双维模型路由配置的严格 TOML 输入模型。"""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from datetime import date, datetime
 from typing import Annotated, Literal, TypeVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import AfterValidator, ConfigDict, Field, model_validator
+from pydantic import AfterValidator, ConfigDict, Field, field_validator, model_validator
 
 from worldmock.foundation.models import DeepFrozenModel
 
@@ -150,12 +150,12 @@ class Tastes(InputModel):
 
 
 class PersonaConfig(InputModel):
-    """@brief 唯一人物的人设表：位置与初始资源、工作安排，以及由数据集直接填写的完整人物卡片。
+    """@brief 单个人物的声明表：位置与初始资源、工作安排，以及由数据集直接填写的完整人物卡片。
 
     卡片字段没有缺省值；下班、到家两个时段不写表示没有固定时刻。时段之间不做任何先后或重叠检查。
     """
 
-    schema_version: Literal[2]
+    schema_version: Literal[3]
     agent_id: int = Field(gt=0)
     name: str = Field(min_length=1, pattern=r"\S")
     background_story: str = Field(min_length=1)
@@ -209,8 +209,12 @@ class CalendarConfig(InputModel):
         return self
 
 
-class ModelConfig(InputModel):
-    """@brief 非密模型身份、凭据引用、权威元数据地址与各调用预算。"""
+#: 认知阶段闭集：主决策、搜索子会话、零点计划、日/月/年回顾。
+MODEL_STAGES = ("action", "search", "plan_day", "digest")
+
+
+class ModelProfileConfig(InputModel):
+    """@brief 单个命名模型档的非密端点、凭据引用、容量与校验预算。"""
 
     provider: Literal["openai_compatible"]
     base_url: str = Field(min_length=1)
@@ -218,6 +222,8 @@ class ModelConfig(InputModel):
     api_key_env: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
     metadata_url: str = Field(min_length=1)
     context_window: int = Field(ge=262144)
+    thinking: bool
+    max_output_tokens: int = Field(gt=0)
     max_retries: int = Field(default=0, ge=0, le=10)
     transport_max_retries: int = Field(default=3, ge=0, le=10)
     max_react_turns: int = Field(default=16, ge=1, le=64)
@@ -225,10 +231,57 @@ class ModelConfig(InputModel):
     day_plan_validation_max_retries: int = Field(default=3, ge=0, le=5)
 
 
-class RunConfig(InputModel):
-    """@brief 一次单人运行的时区、时间、唯一种子、节律与模型配置；结构版本是 2，写其他值的文件直接拒绝。"""
+class ModelStageOverride(InputModel):
+    """@brief 单个人物在四个认知阶段中可覆盖的模型档名称；至少指定一个阶段。"""
 
-    schema_version: Literal[2]
+    action: NonBlankText | None = None
+    search: NonBlankText | None = None
+    plan_day: NonBlankText | None = None
+    digest: NonBlankText | None = None
+
+    @model_validator(mode="after")
+    def validate_non_empty_override(self) -> ModelStageOverride:
+        """@brief 人物覆盖项至少提供一个非空阶段模型档。"""
+        if all(getattr(self, stage) is None for stage in MODEL_STAGES):
+            _invalid("agent_overrides entry must set at least one stage")
+        return self
+
+
+class ModelRoutingConfig(InputModel):
+    """@brief 认知阶段与人物编号双维模型路由表。"""
+
+    action: str = Field(min_length=1, pattern=r"\S")
+    search: str = Field(min_length=1, pattern=r"\S")
+    plan_day: str = Field(min_length=1, pattern=r"\S")
+    digest: str = Field(min_length=1, pattern=r"\S")
+    agent_overrides: dict[str, ModelStageOverride] = Field(default_factory=dict)
+
+    @field_validator("agent_overrides")
+    @classmethod
+    def validate_agent_keys(cls, value: dict[str, ModelStageOverride]) -> dict[str, ModelStageOverride]:
+        """@brief 人物覆盖键必须是规范正整数字符串（如 '2'）。"""
+        for key in value:
+            if not (key.isascii() and key.isdigit() and int(key) > 0 and str(int(key)) == key):
+                _invalid(f"agent_overrides key {key!r} must be a canonical positive integer string")
+        return value
+
+
+def referenced_profile_ids(routing: ModelRoutingConfig) -> tuple[str, ...]:
+    """@brief 按稳定顺序去重返回默认路由与人物覆盖实际引用的全部模型档名称。"""
+    names: list[str] = [getattr(routing, stage) for stage in MODEL_STAGES]
+    for key in sorted(routing.agent_overrides, key=int):
+        override = routing.agent_overrides[key]
+        for stage in MODEL_STAGES:
+            value = getattr(override, stage)
+            if value is not None:
+                names.append(value)
+    return tuple(dict.fromkeys(names))
+
+
+class RunConfig(InputModel):
+    """@brief 一次多数字人运行的时区、时间、唯一种子、节律与双维模型配置；结构版本为 3。"""
+
+    schema_version: Literal[3]
     seed: int
     timezone: str = Field(min_length=1)
     start_time: datetime
@@ -240,7 +293,8 @@ class RunConfig(InputModel):
     rotation_quota_ratio: float = Field(default=0.15, gt=0, lt=1, allow_inf_nan=False)
     rotation_stale_seconds: int = Field(gt=0, le=31536000)
     calendar: CalendarConfig
-    model: ModelConfig
+    models: dict[str, ModelProfileConfig]
+    model_routing: ModelRoutingConfig
 
     @model_validator(mode="after")
     def validate_times(self) -> RunConfig:
@@ -259,6 +313,19 @@ class RunConfig(InputModel):
             value.utcoffset() != value.astimezone(zone).utcoffset() for value in (self.start_time, self.stop_time)
         ):
             _invalid("run time interval or timezone is invalid")
+        return self
+
+    @model_validator(mode="after")
+    def validate_models_and_routing(self) -> RunConfig:
+        """@brief 核对模型档字典非空、键非空白，且全部路由与覆盖引用的档位均存在。"""
+        if not self.models:
+            _invalid("models must declare at least one profile")
+        for key in self.models:
+            if not key.strip():
+                _invalid("model profile name must not be blank")
+        for profile_id in referenced_profile_ids(self.model_routing):
+            if profile_id not in self.models:
+                _invalid(f"model_routing references unknown profile {profile_id!r}")
         return self
 
 

@@ -1,6 +1,6 @@
 """@brief 只从实际应用快照、前台区间事件、通知和推送投影八种数字使用事实。
 
-应用快照来自自带 app 的活动：人物点名使用的内容 app 与查询所在的 app。
+应用快照来自自带 app 的活动：人物点名使用的内容 app 与搜索归属的 app。
 """
 
 from __future__ import annotations
@@ -75,7 +75,7 @@ class _Projection:
 def project_app_usage(events: list[dict]) -> list[dict]:
     """@brief app 使用行在前、按各行第一条来源事件的先后排列，其余事实按事件先后跟在后面。
 
-    自带 app 的活动（人物点名使用的内容 app、查询所在的 app）输出活动的实际执行区间；引擎代为使用的 app（导航、下单、支付）同一活动、同一 app 一行，
+    自带 app 的活动（人物点名使用的内容 app、搜索归属的 app）输出活动的实际执行区间；引擎代为使用的 app（导航、下单、支付）同一活动、同一 app 一行，
     区间是全部前台区间合并的结果，状态取所属活动的最后状态。
     """
     projection = _project(events)
@@ -101,7 +101,7 @@ def _common(kind: str, agent_id: int, app_id: str, source: str) -> dict:
 
 
 def _app_binding(activity: dict) -> str | None:
-    """@brief 自带 app 的活动（内容 app 的使用与查询）的应用身份；没有 app 时为 None，不形成持续使用。"""
+    """@brief 自带 app 的活动（内容 app 的使用与搜索）的应用身份；没有 app 时为 None，不形成持续使用。"""
     return activity.get("data", {}).get("app_id")
 
 
@@ -161,8 +161,11 @@ def _visit(event: dict, projection: _Projection, ended: set[str]) -> None:
         sessions = activity.get("session_ids", [])
         if event["event_type"] == "action_accepted" and sessions:
             _change_session(projection, activity["agent_id"], sessions[-1])
-        if activity["kind"] in APP_BOUND_ACTIONS and _app_binding(activity) is not None:
-            _app_snapshot(event, activity, projection)
+        if activity["kind"] in APP_BOUND_ACTIONS:
+            if _app_binding(activity) is not None:
+                _app_snapshot(event, activity, projection)
+            elif activity["kind"] == "search":
+                _unscoped_search_snapshot(event, activity, projection)
         if event["event_type"] == "activity_progress" and data.get("content", {}).get("completed"):
             _release_completed(event, activity, projection)
         if activity["kind"] == "travel" and activity["status"] in {"completed", "cancelled", "failed", "truncated"}:
@@ -303,6 +306,14 @@ def _app_snapshot(event: dict, activity: dict, projection: _Projection) -> None:
             consumed_pin = old.get("pinned_by_push_id") if old.get("content_id") == consumed["content_id"] else None
             projection.facts.append(_content_fact(event, activity, consumed_pin))
     projection.activities[identity] = activity, event["event_id"]
+    projection.first_sources.setdefault(identity, event["event_id"])
+
+
+def _unscoped_search_snapshot(event: dict, activity: dict, projection: _Projection) -> None:
+    """@brief 未锁定应用前的搜索进度段先记录执行区间与首条来源，待完成时按最终 app_id 并入。"""
+    identity = activity["activity_id"]
+    if event["event_type"] == "activity_progress":
+        append_activity_segment(projection.segments.setdefault(identity, []), event)
     projection.first_sources.setdefault(identity, event["event_id"])
 
 

@@ -357,5 +357,5 @@ def test_restore_accepts_a_lapsed_push_and_a_running_content_whose_prerequisite_
     lapsed = state.model_copy(update={"current_time": moment(12, 12, 30), "sessions": {"stay": home},
                                       "activities": {activity.activity_id: activity}})
     assert eligible_contents(context.catalog, lapsed, ContentRequest(1, "dingtalk", "home")) == ()
-    validate_activity_targets(lapsed, context.catalog, context.persona)
+    validate_activity_targets(lapsed, context.catalog, context.persona_by_id)
     validate_app_pushes(lapsed, context.catalog)

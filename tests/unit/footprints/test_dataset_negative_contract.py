@@ -81,9 +81,9 @@ def test_frozen_environment_rejects_manifest_identity_mismatch(engine_factory, c
     store = engine.context.store
     frozen = copy.deepcopy(store.manifest)
     if case == "asset_set":
-        frozen["environment_assets"].pop("persona.toml")
+        frozen["environment_assets"].pop(next(k for k in frozen["environment_assets"] if k.startswith("personas/")))
     elif case == "persona":
-        frozen["persona_sha256"] = "0" * 64
+        frozen["persona_sha256s"][next(iter(frozen["persona_sha256s"]))] = "0" * 64
     elif case == "catalog_identity":
         frozen["environment_identity"]["environment_version"] = "different"
     elif case == "map":
@@ -102,7 +102,7 @@ CALLBACK_ROW = b'{"cap":3,"initial":1,"reset_on_goods":[],"state":"stock"}\n'
 MAP_ROW = b'{"a":"home","b":"office","length_m":12600}\n'
 METHOD_ROW = ('{"exertion":"light","name":"骑车","price_per_km_fen":0,"speed_meters_per_second":4,'
               '"start_price_fen":0,"travel_method_id":"bike"}\n').encode("utf-8")
-FIXED_ASSETS = {"persona.toml", "config.toml", "map.json", "catalog/manifest.json"}
+FIXED_ASSETS = {"config.toml", "map.json", "catalog/manifest.json"}
 REQUIRED_ASSETS = {"catalog/app-catalog.jsonl", "catalog/content-catalog.jsonl", "catalog/location.jsonl",
                    "catalog/merchant-catalog.jsonl"}
 
@@ -137,11 +137,13 @@ def _put(store, frozen, name, content):
                          ids=["required-only", "empty-callbacks", "callbacks", "empty-map", "map", "empty-methods",
                               "methods", "all-three"])
 def test_frozen_asset_names_follow_the_frozen_manifest_file_table(engine_factory, tmp_path, files):
-    """冻结素材恰为四个固定名字加清单登记的每个目录文件；带与不带可选文件都通过冻结核对。"""
+    """冻结素材恰为三个固定名字、每名人设文件加清单登记的每个目录文件；带与不带可选文件都通过冻结核对。"""
     engine = _engine_with(engine_factory, tmp_path, files)
     store = engine.context.store
+    persona_assets = {name for name in store.manifest["environment_assets"] if name.startswith("personas/")}
+    assert len(persona_assets) == len(store.manifest["agent_ids"])
     assert set(store.manifest["environment_assets"]) == (
-        FIXED_ASSETS | REQUIRED_ASSETS | {f"catalog/{name}" for name in files})
+        FIXED_ASSETS | persona_assets | REQUIRED_ASSETS | {f"catalog/{name}" for name in files})
     validate_frozen_environment(store.run_dir, store.manifest, [], [])
     for name, content in files.items():
         reference = store.manifest["environment_assets"][f"catalog/{name}"]

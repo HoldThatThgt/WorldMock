@@ -2,7 +2,7 @@
 import json
 import pytest
 from tests.integration.runtime.current_contract_fixtures import decide, ToolResponse
-from tests.life.conftest import SIDE_TOOL, side_arguments, stage_day_plan, advance_until_ready, context
+from tests.life.conftest import MAIN_TOOL, SIDE_TOOL, main_arguments, side_arguments, stage_day_plan, advance_until_ready
 from worldmock.state.planning.schedule import PlanGoal
 from worldmock.agents.prompt.life_prompt import user_layer
 from worldmock.agents.prompt.tool_groups import expand_tool_layer
@@ -57,9 +57,11 @@ async def test_progress_and_conclusion_requests_preserve_public_activity_name(en
     _, _, _, [started] = await decide(engine, "start", [ToolResponse(SIDE_TOOL, side_arguments("interact", "抖音"))])
     assert advance_until_ready(engine)
     activity = engine.context.state.activities[started.activity_id]
-    _, requests, _, [result] = await decide(engine, "conclude", [ToolResponse("conclude_activity", {
-        "items": [{"activity_name": activity.name, "summary": "看完了。", "memories": [], "views": []}],
-        "errands": []})])
+    _, requests, _, [result, _] = await decide(engine, "conclude", [
+        ToolResponse("conclude_activity", {
+            "items": [{"activity_name": activity.name, "summary": "看完了。", "memories": [], "views": []}],
+            "errands": []}),
+        ToolResponse(MAIN_TOOL, main_arguments("sleep", "60"), "call-sleep")])
     assert result.status == "completed"
     for value in public_messages(requests[0]):
         assert_public(value)

@@ -31,7 +31,7 @@ def _app(identity="phone", app_id="bilibili", *, session="stay", content="long-v
     return ActivityState(activity_id=identity, agent_id=1, kind="interact",
                          status=status, location_id="home", started_at=START, last_settled_at=START, elapsed_seconds=0,
                          planned_end_at=START + 1800, planned_duration_seconds=1800, ended_at=ended_at,
-                         origin_action_id="open", origin_decision_id="decision", origin_request_event_id="request",
+                         origin_action_id="open", origin_wakeup_id="wakeup", origin_request_event_id="request",
                          session_ids=[session], data={"action": "interact",
                              "app_id": app_id, "content_id": content,
                              "start_position_seconds": 0, "pinned_by_push_id": pin, "draw_index": 0, "played": []}
@@ -53,7 +53,7 @@ def _travel(*, session="transit", completed=False):
                          status="completed" if completed else "active", last_settled_at=START,
                          elapsed_seconds=0, ended_at=START + 300 if completed else None,
                          planned_end_at=START + 300, planned_duration_seconds=300,
-                         origin_action_id="go", origin_decision_id="decision", origin_request_event_id="request",
+                         origin_action_id="go", origin_wakeup_id="wakeup", origin_request_event_id="request",
                          session_ids=[session], data={"path":["home", "office"]}).model_dump(mode="json")
 
 
@@ -385,3 +385,30 @@ def test_content_evidence_without_the_completion_effects_key_is_outside_the_cont
     del row["data"]["content"]["completion_effects"]
     with pytest.raises(IntegrityError, match="Content consumption must use the current interact content contract"):
         validate_app_event_source(row)
+
+
+def test_search_without_initial_app_attributes_segments_upon_completion():
+    """@brief 起始未指定 app_id 的 search 在完成归因后生成完整 app_use 区间，未归因结束则不写 app_use。"""
+    started = ActivityState(
+        activity_id="search-1", agent_id=1, kind="search", status="active", location_id="home", started_at=START,
+        last_settled_at=START, elapsed_seconds=0, planned_end_at=START + 240, planned_duration_seconds=240,
+        resource_claims={"second"}, origin_action_id="act-1", origin_wakeup_id="wakeup-1",
+        origin_request_event_id="req-1", session_ids=["s1"],
+        data={"action": "search", "query": "咖啡", "app_id": None},
+    ).model_dump(mode="json")
+    mid = {**started, "last_settled_at": START + 120, "elapsed_seconds": 120}
+    done = {**started, "status": "completed", "last_settled_at": START + 240, "elapsed_seconds": 240,
+            "ended_at": START + 240, "data": {"action": "search", "query": "咖啡", "app_id": "meituan"}}
+    events = [
+        _event(1, "action_accepted", {"activity": started}, activity_id="search-1"),
+        _event(2, "activity_progress", {"activity": mid, "interval_start": START, "interval_end": START + 120},
+               at=START + 120, activity_id="search-1"),
+        _event(3, "activity_progress", {"activity": done, "interval_start": START + 120, "interval_end": START + 240},
+               at=START + 240, activity_id="search-1"),
+    ]
+    assert project_app_usage(events) == [{
+        "fact_kind": "app_use", "agent_id": 1, "activity_id": "search-1", "app_id": "meituan",
+        "segments": [{"started_at": START, "ended_at": START + 240}],
+        "status": "completed", "source_event_id": "event-3",
+    }]
+    assert project_app_usage(events[:2]) == []

@@ -2,26 +2,19 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-from zoneinfo import ZoneInfo
-
 import pytest
 
-from worldmock.state.decisions.round import DirectToolCall
 from tests.life.conftest import (
     MAIN_TOOL,
     action_identity,
     advance_next,
     advance_until_ready,
     conclude_request,
-    context,
     pause_request,
     purchase,
     report_request,
     sleep,
-    stage_day_plan,
     target_actions,
-    tool_of,
     travel,
     use_app,
 )
@@ -34,12 +27,14 @@ from tests.life.prerequisite_inputs import (
     moment,
     weekday_hours,
 )
+from worldmock.agents.life_agent import validate_life_batch
+from worldmock.agents.protocol.agent_loop import LoopToolCall
 from worldmock.foundation.errors import ProtocolError
-from worldmock.state.interaction.requests import StartMainActivityRequest
+from worldmock.state.interaction.requests import REQUEST_MODELS, StartMainActivityRequest
 from worldmock.agents.prompt.prompt_schemas import validate_layer
 
 
-from tests.life.environment_runtime import act, act_group, events, reach
+from tests.life.environment_runtime import act, act_group, events, observe_only, reach
 from tests.life.environment_runtime import finish_activity
 
 
@@ -52,7 +47,9 @@ def test_startup_has_only_initial_session_wake_and_frozen_input_identity(engine_
     assert engine.context.state.accounts == {"agent:1": 200000, "external:scenario": -200000}
     assert len([row for row in events(engine, "environment_event")
                 if row.data.get("kind") == "time_trigger" and row.data["key"] == "run_start"]) == 1
-    assert engine.context.store.manifest["persona_sha256"] == engine.context.inputs.persona_sha256
+    assert engine.context.store.manifest["persona_sha256s"] == {
+        str(key): value for key, value in engine.context.inputs.persona_sha256s.items()
+    }
     assert engine.context.store.manifest["config_sha256"] == engine.context.inputs.config_sha256
     assert set(engine.context.store.manifest["environment_identity"]) == {
         "environment_id", "environment_version", "catalog_content_sha256", "map_sha256", "rules_version"}
@@ -60,14 +57,14 @@ def test_startup_has_only_initial_session_wake_and_frozen_input_identity(engine_
 
 def test_public_layers_validate_and_contain_four_felt_signals(engine_factory):
     engine = engine_factory()
-    data = engine.observe(context(engine, "initial-observation"))
+    data = observe_only(engine, "initial-observation")
     for key in ("tool_layer", "todo_layer", "environment_layer", "memory_layer", "progress_layer"):
         validate_layer(data[key])
     assert list(data["environment_layer"]["body"]) == ["appetite", "sleepiness", "relaxation", "social"]
     assert data["environment_layer"]["location"]["name"] == "家"
     assert all(isinstance(value, str) for value in data["environment_layer"]["body"].values())
     assert not any(row["kind"] == "person" for row in data["tool_layer"]["targets"])
-    assert data["known_activity_actions"] == ["travel", "purchase", "sleep", "interact", "query"]
+    assert data["known_activity_actions"] == ["travel", "purchase", "sleep", "interact", "search"]
 
 
 @pytest.mark.parametrize("method,identity,seconds,fare,exertion", [
@@ -218,23 +215,14 @@ def test_invalid_group_rejects_all_items_before_occupancy_or_funds_change(engine
     (lambda: use_app("哔哩哔哩"), lambda: use_app("抖音")),
     (lambda: travel("公司"), lambda: travel("五里公园", "公共交通")),
 ], ids=["two-side-calls", "two-main-calls"])
-def test_same_start_tool_twice_in_one_decision_is_a_protocol_fault_and_starts_nothing(engine_factory, first, second):
-    engine = engine_factory()
-    decision = context(engine, "same-tool")
-    engine.begin_decision_round([decision])
-    engine.observe(decision)
-    request = first()
-    engine.submit_action(DirectToolCall(decision, action_identity("same-tool", 1), tool_of(request), request))
-    # 同一槽位的两项不再能写进一个请求：同一个开始工具在一个决策里登记第二次是协议故障，不是业务拒绝
-    request = second()
-    with pytest.raises(ProtocolError, match="Agent already submitted its decision round action"):
-        engine.submit_action(DirectToolCall(decision, action_identity("same-tool", 2), tool_of(request), request))
-    engine.abort_decision_round("same-tool", "expected fault")
-    assert not engine.context.state.activities
-    assert not engine.context.state.deliveries
-    assert engine.context.state.accounts == {"agent:1": 200000, "external:scenario": -200000}
-    assert set(engine.context.state.processed_actions) == {action_identity("same-tool", 1)}
-    assert engine.context.state.processed_actions[action_identity("same-tool", 1)].result["status"] == "failed"
+def test_same_start_tool_twice_in_one_decision_is_a_protocol_fault_and_starts_nothing(first, second):
+    from tests.life.conftest import tool_of
+
+    requests = (first(), second())
+    calls = [LoopToolCall(tool_of(req), req.model_dump(mode="json"), f"c-{idx}")
+             for idx, req in enumerate(requests, start=1)]
+    feedback = validate_life_batch(calls, REQUEST_MODELS)
+    assert feedback is not None and feedback.report.error_code == "TOOL_CALL_REQUIRED"
 
 
 def test_pause_resume_and_conclude_keep_actual_shared_content_progress(engine_factory):
@@ -274,7 +262,7 @@ def test_observation_carries_no_world_query_keys(engine_factory):
     """真实观察不再带查询的两个私有键；工具层的可调用索引没有 query_categories，goods 仍列出样例环境的四个类别；
     工具层通过 Schema。"""
     engine = engine_factory()
-    observed = engine.observe(context(engine, "no-world-query"))
+    observed = observe_only(engine, "no-world-query")
     assert "world_query_bindings" not in observed and "world_query_page_size" not in observed
     index = observed["tool_layer"]["callable_index"]
     assert "query_categories" not in index
@@ -282,41 +270,16 @@ def test_observation_carries_no_world_query_keys(engine_factory):
     validate_layer(observed["tool_layer"])
 
 
-def test_same_second_six_rejections_stop_without_advancing_clock(engine_factory):
+def test_uncommitted_sandbox_and_stale_wakeup_time_leave_world_unchanged(engine_factory):
+    """沙盒未调用 commit_barrier 前不改动共享世界；过期时刻唤醒无法开启沙盒。"""
     engine = engine_factory()
-    now = engine.context.state.current_time
-    for index in range(5):
-        _, result = act(engine, f"reject-{index}", use_app("Missing"))
-        assert result.status == "rejected"
-    with pytest.raises(ProtocolError, match="decision_budget_exhausted"):
-        act(engine, "reject-final", use_app("Missing"))
-    assert engine.context.state.current_time == now
-    with pytest.raises(ProtocolError, match="decision_budget_exhausted"):
-        engine.scheduling_state()
-    assert events(engine, "run_failed")
-
-
-def test_abort_and_stale_context_never_execute_the_uncommitted_action(engine_factory):
-    engine = engine_factory()
-    decision = context(engine, "abort")
-    engine.begin_decision_round([decision])
-    engine.observe(decision)
-    engine.submit_action(DirectToolCall(decision, action_identity("abort"), MAIN_TOOL, sleep()))
-    engine.abort_decision_round("abort", "test failure")
+    [wakeup] = engine.prepare_barrier((1,))
+    sandbox = engine.open_sandbox(wakeup)
+    sandbox.dispatch_world_tool(MAIN_TOOL, sleep(), action_identity("uncommitted"))
     assert not engine.context.state.activities
-    assert engine.context.state.processed_actions[action_identity("abort")].result["status"] == "failed"
-    with pytest.raises(ProtocolError):
-        engine.observe(decision)
-
-
-def test_wrong_observed_time_cannot_read_world(engine_factory):
-    engine = engine_factory()
-    decision = context(engine, "wrong-time")
-    decision = type(decision)(decision.run_id, decision.round_id, decision.decision_id, decision.agent_id,
-        datetime.fromtimestamp(engine.context.state.current_time + 1, ZoneInfo(engine.context.config.timezone)),
-        decision.world_state_version)
-    with pytest.raises(ProtocolError, match="time is stale"):
-        engine.observe(decision)
+    assert not engine.context.state.processed_actions
+    with pytest.raises(ProtocolError, match="Wakeup time mismatch"):
+        engine.open_sandbox(wakeup.model_copy(update={"observed_at": wakeup.observed_at + 1}))
 
 
 def test_paused_interaction_requires_its_actual_start_location_to_resume(engine_factory):

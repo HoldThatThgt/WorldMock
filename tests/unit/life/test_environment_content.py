@@ -47,8 +47,9 @@ def world_at(root, when=None, location_id='home', origin_id='home'):
     人物记录的地点仍是出发地，只有当前会话是一段路。
     """
     inputs = load_environment(root, metadata_loader=fixture_metadata)
-    config = assemble_body_config(inputs.persona)
-    body = initial_body(config, 8.0, inputs.persona)
+    persona = inputs.personas[0]
+    config = assemble_body_config(persona)
+    body = initial_body(config, 8.0, persona)
     start = int(inputs.config.start_time.timestamp()) if when is None else when
     agent = AgentState(agent_id=1,name='林舟',location_id=location_id or origin_id,balance_account_id='agent:1',
         body=body,body_settled_at=start,next_decision_at=start)
@@ -61,10 +62,11 @@ def world_at(root, when=None, location_id='home', origin_id='home'):
         session = SessionState(session_id='stay',agent_id=1,kind=SessionKind.STAY,location_id=location_id,
             status=SessionStatus.ACTIVE,started_at=start,name=inputs.catalog.locations[location_id].display_name)
     state = WorldState(schema_version=WORLD_SCHEMA_VERSION,version=0,current_time=start,end_time=start+86400,
-        run_id='content-test',timezone=inputs.config.timezone,persona_sha256=inputs.persona_sha256,
+        run_id='content-test',timezone=inputs.config.timezone,persona_sha256s=dict(inputs.persona_sha256s),
         config_sha256=inputs.config_sha256,agents={1:agent},accounts={'agent:1':100000,'external:scenario':-100000},
         sessions={'stay':session},random_seed=7,random_state='content-root')
-    context = SimpleNamespace(inputs=inputs,catalog=inputs.catalog,persona=inputs.persona,config=inputs.config,body=config)
+    context = SimpleNamespace(inputs=inputs,catalog=inputs.catalog,persona_by_id=inputs.persona_by_id,
+                              config=inputs.config,bodies={1:config})
     return context,state
 
 @pytest.fixture
@@ -115,7 +117,7 @@ def test_series_continues_same_binding_and_stops_after_last_episode(context_stat
     data=_content_data(content,'bilibili',0,None)
     data['accepted_event_id']='actual-accepted-event'
     _,activity=start_activity(state.agents[1],ActivityStartParams('interact',1800,data=data),state.current_time,
-        ActivityOrigin('action','decision','event'),context.body)
+        ActivityOrigin('action','wakeup','event'),context.bodies[1])
     activity=activity.model_copy(update={'media_position_seconds':1800,'elapsed_seconds':1800,
         'last_settled_at':state.current_time+1800,'status':ActivityStatus.COMPLETED,'ended_at':state.current_time+1800})
     state.activities[activity.activity_id]=activity
@@ -136,7 +138,7 @@ def test_consumption_uses_shared_actual_position_and_repeated_boundary_has_no_ef
     content=context.catalog.contents['c-course']
     _,activity=start_activity(state.agents[1],ActivityStartParams('interact',1800,
         data={**_content_data(content,'bilibili',0,None), 'accepted_event_id':'actual-accepted-event'}),state.current_time,
-        ActivityOrigin('action','decision','event'),context.body)
+        ActivityOrigin('action','wakeup','event'),context.bodies[1])
     activity=activity.model_copy(update={'media_position_seconds':60,'elapsed_seconds':60,
         'last_settled_at':state.current_time+60})
     state.activities[activity.activity_id]=activity
@@ -159,7 +161,7 @@ def test_single_content_and_last_series_episode_stop(context_state):
         content=context.catalog.contents[content_id]
         _,activity=start_activity(state.agents[1],ActivityStartParams('interact',content.duration_seconds,
             data=_content_data(content,app_id,0,None)),state.current_time,
-            ActivityOrigin('action','decision','event'),context.body)
+            ActivityOrigin('action','wakeup','event'),context.bodies[1])
         activity=activity.model_copy(update={'media_position_seconds':content.duration_seconds,
             'elapsed_seconds':content.duration_seconds,'last_settled_at':state.current_time+content.duration_seconds,
             'status':ActivityStatus.COMPLETED,'ended_at':state.current_time+content.duration_seconds})
@@ -190,14 +192,14 @@ def test_strict_restore_rejects_retired_fields_and_wrong_effect_snapshot(context
     content=context.catalog.contents['c-course']
     _,activity=start_activity(state.agents[1],ActivityStartParams('interact',1800,
         data={**_content_data(content,'bilibili',0,None), 'accepted_event_id':'actual-accepted-event'}),state.current_time,
-        ActivityOrigin('action','decision','event'),context.body)
+        ActivityOrigin('action','wakeup','event'),context.bodies[1])
     state.activities[activity.activity_id]=activity
-    validate_activity_targets(state,context.catalog,context.persona)
+    validate_activity_targets(state,context.catalog,context.persona_by_id)
     for field,value in (('category','work_study'),('relaxation_relief_per_hour',0.5)):
         corrupt=activity.model_copy(update={'data':{**activity.data,field:value}})
         staged=state.model_copy(update={'activities':{activity.activity_id:corrupt}})
         with pytest.raises(IntegrityError,match='Persisted activity target is invalid'):
-            validate_activity_targets(staged,context.catalog,context.persona)
+            validate_activity_targets(staged,context.catalog,context.persona_by_id)
 
 
 def test_resume_reads_latest_shared_position_without_redraw(context_state):
@@ -205,7 +207,7 @@ def test_resume_reads_latest_shared_position_without_redraw(context_state):
     content=context.catalog.contents['c-course']
     _,activity=start_activity(state.agents[1],ActivityStartParams('interact',1800,
         data=_content_data(content,'bilibili',0,None)),state.current_time,
-        ActivityOrigin('action','decision','event'),context.body)
+        ActivityOrigin('action','wakeup','event'),context.bodies[1])
     state.activities[activity.activity_id]=activity
     state.agents[1].content_progress['c-course']=ContentProgress(content_id='c-course',position_seconds=300,
         completed_rounds=0,last_consumed_at=state.current_time)

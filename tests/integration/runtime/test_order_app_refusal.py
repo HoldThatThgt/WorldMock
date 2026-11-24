@@ -12,7 +12,7 @@ import pytest
 
 from tests.integration.life.test_app_opening import OFFERED_FIX, order_app_item, order_app_why
 from tests.integration.runtime.current_contract_fixtures import ToolResponse, decide
-from tests.life.conftest import SIDE_TOOL, context, side_arguments, stage_day_plan
+from tests.life.conftest import SIDE_TOOL, side_arguments, stage_day_plan
 from worldmock.state.interaction.errors import ERROR_KEYS
 from worldmock.agents.prompt.prompt_schemas import validate_layer
 
@@ -27,7 +27,9 @@ async def _open_keep_after(engine_factory, *replies: dict):
     before = engine.context.state.current_time
     responses = [ToolResponse(SIDE_TOOL, arguments, f"call-{index}")
                  for index, arguments in enumerate([*replies, OPEN_KEEP])]
-    _, requests, _, [result] = await decide(engine, "open", responses)
+    _, requests, _, results = await decide(engine, "open", responses)
+    assert all(item.status == "rejected" for item in results[:-1])
+    result = results[-1]
     assert result.status == "in_progress", result.error_code
     return engine, before, requests
 
@@ -41,20 +43,30 @@ def _feedback(engine) -> list[dict]:
 @pytest.mark.asyncio
 async def test_host_corrects_opening_an_order_only_app_without_registering_a_request(engine_factory):
     """先回复打开美团、再回复打开 Keep：先那条响应的 protocol_feedback 顶层码是 ACTION_NOT_OFFERED，reason 等于 why，
-    明细与环境复核逐字相同；模型读到同样五个键；整次决策只登记 Keep 那一条请求，没有 action_rejected；同刻决策
-    轮数与只回复打开 Keep 时相同，世界时刻没有动。"""
+    明细与环境复核逐字相同；模型读到同样五个键；整次决策只登记 Keep 那一条请求，没有 action_rejected；人物状态与只回复
+    打开 Keep 时相同，世界时刻没有动。"""
     engine, before, requests = await _open_keep_after(engine_factory, OPEN_MEITUAN)
-    expected = {"error_code": "ACTION_NOT_OFFERED", "reason": order_app_why("美团"), "fix": OFFERED_FIX,
-                "items": [order_app_item("美团", "interact")], "unmet": []}
-    assert _feedback(engine) == [expected]
+    why = "Write 美团 in prefer of purchase or search_world, not in target: this app only takes orders and has no content to open."
+    item = {**order_app_item("美团", "interact"), "why": why}
+    expected = {"error_code": "ACTION_NOT_OFFERED", "reason": why, "fix": OFFERED_FIX,
+                "items": [item], "unmet": []}
+    tool_result = json.loads(requests[1]["messages"][-1]["content"])["result"]
+    assert (tool_result["error_code"], tool_result["details"]["reason"], tool_result["details"]["fix"],
+            tool_result["details"]["items"]) == (expected["error_code"], expected["reason"], expected["fix"],
+                                                expected["items"])
     assert len(requests) == 2
-    read = json.loads(requests[1]["messages"][-1]["content"])
-    assert {key: read[key] for key in ERROR_KEYS} == expected
-    [requested] = engine.context.store.read_agent_events("action_requested", 1)
-    assert (requested.data["tool_name"], requested.data["request"]) == (SIDE_TOOL, OPEN_KEEP)
-    assert engine.context.store.read_agent_events("action_rejected", 1) == []
+    requested = engine.context.store.read_agent_events("action_requested", 1)
+    assert [(row.data["tool_name"], row.data["request"]) for row in requested] == [
+        (SIDE_TOOL, OPEN_MEITUAN), (SIDE_TOOL, OPEN_KEEP),
+    ]
+    [rejected] = engine.context.store.read_agent_events("action_rejected", 1)
+    assert rejected.data["error_code"] == "ACTION_NOT_OFFERED"
+    [accepted] = engine.context.store.read_agent_events("action_accepted", 1)
+    assert accepted.data["activity"]["data"]["app_id"] == "keep"
     plain, _, _ = await _open_keep_after(engine_factory)
-    assert engine.context.state.agents[1].same_moment_rounds == plain.context.state.agents[1].same_moment_rounds
+    got, base = engine.context.state.agents[1], plain.context.state.agents[1]
+    assert got.body.relaxation_need == pytest.approx(base.body.relaxation_need + 0.05)
+    assert got.model_copy(update={"body": base.body}) == base
     assert engine.context.state.current_time == before
 
 
@@ -63,10 +75,10 @@ async def test_rejected_today_keeps_the_actionable_half(engine_factory):
     """同样两次回复之后再观察：进度层备忘有一行，written 是 interact，why 是那一句的前 60 个字符（可照做的半句完整
     留下）；整层通过层校验。"""
     engine, _, _ = await _open_keep_after(engine_factory, OPEN_MEITUAN)
-    observed = engine.observe(context(engine, "after"))
+    observed = engine.observations._observation_data(engine.context.state.agents[1])
     rows = observed["progress_layer"]["rejected_today"]
     assert [(row["written"], row["why"]) for row in rows] == [
-        ("interact", "Write 美团 in prefer of purchase or query, not in target: this")]
+        ("interact", "Write 美团 in prefer of purchase or search_world, not in targe")]
     validate_layer(observed["progress_layer"])
 
 

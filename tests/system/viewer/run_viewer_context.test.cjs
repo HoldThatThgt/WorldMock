@@ -22,7 +22,7 @@ function parser() {
   return {api: vm.runInContext('ViewerContext', context), errors};
 }
 
-/** @brief 取夹具中的一种请求的深拷贝：action、continuation。 */
+/** @brief 取夹具中请求的深拷贝。 */
 function request(kind = 'action') {
   return JSON.parse(JSON.stringify(fixture[kind]));
 }
@@ -63,21 +63,19 @@ function layers(kind = 'action') {
   return JSON.parse(fixture[kind].messages[1].content);
 }
 
-test('genuine current requests have seven layers and eight offered tools', () => {
+test('genuine current requests have seven layers and nine offered tools', () => {
   const {api, errors} = parser();
   const parsed = api.parseRequest(event());
   assert.equal(parsed.stage, 'action');
   assert.deepEqual(plain(messageBlocks(parsed).map(block => block.key)), LAYER_KEYS);
   assert.equal(messageBlocks(parsed).map(block => block.text).join(''), request().messages[1].content);
   assert.deepEqual(layers().map(layer => layer.layer), LAYER_NAMES);
-  // 现行工具面按请求次序：六个世界请求（两个开始工具在前）、回看任务与唯一的记忆检索工具 search_memory，没有已删除的
-  // start_activity、query_world 与三个 memory_* 工具。
+  // 现行工具面按请求次序：七个世界请求（含 search_world）、回看任务与唯一的记忆检索工具 search_memory，共九个；
+  // 没有已删除的 start_activity、query_world 与三个 memory_* 工具。
   assert.deepEqual(fixture.action.tools.map(tool => tool.function.name), [
     'start_main_activity', 'start_side_activity', 'report_status', 'pause_activity', 'conclude_activity',
-    'revise_day_plan', 'recall_task_summary', 'search_memory']);
-  assert.equal(fixture.action.tools.length, 8);
-  assert.deepEqual(fixture.continuation.tools, fixture.action.tools);
-  assert.deepEqual(fixture.continuation.messages.slice(0, 2), fixture.action.messages);
+    'revise_day_plan', 'search_world', 'recall_task_summary', 'search_memory']);
+  assert.equal(fixture.action.tools.length, 9);
   assert.equal(parsed.warnings.length, 0);
   assert.equal(errors.length, 0);
 });
@@ -187,9 +185,9 @@ test('tool layer drill-down writes action names in Chinese and keeps categories 
   // 动作的中文表只有这一张：页面的动作请求行经 ViewerContext 用同一个取词函数，工具层没有行的查询也在表里；
   // 表里没有的动作照原值。
   const pairs = [['interact', 'app'], ['interact', 'location'], ['travel', 'location'], ['sleep', 'location'],
-    ['purchase', 'product'], ['purchase', 'app'], ['query', 'app'], ['unknown', 'app']];
+    ['purchase', 'product'], ['purchase', 'app'], ['search', 'app'], ['unknown', 'app']];
   assert.deepEqual(pairs.map(([action, kind]) => api.actionWord(action, kind)),
-    ['使用', '做', '出行', '睡觉', '购买', '购买', '查询', 'unknown']);
+    ['使用', '做', '出行', '睡觉', '购买', '购买', '搜索', 'unknown']);
   assert.equal(errors.length, 0);
 });
 
@@ -272,13 +270,41 @@ test('archived messages with invalid envelopes are displayed with an error', () 
   assert.equal(errors.length, 1);
 });
 
-test('continuations retain the exact archived assistant and tool messages', () => {
-  const {api} = parser();
-  const original = request('continuation');
+test('sandbox turns retain exact archived assistant and tool messages without continuation flag', () => {
+  const {api, errors} = parser();
+  const original = request();
+  original.messages.push(
+    {role: 'assistant', content: '', reasoning_content: '先查一下。',
+      tool_calls: [{id: 'call-1', type: 'function', function: {name: 'search_world', arguments: '{"query":"咖啡"}'}}]},
+    {role: 'tool', tool_call_id: 'call-1', content: '{"result":{"status":"suspended"}}'},
+  );
   const parsed = api.parseRequest(event(original));
+  assert.equal(Object.hasOwn(parsed, 'continuation'), false);
   const extras = parsed.blocks.filter(block => block.messageIndex >= 2);
-  assert.deepEqual(plain(extras.map(block => block.role)), ['assistant', 'tool']);
-  for (const block of extras) assert.deepEqual(JSON.parse(block.text), original.messages[block.messageIndex]);
+  assert.deepEqual(plain(extras.map(block => `${block.role}:${block.key}`)), ['assistant:message', 'tool:message']);
+  assert.equal(errors.length, 0);
+});
+
+test('search_session requests classify as search_session and preserve multi-turn messages cleanly', () => {
+  const {api, errors} = parser();
+  const searchReq = {
+    model: 'deepseek-chat',
+    messages: [
+      {role: 'system', content: '你是搜索子会话助手，通过目录工具寻找匹配的真实商品和地点。'},
+      {role: 'user', content: '{"query": "咖啡", "prefer": null}'},
+      {role: 'assistant', content: '',
+        tool_calls: [{id: 's-1', type: 'function', function: {name: 'search_goods', arguments: '{"query":"咖啡"}'}}]},
+      {role: 'tool', tool_call_id: 's-1', content: '{"rows":[]}'},
+    ],
+    tools: [{type: 'function', function: {name: 'search_goods'}}],
+  };
+  const parsed = api.parseRequest(event(searchReq, 'search_session'));
+  assert.equal(parsed.stage, 'search_session');
+  assert.equal(parsed.stageLabel, '搜索子会话');
+  assert.equal(parsed.warnings.length, 0);
+  assert.equal(errors.length, 0);
+  assert.equal(parsed.blocks[0].rule, 'search_session');
+  assert.deepEqual(plain(parsed.blocks.slice(0, 4).map(block => block.role)), ['system', 'user', 'assistant', 'tool']);
 });
 
 test('Unicode character accounting includes each whole message and the tools once', () => {
@@ -291,22 +317,14 @@ test('Unicode character accounting includes each whole message and the tools onc
   assert.equal(parsed.toolChars, Array.from(JSON.stringify(original.tools)).length);
 });
 
-test('the fixture continuation appends the previous decision entry in changes.memory.added', () => {
-  // 录制流程是修订计划，再同秒续接打开哔哩哔哩：续接最后一条 tool 消息的 changes.memory.added 恰是修订计划那次决策的条目。
-  const tools = fixture.continuation.messages.filter(message => message.role === 'tool');
-  const added = JSON.parse(tools.at(-1).content).changes.memory.added;
-  assert.equal(added.length, 1);
-  assert.equal(added[0].类别, '生活');
-  assert.deepEqual(added[0].核验, ['改了今日计划']);
-});
-
-test('rule texts describe the layered memory, digests and eight tools', () => {
+test('rule texts describe the layered memory, digests, search_session and nine tools', () => {
   const {api} = parser();
   const {rules} = api;
   assert.ok(rules.memory.fill.includes('14,000 字'), rules.memory.fill);
   assert.ok(Object.hasOwn(rules, 'digest'));
+  assert.ok(Object.hasOwn(rules, 'search_session'));
   assert.equal(Object.hasOwn(rules, 'reflection'), false);
-  assert.ok(rules.tools.fill.includes('共八个'), rules.tools.fill);
+  assert.ok(rules.tools.fill.includes('共九个'), rules.tools.fill);
   assert.ok(!rules.persona.steps.some(step => step.join('').includes('看法偏好')));
   assert.ok(!rules.progress.steps.some(step => step.join('').includes('self_note')));
 });
@@ -316,8 +334,10 @@ test('context descriptions name the current modules', () => {
   const rules = plain(api.rules);
   assert.equal(rules.tools.source, 'src/worldmock/agents/life_agent.py · 原生工具；'
     + 'src/worldmock/agents/prompt/life_prompt.py · TOOL_DESCRIPTIONS');
-  assert.equal(rules.message.source, 'src/worldmock/agents/protocol/react_loop.py · ReactLoop._turn；'
-    + 'src/worldmock/agents/life_agent.py · execute_decisions');
+  assert.equal(rules.message.source, 'src/worldmock/agents/protocol/agent_loop.py · AgentLoop.run；'
+    + 'src/worldmock/agents/life_agent.py · decide_wakeup');
+  assert.equal(rules.search_session.source, 'src/worldmock/agents/search/search_session.py · SearchSessionRunner；'
+    + 'src/worldmock/simulation_engine/activities/search/search_catalog.py');
   assert.equal(rules.memory_view.source, 'src/worldmock/agents/memory/life_memory.py · render_memory_view、save_step');
   assert.equal(rules.memory_view.fill,
     '工作区 MEMORY.md 由身份、至多五条已核验经历和恒为「暂无人物自述。」的自述段组成，最多四千字符。');

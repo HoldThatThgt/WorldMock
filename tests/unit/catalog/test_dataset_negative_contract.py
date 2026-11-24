@@ -63,6 +63,7 @@ def change_rows(directory, filename, identity, update):
     ("app-catalog.jsonl", "amap", {"actions": ["sleep"]}, "ENVIRONMENT_KIND_INVALID"),
     ("app-catalog.jsonl", "amap", {"actions": ["walk"]}, "ENVIRONMENT_KIND_INVALID"),
     ("app-catalog.jsonl", "amap", {"actions": ["drive"]}, "ENVIRONMENT_KIND_INVALID"),
+    ("app-catalog.jsonl", "amap", {"actions": ["query"]}, "ENVIRONMENT_KIND_INVALID"),
     ("app-catalog.jsonl", "amap", {"actions": ["take_taxi"]}, "ENVIRONMENT_KIND_INVALID"),
     ("app-catalog.jsonl", "amap", {"actions": ["take_bus"]}, "ENVIRONMENT_KIND_INVALID"),
     ("app-catalog.jsonl", "amap", {"actions": ["drive", "purchase"]}, "ENVIRONMENT_KIND_INVALID"),
@@ -218,7 +219,7 @@ def test_manifest_reader_rejects_noncanonical_or_nonobject_document(directory, p
 
 @pytest.mark.parametrize("change,code", [
     ({"rules_version": 0}, "RULES_VERSION_MISMATCH"),
-    ({"rules_version": 5}, "RULES_VERSION_MISMATCH"),
+    ({"rules_version": 6}, "RULES_VERSION_MISMATCH"),
     ({"files": ()}, "ENVIRONMENT_FILE_UNLISTED"),
 ])
 def test_manifest_validator_checks_version_and_complete_file_table(directory, change, code):
@@ -412,9 +413,9 @@ def test_manifest_checks_report_the_earliest_failing_step(directory, changes, co
         if "unsorted" in changes:
             payload["files"].reverse()
         if "bad_shape" in changes:
-            payload["format_version"] = 4
+            payload["format_version"] = 5
         if "old_rules" in changes:
-            payload["rules_version"] = 5
+            payload["rules_version"] = 6
 
     if "stale_entry" in changes:
         (directory / "notes.txt").write_bytes(b"")

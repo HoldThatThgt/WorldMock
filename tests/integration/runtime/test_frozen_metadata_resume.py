@@ -7,8 +7,10 @@ import requests
 
 from tests.integration.runtime.native_runtime_fixtures import native_runtime  # noqa: F401
 from worldmock.configuration.model import model_metadata as model_endpoint
+from worldmock.configuration.model.model_metadata import active_profile_ids
 from worldmock.foundation.errors import IntegrityError
 from worldmock.recording_engine.storage.store import FootprintStore
+from worldmock.runtime.framework.setup import model_identity
 from worldmock.state.decisions.results import CounterfactualIntervention
 from worldmock.runtime.lifecycle.runner import (
     CounterfactualRequest,
@@ -73,7 +75,7 @@ async def test_resume_and_replay_make_no_metadata_request(tmp_path, native_runti
         ResumeRequest(root, parent, checkpoint, tmp_path / "replay"), intervention))
     assert calls == [] and sleeps == []
     for child in (resumed.run_dir, replayed.run_dir):
-        assert _manifest(child)["model_metadata"] == _manifest(parent)["model_metadata"]
+        assert _manifest(child)["model_identity"] == _manifest(parent)["model_identity"]
 
 
 @pytest.mark.asyncio
@@ -82,8 +84,15 @@ async def test_resume_uses_the_frozen_capacity_even_when_the_live_service_differ
     """父运行之后服务改报更小的输出上限：恢复照常跑完，子运行第一次决策请求的输出上限仍取冻结值。"""
     root, frozen, models = native_runtime
     parent, checkpoint, _ = await _parent(tmp_path, root)
-    smaller = {"data": [{"id": frozen.config.model.requested_model,
-                         "context_window": frozen.model_metadata.context_window, "max_output_tokens": 12000}]}
+    action_pid = frozen.config.model_routing.action
+    action_profile = frozen.config.models[action_pid]
+    action_meta = frozen.model_metadata[action_pid]
+    smaller = {"data": [
+        {"id": action_profile.requested_model, "context_window": action_meta.context_window,
+         "max_output_tokens": 12000},
+        {"id": frozen.config.models["fast_search"].requested_model,
+         "context_window": frozen.model_metadata["fast_search"].context_window, "max_output_tokens": 32768},
+    ]}
     calls = []
 
     def changed(url, **arguments):
@@ -94,7 +103,7 @@ async def test_resume_uses_the_frozen_capacity_even_when_the_live_service_differ
     await resume_world(ResumeRequest(root, parent, checkpoint, tmp_path / "child"))
     assert calls == []
     first = models[-1].requests[0]
-    assert first["max_tokens"] == min(16000, frozen.model_metadata.max_output_tokens) != 12000
+    assert first["max_tokens"] == min(16000, action_meta.max_output_tokens) != 12000
 
 
 def _forbidden(name):
@@ -114,13 +123,13 @@ def _no_branch_left(tmp_path, destination):
 async def test_bad_checkpoint_id_fails_before_environment_load_or_copy(tmp_path, native_runtime, monkeypatch, sleeps):
     """空检查点身份：在加载环境与读取凭据之前报检查点缺失，不留目标目录或暂存目录。"""
     import worldmock.configuration.inputs.environment
-    import worldmock.runtime.lifecycle.runner as runner
+    import worldmock.configuration.model.model_registry as model_registry
 
     root, _, _ = native_runtime
     parent, _, _ = await _parent(tmp_path, root)
     calls = _offline(monkeypatch)
     monkeypatch.setattr(worldmock.configuration.inputs.environment, "load_environment", _forbidden("load_environment"))
-    monkeypatch.setattr(runner, "credential_value", _forbidden("credential_value"))
+    monkeypatch.setattr(model_registry, "credential_value", _forbidden("credential_value"))
     destination = tmp_path / "branches" / "child"
     with pytest.raises(IntegrityError, match="^Checkpoint is missing or its record is damaged$"):
         await resume_world(ResumeRequest(root, parent, "", destination))
@@ -131,13 +140,13 @@ async def test_bad_checkpoint_id_fails_before_environment_load_or_copy(tmp_path,
 @pytest.mark.asyncio
 async def test_parent_with_an_edited_manifest_fails_before_environment_load_or_copy(
         tmp_path, native_runtime, monkeypatch, sleeps):
-    """父运行清单被改写去掉 model_metadata：检查点按清单摘要拒绝，不加载环境、不读元数据、不留分支目录。"""
+    """父运行清单被改写去掉 model_identity：检查点按清单摘要拒绝，不加载环境、不读元数据、不留分支目录。"""
     import worldmock.configuration.inputs.environment
 
     root, _, _ = native_runtime
     parent, checkpoint, _ = await _parent(tmp_path, root)
     manifest = _manifest(parent)
-    del manifest["model_metadata"]
+    del manifest["model_identity"]
     (parent / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     calls = _offline(monkeypatch)
     monkeypatch.setattr(worldmock.configuration.inputs.environment, "load_environment", _forbidden("load_environment"))
@@ -158,7 +167,8 @@ async def test_engine_open_reads_the_store_manifest_metadata(tmp_path, native_ru
     calls = _offline(monkeypatch)
     engine = LifeEngine.open(root, parent)
     try:
-        assert engine.context.inputs.model_metadata.model_dump(mode="json") == _manifest(parent)["model_metadata"]
+        assert {pid: meta.model_dump(mode="json") for pid, meta in engine.context.inputs.model_metadata.items()} == {
+            pid: row["model_metadata"] for pid, row in _manifest(parent)["model_identity"]["profiles"].items()}
     finally:
         engine.close()
     assert calls == [] and sleeps == []
@@ -180,12 +190,13 @@ async def test_fresh_run_fetch_retries_and_freezes_the_same_metadata(tmp_path, n
     result = await run_world(RunRequest(root, tmp_path / "fresh", "fresh-run", "fresh-run"))
     assert len(failures) == 2 and sleeps == [2.0, 4.0]
     assert result.current_time == frozen.config.stop_time
-    assert _manifest(result.run_dir)["model_metadata"] == frozen.model_metadata.model_dump(mode="json")
+    assert _manifest(result.run_dir)["model_identity"] == model_identity(
+        frozen.config, frozen.model_metadata).model_dump(mode="json")
 
 
 @pytest.mark.asyncio
 async def test_fresh_run_reads_the_service_metadata_once(tmp_path, native_runtime, monkeypatch, sleeps):
-    """新建运行跑完：只在准入时向模型服务读一次元数据，运行宿主用 runner 已加载的那份输入建引擎，不再读第二次。"""
+    """新建运行跑完：只在准入时为每个激活模型档读一次元数据，运行宿主用 runner 已加载的那份输入建引擎，不再读第二次。"""
     root, frozen, _ = native_runtime
     answer, calls = requests.get, []
 
@@ -195,5 +206,5 @@ async def test_fresh_run_reads_the_service_metadata_once(tmp_path, native_runtim
 
     monkeypatch.setattr(requests, "get", counted)
     result = await run_world(RunRequest(root, tmp_path / "fresh", "metadata-once", "metadata-once"))
-    assert len(calls) == 1 and sleeps == []
+    assert len(calls) == len(active_profile_ids(frozen.config)) and sleeps == []
     assert result.current_time == frozen.config.stop_time

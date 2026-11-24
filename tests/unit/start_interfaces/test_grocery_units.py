@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import pytest
 
-from tests.life.conftest import MAIN_TOOL, advance_until_ready, context, do_at, pause_request, travel
+from tests.life.conftest import MAIN_TOOL, advance_until_ready, do_at, pause_request, travel
 from tests.life.environment_inputs import grocery_environment
-from tests.life.environment_runtime import act
+from tests.life.environment_runtime import act, observe_only
 from worldmock.simulation_engine.activities.lifecycle.activity_control import open_activities
 from worldmock.state.interaction.actions import binding_action
 from worldmock.simulation_engine.actions.admission import Blocked, Call, Context, group_refusal
@@ -48,7 +48,7 @@ def test_a_locked_unit_is_left_out_of_the_tool_layer_but_kept_in_the_private_bin
     """状态为 0：家在工具层只列「测试闲聊」「测试休息」，两份私有绑定照旧含「做饭」且 locked 为真，其余单元为假；
     私有绑定里它的可用性说明就是未开放的原因。"""
     engine = grocery_engine(engine_factory, tmp_path)
-    observed = engine.observe(context(engine, "look"))
+    observed = observe_only(engine, "look")
     listed, catalog, bound = home_rows(observed)
     assert listed == ["测试闲聊", "测试休息"]
     assert catalog == bound == [("测试闲聊", False), ("测试休息", False), ("做饭", True)]
@@ -59,7 +59,7 @@ def test_a_locked_unit_is_left_out_of_the_tool_layer_but_kept_in_the_private_bin
 def test_an_open_unit_is_listed_like_any_other_unit(engine_factory, tmp_path):
     """状态为 1：「做饭」照常按单元键升序列出，行的字段、时长和说明与别的单元同样写，说明只写供一餐，不提状态。"""
     engine = grocery_engine(engine_factory, tmp_path, initial=1)
-    observed = engine.observe(context(engine, "look"))
+    observed = observe_only(engine, "look")
     listed, catalog, bound = home_rows(observed)
     assert listed == ["测试闲聊", "测试休息", "做饭"]
     assert catalog == bound == [("测试闲聊", False), ("测试休息", False), ("做饭", False)]
@@ -83,7 +83,7 @@ def test_unit_locked_reads_only_the_state_of_the_moment(engine_factory, tmp_path
 def test_the_name_of_a_locked_unit_still_resolves(engine_factory, tmp_path):
     """照写未开放的单元名：名称解析找到这一行，交给受理。"""
     engine = grocery_engine(engine_factory, tmp_path)
-    outcome = resolve_start(name_book(engine.observe(context(engine, "names"))), MAIN_TOOL, do_at("家", "做饭"))
+    outcome = resolve_start(name_book(observe_only(engine, "names")), MAIN_TOOL, do_at("家", "做饭"))
     assert outcome.failures == ()
     [row] = outcome.rows
     assert (row["object_id"], row["selected_action"]["detail"]) == ("home", "做饭")
@@ -92,7 +92,7 @@ def test_the_name_of_a_locked_unit_still_resolves(engine_factory, tmp_path):
 
 def _detail_item(engine) -> dict:
     """写错的单元名「做饭吧」（与「做饭」最接近）这一项名称失败的明细。"""
-    outcome = resolve_start(name_book(engine.observe(context(engine, "typo"))), MAIN_TOOL, do_at("家", "做饭吧"))
+    outcome = resolve_start(name_book(observe_only(engine, "typo")), MAIN_TOOL, do_at("家", "做饭吧"))
     [failure] = outcome.failures
     return failure.item.payload()
 
@@ -111,7 +111,7 @@ def test_a_misspelt_name_never_offers_a_locked_unit(engine_factory, tmp_path, in
 def test_an_action_the_place_does_not_offer_lists_no_locked_unit(engine_factory, tmp_path, initial, offered):
     """在家写「步行去家」：家不提供出行，候选是家列出的单元，没有未开放的「做饭」。"""
     engine = grocery_engine(engine_factory, tmp_path, initial=initial)
-    outcome = resolve_start(name_book(engine.observe(context(engine, "travel"))), MAIN_TOOL, travel("家"))
+    outcome = resolve_start(name_book(observe_only(engine, "travel")), MAIN_TOOL, travel("家"))
     [failure] = outcome.failures
     assert failure.item.error_code == "ACTION_NOT_OFFERED"
     assert [candidate.arguments["detail"] for candidate in failure.item.candidates] == offered
@@ -139,7 +139,7 @@ def test_a_near_object_candidate_never_copies_a_locked_unit():
 
 def _refusal(engine, request) -> Blocked | None:
     """按引擎受理时的同一份上下文，核验从此刻冻结观察解析出的这条开始调用。"""
-    observed = engine.observe(context(engine, f"check-{engine.context.state.current_time}"))
+    observed = observe_only(engine, f"check-{engine.context.state.current_time}")
     outcome = resolve_start(name_book(observed), MAIN_TOOL, request)
     names = {row["activity_id"]: row["name"] for row in observed["activity_bindings"]}
     current = Context(engine.context.state, 1, open_activities(engine.context.state, 1), place_names(engine.context.catalog), names, engine.context.inputs)

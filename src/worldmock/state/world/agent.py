@@ -8,7 +8,8 @@ from pydantic import Field, field_serializer, model_validator
 from worldmock.state.planning.errands import ErrandState
 from worldmock.state.planning.schedule import DayPlan
 
-from worldmock.state.world.kinds import SameMomentStage, SessionKind, SessionStatus
+from worldmock.state.decisions.suspended import SuspendedLoopState
+from worldmock.state.world.kinds import SessionKind, SessionStatus
 from worldmock.state.logging import _LOGGER
 
 
@@ -109,7 +110,7 @@ class NavigationForeground(StrictModel):
 
 
 class AgentState(StrictModel):
-    """@brief 唯一人物的生活状态与幂等节律簿记。"""
+    """@brief 单个人物的生活状态、挂起循环与幂等节律簿记。"""
 
     agent_id: int = Field(gt=0)
     name: str = Field(min_length=1)
@@ -118,8 +119,7 @@ class AgentState(StrictModel):
     body: BodyState
     body_settled_at: int = Field(ge=0)
     next_decision_at: int = Field(ge=0)
-    same_moment_rounds: int = Field(default=0, ge=0)
-    same_moment_stage: SameMomentStage = SameMomentStage.OPEN
+    suspended_loop: SuspendedLoopState | None = None
     content_progress: dict[str, ContentProgress] = Field(default_factory=dict)
     last_decision_time: int | None = Field(default=None, ge=0)
     felt_bands_at_last_decision: dict[str, str] = Field(default_factory=dict)

@@ -1,6 +1,6 @@
 """实际地点决定动作可用性，原生工具声明跨地点保持一致。"""
 import pytest
-from tests.life.conftest import MAIN_TOOL, SIDE_TOOL, side_arguments, stage_day_plan, context
+from tests.life.conftest import MAIN_TOOL, SIDE_TOOL, side_arguments, stage_day_plan
 from tests.integration.runtime.current_contract_fixtures import decide, ToolResponse
 from worldmock.agents.prompt.life_prompt import user_layer
 from worldmock.agents.prompt.tool_groups import expand_tool_layer
@@ -11,7 +11,7 @@ import json
 async def test_native_request_uses_current_location_availability_and_stable_tools(engine_factory, initial, units,
                                                                                  sleepable):
     """当前地点的行只有可点名的事与睡觉（没有出行），别的地点只有各出行方式的行（步行在前，其余按出行方式身份升序）；
-    八个原生工具的声明不随地点改变。"""
+    九个原生工具的声明不随地点改变。"""
     engine = engine_factory(mutate=lambda persona, config: persona.update(initial_location=initial))
     stage_day_plan(engine)
     observed, [request], _, [result] = await decide(engine, "location", [
@@ -27,7 +27,7 @@ async def test_native_request_uses_current_location_availability_and_stable_tool
         ("travel", method) for method in ("步行", "公共交通", "驾车", "打车")] for target in elsewhere)
     assert all(list(row) == ["action", "detail", "available", "reason", "price", "duration", "quantity", "note"]
                for target in tools["targets"] for row in target["actions"])
-    assert len(request["tools"]) == 8
+    assert len(request["tools"]) == 9
     assert [tool["function"]["name"] for tool in request["tools"][:2]] == [MAIN_TOOL, SIDE_TOOL]
     assert set(request["tools"][0]["function"]["parameters"]["properties"]) == {"action", "target", "detail"}
     assert set(request["tools"][1]["function"]["parameters"]["properties"]) == {"action", "target", "prefer"}

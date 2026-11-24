@@ -2,21 +2,18 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
-
-from worldmock.recording_engine.events.models import EventDraft, validate_resource_flows
 from worldmock.foundation.serialization import sha256_json
+from worldmock.recording_engine.events.models import EventDraft, validate_resource_flows
 from worldmock.simulation_engine.body import felt
 from worldmock.simulation_engine.body.body import last_flows
-from worldmock.state.world.kinds import ActivityKind
-from worldmock.state.decisions.state import PendingAction
-from worldmock.state.world.world import WorldState, active_activities
+from worldmock.state.world.world import WorldState
 
 if TYPE_CHECKING:
     from worldmock.simulation_engine.activities.lifecycle.activities import ActivityOrigin
-    from worldmock.recording_engine.events.models import Checkpoint
 
 
 def _put_activity(state: WorldState, agent, activity) -> WorldState:
@@ -28,11 +25,11 @@ def _put_activity(state: WorldState, agent, activity) -> WorldState:
     return state.model_copy(update={"agents": agents, "activities": activities}, deep=True)
 
 
-def _activity_origin(state: WorldState, pending: PendingAction) -> ActivityOrigin:
-    """@brief 一条动作只开始一项活动，活动保留这条动作、决策与请求事件的归因。"""
+def _activity_origin(action_id: str, wakeup_id: str, request_event_id: str) -> ActivityOrigin:
+    """@brief 一条动作只开始一项活动，活动保留该动作、唤醒与请求事件的归因。"""
     from worldmock.simulation_engine.activities.lifecycle.activities import ActivityOrigin
 
-    return ActivityOrigin(pending.action_id, pending.decision_id, pending.requested_event_id)
+    return ActivityOrigin(action_id, wakeup_id, request_event_id)
 
 
 def _put_agent(state: WorldState, agent) -> WorldState:
@@ -94,20 +91,21 @@ def _current_branch_event(events: list, manifest: dict):
     return matches[0] if len(matches) == 1 else None
 
 
-def _failure_draft(occurred_at: int, error: Exception | str, round_id: str | None) -> EventDraft:
+def _failure_draft(occurred_at: int, error: Exception | str) -> EventDraft:
     """@brief 形成可覆盖先前 run_ended 的致命运行失败证据。"""
     error_type = type(error).__name__ if isinstance(error, Exception) else "RuntimeError"
     return EventDraft(
         event_type="run_failed",
         occurred_at=occurred_at,
         visibility="system",
-        data={"error_type": error_type, "error": str(error), "round_id": round_id},
+        data={"error_type": error_type, "error": str(error)},
     )
 
 
-def meal_windows_by_agent(persona) -> dict[int, "felt.MealWindows"]:
-    """@brief 人物档案餐时窗口索引（观察与滞回判定同源）。"""
-    return {persona.agent_id: felt.MealWindows(lunch=persona.lunch_window, dinner=persona.dinner_window)}
+def meal_windows_by_agent(personas: Any | Iterable[Any]) -> dict[int, felt.MealWindows]:
+    """@brief 全部数字人物的餐时窗口索引（支持传入人设序列或单个人设配置）。"""
+    items = (personas,) if hasattr(personas, "agent_id") else tuple(personas)
+    return {item.agent_id: felt.MealWindows(lunch=item.lunch_window, dinner=item.dinner_window) for item in items}
 
 
 def place_names(catalog) -> dict[str, str]:

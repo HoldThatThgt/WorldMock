@@ -10,7 +10,6 @@ from tests.life.conftest import (
     SIDE_TOOL,
     advance_until_ready,
     conclude_request,
-    context,
     do_at,
     errand_add,
     stage_day_plan,
@@ -23,7 +22,6 @@ from worldmock.simulation_engine.observation.targets import tool_layer
 from worldmock.state.interaction.actions import start_tool
 from worldmock.simulation_engine.activities.lifecycle.activity_control import open_activities
 from worldmock.foundation.errors import IntegrityError
-from worldmock.simulation_engine.decisions.continuation import continuation_enabled
 from worldmock.state.interaction.control_items import control_errands, control_items
 from worldmock.state.model.exchange import is_action_request
 from worldmock.state.interaction.errors import ErrorItem, ErrorReport, bind_report, host_defaults
@@ -42,17 +40,11 @@ from worldmock.simulation_engine.observation.wording.settled_text import (
 )
 from worldmock.agents.prompt.tool_groups import compact_tool_layer, expand_tool_layer
 from worldmock.simulation_engine.observation.targets.tool_layer import Candidate, LayerContext, refusal_for
-from worldmock.state.world.kinds import SameMomentStage
 
 
 def _context(engine):
     names = {"activities": {key: row.name for key, row in engine.context.state.activities.items()}, "sessions": {}}
     return LayerContext(engine.context, 1, names, [], open_activities(engine.context.state, 1))
-
-
-def test_continuation_requires_the_actual_frozen_stage_identity():
-    with pytest.raises(IntegrityError, match="frozen action stage identity"):
-        continuation_enabled({})
 
 
 def test_control_errands_rejects_removed_or_unknown_fields():
@@ -78,16 +70,16 @@ def test_batch_feedback_rebinds_existing_tool_paths_without_losing_parameter_pos
 
 
 def _thinking_request(*tools, **extra):
-    """开了思考、带给定原生工具的模型请求体。"""
-    return {"extra_body": {"thinking": {"type": "enabled"}},
+    """带 tool_choice=auto、思考开关与给定原生工具的模型请求体。"""
+    return {"extra_body": {"thinking": {"type": "enabled"}}, "tool_choice": "auto",
             "tools": [{"type": "function", "function": {"name": name}} for name in tools], **extra}
 
 
 @pytest.mark.parametrize("payload", [None, [], {"purpose": "plan_day"},
-    {"extra_body": {"thinking": {"type": "enabled"}}, "tools": None},
+    {"extra_body": {"thinking": {"type": "enabled"}}, "tool_choice": "auto", "tools": None},
     _thinking_request(SIDE_TOOL, "report_status"), _thinking_request("start_activity"),
     _thinking_request(MAIN_TOOL, SIDE_TOOL, purpose="plan_day"),
-    {**_thinking_request(MAIN_TOOL), "extra_body": {"thinking": {"type": "disabled"}}}])
+    {**_thinking_request(MAIN_TOOL), "tool_choice": "required"}])
 def test_only_actual_action_model_requests_start_decision_evidence(payload):
     assert is_action_request(payload) is False
 
@@ -98,12 +90,13 @@ def test_action_model_request_is_recognised_by_the_main_start_tool():
     assert is_action_request(_thinking_request(MAIN_TOOL)) is True
 
 
-@pytest.mark.parametrize("field", ["persona_sha256", "config_sha256", "run_id"])
+@pytest.mark.parametrize("field", ["persona_sha256s", "config_sha256", "run_id"])
 def test_context_rejects_identity_drift_before_any_runtime_projection(engine_factory, field):
     engine = engine_factory()
     before = engine.context.state
     changed = before.model_copy(deep=True)
-    setattr(changed, field, "wrong-input" if field == "run_id" else "a" * 64)
+    bad = "wrong-input" if field == "run_id" else ({1: "a" * 64} if field == "persona_sha256s" else "a" * 64)
+    setattr(changed, field, bad)
     engine.context.state = changed
     try:
         with pytest.raises(IntegrityError, match="inputs or agent identity mismatch"):
@@ -119,7 +112,7 @@ def test_unknown_host_code_cannot_be_rendered_as_an_invented_contract():
 
 def test_full_catalog_names_remain_callable_when_outside_the_current_window(engine_factory):
     engine = engine_factory()
-    observed = engine.observe(context(engine, "hidden-catalog"))
+    observed = engine.observations._observation_data(engine.context.state.agents[1])
     observed["interaction_bindings"] = []
     observed["tool_layer"]["targets"] = []
     book = name_book(observed)
@@ -199,18 +192,18 @@ def test_delivery_and_actual_experience_sentences_retain_goods_times_and_travel_
     assert "已送达" in record_lines(layer, record, [])[0]
 
 
-def test_content_sentence_requires_authenticated_progress_and_stage_feedback_uses_same_contract(engine_factory):
+def test_content_sentence_requires_authenticated_progress_and_pending_conclusion_blocks_starts(engine_factory):
     engine = engine_factory()
     _, started = act(engine, "content", do_at("家", "测试休息"))
     layer = _context(engine)
-    assert layer.body is engine.context.body
+    assert layer.body is engine.context.bodies[1]
     with pytest.raises(IntegrityError, match="authenticated progress evidence"):
         activity_sentence(layer, engine.context.state.activities[started.activity_id])
-    agent = engine.context.state.agents[1]
-    engine.context.state.agents[1] = agent.model_copy(update={"same_moment_stage": SameMomentStage.CONCLUDE_PENDING})
+    assert advance_until_ready(engine)
+    waiting_layer = _context(engine)
     for tool in (MAIN_TOOL, SIDE_TOOL):
-        refusal = refusal_for(layer, Candidate(tool, action={"action": "interact"}))
-        assert refusal.code == "SAME_MOMENT_ACTION_RESTRICTED"
+        refusal = refusal_for(waiting_layer, Candidate(tool, action={"action": "interact"}))
+        assert refusal.code == "ACTIVITY_CONCLUSION_REQUIRED"
 
 
 def test_interact_sentence_requires_grocery_kit_evidence(engine_factory, caplog):
@@ -227,7 +220,7 @@ def test_interact_sentence_requires_grocery_kit_evidence(engine_factory, caplog)
 
 def test_compact_groups_reject_conflicting_metadata_for_the_same_full_name(engine_factory):
     engine = engine_factory()
-    observed = engine.observe(context(engine, "compact"))
+    observed = engine.observations._observation_data(engine.context.state.agents[1])
     compact = compact_tool_layer(observed["tool_layer"])
     group = deepcopy(compact["groups"][0])
     group["kind"] = "product" if group["kind"] != "product" else "location"
@@ -237,7 +230,7 @@ def test_compact_groups_reject_conflicting_metadata_for_the_same_full_name(engin
 
 
 def test_actual_conclusion_views_stay_private_evidence_and_reach_today_entries(engine_factory):
-    """收尾写下的看法与偏好照旧只作私有证据 persona_views；当天经收尾那次决策的今天条目以「看法·」自述进记忆层，各一次。"""
+    """收尾写下的看法与偏好照旧只作私有证据 persona_views；当天经收尾那次唤醒的今天条目以「看法·」自述进记忆层，各一次。"""
     engine = engine_factory()
     _, started = act(engine, "view-content", do_at("家", "测试休息"))
     assert advance_until_ready(engine)
@@ -248,7 +241,7 @@ def test_actual_conclusion_views_stay_private_evidence_and_reach_today_entries(e
                "keywords": ["认真"]}]]
     _, concluded = act(engine, "conclusion-views", conclude_request(activity.name, views=views), "conclude_activity")
     assert concluded.status == "completed"
-    observed = engine.observe(context(engine, "after-views"))
+    observed = engine.observations._observation_data(engine.context.state.agents[1])
     assert observed["persona_views"]["relationships"] == [{"person": "林舟", "view": "提醒自己做事认真。"}]
     assert observed["persona_views"]["preferences"][0]["preference"] == "喜欢柔软的纸巾。"
     today = render_layer_json(observed["memory_layer"]["今天"])
@@ -282,7 +275,7 @@ def test_tool_layer_rows_take_availability_from_the_private_binding_note(engine_
         return original(layer, candidate)
 
     monkeypatch.setattr(tool_layer, "availability", count)
-    observed = engine.observe(context(engine, "slots-full"))
+    observed = engine.observations._observation_data(engine.context.state.agents[1])
     bindings = observed["interaction_bindings"]
     targets = observed["tool_layer"]["targets"]
     expected = sum(len(row["actions"]) for row in bindings)

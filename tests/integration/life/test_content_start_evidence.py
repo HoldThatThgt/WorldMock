@@ -9,7 +9,6 @@ from tests.footprints.recording import artifact_rows
 from tests.life.conftest import (
     advance_until_ready,
     conclude_request,
-    context,
     do_at,
     pause_request,
     report_request,
@@ -107,7 +106,7 @@ def test_current_started_activity_public_result_and_complete_export(engine_facto
         "duration": duration_phrase(content.duration_seconds), "pushed": False}
     assert "content" not in public_result({"occurred_at": result.occurred_at, "status": "completed",
         "message": "Completed", "data": result.data}, inputs, {})["details"]
-    controls = engine.observe(context(engine, "control-observation"))["activity_bindings"]
+    controls = engine.observations.build_wakeup_observation(engine.context.state.agents[1])[0]["activity_bindings"]
     assert controls and all(row["title"] is None for row in controls)
     run_to_end(engine)
     # 真实做完时写下的第二条结果带 contents，第一行是开始的那条内容
@@ -226,8 +225,6 @@ def test_clock_in_refusal_repeats_the_tool_layer_reason_and_changes_nothing(
     assert after.agents[1].content_progress == before.agents[1].content_progress == {}
     assert after.sessions == before.sessions and after.random_state == before.random_state
     assert after.accounts == before.accounts and after.current_time == before.current_time
-    assert (result.data["same_moment_round"], after.agents[1].same_moment_rounds) == (1, 1)
-    assert before.agents[1].same_moment_rounds == 0
     assert not events(engine, "action_accepted") and not events(engine, "activity_progress")
 
 

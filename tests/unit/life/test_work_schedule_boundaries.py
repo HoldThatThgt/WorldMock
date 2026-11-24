@@ -150,7 +150,8 @@ def test_no_work_schedule_has_no_current_or_future_duty_edges():
     from types import SimpleNamespace
     from worldmock.simulation_engine.scheduling.clock.duty_edges import duty_edges, edges_at, edge_times_after
 
-    inputs = SimpleNamespace(persona=SimpleNamespace(work_schedule=None), config=SimpleNamespace(timezone=_ZONE))
+    inputs = SimpleNamespace(persona_by_id={1: SimpleNamespace(work_schedule=None)},
+                           config=SimpleNamespace(timezone=_ZONE))
     now = int(datetime(2026, 1, 5, 9, tzinfo=ZoneInfo(_ZONE)).timestamp())
     assert list(duty_edges(inputs, 1, now)) == []
     assert edges_at(inputs, 1, now) == frozenset()

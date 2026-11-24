@@ -33,25 +33,43 @@ CATALOG_FILES = REQUIRED_CATALOG_FILES | OPTIONAL_CATALOG_FILES
 
 
 def validate_environment_entries(environment_root: Path | str) -> None:
-    """@brief 检查两层文件闭集，不进入包外目录或链接。"""
+    """@brief 检查两层文件闭集与 personas 子目录，不进入包外目录或链接。"""
     root = Path(environment_root)
     if root.is_symlink():
         raise RegistrationError("ENVIRONMENT_IDENTITY_MISMATCH", str(root))
-    _check_package_entries(root, frozenset({"catalog", "persona.toml", "config.toml"}))
-    catalog = root / "catalog"
-    if catalog.is_symlink():
-        raise RegistrationError("ENVIRONMENT_IDENTITY_MISMATCH", str(catalog))
-    if catalog.is_dir():
-        _check_package_entries(catalog, CATALOG_FILES | {"manifest.json"})
+    _check_package_entries(root, frozenset({"catalog", "personas", "config.toml"}))
+    _check_subdirectory(root / "catalog", CATALOG_FILES | {"manifest.json"}, False)
+    _check_subdirectory(root / "personas", None, True)
+
+
+def _sorted_entries(directory: Path) -> list[Path]:
+    """@brief 读取目录下按名称升序排列的直接条目，读取失败按身份异常拒绝。"""
+    try:
+        return sorted(directory.iterdir(), key=lambda entry: entry.name)
+    except OSError as error:
+        raise RegistrationError("ENVIRONMENT_IDENTITY_MISMATCH", f"{directory}: {error}") from error
+
+
+def _check_subdirectory(directory: Path, allowed: frozenset[str] | None, toml_only: bool) -> None:
+    """@brief 核验可选子目录不为符号链接且内部仅含合规条目。"""
+    if directory.is_symlink():
+        raise RegistrationError("ENVIRONMENT_IDENTITY_MISMATCH", str(directory))
+    if not directory.is_dir():
+        return
+    if not toml_only:
+        assert allowed is not None
+        _check_package_entries(directory, allowed)
+        return
+    for entry in _sorted_entries(directory):
+        if entry.is_symlink():
+            raise RegistrationError("ENVIRONMENT_IDENTITY_MISMATCH", str(entry))
+        if not entry.is_file() or entry.suffix != ".toml" or entry.name == ".toml":
+            raise RegistrationError("ENVIRONMENT_STALE_FILE", str(entry))
 
 
 def _check_package_entries(directory: Path, allowed: frozenset[str]) -> None:
     """@brief 包外条目失败详情使用真实路径。"""
-    try:
-        entries = sorted(directory.iterdir(), key=lambda entry: entry.name)
-    except OSError as error:
-        raise RegistrationError("ENVIRONMENT_IDENTITY_MISMATCH", f"{directory}: {error}") from error
-    for entry in entries:
+    for entry in _sorted_entries(directory):
         if entry.name not in allowed:
             raise RegistrationError("ENVIRONMENT_STALE_FILE", str(entry))
 

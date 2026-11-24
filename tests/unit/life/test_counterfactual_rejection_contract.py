@@ -5,8 +5,8 @@ from types import SimpleNamespace
 import pytest
 
 from tests.integration.runtime_fixtures import write_agent_workspace
-from tests.life.conftest import context, do_at, stage_day_plan
-from tests.life.environment_runtime import act, events
+from tests.life.conftest import do_at, stage_day_plan
+from tests.life.environment_runtime import act, events, finish_activity
 from worldmock.foundation.errors import ProtocolError
 from worldmock.recording_engine.storage.checkpoint import restore_branch, snapshot_directory
 from worldmock.simulation_engine.engine import LifeEngine
@@ -16,7 +16,7 @@ from worldmock.simulation_engine.world.world_updates import _request_sha
 
 def _branch(parent, tmp_path, case):
     stage_day_plan(parent)
-    observed = parent.observe(context(parent, "parent-source"))
+    observed, _ = act(parent, "parent-source", do_at("家", "测试休息"))
     source = observed["observation_event_id"]
     if case == "hidden":
         source = next(event.event_id for event in events(parent) if event.visibility == "system")
@@ -35,16 +35,16 @@ def _branch(parent, tmp_path, case):
 
 @pytest.mark.parametrize("case,message", [
     ("hidden", "not visible"), ("missing", "not visible"), ("agent", "target agent"),
-    ("round", "precede the first decision"), ("decision", "precede the first decision"),
+    ("decision", "precede the first decision"),
 ])
 def test_invalid_counterfactual_sources_and_timing_leave_balances_and_evidence_unchanged(
         engine_factory, tmp_path, case, message):
     parent = engine_factory()
     branch, intervention = _branch(parent, tmp_path, case)
     try:
-        if case == "round":
-            branch.begin_decision_round([context(branch, "child-round")])
-        elif case == "decision":
+        if case == "decision":
+            activity_id = next(iter(branch.context.state.activities))
+            finish_activity(branch, SimpleNamespace(activity_id=activity_id), "parent-rest")
             _, started = act(branch, "child-start", do_at("家", "测试休息"))
             assert started.status == "in_progress"
         before = branch.context.state.model_dump(mode="json")
@@ -63,7 +63,7 @@ def test_counterfactual_rejects_foreign_type_and_an_ordinary_run(engine_factory)
     engine = engine_factory()
     with pytest.raises(ProtocolError, match="strict life model"):
         engine.apply_counterfactual(SimpleNamespace())
-    observed = engine.observe(context(engine, "source"))
+    observed, _ = act(engine, "source", do_at("家", "测试休息"))
     intervention = CounterfactualIntervention(kind="set_balance_fen", agent_id=1, balance_fen=123456,
         hypothesis="资金改变可选购买。", source_event_ids=(observed["observation_event_id"],))
     before = dict(engine.context.state.accounts)

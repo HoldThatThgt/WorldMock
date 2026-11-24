@@ -14,7 +14,12 @@ from urllib.parse import urlparse
 import requests
 from pydantic import ValidationError
 
-from worldmock.configuration.inputs.models import ModelConfig, ModelMetadata
+from worldmock.configuration.inputs.models import (
+    ModelMetadata,
+    ModelProfileConfig,
+    RunConfig,
+    referenced_profile_ids,
+)
 
 if TYPE_CHECKING:
     from worldmock.configuration.model.model_client import ModelClient
@@ -26,7 +31,7 @@ _METADATA_FETCH_WAITS = (2.0, 4.0, 8.0, 16.0)
 _METADATA_RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
 
 
-def credential_value(config: ModelConfig) -> str:
+def credential_value(config: ModelProfileConfig) -> str:
     """@brief 只按配置声明的进程环境变量读取凭据，不记录凭据正文。"""
     value = os.environ.get(config.api_key_env)
     if not isinstance(value, str) or not value.strip():
@@ -35,7 +40,7 @@ def credential_value(config: ModelConfig) -> str:
     return value.strip()
 
 
-def load_model_metadata(config: ModelConfig) -> ModelMetadata:
+def load_model_metadata(config: ModelProfileConfig) -> ModelMetadata:
     """@brief 精确匹配实际模型服务返回的模型身份与输入输出容量；暂时性失败整次重试，至多五次。"""
     from worldmock.foundation.errors import EnvironmentInputError
 
@@ -81,19 +86,48 @@ def _transient_metadata_error(error: requests.RequestException) -> bool:
     return response is not None and response.status_code in _METADATA_RETRY_STATUSES
 
 
-def frozen_metadata_loader(source: Mapping[str, Any]) -> Callable[[ModelConfig], ModelMetadata]:
-    """@brief 恢复、重放与打开已有运行的元数据来源：读运行清单冻结的 model_metadata，不访问模型服务；键缺失或值不合法时拒绝。"""
+def frozen_metadata_loader(source: Mapping[str, Any]) -> Callable[[ModelProfileConfig], ModelMetadata]:
+    """@brief 恢复、重放与打开已有运行的元数据来源：读运行清单冻结的档案元数据，不访问模型服务；键缺失或值不合法时拒绝。"""
     from worldmock.foundation.errors import IntegrityError
 
     try:
-        metadata = ModelMetadata.model_validate(source["model_metadata"])
-    except (KeyError, TypeError, ValidationError) as error:
+        frozen = _extract_frozen_metadata(source)
+    except (KeyError, TypeError, ValueError, ValidationError) as error:
         _LOGGER.error("Frozen model metadata is missing or invalid")
         raise IntegrityError("Frozen model metadata is missing or invalid") from error
-    return lambda _config: metadata
+    if isinstance(frozen, ModelMetadata):
+        return lambda _config: frozen
+
+    def _lookup(config: ModelProfileConfig) -> ModelMetadata:
+        """@brief 按模型标识与元数据端点匹配清单中冻结的对应档案元数据。"""
+        key = (config.requested_model, config.metadata_url)
+        if key not in frozen:
+            _LOGGER.error("Frozen model metadata is missing or invalid for %s", config.requested_model)
+            raise IntegrityError("Frozen model metadata is missing or invalid")
+        return frozen[key]
+
+    return _lookup
 
 
-def _require_service_urls(config: ModelConfig) -> None:
+def _extract_frozen_metadata(source: Mapping[str, Any]) -> ModelMetadata | dict[tuple[str, str], ModelMetadata]:
+    """@brief 从 v8 多档案运行清单或单档案元数据字典提取冻结元数据映射。"""
+    identity = source.get("model_identity")
+    if isinstance(identity, Mapping) and "profiles" in identity:
+        profiles = identity["profiles"]
+        if not isinstance(profiles, Mapping) or not profiles:
+            raise ValueError("empty frozen model profiles")
+        entries = [ModelMetadata.model_validate(item["model_metadata"]) for item in profiles.values()]
+        return {(meta.requested_model, meta.metadata_url): meta for meta in entries}
+    raw = source["model_metadata"]
+    if isinstance(raw, Mapping) and "requested_model" not in raw:
+        if not raw:
+            raise ValueError("empty model metadata map")
+        entries = [ModelMetadata.model_validate(item) for item in raw.values()]
+        return {(meta.requested_model, meta.metadata_url): meta for meta in entries}
+    return ModelMetadata.model_validate(raw)
+
+
+def _require_service_urls(config: ModelProfileConfig) -> None:
     """@brief 身份端点与显式元数据端点必须指向同一 HTTP 模型服务。"""
     base, metadata = urlparse(config.base_url), urlparse(config.metadata_url)
     if (base.scheme not in {"http", "https"} or not base.hostname or base.username or base.password
@@ -103,7 +137,7 @@ def _require_service_urls(config: ModelConfig) -> None:
         raise ValueError("Model metadata URL does not identify the configured model service")
 
 
-def parse_model_metadata(config: ModelConfig, payload: object) -> ModelMetadata:
+def parse_model_metadata(config: ModelProfileConfig, payload: object) -> ModelMetadata:
     """@brief 服务必须给出唯一匹配模型、总容量与输出上限，缺失能力直接拒绝。"""
     if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
         _metadata_invalid()
@@ -163,3 +197,40 @@ def model_context_length(model: str, metadata: ModelMetadata | dict) -> int:
         _LOGGER.error("Frozen model metadata does not match the requested model")
         raise ValueError("model context metadata is unavailable")
     return checked.context_window
+
+
+def active_profile_ids(config: RunConfig) -> tuple[str, ...]:
+    """@brief 返回被 model_routing（含 agent_overrides）实际引用的全部模型档位名称。"""
+    return referenced_profile_ids(config.model_routing)
+
+
+def verify_active_credentials(config: RunConfig) -> dict[str, str]:
+    """@brief 核验全部被 model_routing 引用的模型档位环境变量凭据均已非空配置。"""
+    return {profile_id: credential_value(config.models[profile_id]) for profile_id in active_profile_ids(config)}
+
+
+def load_active_metadata(
+    config: RunConfig,
+    metadata_loader: Callable[[ModelProfileConfig], ModelMetadata] | None = None,
+) -> dict[str, ModelMetadata]:
+    """@brief 为 model_routing（含 agent_overrides）实际引用的全部模型档加载并核验元数据，未引用档位不请求。"""
+    loader = metadata_loader or load_model_metadata
+    loaded: dict[str, ModelMetadata] = {}
+    for profile_id in active_profile_ids(config):
+        profile = config.models[profile_id]
+        metadata = loader(profile)
+        _verify_metadata_matches_profile(profile, metadata)
+        loaded[profile_id] = metadata
+    return loaded
+
+
+def _verify_metadata_matches_profile(profile: ModelProfileConfig, metadata: ModelMetadata) -> None:
+    """@brief 校验元数据返回的模型名、端点与最小上下文长度满足配置档声明。"""
+    if metadata.requested_model != profile.requested_model or metadata.metadata_url != profile.metadata_url:
+        _LOGGER.error("Model metadata identity disagrees with profile %s", profile.requested_model)
+        raise ValueError("model context metadata is unavailable")
+    if metadata.context_window < profile.context_window:
+        reason = (f"Model context length {metadata.context_window} is below the declared "
+                  f"context_window {profile.context_window}")
+        _LOGGER.error("%s", reason)
+        raise ValueError(reason)

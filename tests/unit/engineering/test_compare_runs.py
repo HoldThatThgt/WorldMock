@@ -473,6 +473,46 @@ def test_config_digest_is_mapped_through_url_normalized_content(tmp_path):
     assert report["verdict"] == "different" and ".config_sha256" in _paths(report)
 
 
+def _profile_recording(reasoner_urls: tuple[str, str], searcher_urls: tuple[str, str],
+                       config_url_seed: int = 7) -> Recording:
+    """@brief 使用多模型档 model_identity.profiles 与 [models.*] 的运行录音。"""
+    recording = Recording()
+    recording.config = (
+        f'seed = {config_url_seed}\n\n'
+        f'[models.reasoner]\nbase_url = "{reasoner_urls[0]}"\nmetadata_url = "{reasoner_urls[1]}"\n'
+        f'[models.searcher]\nbase_url = "{searcher_urls[0]}"\nmetadata_url = "{searcher_urls[1]}"\n'
+    ).encode()
+    recording.states = {seq: {**state, "config_sha256": _digest(recording.config)}
+                        for seq, state in recording.states.items()}
+    recording.manifest = recording._manifest()
+    recording.manifest.pop("stage_model_identity", None)
+    recording.manifest.pop("model_metadata", None)
+    recording.manifest["environment_assets"]["config.toml"] = _ref(
+        recording.config, "environment_input", path="config.toml",
+    )
+    recording.manifest["config_sha256"] = _digest(recording.config)
+    recording.manifest["model_identity"] = {
+        "profiles": {
+            "reasoner": {"base_url": reasoner_urls[0], "metadata_url": reasoner_urls[1],
+                         "model_metadata": {"metadata_url": reasoner_urls[1]}},
+            "searcher": {"base_url": searcher_urls[0], "metadata_url": searcher_urls[1],
+                         "model_metadata": {"metadata_url": searcher_urls[1]}},
+        },
+        "routing": {"action": "reasoner", "search": "searcher", "plan_day": "reasoner", "digest": "reasoner"},
+    }
+    return recording
+
+
+def test_multi_profile_model_urls_are_masked_and_normalized(tmp_path):
+    """@brief 多模型档配置文件的所有模型 URL 经归一化后等价，profiles 通配路径精确屏蔽地址字段。"""
+    base = _profile_recording((URL, METADATA_URL), ("https://search.invalid/v1", "https://search.invalid/models"))
+    head = _profile_recording(("http://127.0.0.1:5000/v1", "http://127.0.0.1:5000/models"),
+                              ("http://127.0.0.1:5001/v1", "http://127.0.0.1:5001/models"))
+    assert head.manifest["config_sha256"] != base.manifest["config_sha256"]
+    report = _compare(tmp_path / "profiles", base, head)
+    assert report["verdict"] == "equal", _paths(report)
+
+
 def test_agent_json_is_an_ordinary_member_without_the_rule(tmp_path):
     """不启用 workspace-members 时 AGENT.json 按原始字节列出：两侧 initialized_at 不同即报为不同。"""
     base, head = Recording(), Recording()

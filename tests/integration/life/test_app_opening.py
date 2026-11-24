@@ -7,9 +7,9 @@
 
 from __future__ import annotations
 
-from tests.life.conftest import context, purchase, query, target_actions, tool_targets, travel, use_app
+from tests.life.conftest import purchase, search_world, target_actions, tool_targets, travel, use_app
 from tests.life.current_world import stage_moment
-from tests.life.environment_runtime import act, act_group, conclude_app_use, events, finish_activity, reach
+from tests.life.environment_runtime import act, act_group, conclude_app_use, events, finish_activity, observe_only, reach
 from tests.life.phone_records import foreground, moment, paying_label, phone_environment, phone_window
 from worldmock.simulation_engine.activities.lifecycle.activity_validation import _CONTENT_FIELDS
 from worldmock.simulation_engine.actions.name_resolution import name_book
@@ -30,7 +30,7 @@ NEITHER = " Neither start request was started."
 
 def order_app_why(name: str) -> str:
     """把只用于下单和查询的 app 写进 target 时读到的那一句，名称是目录登记的全名。"""
-    return (f"Write {name} in prefer of purchase or query, not in target: "
+    return (f"Write {name} in prefer of purchase or search_world, not in target: "
             "this app only takes orders and has no content to open.")
 
 
@@ -83,11 +83,11 @@ def test_order_only_apps_are_not_targets_and_appear_only_in_prefer_apps(engine_f
     """在家与到了公司各观察一次：app 目标恰为哔哩哔哩、抖音、Keep，prefer_apps 是哔哩哔哩、饿了么、美团；私有的
     两份绑定里没有饿了么、美团；工具层通过层校验。"""
     engine = engine_factory()
-    home = engine.observe(context(engine, "home"))
+    home = observe_only(engine, "home")
     _, trip = act(engine, "away", travel("公司", "驾车"))
     finish_activity(engine, trip, "away")
     assert engine.context.state.agents[1].location_id == "office"
-    office = engine.observe(context(engine, "office"))
+    office = engine.observations.build_wakeup_observation(engine.context.state.agents[1])[0]
     for observed in (home, office):
         assert app_lists(observed) == (APP_TARGETS, PREFER_APPS)
         bound = {row["object_id"] for row in [*observed["interaction_bindings"], *observed["catalog_bindings"]]}
@@ -101,7 +101,7 @@ def test_environment_refuses_opening_an_order_only_app(engine_factory):
     engine = engine_factory()
     before = engine.context.state.model_copy(deep=True)
     _, result = act(engine, "open", use_app("美团"))
-    assert (result.status, result.error_code) == ("rejected", "ACTION_REQUEST_INVALID")
+    assert (result.status, result.error_code) == ("rejected", "ACTION_NOT_OFFERED")
     assert result.data["reason"] == result.message == order_app_why("美团")
     assert result.data["fix"] == OFFERED_FIX
     assert result.data["items"] == [order_app_item("美团", "interact")]
@@ -117,7 +117,7 @@ def test_purchase_naming_an_order_only_app_buys_nothing(engine_factory):
     engine = engine_factory()
     balance = engine.context.state.accounts["agent:1"]
     _, result = act(engine, "buy", purchase("牛肉面", "美团"))
-    assert (result.status, result.error_code) == ("rejected", "ACTION_REQUEST_INVALID")
+    assert (result.status, result.error_code) == ("rejected", "ACTION_NOT_OFFERED")
     assert result.data["items"] == [order_app_item("美团", "purchase")]
     assert result.data["reason"] == order_app_why("美团")
     assert engine.context.state.deliveries == {} and engine.context.state.activities == {}
@@ -125,21 +125,18 @@ def test_purchase_naming_an_order_only_app_buys_nothing(engine_factory):
     assert not [row for row in events(engine, "environment_event") if row.data.get("kind") == "goods_received"]
 
 
-def test_query_naming_an_order_only_app_starts_no_query(engine_factory):
-    """经副工具查询「美团」、再查询「零食」「美团」，prefer 都是 null：两次都整条退回，明细恰一条、written 是 query，
-    不是找不到商品的 SUPPLY_NOT_FOUND；零食那一项也不查。没有查询活动，时刻不动。"""
+def test_search_world_with_order_app_prefer_scopes_to_app(engine_factory):
+    """只用于下单的应用写成 search_world 的 prefer 时锁定到该应用作用域；副工具已移除 query 动作。"""
+    from worldmock.state.interaction.requests import StartSideActivityRequest
+
     engine = engine_factory()
-    before, refused = engine.context.state.current_time, []
-    for label, request in (("look", query("美团")), ("look-snacks", query("零食", "美团"))):
-        _, result = act(engine, label, request)
-        refused.append(result.action_id)
-        assert (result.status, result.error_code) == ("rejected", "ACTION_REQUEST_INVALID")
-        assert result.data["items"] == [order_app_item("美团", "query")]
-        assert result.data["reason"] == result.message == order_app_why("美团")
-        assert result.data["fix"] == OFFERED_FIX
-    state = engine.context.state
-    assert state.activities == {} and state.current_time == before
-    assert [row.action_id for row in events(engine, "action_rejected")] == refused
+    _, started = act(engine, "look-snacks", search_world("零食", prefer="美团"))
+    assert started.status == "in_progress", started.error_code
+    activity = engine.context.state.activities[started.activity_id]
+    assert activity.data["app_id"] == "meituan" and activity.data["scoped"] is True
+    bypass = engine_factory()
+    _, refused = act(bypass, "bad-q", StartSideActivityRequest.model_construct(action="query", target=["美团"], prefer=None))
+    assert (refused.status, refused.error_code) == ("rejected", "ACTION_REQUEST_INVALID")
 
 
 def test_departure_with_an_order_only_app_starts_neither(engine_factory):

@@ -56,7 +56,7 @@ PROVENANCE_NOTE = ("来源：本模块部分代码改写自 " + _FRAMEWORK + "2 
                    + LICENSE_PATH + "。")
 #: 写来源句的模块（仓库相对路径）：各章指定的五个模块加来源核对复核新增的模块。
 UPSTREAM_DERIVED_MODULES = frozenset((
-    "src/worldmock/agents/protocol/react_loop.py",
+    "src/worldmock/agents/protocol/agent_loop.py",
     "src/worldmock/state/model/exchange.py",
     "src/worldmock/configuration/model/model_client.py",
     "src/worldmock/agents/memory/workspace.py",

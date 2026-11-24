@@ -60,7 +60,7 @@ class Log:
         """写一条本人事件。"""
         seq = len(self.rows) + 1
         row = SimpleNamespace(event_type=event_type, event_id=f"e-{seq}", event_seq=seq, agent_id=1,
-                              occurred_at=moment, decision_id=None, action_id=None, activity_id=None, caused_by=[],
+                              occurred_at=moment, wakeup_id=None, action_id=None, activity_id=None, caused_by=[],
                               visibility="agent", source_kind="environment", data=data)
         for key, value in fields.items():
             setattr(row, key, value)
@@ -83,41 +83,41 @@ def snapshot(activity_id, action, start="08:00", end=None, status="active", kind
     return ActivityState(
         activity_id=activity_id, agent_id=1, location_id="home", kind=kind, status=status, started_at=started,
         ended_at=ended, planned_end_at=(ended or started) + 3600, last_settled_at=ended or started, elapsed_seconds=0,
-        planned_duration_seconds=3600, origin_action_id=action, origin_decision_id="d", origin_request_event_id="e",
+        planned_duration_seconds=3600, origin_action_id=action, origin_wakeup_id="d", origin_request_event_id="e",
         boundary_type="planned_end" if status == "completed" else None,
         name=f"进行测试闲聊（1月5日 {start} 起）" if name is None else name,
         data={**fields.get(kind, {}), **data}).model_dump(mode="json")
 
 
-def start(log, decision, moment, activity, note=None, status="in_progress"):
-    """一次只开始一项活动的决策：请求与受理结果（结果带这项活动的快照）同一次提交。"""
+def start(log, wakeup_id, moment, activity, note=None, status="in_progress"):
+    """一次只开始一项活动的唤醒：请求与受理结果（结果带这项活动的快照）同一次提交。"""
     request = log.add("action_requested", moment, {"tool_name": "start_main_activity",
                       "request": {"action": "interact", "target": "家", "detail": "测试闲聊"}, "self_note": note},
-                      decision_id=decision, action_id=activity["origin_action_id"])
-    log.add("action_result", moment, {"status": status, "activity": activity, "data": {}}, decision_id=decision,
+                      wakeup_id=wakeup_id, action_id=activity["origin_action_id"])
+    log.add("action_result", moment, {"status": status, "activity": activity, "data": {}}, wakeup_id=wakeup_id,
             action_id=request.action_id, activity_id=activity["activity_id"])
     log.seal()
     return request
 
 
-def control(log, decision, moment, tool, names, activity_ids, summaries=None, status="completed"):
-    """一次控制请求的决策：逐项点名活动，结果写 activity_ids。"""
+def control(log, wakeup_id, moment, tool, names, activity_ids, summaries=None, status="completed"):
+    """一次控制请求的唤醒：逐项点名活动，结果写 activity_ids。"""
     texts = summaries or ["继续。"] * len(names)
     items = [{"activity_name": name, "summary": text, **({"memories": [], "views": []}
              if tool == "conclude_activity" else {})} for name, text in zip(names, texts)]
     request = log.add("action_requested", moment, {"tool_name": tool, "request": {"items": items, "errands": []},
-                      "self_note": None}, decision_id=decision, action_id=f"{decision}:a")
+                      "self_note": None}, wakeup_id=wakeup_id, action_id=f"{wakeup_id}:a")
     log.add("action_result", moment, {"status": status, "data": {"activity_ids": list(activity_ids)}},
-            decision_id=decision, action_id=request.action_id)
+            wakeup_id=wakeup_id, action_id=request.action_id)
     log.seal()
     return request
 
 
-def revise(log, decision, moment):
-    """一次受理的改计划决策。"""
+def revise(log, wakeup_id, moment):
+    """一次受理的改计划唤醒。"""
     request = log.add("action_requested", moment, {"tool_name": "revise_day_plan", "request": {"goals": []},
-                      "self_note": None}, decision_id=decision, action_id=f"{decision}:a")
-    log.add("action_result", moment, {"status": "completed", "data": {}}, decision_id=decision,
+                      "self_note": None}, wakeup_id=wakeup_id, action_id=f"{wakeup_id}:a")
+    log.add("action_result", moment, {"status": "completed", "data": {}}, wakeup_id=wakeup_id,
             action_id=request.action_id)
     log.seal()
 
@@ -184,54 +184,54 @@ def _expect(inputs, log, moment, message, caplog):
 
 
 def test_decision_without_a_result_fails_closed(inputs, caplog):
-    """计入的决策请求没有任何结果：抛 Decision world request has no committed result，并写同文错误日志。"""
+    """计入的唤醒请求没有任何结果：抛 Wakeup world request has no committed result，并写同文错误日志。"""
     log = Log()
     log.add("action_requested", at("08:00"), {"tool_name": "revise_day_plan", "request": {"goals": []}},
-            decision_id="d1", action_id="d1:a")
+            wakeup_id="d1", action_id="d1:a")
     log.seal()
-    _expect(inputs, log, at("08:00"), "Decision world request has no committed result", caplog)
+    _expect(inputs, log, at("08:00"), "Wakeup world request has no committed result", caplog)
 
 
 def test_aborted_decision_fails_closed(inputs, caplog):
-    """第一条结果是 failed 且 DECISION_ROUND_ABORTED：抛 Aborted decision has no today entry，并写同文错误日志。"""
+    """第一条结果是 failed 且 WAKEUP_ABORTED：抛 Aborted wakeup has no today entry，并写同文错误日志。"""
     log = Log()
     request = log.add("action_requested", at("08:00"), {"tool_name": "revise_day_plan", "request": {"goals": []}},
-                      decision_id="d1", action_id="d1:a")
-    log.add("action_result", at("08:00"), {"status": "failed", "error_code": "DECISION_ROUND_ABORTED", "data": {}},
-            decision_id="d1", action_id=request.action_id)
+                      wakeup_id="d1", action_id="d1:a")
+    log.add("action_result", at("08:00"), {"status": "failed", "error_code": "WAKEUP_ABORTED", "data": {}},
+            wakeup_id="d1", action_id=request.action_id)
     log.seal()
-    _expect(inputs, log, at("08:00"), "Aborted decision has no today entry", caplog)
+    _expect(inputs, log, at("08:00"), "Aborted wakeup has no today entry", caplog)
 
 
-def test_disagreeing_and_unknown_results_fail_closed(inputs, caplog):
-    """开始组一条受理、一条被拒：结果不一致；第一条结果是 cancelled：不能成为条目。"""
+def test_mixed_accepted_and_rejected_merge_and_unknown_status_fails_closed(inputs, caplog):
+    """同一唤醒先被拒后重试成功合并进同一今天条目；第一条结果是 cancelled：不能成为条目。"""
     log = Log()
-    chat = snapshot("a-1", "d1:a1")
-    main = log.add("action_requested", at("08:00"), {"tool_name": "start_main_activity", "request": {
-        "action": "interact", "target": "家", "detail": "测试闲聊"}}, decision_id="d1", action_id="d1:a1")
+    chat = snapshot("a-1", "d1:a2")
     side = log.add("action_requested", at("08:00"), {"tool_name": "start_side_activity", "request": {
-        "action": "purchase", "target": ["牛肉面"], "prefer": None}}, decision_id="d1", action_id="d1:a2")
-    log.add("action_result", at("08:00"), {"status": "in_progress", "activity": chat, "data": {}}, decision_id="d1",
-            action_id=main.action_id, activity_id="a-1")
-    log.add("action_result", at("08:00"), {"status": "rejected", "data": {}}, decision_id="d1",
+        "action": "purchase", "target": ["牛肉面"], "prefer": None}}, wakeup_id="d1", action_id="d1:a1")
+    main = log.add("action_requested", at("08:00"), {"tool_name": "start_main_activity", "request": {
+        "action": "interact", "target": "家", "detail": "测试闲聊"}}, wakeup_id="d1", action_id="d1:a2")
+    log.add("action_result", at("08:00"), {"status": "rejected", "data": {}}, wakeup_id="d1",
             action_id=side.action_id)
+    log.add("action_result", at("08:00"), {"status": "in_progress", "activity": chat, "data": {}}, wakeup_id="d1",
+            action_id=main.action_id, activity_id="a-1")
     log.seal()
-    _expect(inputs, log, at("08:00"), "Decision results disagree", caplog)
+    assert _shown(inputs, log, at("08:00"))["核验"] == ["被拒：购买牛肉面", "开始测试闲聊"]
     log = Log()
     request = log.add("action_requested", at("08:00"), {"tool_name": "revise_day_plan", "request": {"goals": []}},
-                      decision_id="d1", action_id="d1:a")
-    log.add("action_result", at("08:00"), {"status": "cancelled", "data": {}}, decision_id="d1",
+                      wakeup_id="d1", action_id="d1:a")
+    log.add("action_result", at("08:00"), {"status": "cancelled", "data": {}}, wakeup_id="d1",
             action_id=request.action_id)
     log.seal()
-    _expect(inputs, log, at("08:00"), "Decision result status cannot form a today entry", caplog)
+    _expect(inputs, log, at("08:00"), "Wakeup result status cannot form a today entry", caplog)
 
 
 def test_accepted_start_without_activity_and_short_control_ids_fail_closed(inputs, caplog):
     """受理的开始结果没有活动身份；两项的控制请求结果只有一个活动身份。"""
     log = Log()
     request = log.add("action_requested", at("08:00"), {"tool_name": "start_main_activity", "request": {
-        "action": "interact", "target": "家", "detail": "测试闲聊"}}, decision_id="d1", action_id="d1:a")
-    log.add("action_result", at("08:00"), {"status": "in_progress", "data": {}}, decision_id="d1",
+        "action": "interact", "target": "家", "detail": "测试闲聊"}}, wakeup_id="d1", action_id="d1:a")
+    log.add("action_result", at("08:00"), {"status": "in_progress", "data": {}}, wakeup_id="d1",
             action_id=request.action_id)
     log.seal()
     _expect(inputs, log, at("08:00"), "Accepted start has no started activity", caplog)
@@ -257,9 +257,9 @@ def test_missing_terminal_or_window_snapshot_fails_closed(inputs, caplog):
     log = Log()
     orphan = snapshot("a-1", "never-requested")
     request = log.add("action_requested", at("08:00"), {"tool_name": "start_main_activity", "request": {
-        "action": "interact", "target": "家", "detail": "测试闲聊"}}, decision_id="d1", action_id="d1:a")
+        "action": "interact", "target": "家", "detail": "测试闲聊"}}, wakeup_id="d1", action_id="d1:a")
     log.add("action_result", at("08:00"), {"status": "in_progress", "activity": orphan, "data": {}},
-            decision_id="d1", action_id=request.action_id, activity_id="a-1")
+            wakeup_id="d1", action_id=request.action_id, activity_id="a-1")
     log.seal()
     _expect(inputs, log, at("08:00"), "Activity has no start result", caplog)
 
@@ -334,7 +334,7 @@ def test_closing_entry_skips_paused_and_already_ended_activities(inputs):
             assert closing is None
         else:
             assert [line.text for line in closing.lines] == ["23:20 开始进行中的事，跨过零点", "23:30 开始恢复过的事，跨过零点"]
-            assert (closing.clock, closing.shown, closing.decision_id) == ("24:00", None, None)
+            assert (closing.clock, closing.shown, closing.wakeup_id) == ("24:00", None, None)
 
 
 def test_a_crossing_activity_that_spans_two_midnights_gets_a_line_each_night(inputs):

@@ -1,9 +1,8 @@
-"""search_memory 的工具面与宿主派发（docs/design/06-agent.md「提示与工具」「检索记忆」）：生活决策八个原生工具；
-检索经 LifeEngine.read_query 当场回答，不写模型证据以外的事件；每次决策至多派发三次，第 4 次起宿主当场回答
-MEMORY_SEARCH_LIMIT；参数错误不计数、环境拒绝照样计数；失败结果的明细路径改写到实际调用位置；检索不能当世界请求提交，它的
-tool 消息不是续接消息；三个 memory_* 工具已删除。
+"""search_memory 与九工具清单测试（docs/design/06-agent.md「提示与工具」「检索记忆」）。
 
-真实引擎、SQLite 与直接导入的 LifeAgent，只替换外部模型传输。
+生活决策开放九个原生工具（6 核心世界 + search_world + 2 只读查询）；search_memory 经沙盒及 LifeEngine.search_memory
+在冻结事件上界内只读检索，单次唤醒最多三次，第 4 次由宿主直接返回 MEMORY_SEARCH_LIMIT；失败明细路径绑定实际下标；
+已退役的三个 memory_* 工具及 life_continuation 模块彻底删除。
 """
 
 from __future__ import annotations
@@ -18,41 +17,42 @@ import pytest
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 import worldmock.agents.life_agent as life_agent  # noqa: E402
-from tests.engine_fixture import engine_factory  # noqa: E402,F401
-from tests.integration.runtime.current_contract_fixtures import ScriptedModel, person  # noqa: E402
-from tests.integration.runtime.test_life_agent_protocol import _prepared  # noqa: E402
-from tests.life.conftest import MAIN_TOOL, advance_until_ready, context, main_arguments  # noqa: E402
+from tests.engine_fixture import engine_factory  # noqa: F401
+from tests.integration.runtime.current_contract_fixtures import ScriptedModel, person, resolved_binding  # noqa: E402
+from tests.life.conftest import MAIN_TOOL, advance_until_ready, main_arguments, stage_day_plan  # noqa: E402
 from worldmock.agents.prompt import prompt_capacity  # noqa: E402
-from worldmock.agents.protocol.life_continuation import _earlier_changes  # noqa: E402
 from worldmock.foundation.errors import ProtocolError  # noqa: E402
-from worldmock.state.decisions.round import DirectToolCall  # noqa: E402
 from worldmock.state.interaction.errors import HOST_ERROR_CODES  # noqa: E402
 from worldmock.state.interaction.requests import SearchMemoryRequest  # noqa: E402
 
-#: 生活决策的八个原生工具，按工具指纹的次序；以及每次模型请求的 tools 次序。
-_FINGERPRINT_ORDER = ["start_main_activity", "start_side_activity", "recall_task_summary", "report_status",
-                      "pause_activity", "conclude_activity", "revise_day_plan", "search_memory"]
-_REQUEST_ORDER = ["start_main_activity", "start_side_activity", "report_status", "pause_activity",
-                  "conclude_activity", "revise_day_plan", "recall_task_summary", "search_memory"]
+#: 生活唤醒全量九个原生工具名及工具列表顺序（与 life_agent._FULL_MODELS 一致）。
+_REQUEST_ORDER = [
+    "start_main_activity", "start_side_activity", "report_status", "pause_activity",
+    "conclude_activity", "revise_day_plan", "search_world", "recall_task_summary", "search_memory",
+]
 _TODAY = {"category": "全部", "time": "今天", "keyword": None}
-_LIMIT = {"error_code": "MEMORY_SEARCH_LIMIT", "reason": "This decision has already searched memory three times.",
-          "fix": "本次决策已查过三次记忆，请依据现有信息决定", "items": [], "unmet": []}
+_LIMIT = {
+    "error_code": "MEMORY_SEARCH_LIMIT",
+    "reason": "This decision has already searched memory three times.",
+    "fix": "本次决策已查过三次记忆，请依据现有信息决定",
+    "items": [],
+    "unmet": [],
+}
 _REST = main_arguments("interact", "家", "测试休息")
 
 
 @pytest.fixture(autouse=True)
 def _fixed_context_window(monkeypatch) -> None:
-    """脚本模型使用固定供应商窗口，不请求外部模型元数据。"""
     monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model, metadata: metadata.context_window)
 
 
 class _Reply:
-    """一次带思考的回复，含一个或几个原生工具调用（调用为（身份，工具名，参数对象））。"""
+    """带思考的一次响应，含一个或多个原生工具调用。"""
 
     def __init__(self, *calls: tuple[str, str, dict]) -> None:
-        tool_calls = [{"id": call_id, "type": "function",
-                       "function": {"name": name, "arguments": json.dumps(arguments, ensure_ascii=False)}}
-                      for call_id, name, arguments in calls]
+        tool_calls = [{"id": cid, "type": "function",
+                       "function": {"name": name, "arguments": json.dumps(args, ensure_ascii=False)}}
+                      for cid, name, args in calls]
         self.document = {"choices": [{"message": {"content": "", "reasoning_content": "我先查一查。",
                                                   "tool_calls": tool_calls}}]}
         message = SimpleNamespace(content="", reasoning_content="我先查一查。", tool_calls=[
@@ -61,184 +61,180 @@ class _Reply:
         self.choices = [SimpleNamespace(message=message)]
 
     def model_dump(self, *, mode):
-        """提供商形状的回复。"""
         assert mode == "json"
         return copy.deepcopy(self.document)
 
 
 def _search(call_id: str, arguments: dict | None = None) -> _Reply:
-    """只有一次检索的回复。"""
     return _Reply((call_id, "search_memory", arguments or _TODAY))
 
 
 def _rest(call_id: str = "call-rest") -> _Reply:
-    """开始测试休息的回复（世界请求登记即结束本次决策）。"""
     return _Reply((call_id, MAIN_TOOL, _REST))
 
 
 def _recording(engine) -> tuple:
-    """真实 LifeEngine，包一层记录 read_query 的每次调用与回答；返回引擎与记录表。"""
-    calls = []
-    original = engine.read_query
+    """在 open_sandbox 上包一层记录沙盒每次 search_memory 的调用与返回。"""
+    calls: list = []
+    real_open = engine.open_sandbox
 
-    def read_query(decision, tool, request):
-        """记录后转交真实 LifeEngine。"""
-        answer = original(decision, tool, request)
-        calls.append((tool, request, answer))
-        return answer
+    def wrapped_open(wakeup):
+        sb = real_open(wakeup)
+        real_search = sb.search_memory
 
-    engine.read_query = read_query
+        def search_memory(req):
+            ans = real_search(req)
+            calls.append(("search_memory", req, ans))
+            return ans
+
+        sb.search_memory = search_memory
+        return sb
+
+    engine.open_sandbox = wrapped_open
     return engine, calls
 
 
-async def _decide(engine, env, label: str, responses: list) -> SimpleNamespace:
-    """开一轮、走一次真实回合循环，随后结算。返回模型请求、登记的世界请求与人物。"""
-    frozen = context(engine, label)
-    engine.begin_decision_round([frozen])
+async def _decide(engine, env, responses: list) -> SimpleNamespace:
+    [wakeup] = engine.prepare_barrier((1,))
+    sb = env.open_sandbox(wakeup)
     model = ScriptedModel(responses)
-    agent = person(env, frozen, model)
-    observed = env.observe(frozen)
-    result = await agent.run_turns(frozen, observed)
-    engine.commit_decision_round(label)
-    return SimpleNamespace(requests=model.requests, result=result, agent=agent)
+    binding = resolved_binding(model, frozen=engine.context.inputs, max_turns=max(len(responses) + 2, 16))
+    outcome = await person(1, engine.context.inputs).decide_wakeup(wakeup, sb, binding)
+    env.commit_barrier([outcome])
+    return SimpleNamespace(requests=model.requests, outcome=outcome, wakeup=wakeup)
 
 
 def _tools(request: dict) -> list[str]:
-    """一次模型请求开放的工具名，按 tools 的次序。"""
     return [item["function"]["name"] for item in request["tools"]]
 
 
 def _tool_messages(request: dict) -> list[dict]:
-    """一次模型请求消息历史里全部 tool 消息的正文。"""
     return [json.loads(item["content"]) for item in request["messages"] if item["role"] == "tool"]
 
 
-async def test_life_tool_surface_has_eight_tools_in_fingerprint_and_request_order(engine_factory):
-    """工具指纹按 REQUEST_MODELS 加 QUERY_MODELS 的次序取八个原生工具；每次请求的 tools 是六个世界请求、回看任务、检索记忆。"""
+async def test_life_tool_surface_has_nine_tools_in_order(engine_factory):
+    """每次常规回合请求严格暴露九个工具并保持全量顺序。"""
     engine = engine_factory()
+    stage_day_plan(engine)
     env, _ = _recording(engine)
-    run = await _decide(engine, env, "surface", [_rest()])
-    assert list(life_agent._TOOL_MODELS) == _FINGERPRINT_ORDER
-    assert [_tools(request) for request in run.requests] == [_REQUEST_ORDER]
+    run = await _decide(engine, env, [_rest()])
+    assert list(life_agent._FULL_MODELS) == _REQUEST_ORDER
+    assert [_tools(req) for req in run.requests] == [_REQUEST_ORDER]
     assert life_agent.life_query_tool_names() == {"recall_task_summary", "search_memory"}
-    assert life_agent.life_action_tool_names() == set(_FINGERPRINT_ORDER) - {"search_memory"}
+    assert life_agent.life_action_tool_names() == set(_REQUEST_ORDER) - {"search_memory"}
 
 
-async def test_search_memory_goes_through_read_query_and_leaves_only_model_events(engine_factory):
-    """先检索再开始活动：环境收到 ("search_memory", SearchMemoryRequest)，下一次请求里的 tool 消息就是 LifeEngine.read_query
-    的回答；这次观察与 action_requested 之间只有决策开始与模型往来的事件。"""
+async def test_search_memory_goes_through_sandbox_and_leaves_only_model_events(engine_factory):
+    """先检索再开始休息：沙盒收到真实 SearchMemoryRequest，随后仅在观察与 action_requested 间记录模型证据。"""
     engine = engine_factory()
+    stage_day_plan(engine)
     env, calls = _recording(engine)
     before = engine.context.store.last_event_seq
-    run = await _decide(engine, env, "searched", [_search("call-search"), _rest()])
+    run = await _decide(engine, env, [_search("call-search"), _rest()])
     [(tool, request, answer)] = calls
     assert tool == "search_memory" and request == SearchMemoryRequest(**_TODAY)
-    tool_message = run.requests[1]["messages"][-1]
-    assert tool_message["tool_call_id"] == "call-search"
-    assert tool_message["content"] == json.dumps(answer, ensure_ascii=False, separators=(",", ":"))
+    msg = run.requests[1]["messages"][-1]
+    assert msg["tool_call_id"] == "call-search"
+    assert msg["content"] == json.dumps(answer, ensure_ascii=False, separators=(",", ":"))
     store = engine.context.store
-    added = [event.event_type for event in store.iter_events(store.last_event_seq) if event.event_seq > before]
+    added = [e.event_type for e in store.iter_events(store.last_event_seq) if e.event_seq > before]
     start, end = added.index("observation"), added.index("action_requested")
-    assert added[start + 1:end] == ["decision_started", "model_request", "model_response", "model_request",
-                                    "model_response"]
+    assert added[start + 1:end] == ["model_request", "model_response", "model_request", "model_response"]
 
 
-async def test_fourth_search_in_a_decision_is_answered_by_the_host(engine_factory):
-    """分四个回合各检索一次：环境只收到三次，第 4 条 tool 消息逐字等于 MEMORY_SEARCH_LIMIT 的五字段，工具面不变；下一次
-    决策重新计数。"""
+async def test_fourth_search_in_a_wakeup_is_answered_with_memory_search_limit(engine_factory):
+    """分四个回合各检索一次：沙盒仅收三次，第 4 次由宿主直接答 MEMORY_SEARCH_LIMIT；下一唤醒清零。"""
     engine = engine_factory()
+    stage_day_plan(engine)
     env, calls = _recording(engine)
-    run = await _decide(engine, env, "four", [*(_search(f"call-{index}") for index in range(4)), _rest()])
+    run = await _decide(engine, env, [*(_search(f"call-{i}") for i in range(4)), _rest()])
     assert len(calls) == 3
     assert _tool_messages(run.requests[4])[3] == _LIMIT
-    assert len({json.dumps(request["tools"]) for request in run.requests}) == 1
+    assert len({json.dumps(req["tools"]) for req in run.requests}) == 1
     assert advance_until_ready(engine)
-    await _decide(engine, env, "next", [_search("call-again"), _Reply(("call-end", "conclude_activity", {
+    await _decide(engine, env, [_search("call-again"), _Reply(("call-end", "conclude_activity", {
         "items": [{"activity_name": next(iter(engine.context.state.activities.values())).name, "summary": "歇好了。",
-                   "memories": [], "views": []}], "errands": []}))])
+                   "memories": [], "views": []}], "errands": []})), _rest("c-next")])
     assert len(calls) == 4
 
 
 async def test_four_searches_in_one_reply_get_three_answers_and_one_limit(engine_factory):
-    """同一次回复里四个检索按先后依次派发：前三个各得环境的回答，第 4 个得 MEMORY_SEARCH_LIMIT。"""
+    """同批四个检索前三个到沙盒，第四个得 MEMORY_SEARCH_LIMIT。"""
     engine = engine_factory()
+    stage_day_plan(engine)
     env, calls = _recording(engine)
-    run = await _decide(engine, env, "batch", [_Reply(*(
-        (f"call-{index}", "search_memory", _TODAY) for index in range(4))), _rest()])
+    run = await _decide(engine, env, [_Reply(*((f"call-{i}", "search_memory", _TODAY) for i in range(4))), _rest()])
     messages = _tool_messages(run.requests[1])
-    assert len(calls) == 3 and messages[:3] == [answer for _, _, answer in calls]
+    assert len(calls) == 3 and messages[:3] == [ans for _, _, ans in calls]
     assert messages[3] == _LIMIT
 
 
 async def test_environment_rejected_searches_count_toward_the_limit(engine_factory):
-    """前三次检索被环境以 MEMORY_TIME_INVALID 拒绝，第 4 次合法的检索得 MEMORY_SEARCH_LIMIT；环境只收到三次。"""
+    """沙盒拒绝的前三次非法时间检索照样计数，第四次合法检索得 MEMORY_SEARCH_LIMIT。"""
     engine = engine_factory()
+    stage_day_plan(engine)
     env, calls = _recording(engine)
     invalid = {"category": "饮食", "time": "2026-02-30", "keyword": None}
-    run = await _decide(engine, env, "invalid", [*(_search(f"call-{index}", invalid) for index in range(3)),
-                                                 _search("call-valid"), _rest()])
-    assert [answer["error_code"] for _, _, answer in calls] == ["MEMORY_TIME_INVALID"] * 3
+    run = await _decide(engine, env, [*(_search(f"call-{i}", invalid) for i in range(3)),
+                                      _search("call-valid"), _rest()])
+    assert [ans["error_code"] for _, _, ans in calls] == ["MEMORY_TIME_INVALID"] * 3
     assert _tool_messages(run.requests[4])[3] == _LIMIT
 
 
-def test_search_past_the_limit_is_answered_without_the_engine():
-    """已达上限时合法的检索不送引擎，当场以 ok 为假的 MEMORY_SEARCH_LIMIT 回答。"""
-    agent = _prepared()
-    agent._memory_searches = life_agent.MEMORY_SEARCHES_PER_DECISION
-    result = agent._dispatch("search_memory", _TODAY)
-    assert result.ok is False and result.data == _LIMIT
-    assert agent.engine.queries == []
+def test_sandbox_itself_rejects_fourth_search_past_limit(engine_factory):
+    """直接经 AgentSandbox 连调第 4 次 search_memory：沙盒自身返回 MEMORY_SEARCH_LIMIT 拒信。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    [wakeup] = engine.prepare_barrier((1,))
+    sb = engine.open_sandbox(wakeup)
+    for _ in range(3):
+        assert "error_code" not in sb.search_memory(SearchMemoryRequest(**_TODAY))
+    fourth = sb.search_memory(SearchMemoryRequest(**_TODAY))
+    assert fourth["error_code"] == _LIMIT["error_code"]
 
 
 async def test_argument_errors_do_not_count_as_searches(engine_factory):
-    """三次参数错误（五个词的关键词）没有派发、不计数；随后三次合法检索都到达环境。"""
+    """参数结构校验失败不消费检索次数，随后的三次合法检索均可执行。"""
     engine = engine_factory()
+    stage_day_plan(engine)
     env, calls = _recording(engine)
     wrong = {"category": "饮食", "time": "今天", "keyword": "早饭 午饭 晚饭 夜宵 零食"}
-    run = await _decide(engine, env, "arguments", [*(_search(f"call-bad-{index}", wrong) for index in range(3)),
-                                                   *(_search(f"call-{index}") for index in range(3)), _rest()])
+    run = await _decide(engine, env, [*(_search(f"call-bad-{i}", wrong) for i in range(3)),
+                                      *(_search(f"call-{i}") for i in range(3)), _rest()])
     assert len(calls) == 3
-    assert all("error_code" not in message for message in _tool_messages(run.requests[6])[-3:])
+    assert all("error_code" not in msg for msg in _tool_messages(run.requests[6])[-3:])
 
 
 async def test_rejected_search_paths_point_to_the_real_call(engine_factory):
-    """同一回复里第二个检索写 2026-02-30：它的 tool 消息明细路径改写到 tool_calls[1]，结果 ok 为假。"""
+    """同批第二个检索时间非法：明细路径改写为 ["tool_calls", 1, ...]。"""
     engine = engine_factory()
+    stage_day_plan(engine)
     env, calls = _recording(engine)
-    run = await _decide(engine, env, "paths", [_Reply(
+    run = await _decide(engine, env, [_Reply(
         ("call-ok", "search_memory", _TODAY),
         ("call-bad", "search_memory", {"category": "饮食", "time": "2026-02-30", "keyword": None})), _rest()])
     refused = _tool_messages(run.requests[1])[1]
     assert refused["error_code"] == "MEMORY_TIME_INVALID"
     assert refused["items"][0]["path"] == ["tool_calls", 1, "function", "arguments", "time"]
-    assert ["error_code" not in answer for _, _, answer in calls] == [True, False]
+    assert ["error_code" not in ans for _, _, ans in calls] == [True, False]
 
 
-def test_search_memory_cannot_be_submitted_as_a_world_action(engine_factory):
-    """把 search_memory 当世界请求经 submit_action 送达：请求类型与工具不符的协议错误。"""
+def test_search_memory_cannot_be_dispatched_as_world_tool(engine_factory):
+    """试图把 search_memory 当世界工具经 sandbox.dispatch_world_tool 提交抛出 ProtocolError。"""
     engine = engine_factory()
-    frozen = context(engine, "direct")
-    engine.begin_decision_round([frozen])
-    engine.observe(frozen)
-    with pytest.raises(ProtocolError, match="^Direct tool call request type does not match its tool$"):
-        engine.submit_action(DirectToolCall(frozen, f"{frozen.decision_id}:action:0001", "search_memory",
-                                            SearchMemoryRequest(**_TODAY)))
+    stage_day_plan(engine)
+    [wakeup] = engine.prepare_barrier((1,))
+    sb = engine.open_sandbox(wakeup)
+    with pytest.raises(ProtocolError, match="^Unsupported sandbox world tool: search_memory$"):
+        sb.dispatch_world_tool("search_memory", SearchMemoryRequest(**_TODAY), f"{wakeup.wakeup_id}:action:0001")
 
 
-async def test_search_tool_messages_are_not_continuation_messages(engine_factory):
-    """检索的 tool 消息没有 result 键，续接链把它认作非续接消息。"""
-    engine = engine_factory()
-    env, _ = _recording(engine)
-    run = await _decide(engine, env, "chain", [_search("call-search"), _rest()])
-    message = run.requests[1]["messages"][-1]
-    assert message["role"] == "tool" and _earlier_changes(message) is None
+def test_retired_memory_tools_and_continuation_module_are_gone():
+    """旧三个 memory_* 工具、life_continuation 模块及 MEMORY_QUERY_FAILED 均已清理删除。"""
+    import importlib.util
 
-
-def test_retired_memory_tools_are_gone():
-    """三个 memory_* 工具的请求模型、时间解析、工具表、动作映射、结果字段与派发都已删除；MEMORY_QUERY_FAILED 不再是宿主
-    错误码。"""
     for name in ("MemoryRecentRequest", "MemorySearchRequest", "MemoryTimeRangeRequest", "_parse_memory_time",
                  "_MEMORY_TOOL_MODELS", "_MEMORY_RUNTIME_ACTIONS", "_MEMORY_RESULT_FIELDS"):
         assert not hasattr(life_agent, name)
-    assert not hasattr(life_agent.LifeAgent, "_dispatch_strict_memory")
+    assert importlib.util.find_spec("worldmock.agents.protocol.life_continuation") is None
     assert "MEMORY_QUERY_FAILED" not in HOST_ERROR_CODES

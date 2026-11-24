@@ -39,7 +39,7 @@ RECORDER = Path("tests/life/behaviour_day.py")
 #: 一侧录制的时限（秒）。
 RECORDING_TIMEOUT = 3600
 #: 签名里逐项比较的键。
-SIGNATURE_KEYS = ("persona_sha256", "config_sha256", "environment_identity", "seed")
+SIGNATURE_KEYS = ("persona_sha256s", "config_sha256", "environment_identity", "seed")
 
 
 def _refuse(message: str) -> ComparisonError:

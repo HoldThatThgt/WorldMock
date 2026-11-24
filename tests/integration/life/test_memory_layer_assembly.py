@@ -194,8 +194,9 @@ def test_each_changed_memory_layer_is_stored_as_one_whole_part(engine_factory, m
     recorded = record_observations(monkeypatch)
     engine = engine_factory()
     observe_only(engine, "before")
-    act(engine, "rest", do_at("家", "测试休息"))
-    observe_only(engine, "after")
+    _, rest = act(engine, "rest", do_at("家", "测试休息"))
+    assert advance_until_ready(engine)
+    act(engine, "end", conclude_request(activity_name(engine, rest.activity_id)), "conclude_activity")
     store = engine.context.store
     (first_id, first), (*_, (second_id, second)) = recorded[0], recorded
     references = []

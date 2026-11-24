@@ -34,9 +34,9 @@ from worldmock.recording_engine.projections.commerce.purchases import project_pu
 from worldmock.recording_engine.reports.quality import build_quality_report
 from worldmock.recording_engine.storage.store import FootprintStore
 
-#: 导出清单的结构号：工件是六份，含地点停留；活动种类含查询；进行中的 interact 活动行带 played_count；
-#: 模型响应与失败事件的 request 为 null（请求只在请求事件存一次）；顶层带 lineage；结构号不符的导出直接拒绝，不迁移。
-EXPORT_SCHEMA_VERSION = 8
+#: 导出清单的结构号：工件是六份，含地点停留；活动种类含搜索；进行中的 interact 活动行带 played_count；
+#: 模型响应与失败事件的 request 为 null（请求只在请求事件存一次）；顶层带 lineage；事件采用 wakeup_id 与多人物冻结输入清单；结构号不符的导出直接拒绝，不迁移。
+EXPORT_SCHEMA_VERSION = 9
 #: 导出清单 artifacts 的键集。
 EXPORT_ARTIFACTS = frozenset({"events", "activities", "verified_experiences", "purchases", "app_usage",
                               "location_stays"})

@@ -17,7 +17,7 @@ from worldmock.simulation_engine.activities.content.completion_effects import (
 from worldmock.simulation_engine.activities.content.interact import RELIEF_PER_HOUR
 from worldmock.simulation_engine.body.sleep import food_utilization_efficiency
 
-PERSONA = Path("tests/fixtures/dataset-environment/persona.toml")
+PERSONA = Path("tests/fixtures/dataset-environment/personas/persona_1.toml")
 
 
 @pytest.fixture

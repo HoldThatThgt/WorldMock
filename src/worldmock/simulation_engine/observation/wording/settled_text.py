@@ -252,7 +252,8 @@ def activity_endings(events: Iterable[Event]) -> dict[str, Event]:
     for event in events:
         payload = event.data.get("data")
         rows = payload.get("activities", []) if isinstance(payload, dict) else []
-        for snapshot in (event.data.get("activity"), *rows):
+        nested = payload.get("activity") if isinstance(payload, dict) else None
+        for snapshot in (event.data.get("activity"), nested, *rows):
             if not isinstance(snapshot, dict) or snapshot.get("status") not in _ENDED_STATUSES:
                 continue
             known = endings.get(snapshot["activity_id"])

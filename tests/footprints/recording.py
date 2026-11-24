@@ -58,10 +58,10 @@ def errand_engine(engine_factory):
 
 
 def final_checkpoint(engine):
-    """运行截止后写最终共同检查点；人物快照用一份明确的测试素材。"""
+    """运行截止后写最终共同检查点；全部人物快照用一份明确的测试素材。"""
     store = engine.context.store
     snapshot = store.assets.put_json({"completed": True}, {"kind": "test_agent_snapshot"})
-    return engine.checkpoint({"agent:1": snapshot})
+    return engine.checkpoint({f"agent:{agent_id}": snapshot for agent_id in store.manifest["agent_ids"]})
 
 
 def export_completed(engine, directory):

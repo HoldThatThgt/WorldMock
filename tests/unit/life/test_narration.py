@@ -24,7 +24,7 @@ from worldmock.agents.prompt.narration import (
 #: 观察私有证据与私有绑定：只给宿主与读者，绝不渲染进提示。
 _PRIVATE_KEYS = ("interaction_bindings", "goal_bindings", "activity_bindings", "session_bindings",
                  "persona_views", "progress_meta", "progress_event_ids",
-                 "continuation", "errand_bindings", "errand_item_bindings")
+                 "errand_bindings", "errand_item_bindings")
 
 
 class TestFieldBlacklist:
@@ -48,7 +48,7 @@ class TestFieldBlacklist:
             enforce_field_blacklist({forbidden_key: "leak"})
 
     def test_private_observation_keys_are_registered_as_forbidden(self) -> None:
-        """私有绑定、看法偏好原始证据、进度层私有元数据与续接缓冲都在禁键表中。"""
+        """私有绑定、看法偏好原始证据、进度层私有元数据与个人事务私有绑定都在禁键表中。"""
         assert set(_PRIVATE_KEYS) <= FORBIDDEN_OBSERVATION_KEYS
 
     def test_profile_nested_keys_raise(self) -> None:
@@ -161,7 +161,7 @@ _FORBIDDEN_KEYS = frozenset({
     'account_id', 'accounts', 'action_id', 'activities',
     'activity_bindings', 'activity_id', 'activity_snapshot',
     'agent_id', 'app_id', 'balance_account_id', 'balance_fen',
-    'chronotype_midsleep', 'content_id', 'continuation',
+    'chronotype_midsleep', 'content_id',
     'destination_id', 'end_time', 'energy_kcal', 'errand_bindings',
     'errand_id', 'errand_item_bindings', 'event_id', 'event_seq',
     'goal_bindings', 'goods_id', 'home_location_id', 'input_path',
@@ -185,7 +185,7 @@ class TestForbiddenKeys:
     def test_private_keys_are_rejected_alone_and_inside_a_layer(self) -> None:
         """@brief 独立列出的私有字段经实际渲染入口逐键拒绝，不从实现常量生成测试输入。"""
         keys = _FORBIDDEN_KEYS
-        assert len(keys) >= 55
+        assert len(keys) >= 54
         assert {"home_location_id", "location_id", "errand_id", "goods_id", "app_id",
                 "payment_app_id", "interaction_bindings"} <= keys
         assert keys <= FORBIDDEN_OBSERVATION_KEYS, sorted(keys - FORBIDDEN_OBSERVATION_KEYS)
@@ -195,9 +195,9 @@ class TestForbiddenKeys:
             with pytest.raises(ForbiddenObservationFieldError, match=re.escape(key)):
                 render_layer_json([{"layer": "环境层", "location": {"name": "自己家", key: "leak"}}])
 
-    @pytest.mark.parametrize("removed", ["world_query_bindings", "world_query_page_size"])
-    def test_removed_world_query_keys_are_no_longer_forbidden(self, removed: str) -> None:
-        """@brief 已删除的查询私有键不再是禁键：经禁键检查与真实渲染入口都照常通过。"""
+    @pytest.mark.parametrize("removed", ["world_query_bindings", "world_query_page_size", "continuation"])
+    def test_removed_world_query_and_continuation_keys_are_no_longer_forbidden(self, removed: str) -> None:
+        """@brief 已删除的查询与同秒续接私有键不再是禁键：经禁键检查与真实渲染入口都照常通过。"""
         assert removed not in FORBIDDEN_OBSERVATION_KEYS
         enforce_field_blacklist({removed: "value"})
         layer = {"layer": "环境层", "location": {"name": "自己家", removed: "value"}}

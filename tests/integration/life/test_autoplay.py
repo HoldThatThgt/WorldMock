@@ -12,7 +12,6 @@ from tests.life.conftest import (
     action_identity,
     advance_next,
     conclude_request,
-    context,
     do_at,
     pause_request,
     report_request,
@@ -457,7 +456,7 @@ def test_a_concluded_app_use_reads_end_of_use(engine_factory, tmp_path, case):
         return
     _, trip = act(engine, "leave", travel("公司", "驾车"))
     assert trip.status == "in_progress", trip.error_code
-    memory = engine.observe(context(engine, "road"))["memory_layer"]
+    memory = engine.observations.build_wakeup_observation(engine.context.state.agents[1])[0]["memory_layer"]
     label = short_name(ended.name)
     (sentence,) = [line for item in memory["今天"] for line in item.get("核验", ()) if line.startswith(f"{label} ")]
     assert "结束使用" not in sentence and "未完" not in sentence

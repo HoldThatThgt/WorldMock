@@ -11,7 +11,6 @@ from tests.life.conftest import (
     action_identity,
     advance_next,
     conclude_request,
-    context,
     do_at,
     oversleep_identity,
     purchase,
@@ -21,7 +20,7 @@ from tests.life.conftest import (
     travel,
 )
 from tests.life.environment_inputs import copy_environment, write_catalog_rows
-from tests.life.environment_runtime import act, action_result, events, finish_activity, settle_decision
+from tests.life.environment_runtime import act, action_result, events, finish_activity, observe_only, settle_decision
 from tests.unit.life.test_planning_and_errand_boundaries import note
 from worldmock.foundation.errors import ProtocolError
 from worldmock.state.planning.schedule import PlanGoal
@@ -104,15 +103,14 @@ def _sleep_through(engine, activity_id: str) -> int:
 
 def _observe_and_conclude(engine, label: str, activity_id: str) -> dict:
     """睡醒那一秒取一次观察并给刚结束的睡眠收尾，返回这次观察。"""
-    from worldmock.state.decisions.round import DirectToolCall
-
-    decision = context(engine, label)
-    engine.begin_decision_round([decision])
-    observed = engine.observe(decision)
+    [wakeup] = engine.prepare_barrier((1,))
+    observed = wakeup.observation
     name = engine.context.state.activities[activity_id].name
-    engine.submit_action(DirectToolCall(decision, f"{decision.decision_id}:action:0001", "conclude_activity",
-                                        conclude_request(name)))
-    assert engine.commit_decision_round(label)[0].status == "completed"
+    sandbox = engine.open_sandbox(wakeup)
+    aid = action_identity(label, 1, wakeup.agent_id)
+    sandbox.dispatch_world_tool("conclude_activity", conclude_request(name), aid)
+    engine.commit_barrier([sandbox.finish_wakeup(None)])
+    assert action_result(engine, aid).status == "completed"
     return observed
 
 
@@ -166,7 +164,7 @@ def test_short_sleep_after_a_long_day_oversleeps_once_and_recovers_by_the_time_a
     _sleep_through(engine, again.activity_id)
     observed = _observe_and_conclude(engine, "woke-again", again.activity_id)
     assert _activity_row(observed, second.name)["state"] == "已做约 1 小时"
-    final = engine.observe(context(engine, "final"))
+    final = engine.observations.build_wakeup_observation(engine.context.state.agents[1])[0]
     assert "睡觉 11:07–12:07" in _verified_lines(final)
 
 
@@ -267,7 +265,7 @@ def test_a_short_night_wakes_on_time_and_the_full_night_after_it_oversleeps(engi
     assert engine.context.state.agents[1].body.sleep_deficit_hours == pytest.approx(before - 30600 / 3600)
     observed = _observe_and_conclude(engine, "woke-late", late.activity_id)
     assert _activity_row(observed, woke.name)["state"] == "已做约 8.5 小时，比打算的多睡了 40 分钟"
-    final = engine.observe(context(engine, "final"))
+    final = engine.observations.build_wakeup_observation(engine.context.state.agents[1])[0]
     zone = engine.context.config.timezone
     today = local_date(engine.context.state.current_time, zone)
     span = f"{entry_clock(night, today, zone)}–{entry_clock(night + 30600, today, zone)}"
@@ -293,8 +291,8 @@ def test_nothing_but_its_own_planned_end_wakes_a_sleeper_and_reminders_are_deliv
     activity = engine.context.state.activities[result.activity_id]
     assert activity.data["oversleep_seconds"] == 0 and slept_at < order.expected_at < activity.planned_end_at
     advance_next(engine)
-    with pytest.raises(ProtocolError, match="must match the scheduled agent order"):
-        engine.begin_decision_round([context(engine, "asleep")])
+    with pytest.raises(ProtocolError, match="No agents are ready for barrier"):
+        engine.prepare_barrier()
     _sleep_through(engine, result.activity_id)
 
     during = [row for row in events(engine, "environment_event")
@@ -305,7 +303,7 @@ def test_nothing_but_its_own_planned_end_wakes_a_sleeper_and_reminders_are_deliv
                for row in during if row.data.get("kind") == "body_settlement")
     local = [datetime.fromtimestamp(row.occurred_at, zone) for row in during if row.data.get("kind") == "app_push"]
     assert {moment.hour for moment in local} >= {9, 10, 11, 12} and all(moment.minute == 0 for moment in local)
-    assert not [row for row in events(engine, "decision_started") if row.occurred_at > slept_at]
+    assert not [row for row in events(engine, "observation") if row.occurred_at > slept_at]
 
     woke_at = activity.planned_end_at
     (wake,) = _settlements(engine, woke_at - 1, woke_at)
@@ -320,7 +318,7 @@ def test_nothing_but_its_own_planned_end_wakes_a_sleeper_and_reminders_are_deliv
     assert errand.reminded_at == woke_at
     reminded = [row for row in events(engine, "environment_event") if row.data.get("kind") == "errand_reminded"]
     assert [row.occurred_at for row in reminded] == [woke_at]
-    observed = engine.observe(context(engine, "woke"))
+    observed = observe_only(engine, "woke")
     assert observed["wake_reasons"] == reasons
 
 
@@ -350,8 +348,8 @@ def test_wake_up_records_session_open_and_runs_a_category_callback_once(engine_f
     assert len(effects) == 1 and effects[0].caused_by == [wake.event_id]
     observed = _observe_and_conclude(engine, "woke", result.activity_id)
     assert observed["wake_reasons"] == wake.data["wake_reasons"]
-    (started,) = [row for row in events(engine, "decision_started") if row.occurred_at == planned_end]
-    assert started.data["wake_reasons"] == wake.data["wake_reasons"]
+    (obs_event,) = [row for row in events(engine, "observation") if row.occurred_at == planned_end]
+    assert obs_event.data["wake_reasons"] == wake.data["wake_reasons"]
 
 
 def test_office_nap_resets_the_discomfort_timer_freezes_both_needs_and_must_be_concluded_first(engine_factory):

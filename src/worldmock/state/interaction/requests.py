@@ -5,7 +5,7 @@ from __future__ import annotations
 from worldmock.foundation.models import FrozenModel
 import re
 from worldmock.exchange_engine.conditions.activity_rules import MAIN_ACTIVITY_ACTIONS, SIDE_ACTIVITY_ACTIONS
-from worldmock.state.interaction.actions import START_TOOLS
+from worldmock.state.interaction.actions import SEARCH_TOOL, START_TOOLS
 from worldmock.state.interaction.sleep import parse_sleep_minutes
 from collections.abc import Sequence
 from typing import Annotated, Any, Literal
@@ -160,21 +160,19 @@ class StartMainActivityRequest(ToolRequestModel):
 
 
 class StartSideActivityRequest(ToolRequestModel):
-    """@brief 开始一项占槽位 2 的活动：购买商品、查询商品，或使用一个内容 app。"""
+    """@brief 开始一项占槽位 2 的活动：购买商品，或使用一个内容 app。"""
 
     action: Literal[SIDE_ACTIVITY_ACTIONS] = Field(
-        description="做什么：purchase 购买商品，interact 使用内容 app，query 查询商品。")
+        description="做什么：purchase 购买商品，interact 使用内容 app。")
     target: list[Annotated[str, Field(pattern=r"\S")]] = Field(description=(
-        "名称数组。purchase 逐份写商品的完整名称，同一个名称写两次就是两份；interact 只写一个内容 app 的完整名称；"
-        "query 写商品的完整名称或商品类别的名称。"))
-    #: 想用来下单或在其中查询的 app 名称原文，必填、没有缺省值；没有想法写 null（模型的工具格式不允许可省略的字段）。
+        "名称数组。purchase 逐份写商品的完整名称，同一个名称写两次就是两份；interact 只写一个内容 app 的完整名称。"))
+    #: 想用来下单的 app 名称原文，必填、没有缺省值；没有想法写 null（模型的工具格式不允许可省略的字段）。
     prefer: Annotated[str, Field(pattern=r"\S")] | None = Field(
-        description="purchase 写想用来下单的内容 app 的完整名称，query 写想在其中查询的内容 app 的完整名称，"
-                    "没有想法写 null；interact 写 null。")
+        description="purchase 写想用来下单的内容 app 的完整名称，没有想法写 null；interact 写 null。")
 
     @model_validator(mode="after")
     def validate_action_arguments(self) -> "StartSideActivityRequest":
-        """@brief 名称数组至少一项；用内容 app 时恰好一项且 prefer 必须为 null；购买与查询不设上限并允许同名重复。
+        """@brief 名称数组至少一项；用内容 app 时恰好一项且 prefer 必须为 null；购买不设上限并允许同名重复。
         每条违背各报一条。"""
         problems: list[tuple[str, Any, str]] = []
         if not self.target:
@@ -186,6 +184,27 @@ class StartSideActivityRequest(ToolRequestModel):
         if problems:
             raise _cross_errors(type(self).__name__, problems)
         return self
+
+
+#: 搜索意图文字上限（DeepSeek strict 禁 maxLength，由本地校验执行）。
+SEARCH_QUERY_MAX_CHARS = 200
+
+
+class SearchWorldRequest(ToolRequestModel):
+    """@brief 在手机应用或同城目录中搜索可买商品、报价或地点。"""
+
+    query: str = Field(pattern=r"\S", description="想找的商品特征、预算或同城地点说明。")
+    prefer: Annotated[str, Field(pattern=r"\S")] | None = Field(
+        description="意向使用的下单应用完整名称，没有意向写 null。")
+
+    @field_validator("query")
+    @classmethod
+    def validate_query(cls, query: str) -> str:
+        """@brief 搜索意图去掉首尾空白后非空且不超过 200 字。"""
+        if len(query.strip()) > SEARCH_QUERY_MAX_CHARS:
+            _LOGGER.error("Search world query exceeds its character limit")
+            raise ValueError("search query exceeds 200 characters")
+        return query
 
 
 
@@ -595,9 +614,9 @@ class ConcludeActivityRequest(ToolRequestModel):
 
 
 ActionRequest = Annotated[
-    StartMainActivityRequest | StartSideActivityRequest | RecallTaskSummaryRequest |
-    ReportStatusRequest | PauseActivityRequest | ConcludeActivityRequest |
-    ReviseDayPlanRequest,
+    StartMainActivityRequest | StartSideActivityRequest | SearchWorldRequest |
+    RecallTaskSummaryRequest | ReportStatusRequest | PauseActivityRequest |
+    ConcludeActivityRequest | ReviseDayPlanRequest,
     Field(union_mode="left_to_right"),
 ]
 
@@ -605,6 +624,7 @@ ActionRequest = Annotated[
 
 REQUEST_MODELS: dict[str, type[FrozenModel]] = {
     **dict(zip(START_TOOLS, (StartMainActivityRequest, StartSideActivityRequest), strict=True)),
+    SEARCH_TOOL: SearchWorldRequest,
     "recall_task_summary": RecallTaskSummaryRequest,
     "report_status": ReportStatusRequest,
     "pause_activity": PauseActivityRequest,
@@ -612,6 +632,5 @@ REQUEST_MODELS: dict[str, type[FrozenModel]] = {
     "revise_day_plan": ReviseDayPlanRequest,
 }
 
-#: 只读查询的工具模型：不进 REQUEST_MODELS，也不进 ActionRequest，由 LifeEngine.read_query 回答
-#: （docs/design/06-agent.md「检索记忆」）。
+#: 只读查询的工具模型：不进 REQUEST_MODELS，也不进 ActionRequest（docs/design/06-agent.md「检索记忆」）。
 QUERY_MODELS: dict[str, type[FrozenModel]] = {"search_memory": SearchMemoryRequest}

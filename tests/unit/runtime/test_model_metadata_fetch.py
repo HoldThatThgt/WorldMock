@@ -12,11 +12,18 @@ from worldmock.foundation.errors import EnvironmentInputError, IntegrityError
 from worldmock.configuration.model.model_metadata import frozen_metadata_loader, load_model_metadata
 
 
+def _active_model(frozen):
+    """当前规范配置行动档案的请求配置与元数据。"""
+    profile_id = frozen.config.model_routing.action
+    return frozen.config.models[profile_id], frozen.model_metadata[profile_id]
+
+
 def _answer(frozen):
     """实际服务给出的元数据响应正文：唯一匹配模型的容量与输出上限。"""
-    return {"data": [{"id": frozen.config.model.requested_model,
-                      "context_window": frozen.model_metadata.context_window,
-                      "max_output_tokens": frozen.model_metadata.max_output_tokens}]}
+    profile, metadata = _active_model(frozen)
+    return {"data": [{"id": profile.requested_model,
+                      "context_window": metadata.context_window,
+                      "max_output_tokens": metadata.max_output_tokens}]}
 
 
 def _http_error(status):
@@ -54,7 +61,8 @@ def _service(monkeypatch, frozen, script):
 
         return SimpleNamespace(raise_for_status=check, json=body)
 
-    monkeypatch.setenv(frozen.config.model.api_key_env, "offline-metadata-secret")
+    profile, _ = _active_model(frozen)
+    monkeypatch.setenv(profile.api_key_env, "offline-metadata-secret")
     monkeypatch.setattr(requests, "get", get)
     monkeypatch.setattr(model_endpoint.time, "sleep", waits.append)
     return calls, waits
@@ -68,8 +76,9 @@ def _service(monkeypatch, frozen, script):
 def test_transient_failures_are_retried_whole_with_fixed_waits(monkeypatch, failure):
     """连接、TLS、超时、响应体中断与 429/5xx 各失败两次后成功：整次读取三次，等待 2、4 秒，元数据等于成功的那一份。"""
     frozen = inputs()
+    profile, metadata = _active_model(frozen)
     calls, waits = _service(monkeypatch, frozen, [failure, failure, "ok"])
-    assert _outcome(frozen.config.model) == frozen.model_metadata
+    assert _outcome(profile) == metadata
     assert len(calls) == 3
     assert waits == [2.0, 4.0]
 
@@ -77,10 +86,11 @@ def test_transient_failures_are_retried_whole_with_fixed_waits(monkeypatch, fail
 def test_five_transient_failures_end_as_the_unchanged_input_error(monkeypatch, caplog):
     """五次 SSLError：等待 2、4、8、16 秒后以原来的输入错误结束，并写出读取次数与错误类型。"""
     frozen = inputs()
+    profile, _ = _active_model(frozen)
     calls, waits = _service(monkeypatch, frozen, [requests.exceptions.SSLError("handshake")] * 5)
     with caplog.at_level(logging.WARNING), pytest.raises(EnvironmentInputError,
                                                          match="^model context metadata is unavailable$") as caught:
-        load_model_metadata(frozen.config.model)
+        load_model_metadata(profile)
     assert caught.value.code == "RUN_CONFIG_INVALID" and caught.value.path == "config.toml"
     assert len(calls) == 5 and waits == [2.0, 4.0, 8.0, 16.0]
     assert "Model metadata fetch failed after 5 tries: SSLError" in caplog.text
@@ -93,10 +103,11 @@ def test_five_transient_failures_end_as_the_unchanged_input_error(monkeypatch, c
 def test_authentication_and_payload_failures_are_not_retried(monkeypatch, failure, caplog):
     """鉴权失败、找不到与内容不是 JSON 只读一次、不等待，以原来的输入错误结束。"""
     frozen = inputs()
+    profile, _ = _active_model(frozen)
     calls, waits = _service(monkeypatch, frozen, [failure, "ok"])
     with caplog.at_level(logging.ERROR), pytest.raises(EnvironmentInputError,
                                                        match="^model context metadata is unavailable$"):
-        load_model_metadata(frozen.config.model)
+        load_model_metadata(profile)
     assert len(calls) == 1 and waits == []
     assert "Model metadata fetch failed after 1 tries:" in caplog.text
 
@@ -104,21 +115,27 @@ def test_authentication_and_payload_failures_are_not_retried(monkeypatch, failur
 def test_frozen_metadata_loader_returns_the_frozen_value_without_network(monkeypatch):
     """冻结元数据加载器不访问网络，对任何配置都返回清单冻结的那一份。"""
     frozen = inputs()
+    profile, metadata = _active_model(frozen)
 
     def offline(*arguments, **options):
         raise requests.exceptions.SSLError("must not fetch")
 
     monkeypatch.setattr(requests, "get", offline)
-    loader = frozen_metadata_loader({"model_metadata": frozen.model_metadata.model_dump(mode="json")})
-    assert loader(frozen.config.model) == frozen.model_metadata
-    assert loader(None) == frozen.model_metadata
+    map_loader = frozen_metadata_loader({
+        "model_metadata": {k: v.model_dump(mode="json") for k, v in frozen.model_metadata.items()},
+    })
+    assert map_loader(profile) == metadata
+    single_loader = frozen_metadata_loader({"model_metadata": metadata.model_dump(mode="json")})
+    assert single_loader(profile) == metadata
+    assert single_loader(None) == metadata
 
 
 @pytest.mark.parametrize("source", [{}, {"model_metadata": None}, "manifest"], ids=["missing", "none", "partial"])
 def test_frozen_metadata_loader_rejects_missing_or_invalid_metadata(source, caplog):
     """清单没有 model_metadata、值为 null 或缺 context_window 时拒绝，并写英文错误日志。"""
     if source == "manifest":
-        value = inputs().model_metadata.model_dump(mode="json")
+        _, metadata = _active_model(inputs())
+        value = metadata.model_dump(mode="json")
         del value["context_window"]
         source = {"model_metadata": value}
     with caplog.at_level(logging.ERROR), pytest.raises(IntegrityError,

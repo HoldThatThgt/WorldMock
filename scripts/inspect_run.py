@@ -9,16 +9,13 @@
   python3 scripts/inspect_run.py <run_dir> body [--agent N]
   python3 scripts/inspect_run.py <run_dir> flows [--tail K]
   python3 scripts/inspect_run.py <run_dir> rerun
-  python3 scripts/inspect_run.py <run_dir> continuation [--topic 话题 ...] [--baseline <run_dir>]
   python3 scripts/inspect_run.py <run_dir> workday --environment <环境目录>
 
 时刻一律按运行清单的 window.timezone 显示；events 里活动与手机事件的写法取 worldmock.recording_engine.projections.presentation.display_wording，
 名称取这次运行冻结的环境目录（docs/design/05-recording-engine.md「显示写法与检查工具」）。
 rerun 只读计算 docs/design/05-recording-engine.md「显示写法与检查工具」的运行指标，只报告，不作门禁。
-continuation 只读给出 docs/design/05-recording-engine.md的逐决策指标与合计（JSON）；--baseline 先核对
-两份清单（同一提交、同一环境输入、同一模型身份），不可比即拒绝比较。
 workday 只读打印 docs/design/05-recording-engine.md 的 {run_id, workload, routine_deviation, notes}（JSON，只报告）：
-班次、住处、播报间隔与下班、到家窗口都取自 --environment 完整输入（原文字节身份须等于运行清单，否则拒绝、不打印）。
+班次、住处、播报间隔与下班、到家窗口都取自 --environment 完整输入（原文字节身份 persona_sha256s 与 config_sha256 须等于运行清单，否则拒绝、不打印）。
 event 与 events 打印的观察已把观察分件换回原表（docs/design/05-recording-engine.md「检查工具」）。
 """
 from __future__ import annotations
@@ -49,7 +46,11 @@ from worldmock.recording_engine.storage.observation_parts import rehydrate_obser
 from worldmock.recording_engine.projections.commerce.purchases import orders_by_id  # noqa: E402
 from worldmock.recording_engine.storage.store import EVENT_PAGE_SIZE  # noqa: E402
 from worldmock.runtime.monitoring.status import event_type_counts  # noqa: E402
-from worldmock.simulation_engine.body.felt import APETITE_BASE_LEVEL, APPETITE_BANDS, APPETITE_STARVING_LEVEL  # noqa: E402
+from worldmock.simulation_engine.body.felt import (  # noqa: E402
+    APETITE_BASE_LEVEL,
+    APPETITE_BANDS,
+    APPETITE_STARVING_LEVEL,
+)
 
 #: 饥饿分级由轻到重（与体感分级同源）：「最低饥饿分级」取观察中出现过的最重一档。
 APPETITE_ORDER = (APETITE_BASE_LEVEL, *(label for _, label in APPETITE_BANDS), APPETITE_STARVING_LEVEL)
@@ -317,17 +318,6 @@ def idle_seconds(conn: sqlite3.Connection) -> dict[int, int]:
             for agent, spans in sorted(settled.items())}
 
 
-def same_moment_rounds(conn: sqlite3.Connection) -> dict[str, int]:
-    """@brief 同刻轮数分布：按（人物，occurred_at）计 decision_started 数，返回 {轮数: 出现次数}。
-
-    与质量报告 decision_rhythm 的 same_moment_round_counts 同一口径。
-    """
-    rounds = Counter(_select(conn, "decision_started",
-                             "json_extract(body, '$.agent_id'), json_extract(body, '$.occurred_at')"))
-    distribution = Counter(rounds.values())
-    return {str(count): distribution[count] for count in sorted(distribution)}
-
-
 def progress_report_wakes(conn: sqlite3.Connection) -> dict[str, int]:
     """@brief 播报唤醒占比：提供决策的共同身体结算（decision_offered 为真）中，带与仅因 progress_report_due 的次数。"""
     offered = [set(json.loads(reasons or "[]")) for reasons, flag in _select(
@@ -438,9 +428,9 @@ def early_reminders(conn: sqlite3.Connection, zone: ZoneInfo) -> list[dict]:
 
 
 def rerun_metrics(conn: sqlite3.Connection) -> dict:
-    """@brief 汇总「真实复验」八项指标（只读；本地日与提醒时刻按世界状态记录的场景时区）。"""
+    """@brief 汇总「真实复验」七项指标（只读；本地日与提醒时刻按世界状态记录的场景时区）。"""
     zone = ZoneInfo(json.loads(conn.execute("SELECT body FROM world_state").fetchone()[0])["timezone"])
-    return {"idle_seconds": idle_seconds(conn), "same_moment_rounds": same_moment_rounds(conn),
+    return {"idle_seconds": idle_seconds(conn),
             "progress_report_wakes": progress_report_wakes(conn), "hungriest_level": hungriest_level(conn),
             "lowest_energy_before_meal": lowest_energy_before_meal(conn, zone), "meal_count": meal_count(conn),
             "walking_share": walking_share(conn), "early_reminders": early_reminders(conn, zone)}
@@ -457,7 +447,7 @@ def _ratio(part: int, whole: int) -> str:
 
 
 def rerun_lines(metrics: dict) -> list[str]:
-    """@brief 把八项指标排成中文报告行（只报告，不作门禁）。"""
+    """@brief 把七项指标排成中文报告行（只报告，不作门禁）。"""
     idle = metrics["idle_seconds"]
     wakes, walking = metrics["progress_report_wakes"], metrics["walking_share"]
     energy = "；".join(
@@ -472,258 +462,32 @@ def rerun_lines(metrics: dict) -> list[str]:
         walk = _ratio(walking["walking_seconds"], walking["travel_seconds"])
     reminders = "；".join(
         f"人物 {row['agent_id']} {row['date']} " + ("是" if row["early"] else "否")
-        + (f"（最早提醒 {row['earliest']}）" if row["earliest"] else "（未设提醒）")
+        + (f"（最早提醒 {row['earliest']}）" if row['earliest'] else "（未设提醒）")
         for row in metrics["early_reminders"])
     return [
-        "真实复验八项指标（只报告，不作门禁）",
+        "真实复验七项指标（只报告，不作门禁）",
         f"1. 无进行中活动总时长：{_duration(sum(idle.values()))}"
         + "".join(f"；人物 {agent} {_duration(value)}" for agent, value in idle.items()),
-        "2. 同刻轮数分布：" + ("、".join(f"{rounds} 轮 × {count}" for rounds, count
-                                  in metrics["same_moment_rounds"].items()) or "不适用（无决策）"),
-        f"3. 播报唤醒占比：带 progress_report_due {_ratio(wakes['with_report'], wakes['offered'])}；"
+        f"2. 播报唤醒占比：带 progress_report_due {_ratio(wakes['with_report'], wakes['offered'])}；"
         f"仅因它 {_ratio(wakes['only_report'], wakes['offered'])}",
-        f"4. 最低饥饿分级：{metrics['hungriest_level'] or '不适用（无饥饿分级观察）'}",
-        f"5. 首次进食前最低能量：{energy or '不适用（无共同身体结算）'}",
-        f"6. 进食次数：{metrics['meal_count']}",
-        f"7. 步行占比：{walk}",
-        f"8. 零点计划含早于 08:30 的提醒：{reminders or '不适用（无零点计划）'}",
+        f"3. 最低饥饿分级：{metrics['hungriest_level'] or '不适用（无饥饿分级观察）'}",
+        f"4. 首次进食前最低能量：{energy or '不适用（无共同身体结算）'}",
+        f"5. 进食次数：{metrics['meal_count']}",
+        f"6. 步行占比：{walk}",
+        f"7. 零点计划含早于 08:30 的提醒：{reminders or '不适用（无零点计划）'}",
     ]
 
 
 def cmd_rerun(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
-    """@brief 打印「真实复验」八项指标。"""
+    """@brief 打印「真实复验」七项指标。"""
     print("\n".join(rerun_lines(rerun_metrics(conn))))
 
 
-#: 续接对比的缺省话题（docs/design/05-recording-engine.md「显示写法与检查工具」中的续接对比示例）。
-DEFAULT_TOPICS = ("咖啡",)
-#: 两臂清单比较时允许不同的运行身份键；其余键（去掉续接开关）必须相同。
-RUN_IDENTITY_KEYS = frozenset({"run_id", "source_group_id", "source_run_ids"})
 #: 行动请求的 SQL 判定（与 footprints.store 的行动请求谓词同义）。
 _ACTION_REQUEST = ("json_extract(body,'$.event_type')='model_request' AND json_extract(body,'$.data.purpose') IS NULL "
-                   "AND json_extract(body,'$.data.request.extra_body.thinking.type')='enabled' AND EXISTS "
+                   "AND json_extract(body,'$.data.request.tool_choice')='auto' AND EXISTS "
                    "(SELECT 1 FROM json_each(body,'$.data.request.tools') "
                    "WHERE json_extract(value,'$.function.name')='start_main_activity')")
-
-
-def _message(response: dict | None) -> dict:
-    """@brief 提供商响应第一条选择的 assistant 消息（缺失时为空字典）。"""
-    choices = (response or {}).get("choices")
-    first = choices[0] if isinstance(choices, list) and choices and isinstance(choices[0], dict) else {}
-    return first.get("message") if isinstance(first.get("message"), dict) else {}
-
-
-def _terminal_counts(terminals: list[dict]) -> dict:
-    """@brief 协议错误（响应带 error）、传输失败（phase=failure）与其中的 400（单列，不计入传输失败）。"""
-    failures = [row["data"].get("error") or "" for row in terminals if row["data"].get("phase") == "failure"]
-    bad = sum("400" in text or "BadRequestError" in text for text in failures)
-    return {"protocol_errors": sum(bool(row["data"].get("error")) for row in terminals
-                                   if row["data"].get("phase") == "response"),
-            "transport_failures": len(failures) - bad, "bad_request_400": bad}
-
-
-def _reasoning(responses: list[dict]) -> dict:
-    """@brief 思考量：每个响应都报告 reasoning_tokens 时给 token 数，否则只给思考原文字符数，两者不混算。"""
-    tokens = [((row.get("usage") or {}).get("completion_tokens_details") or {}).get("reasoning_tokens")
-              for row in responses]
-    if responses and all(isinstance(value, int) for value in tokens):
-        return {"reasoning_tokens": sum(tokens), "reasoning_chars": None}
-    texts = [_message(row).get("reasoning_content") or "" for row in responses]
-    return {"reasoning_tokens": None, "reasoning_chars": sum(len(text) for text in texts)}
-
-
-def _usage(pairs: list[tuple[dict, dict]]) -> dict:
-    """@brief 缓存命中、输入 token 与计价成本（与质量报告同一冻结价目）；任一响应缺字段时对应合计为 None。"""
-    from worldmock.recording_engine.reports.quality import _estimate_cost
-
-    usages = [(request, response["data"]["response"]) for request, response in pairs]
-    hits = [(body.get("usage") or {}).get("prompt_cache_hit_tokens") for _, body in usages]
-    prompts = [(body.get("usage") or {}).get("prompt_tokens") for _, body in usages]
-    costs = [_estimate_cost(body.get("model"), body.get("usage"), request.get("recorded_at"))[0]
-             for request, body in usages]
-    priced = [cost for cost in costs if cost is not None]
-    return {"cache_hit_tokens": sum(hits) if usages and all(isinstance(value, int) for value in hits) else None,
-            "prompt_tokens": sum(prompts) if usages and all(isinstance(value, int) for value in prompts) else None,
-            "cost_usd": round(sum(priced), 12) if priced else None, "unpriced_responses": len(costs) - len(priced)}
-
-
-def _decisions(conn: sqlite3.Connection) -> list[dict]:
-    """@brief 逐决策收集行动请求与其终态（按 caused_by 严格关联），按首个请求的事件序号排列。"""
-    terminals: dict[str, dict] = {}
-    for row in _rows(conn, "json_extract(body,'$.event_type')='model_response'"):
-        for cause in row.get("caused_by") or []:
-            terminals.setdefault(cause, row)
-    decisions: dict[str, dict] = {}
-    for request in _rows(conn, _ACTION_REQUEST):
-        entry = decisions.setdefault(request["decision_id"], {
-            "decision_id": request["decision_id"], "agent_id": request["agent_id"],
-            "occurred_at": request["occurred_at"], "calls": []})
-        entry["calls"].append((request, terminals.get(request["event_id"])))
-    return list(decisions.values())
-
-
-def _decision_metrics(decision: dict, topics: tuple[str, ...]) -> dict:
-    """@brief 一次决策的请求数、思考量、错误分类、缓存与成本、话题命中。"""
-    terminals = [terminal for _, terminal in decision["calls"] if terminal is not None]
-    pairs = [(request, terminal) for request, terminal in decision["calls"] if terminal is not None
-             and terminal["data"].get("phase") == "response" and isinstance(terminal["data"].get("response"), dict)]
-    responses = [terminal["data"]["response"] for _, terminal in pairs]
-    reasoning = "\n".join(_message(row).get("reasoning_content") or "" for row in responses)
-    return {"requests": len(decision["calls"]), **_reasoning(responses), **_terminal_counts(terminals),
-            **_usage(pairs), "topics": {topic: topic in reasoning for topic in topics}}
-
-
-def _assistant_matches(message: dict, response: dict | None) -> bool:
-    """@brief 续接中的 assistant 与上一决策最终响应的思考、正文和工具调用相同；工具调用是一个，或两个开始工具各一个。"""
-    from worldmock.state.interaction.actions import START_TOOLS
-
-    final = _message(response)
-    calls = [(call.get("id"), (call.get("function") or {}).get("name"), (call.get("function") or {}).get("arguments"))
-             for call in final.get("tool_calls") or []]
-    sent = [(call.get("id"), call["function"]["name"], call["function"]["arguments"])
-            for call in message.get("tool_calls") or []]
-    names = [name for _, name, _ in sent]
-    return (message.get("reasoning_content") == final.get("reasoning_content") and bool(final.get("reasoning_content"))
-            and message.get("content") == final.get("content") and sent == calls
-            and (len(names) == 1 or sorted(names) == sorted(START_TOOLS)))
-
-
-def _chain_intact(previous: dict, decision: dict) -> bool:
-    """@brief 链完整：同人物同秒；首个请求 = 上一决策末次请求的全部消息 + 其最终 assistant + 按调用次序对应其每个工具
-    调用身份的各一条 tool 消息（一个世界请求一条，开始组两条）；其中每个 assistant 都带思考。"""
-    last_request, last_terminal = previous["calls"][-1]
-    before = last_request["data"]["request"]["messages"]
-    first = decision["calls"][0][0]["data"]["request"]["messages"]
-    size = len(before)
-    if len(first) <= size or first[:size] != before or previous["occurred_at"] != decision["occurred_at"]:
-        return False
-    assistant, tools = first[size], first[size + 1:]
-    if not _assistant_matches(assistant, (last_terminal or {}).get("data", {}).get("response")):
-        return False
-    answered = [(item.get("role"), item.get("tool_call_id")) for item in tools]
-    return (answered == [("tool", call["id"]) for call in assistant["tool_calls"]]
-            and all(item.get("reasoning_content") for item in first if item.get("role") == "assistant"))
-
-
-def _chain_rows(decisions: list[dict]) -> list[dict]:
-    """@brief 逐人物按决策顺序标出同秒跟进、链位置（链首为 0，断链为 None）、链完整性与工具是否与链首相同。"""
-    rows, last, heads = [], {}, {}
-    for decision in decisions:
-        agent, first = decision["agent_id"], decision["calls"][0][0]["data"]["request"]
-        previous = last.get(agent)
-        row = {"same_second_follow_up": previous is not None and previous["occurred_at"] == decision["occurred_at"],
-               "chain_position": 0, "chain_intact": None, "tools_same_as_head": None}
-        if len(first["messages"]) > 2:
-            intact = previous is not None and _chain_intact(previous, decision)
-            row.update(chain_intact=intact, chain_position=previous["position"] + 1 if intact else None)
-            head = heads.get(agent) if intact else None
-            row["tools_same_as_head"] = head is not None and first.get("tools") == head.get("tools")
-        else:
-            heads[agent] = first
-        decision["position"] = row["chain_position"] if row["chain_position"] is not None else 0
-        last[agent] = decision
-        rows.append(row)
-    return rows
-
-
-def _repeat_orders(conn: sqlite3.Connection, zone: ZoneInfo) -> dict[str, int]:
-    """@brief 按订单去重后的重复下单：同一人物同一本地日再次购买同一商品的订单数，按下单决策计。"""
-    from worldmock.recording_engine.projections.commerce.purchases import project_purchase_facts
-
-    events = _rows(conn, "json_extract(body,'$.event_type') IN ('action_result','action_requested')")
-    decisions = {row["action_id"]: row["decision_id"] for row in events if row["event_type"] == "action_requested"}
-    seen: set[tuple] = set()
-    repeats: Counter = Counter()
-    for fact in project_purchase_facts(events):
-        if fact["fact_kind"] != "purchase":
-            continue
-        key = (fact["agent_id"], fact["goods_id"], _local_date(fact["created_at"], zone))
-        if key in seen:
-            repeats[decisions.get(fact["action_id"])] += 1
-        seen.add(key)
-    return dict(repeats)
-
-
-def continuation_report(conn: sqlite3.Connection, topics: tuple[str, ...] = DEFAULT_TOPICS) -> dict:
-    """@brief 续接对比（只报告）：逐决策的链位置、请求数、思考量、错误分类、缓存与成本、话题、工具与链首、重复下单与链完整性。"""
-    zone = ZoneInfo(json.loads(conn.execute("SELECT body FROM world_state").fetchone()[0])["timezone"])
-    decisions = _decisions(conn)
-    repeats = _repeat_orders(conn, zone)
-    rows = []
-    for decision, chain in zip(decisions, _chain_rows(decisions)):
-        rows.append({"decision_id": decision["decision_id"], "agent_id": decision["agent_id"],
-                     "occurred_at": decision["occurred_at"], **chain, **_decision_metrics(decision, topics),
-                     "repeat_orders": repeats.get(decision["decision_id"], 0)})
-    return {"decisions": rows, "summary": _summary(rows, topics)}
-
-
-def _reasoning_total(rows: list[dict]) -> dict:
-    """@brief 一组决策的思考量合计：token 与字符分列，各自只合计报告了该口径的决策。"""
-    tokens = [row["reasoning_tokens"] for row in rows if row["reasoning_tokens"] is not None]
-    chars = [row["reasoning_chars"] for row in rows if row["reasoning_chars"] is not None]
-    return {"reasoning_tokens": sum(tokens), "decisions_with_tokens": len(tokens),
-            "reasoning_chars": sum(chars), "decisions_with_chars": len(chars)}
-
-
-def _summary(rows: list[dict], topics: tuple[str, ...]) -> dict:
-    """@brief 全运行合计：链长、同秒跟进与其余决策的思考量（分列）、错误、缓存、成本、话题、工具一致与重复下单。"""
-    continued = [row for row in rows if row["chain_position"]]
-    known = [row["cost_usd"] for row in rows if row["cost_usd"] is not None]
-    return {
-        "decisions": len(rows), "continued": len(continued),
-        "broken_chains": sum(row["chain_intact"] is False for row in rows),
-        "longest_chain": max((row["chain_position"] or 0 for row in rows), default=-1) + 1,
-        "same_second_follow_ups": sum(row["same_second_follow_up"] for row in rows),
-        "requests": sum(row["requests"] for row in rows),
-        "follow_up_reasoning": _reasoning_total([row for row in rows if row["same_second_follow_up"]]),
-        "other_reasoning": _reasoning_total([row for row in rows if not row["same_second_follow_up"]]),
-        **{key: sum(row[key] for row in rows) for key in ("protocol_errors", "transport_failures", "bad_request_400")},
-        "cache_hit_tokens": sum(row["cache_hit_tokens"] or 0 for row in rows),
-        "known_cost_usd": round(sum(known), 12) if known else None,
-        "unpriced_responses": sum(row["unpriced_responses"] for row in rows),
-        "topic_hits": {topic: sum(row["topics"][topic] for row in rows) for topic in topics},
-        "tools_same_as_head": sum(row["tools_same_as_head"] is True for row in continued),
-        "repeat_orders": sum(row["repeat_orders"] for row in rows),
-    }
-
-
-def _switch(manifest: dict) -> bool | None:
-    """@brief 清单冻结的同秒续接开关（与引擎同一读法）；清单没有阶段身份（特性之前的运行、引擎直驱）时为 None。
-
-    特性之前的运行带决策自述阶段，既不是开臂也不是关臂（docs/design/05-recording-engine.md）。
-    """
-    from worldmock.simulation_engine.decisions.continuation import continuation_enabled
-
-    if not isinstance(manifest.get("stage_model_identity"), dict):
-        return None
-    return continuation_enabled(manifest)
-
-
-def _comparable_view(manifest: dict) -> dict:
-    """@brief 清单去掉运行身份键与续接开关后的比较视图。"""
-    view = {key: value for key, value in manifest.items() if key not in RUN_IDENTITY_KEYS}
-    identity = view.get("stage_model_identity")
-    if isinstance(identity, dict):
-        identity = json.loads(json.dumps(identity))
-        identity["stages"]["action"].pop("same_second_continuation", None)
-        view["stage_model_identity"] = identity
-    return view
-
-
-def comparison_problems(arm: dict, baseline: dict) -> list[str]:
-    """@brief 两臂可比：同一提交、同一场景文件、同一模型身份，只有续接开关不同；返回拒绝比较的原因（空表示可比）。
-
-    没有冻结开关的运行（特性之前的运行）不能作任何一臂。
-    """
-    switches = (_switch(arm), _switch(baseline))
-    if None in switches:
-        problems = ["a run without a frozen same_second_continuation (pre-feature manifest) cannot be an arm"]
-    else:
-        problems = [] if switches[0] != switches[1] else ["same_second_continuation is the same in both runs"]
-    left, right = _comparable_view(arm), _comparable_view(baseline)
-    problems += [f"manifest field {key} differs" for key in sorted(set(left) | set(right))
-                 if left.get(key) != right.get(key)]
-    return problems
 
 
 def _manifest(run_dir: Path) -> dict:
@@ -731,37 +495,15 @@ def _manifest(run_dir: Path) -> dict:
     return json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
 
 
-def _arm(run_dir: Path, conn: sqlite3.Connection, topics: tuple[str, ...]) -> dict:
-    """@brief 一臂的运行身份、开关与续接对比报告。"""
-    manifest = _manifest(run_dir)
-    return {"run_id": manifest.get("run_id"), "same_second_continuation": _switch(manifest),
-            **continuation_report(conn, topics)}
-
-
-def cmd_continuation(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
-    """@brief 打印续接对比（JSON，只报告）；--baseline 先核对两份清单，不可比即以英文错误拒绝比较。"""
-    topics = tuple(a.topic or DEFAULT_TOPICS)
-    report = _arm(a.run_dir, conn, topics)
-    if a.baseline is not None:
-        problems = comparison_problems(_manifest(a.run_dir), _manifest(a.baseline))
-        if problems:
-            raise SystemExit("Runs are not comparable: " + "; ".join(problems))
-        other = _connect(a.baseline)
-        try:
-            report = {"arm": report, "baseline": _arm(a.baseline, other, topics)}
-        finally:
-            other.close()
-    print(json.dumps(report, ensure_ascii=False, indent=2))
-
-
 def cmd_workday(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
-    """@brief 工作安排与下班、到家窗口取已核对两份原文身份的完整环境，不读人物工作区。"""
+    """@brief 工作安排与下班、到家窗口取已核对多人物人设与配置原文身份的完整环境，不读人物工作区。"""
     from worldmock.configuration.inputs.environment import load_environment
     from tools.analysis.behavior.workday import workday_inputs, workday_reports
 
     manifest = _manifest(a.run_dir)
     inputs = load_environment(a.environment)
-    if (inputs.persona_sha256 != manifest["persona_sha256"]
+    manifest_personas = {int(agent_id): digest for agent_id, digest in manifest["persona_sha256s"].items()}
+    if (manifest_personas != dict(inputs.persona_sha256s)
             or inputs.config_sha256 != manifest["config_sha256"]):
         raise SystemExit("Environment inputs do not match the run manifest")
     report = workday_reports(_rows(conn), inputs.config.timezone, workday_inputs(inputs))
@@ -785,13 +527,9 @@ if __name__ == "__main__":
     pf = sub.add_parser("flows")
     pf.add_argument("--tail", type=int)
     sub.add_parser("rerun")
-    pc = sub.add_parser("continuation")
-    pc.add_argument("--topic", action="append")
-    pc.add_argument("--baseline", type=Path)
     pw = sub.add_parser("workday")
     pw.add_argument("--environment", type=Path, required=True)
     args = parser.parse_args()
     conn = _connect(args.run_dir)
     {"summary": cmd_summary, "events": cmd_events, "event": cmd_event, "money": cmd_money, "body": cmd_body,
-     "flows": cmd_flows, "rerun": cmd_rerun, "continuation": cmd_continuation,
-     "workday": cmd_workday}[args.cmd](conn, args)
+     "flows": cmd_flows, "rerun": cmd_rerun, "workday": cmd_workday}[args.cmd](conn, args)

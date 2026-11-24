@@ -10,7 +10,6 @@ from zoneinfo import ZoneInfo
 from worldmock.foundation.errors import BusinessRuleError
 from worldmock.simulation_engine.activities.lifecycle import activity_control
 from worldmock.simulation_engine.actions import admission
-from worldmock.simulation_engine.decisions import same_moment
 from worldmock.state.interaction.actions import START_TOOLS, start_tool
 from worldmock.simulation_engine.observation.wording.content_prerequisite import app_time_state
 from worldmock.simulation_engine.activities.content.content_select import (
@@ -32,18 +31,20 @@ from worldmock.resource_engine.catalog.travel_methods import travel_method
 
 @dataclass(frozen=True, slots=True)
 class LayerContext:
-    """@brief 一次观察直接读取环境输入与唯一世界，不创建语义副本。"""
+    """@brief 一次观察直接读取环境输入与唯一世界（或沙盒状态副本），不创建语义副本。"""
     engine: Any
     agent_id: int
     names: dict
     bindings: list[dict]
     #: 本次观察算一次的本人未了活动；准入、待收尾、槽位与睡着判定共用。
     open_activities: tuple[ActivityState, ...]
+    #: 沙盒内层重算时覆盖的世界副本；正常提交观察时为空。
+    state_override: Any = None
 
     @property
     def state(self):
-        """@brief 唯一当前世界。"""
-        return self.engine.state
+        """@brief 唯一当前世界，或沙盒投影覆盖状态。"""
+        return self.engine.state if self.state_override is None else self.state_override
 
     @property
     def inputs(self):
@@ -57,8 +58,8 @@ class LayerContext:
 
     @property
     def persona(self):
-        """@brief 唯一人物输入。"""
-        return self.engine.persona
+        """@brief 当前观察人物的声明输入。"""
+        return self.engine.persona_by_id[self.agent_id]
 
     @property
     def config(self):
@@ -67,8 +68,8 @@ class LayerContext:
 
     @property
     def body(self):
-        """@brief 固定身体规则视图。"""
-        return self.engine.body
+        """@brief 当前观察人物的固定身体规则视图。"""
+        return self.engine.bodies[self.agent_id]
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,16 +95,11 @@ def availability(context: LayerContext, candidate: Candidate) -> dict:
 
 
 def refusal_for(context: LayerContext, candidate: Candidate) -> Refusal | None:
-    """@brief 待收尾、同刻阶段与真实目标条件按受理顺序判定；开始动作行按只含这一行的一组求值。"""
+    """@brief 待收尾与真实目标条件按受理顺序判定；开始动作行按只含这一行的一组求值。"""
     waiting = activity_control.pending_conclusions(context.open_activities)
     activity = None if candidate.activity_id is None else context.state.activities[candidate.activity_id]
     if waiting and candidate.tool != "conclude_activity":
         return activity_control.conclusion_refusal(waiting, context.names["activities"])
-    named = () if activity is None else (activity,)
-    kind = same_moment.request_kind(candidate.tool, named, frozenset(item.activity_id for item in waiting))
-    stage = same_moment.stage_refusal(context.state.agents[context.agent_id].same_moment_stage, kind)
-    if stage is not None:
-        return stage
     if candidate.tool not in START_TOOLS:
         return activity_control.control_refusal(_admission_context(context), candidate.tool, activity)
     row = {**candidate.binding, "selected_action": candidate.action}

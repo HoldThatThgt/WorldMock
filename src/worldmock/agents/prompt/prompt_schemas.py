@@ -15,10 +15,7 @@ from typing import Any, get_args
 from worldmock.exchange_engine.definitions.types import GoodsQuality
 
 from worldmock.recording_engine.projections.presentation.display_wording import TITLE_LIST_LIMIT
-from worldmock.simulation_engine.body import felt
-from worldmock.simulation_engine.observation.targets.callable_index import MAX_EXAMPLES
-from worldmock.simulation_engine.observation.layers.todo_layer import ORDER_ROW_LIMIT
-from worldmock.state.interaction.actions import START_TOOLS
+from worldmock.state.interaction.actions import SEARCH_TOOL, START_TOOLS
 from worldmock.state.interaction.control_items import CONTROL_TOOLS
 from worldmock.exchange_engine.conditions.activity_rules import ACTIVITY_ACTIONS
 from worldmock.state.world.kinds import ActionStatus
@@ -44,13 +41,15 @@ TARGET_KINDS = ("location", "product", "app", "activity")
 TARGET_TOOLS = CONTROL_TOOLS
 #: 动作状态由生产枚举按声明顺序投影。
 ACTION_STATUSES = tuple(status.value for status in ActionStatus)
-#: 五项体感分级文字由实际分级表派生。
+#: 可调用索引每类示例名称上限与待办层在途订单展示行数上限。
+_MAX_EXAMPLES = 3
+_ORDER_ROW_LIMIT = 6
+#: 五项体感分级文字（与模拟引擎 felt 模块分级文字一致）。
 BODY_LEVELS = {
-    "appetite": (felt.APETITE_BASE_LEVEL, *(label for _, label in felt.APPETITE_BANDS),
-                 felt.APPETITE_STARVING_LEVEL),
-    "sleepiness": (felt.SLEEPINESS_BASE_LEVEL, *(label for _, label in felt.SLEEPINESS_BANDS)),
+    "appetite": ("不饿", "有点想吃", "饿", "很饿", "饿得难受", "饿得发慌"),
+    "sleepiness": ("清醒", "有点乏", "困", "很困", "撑不住"),
     "relaxation": ("不闷", "有点想放松", "很想放松"),
-    "social": (felt.SOCIAL_BASE_LEVEL, *(label for _, label in felt.SOCIAL_BANDS)),
+    "social": ("不想找人", "想和人说说话", "有点孤单"),
 }
 
 def _object(properties: dict[str, Any], optional: tuple[str, ...] = ()) -> dict[str, Any]:
@@ -106,7 +105,7 @@ SYSTEM_LAYER_SCHEMA: dict[str, Any] = {
 }
 
 _INDEX_CATEGORY = _object({"category": _TEXT, "count": {"type": "string", "pattern": r"^[1-9][0-9]* 个$"},
-                           "examples": {"type": "array", "maxItems": MAX_EXAMPLES, "uniqueItems": True,
+                           "examples": {"type": "array", "maxItems": _MAX_EXAMPLES, "uniqueItems": True,
                                         "items": _TEXT}})
 #: 工具层的可调用索引（docs/design/04-simulation-engine.md）：只有名称、品类与计数，不带动作与条件。
 _CALLABLE_INDEX = _object({
@@ -204,7 +203,7 @@ _ERRAND = _object({"name": _TEXT, "done_when": _TEXT, "progress": _TEXT, "memo":
 #: 待办层的一行在途订单（docs/design/09-io-formats.md「提示层的机器形状」）：订单标签、状态、送到的地点与预计到达。
 _ORDER = _object({"order": _TEXT, "status": {"enum": ["pending", "ready_for_pickup"]}, "destination": _TEXT,
                   "expected_at": _TIME})
-#: 在途订单多于 ORDER_ROW_LIMIT 行时末尾的合成行。
+#: 在途订单多于 _ORDER_ROW_LIMIT 行时末尾的合成行。
 _MORE_ORDERS = _object({"order": {"type": "string", "pattern": r"^另有 [1-9][0-9]* 笔在途$"}})
 TODO_LAYER_SCHEMA: dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema", "title": "待办层",
@@ -215,7 +214,7 @@ TODO_LAYER_SCHEMA: dict[str, Any] = {
             "tools": {"type": "array", "minItems": 2, "maxItems": 2, "prefixItems": [
                 _tool_action(("report_status",)), _tool_action(("conclude_activity",))]}})},
         "errands": {"type": "array", "maxItems": 8, "items": _ERRAND},
-        "orders": {"type": "array", "maxItems": ORDER_ROW_LIMIT + 1, "items": {"oneOf": [_ORDER, _MORE_ORDERS]}},
+        "orders": {"type": "array", "maxItems": _ORDER_ROW_LIMIT + 1, "items": {"oneOf": [_ORDER, _MORE_ORDERS]}},
         "day_plan": {"oneOf": [{"type": "null"}, _object({
             "date": _DATE, "goals": {"type": "array", "maxItems": 8, "items": _GOAL}})]},
     }),
@@ -263,29 +262,39 @@ _CONTENTS = {"type": "array", "minItems": 1, "maxItems": TITLE_LIST_LIMIT, "item
     "title": _TEXT, "summary": _SUMMARY, "duration": _TEXT, "finished": {"type": "boolean"}})}
 #: contents 多于 TITLE_LIST_LIMIT 行时没写出的行数，至少一行时才写。
 _CONTENTS_OMITTED = {"type": "string", "pattern": r"^还有 [1-9][0-9]* 条没列$"}
-#: 查询答案的一行：指向商铺时同时告知评分；可以下单时 reason 为 null，否则是非空原因。
-_QUERY_ROW = _reason_unless(_object({
+#: 搜索回答的一条商品报价行：指向商铺时同时告知评分；可以下单时 reason 为 null，否则是非空原因。
+_SEARCH_ROW = _reason_unless(_object({
     "product": _TEXT, "route": {"enum": ["到店", "外卖", "快递", None]}, "store": _NULLABLE_TEXT,
     "rating": _STORE_RATING,
     "apps": {"type": "array", "uniqueItems": True, "items": _TEXT}, "price": _TEXT,
     "delivery_fee": _NULLABLE_TEXT, "expected_at": {**_TIME, "type": ["string", "null"]},
     "now": {"enum": ["可以下单", "不可下单"]}, "reason": _NULLABLE_TEXT}, optional=("rating",)),
     {"now": {"const": "可以下单"}})
-_QUERY_ROW["allOf"] = [{"if": {"properties": {"store": _TEXT}}, "then": {"required": ["rating"]},
-                        "else": {"not": {"required": ["rating"]}}}]
-#: 查完的答案：app 为 null 时一定列出全部途径；没列出的件数为 0 时不写 omitted。
-_QUERY_ANSWERED = _object({
+_SEARCH_ROW["allOf"] = [{"if": {"properties": {"store": _TEXT}}, "then": {"required": ["rating"]},
+                         "else": {"not": {"required": ["rating"]}}}]
+#: 搜索回答的一条同城地点行：含展示名称、类别、营业状态、当日时段、评分、可用单元与出行方式。
+_PLACE_ROW = _object({
+    "name": _TEXT, "kind": _TEXT, "open_now": {"type": "boolean"},
+    "today_hours": {"type": "array", "items": _TEXT},
+    "rating": {"type": ["number", "null"], "minimum": 1, "maximum": 5},
+    "units": {"type": "array", "items": {"type": ["string", "object"]}},
+    "travel_options": {"type": "array", "items": {"type": ["string", "object"]}},
+})
+#: 查完的搜索回答：app 为 null 时一定列出全部途径；没列出的件数为 0 时不写 omitted。
+_SEARCH_ANSWERED = _object({
     "app": _NULLABLE_TEXT, "scope": {"enum": ["只列经这个 app 能买的", "列出全部途径"]},
-    "rows": {"type": "array", "items": _QUERY_ROW},
+    "goods_rows": {"type": "array", "items": _SEARCH_ROW},
+    "place_rows": {"type": "array", "items": _PLACE_ROW},
+    "summary": _TEXT,
     "omitted": {"type": "string", "pattern": r"^还有 [1-9][0-9]* 件没列$"}}, optional=("omitted",))
-_QUERY_ANSWERED["if"] = {"properties": {"app": {"type": "null"}}}
-_QUERY_ANSWERED["then"] = {"properties": {"scope": {"const": "列出全部途径"}}}
-#: 查询的第二条结果：查完的答案，或提前结束、被截断时的「没有查完」。
-_QUERY = {"oneOf": [_QUERY_ANSWERED, _object({"app": _NULLABLE_TEXT, "state": {"const": "没有查完"}})]}
+_SEARCH_ANSWERED["if"] = {"properties": {"app": {"type": "null"}}}
+_SEARCH_ANSWERED["then"] = {"properties": {"scope": {"const": "列出全部途径"}}}
+#: 搜索的第二条结果：查完的回答，或提前结束、被截断时的「没有查完」。
+_SEARCH = {"oneOf": [_SEARCH_ANSWERED, _object({"app": _NULLABLE_TEXT, "state": {"const": "没有查完"}})]}
 _RESULT_DETAILS = _object({
     "purchases": {"type": "array", "items": _PURCHASE},
     "planned": {"type": "array", "items": _object({"name": _TEXT, "duration": _TEXT})},
-    "content": _CONTENT, "contents": _CONTENTS, "query": _QUERY,
+    "content": _CONTENT, "contents": _CONTENTS, "search": _SEARCH,
     "contents_omitted": _CONTENTS_OMITTED,
     "arrival": _object({"place": _TEXT, "access": {"enum": ["进入", "没能进去"]}}),
     "recall": {"type": "object"}, "reason": _TEXT, "next_step": _TEXT, "fix": _TEXT,
@@ -294,7 +303,7 @@ _RESULT_DETAILS = _object({
     "resolved": {"type": "array", "items": {"type": "object"}},
     "notes": {"type": "array", "items": _TEXT},
     "errands": {"type": "array", "items": _object({"errand": _TEXT, "change": _TEXT})},
-}, optional=("purchases", "planned", "content", "contents", "contents_omitted", "query", "arrival", "recall",
+}, optional=("purchases", "planned", "content", "contents", "contents_omitted", "search", "arrival", "recall",
              "reason", "next_step", "fix", "items", "outcome", "resolved", "notes", "errands"))
 _RESULT = _object({"occurred_at": _TIME, "status": {"enum": list(ACTION_STATUSES)},
                    "error_code": _NULLABLE_TEXT, "message": _TEXT, "details": _RESULT_DETAILS})
@@ -313,7 +322,7 @@ PROGRESS_LAYER_SCHEMA: dict[str, Any] = {
             "written": {}, "why": {"type": "string", "maxLength": 60},
             "times": {"type": "integer", "minimum": 1}, "last": _TIME, "accepted_as": {}})},
         "events": {"type": "array", "items": {"oneOf": [
-            _record("tool_call", {"tool": {"enum": list(START_TOOLS)}, "arguments": {"type": "object"},
+            _record("tool_call", {"tool": {"enum": [*START_TOOLS, SEARCH_TOOL]}, "arguments": {"type": "object"},
                                   "result": _RESULT}),
             _record("delivery", {"order": _TEXT, "status": {"enum": ["pending", "ready_for_pickup", "delivered"]},
                                  "message": _TEXT}),

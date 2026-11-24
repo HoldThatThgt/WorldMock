@@ -10,8 +10,9 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from tests.life.conftest import advance_until_ready, conclude_request, stage_day_plan, submit_round, use_app
-from worldmock.agents.life_agent import _conclusion_memories
+from tests.life.conftest import advance_until_ready, conclude_request, stage_day_plan, use_app
+from tests.life.environment_runtime import act
+from worldmock.state.interaction.control_items import control_items
 from worldmock.agents.memory.life_memory import MemoryStep, render_memory_view, save_step
 from worldmock.agents.memory.life_memory_store import WorldMockMemoryStore, read_episodes
 from worldmock.recording_engine.projections.activities.experiences import project_verified_experiences
@@ -42,9 +43,10 @@ def _concluded(text: str, kind: str = "goal", importance: float = 0.5,
     """结束一项活动时写下的一条记忆（about 非空时是写在 views 的看法），经宿主按项原样交出存储形状。"""
     entry = {"type": kind, "text": text, "importance": importance, "keywords": list(keywords)}
     memories, views = ([entry], []) if about is None else ([], [{"type": kind, "about": about, **entry}])
-    return _conclusion_memories("conclude_activity", {"items": [
+    items = control_items("conclude_activity", {"items": [
         {"activity_name": "等待（9月21日 16:00 起）", "summary": "收尾。", "memories": memories, "views": views}],
         "errands": []})
+    return [dict(memory) for item in items for memory in item.memories]
 
 
 def _wait_fact(event_id="progress-1", seq=1):
@@ -104,7 +106,7 @@ def test_multiple_receipts_keep_goods_and_their_source_references(tmp_path):
         assert "rice 1 份，商铺 shop，这份品质好" in view and "soup 1 份，商铺 shop，这份品质坏" in view
         episode = outcome.created_episodes[0]
         evidence = MemoryUpdateEvidence(
-            context=None, operation="append_episodes", created_episode_ids=(episode["id"],),
+            wakeup_id="wakeup-1", agent_id=1, operation="append_episodes", created_episode_ids=(episode["id"],),
             merged_episode_ids=(), episodes=({key: episode[key] for key in
                                               ("id", "type", "text", "epistemic_status")},),
             memory_before_sha256=outcome.memory_before_sha256,
@@ -125,15 +127,12 @@ def test_actual_app_progress_is_written_to_verified_memory_with_source_and_curso
     """真实 app 足迹经步尾保存写进工作区的 MEMORY.md；应用、内容与实际区间位置不靠人物自述补齐。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    _, results = submit_round(engine, {1: ("start_side_activity", use_app("抖音"))},
-                              "memory-app")
-    started = results[0]
+    _, started = act(engine, "memory-app", use_app("抖音"), "start_side_activity")
     assert started.status == "in_progress"
     assert advance_until_ready(engine)
     activity = engine.context.state.activities[started.activity_id]
-    _, results = submit_round(engine, {1: ("conclude_activity", conclude_request(activity.name))},
-                              "memory-app-end")
-    assert results[0].status == "completed"
+    _, ended = act(engine, "memory-app-end", conclude_request(activity.name), "conclude_activity")
+    assert ended.status == "completed"
     events = list(engine.context.store.iter_events(engine.context.store.last_event_seq))
     facts = project_verified_experiences(events, agent_id=1, cutoff_seq=engine.context.store.last_event_seq)[-5:]
     assert facts and all(fact["kind"] == "played" for fact in facts)

@@ -49,11 +49,11 @@ class MemoryView:
 
 @dataclass(slots=True)
 class _TodayCache:
-    """@brief 一个人物当天「今天」的递推缓存：日期、固定部分（可查与近三天）的渲染文本、已折入的条目数与递推状态。"""
+    """@brief 一个人物当天「今天」的递推缓存：日期、固定部分渲染文本、已折入条目序列与递推状态。"""
 
     date: str
     fixed: str
-    count: int
+    entries: tuple[PublishedEntry, ...]
     fold: TodayFold
 
 
@@ -63,7 +63,7 @@ _FOLDS: WeakKeyDictionary[FootprintStore, dict[int, _TodayCache]] = WeakKeyDicti
 
 def memory_view(context: LayerContext, store: FootprintStore) -> MemoryView:
     """@brief 这次观察的记忆层（可查、近三天、今天，合计不超过字数上限）、本人真实活动的事实、回看标注与已发布界。"""
-    book = memory_book(store, context.inputs)
+    book = memory_book(store, context.inputs, context.agent_id)
     today = local_date(context.state.current_time, context.config.timezone)
     digests = day_digests(store, context.agent_id, store.last_event_seq)
     recent = recent_block(digests, today, book.categories, context.persona.work_schedule)
@@ -80,16 +80,20 @@ def memory_view(context: LayerContext, store: FootprintStore) -> MemoryView:
 
 def _today(context: LayerContext, store: FootprintStore, entries: Sequence[PublishedEntry],
            earliest: str, recent: dict) -> list[dict]:
-    """@brief 这次观察的「今天」：从缓存的递推状态接着折入新发布的条目；日期或固定部分变了、条目变少时从头递推。"""
+    """@brief 这次观察的「今天」：从缓存的递推状态接着折入新条目；条目序列前缀变化（同日恢复重写末条）时重算。"""
     date = local_date(context.state.current_time, context.config.timezone)
     fixed = render_layer_json(assemble_layer(earliest, recent, []))
+    entries_tuple = tuple(entries)
     folds = _FOLDS.setdefault(store, {})
     cached = folds.get(context.agent_id)
-    if cached is None or (cached.date, cached.fixed) != (date, fixed) or cached.count > len(entries):
-        cached = folds[context.agent_id] = _TodayCache(date, fixed, 0, TodayFold())
-    for entry in entries[cached.count:]:
+    prefix = len(cached.entries) if cached is not None else 0
+    if (cached is None or (cached.date, cached.fixed) != (date, fixed)
+            or prefix > len(entries_tuple) or entries_tuple[:prefix] != cached.entries):
+        cached = folds[context.agent_id] = _TodayCache(date, fixed, (), TodayFold())
+        prefix = 0
+    for entry in entries_tuple[prefix:]:
         fold_entry(cached.fold, entry, earliest, recent)
-    cached.count = len(entries)
+    cached.entries = entries_tuple
     return fold_items(cached.fold)
 
 

@@ -22,14 +22,14 @@ async def test_real_agent_registers_current_action_and_persists_complete_wire(en
     request = requests[0]
     assert request["model"] == "test-model"
     assert sorted(request) == sorted(REQUEST_KEYS)
-    assert request["max_tokens"] <= engine.context.inputs.model_metadata.max_output_tokens
+    assert request["max_tokens"] <= engine.context.inputs.model_metadata["reasoner"].max_output_tokens
     assert len(request["messages"]) == 2
     schemas = {tool["function"]["name"]: tool["function"]["parameters"] for tool in request["tools"]}
     assert "start_activity" not in schemas
     assert schemas[MAIN_TOOL]["required"] == list(schemas[MAIN_TOOL]["properties"]) == ["action", "target", "detail"]
     assert schemas[MAIN_TOOL]["properties"]["action"]["enum"] == ["travel", "interact", "sleep"]
     assert schemas[SIDE_TOOL]["required"] == list(schemas[SIDE_TOOL]["properties"]) == ["action", "target", "prefer"]
-    assert schemas[SIDE_TOOL]["properties"]["action"]["enum"] == ["purchase", "interact", "query"]
+    assert schemas[SIDE_TOOL]["properties"]["action"]["enum"] == ["purchase", "interact"]
     assert schemas[SIDE_TOOL]["properties"]["target"]["type"] == "array"
     assert set(observed["environment_layer"]["body"]) == {"appetite", "sleepiness", "relaxation", "social"}
     events = list(engine.context.store.iter_events(engine.context.store.last_event_seq))
@@ -57,41 +57,54 @@ async def test_host_corrects_retired_or_unknown_action_without_partial_registrat
     stage_day_plan(engine, submitted=True)
     _, requests, _, results = await decide(engine, "correction", [
         ToolResponse(tool, invalid), ToolResponse(MAIN_TOOL, _REST, "call-valid")])
-    assert len(requests) == 2 and results[0].status == "in_progress"
+    assert len(requests) == 2 and results[-1].status == "in_progress"
+    assert all(item.status == "rejected" for item in results[:-1])
     feedback = requests[1]["messages"][-1]
     assert feedback["role"] == "tool"
-    assert json.loads(feedback["content"])["error_code"] == code
+    payload = json.loads(feedback["content"])
+    error_body = payload.get("result", payload)
+    assert error_body["error_code"] == code
     events = list(engine.context.store.iter_events(engine.context.store.last_event_seq))
     registered = [event for event in events if event.event_type == "action_requested"]
-    assert len(registered) == 1
-    assert (registered[0].data["tool_name"], registered[0].data["request"]) == (MAIN_TOOL, _REST)
+    accepted = [event for event in events if event.event_type == "action_accepted"]
+    assert len(accepted) == 1
+    if "result" in payload:
+        assert len(registered) == 2
+        assert len([event for event in events if event.event_type == "action_rejected"]) == 1
+    else:
+        assert len(registered) == 1
+    assert (registered[-1].data["tool_name"], registered[-1].data["request"]) == (MAIN_TOOL, _REST)
 
 
 @pytest.mark.asyncio
-async def test_same_second_continuation_preserves_previous_model_wire(engine_factory):
+async def test_in_loop_settlement_preserves_previous_model_wire(engine_factory):
     engine = engine_factory()
     stage_day_plan(engine, submitted=True)
-    _, first, _, _ = await decide(engine, "plan", [ToolResponse("revise_day_plan", {"goals": []}, "call-plan")])
-    _, second, _, _ = await decide(engine, "interact", [ToolResponse(MAIN_TOOL, _REST, "call-interact")])
-    assert second[0]["messages"][:len(first[0]["messages"])] == first[0]["messages"]
-    assert len(second[0]["messages"]) == len(first[0]["messages"]) + 2
-    assert second[0]["messages"][-1]["role"] == "tool"
-    assert second[0]["messages"][-1]["tool_call_id"] == "call-plan"
+    _, requests, _, _ = await decide(engine, "in-loop", [
+        ToolResponse("revise_day_plan", {"goals": []}, "call-plan"),
+        ToolResponse(MAIN_TOOL, _REST, "call-interact"),
+    ])
+    assert len(requests) == 2
+    first, second = requests
+    assert second["messages"][:len(first["messages"])] == first["messages"]
+    assert len(second["messages"]) == len(first["messages"]) + 2
+    assert second["messages"][-1]["role"] == "tool"
+    assert second["messages"][-1]["tool_call_id"] == "call-plan"
 
 
 @pytest.mark.asyncio
 async def test_deleted_start_activity_reply_is_refused_as_a_tool_that_is_not_offered(engine_factory):
-    """模型回复里调用已删除的 start_activity：宿主按本回合未提供的工具纠错，明细逐字，允许值是开放的八个工具。"""
+    """模型回复里调用已删除的 start_activity：宿主按本回合未提供的工具纠错，明细逐字，允许值是开放的九个工具。"""
     engine = engine_factory()
     stage_day_plan(engine, submitted=True)
     _, requests, _, results = await decide(engine, "retired", [
         ToolResponse("start_activity", {"items": [{"action": "interact", "target": "家"}]}),
         ToolResponse(MAIN_TOOL, _REST, "call-valid")])
     offered = [tool["function"]["name"] for tool in requests[0]["tools"]]
-    assert len(offered) == 8 and offered[:2] == [MAIN_TOOL, SIDE_TOOL] and "start_activity" not in offered
+    assert len(offered) == 9 and offered[:2] == [MAIN_TOOL, SIDE_TOOL] and "start_activity" not in offered
     feedback = json.loads(requests[1]["messages"][-1]["content"])
     assert feedback["error_code"] == "TOOL_CALL_REQUIRED"
-    assert feedback["items"] == [{
+    assert [item for item in feedback["items"] if item["path"] == ["tool_calls", 0, "function", "name"]] == [{
         "path": ["tool_calls", 0, "function", "name"], "written": "start_activity", "error_code": "TOOL_CALL_REQUIRED",
         "allowed_values": offered, "expected": "A tool offered in this round is required.",
         "why": "The tool is not offered in this round.", "candidates": []}]
@@ -110,15 +123,15 @@ async def test_removed_query_world_reply_is_refused_as_a_tool_that_is_not_offere
         ToolResponse(MAIN_TOOL, _REST, "call-valid")])
     offered = [tool["function"]["name"] for tool in requests[0]["tools"]]
     assert offered == ["start_main_activity", "start_side_activity", "report_status", "pause_activity",
-                       "conclude_activity", "revise_day_plan", "recall_task_summary", "search_memory"]
-    assert json.loads(requests[1]["messages"][-1]["content"]) == {
-        "error_code": "TOOL_CALL_REQUIRED", "reason": "The tool call batch is invalid.",
-        "fix": "Submit one world request, the two start tools together, or only read queries.",
-        "items": [{"path": ["tool_calls", 0, "function", "name"], "written": "query_world",
-                   "error_code": "TOOL_CALL_REQUIRED", "allowed_values": offered,
-                   "expected": "A tool offered in this round is required.",
-                   "why": "The tool is not offered in this round.", "candidates": []}],
-        "unmet": [], "instruction": "No world action was registered. Correct the reported parameters and submit again."}
+                       "conclude_activity", "revise_day_plan", "search_world", "recall_task_summary", "search_memory"]
+    feedback = json.loads(requests[1]["messages"][-1]["content"])
+    assert feedback["error_code"] == "TOOL_CALL_REQUIRED"
+    assert [item for item in feedback["items"] if item["path"] == ["tool_calls", 0, "function", "name"]] == [{
+        "path": ["tool_calls", 0, "function", "name"], "written": "query_world",
+        "error_code": "TOOL_CALL_REQUIRED", "allowed_values": offered,
+        "expected": "A tool offered in this round is required.",
+        "why": "The tool is not offered in this round.", "candidates": []}]
+    assert feedback["instruction"] == "No world action was registered. Correct the reported parameters and submit again."
     requested = [event for event in list(engine.context.store.iter_events(engine.context.store.last_event_seq))
                  if event.event_type == "action_requested"]
     assert [event.data["tool_name"] for event in requested] == [MAIN_TOOL]
@@ -138,7 +151,6 @@ def _dataset_methods(tmp_path):
 async def test_dataset_travel_method_name_is_the_one_wording_from_the_prompt_to_the_arrival(engine_factory, tmp_path):
     """真实宿主：提示里的紧凑工具层还原后与完整工具层逐值相同，全部目的地的出行行落在同一组；人物照工具层写的出行方式
     名称就是活动名、环境层路上的位置和到达句里的那个名称。"""
-    from tests.life.conftest import context
     from tests.life.environment_runtime import finish_activity
     from worldmock.simulation_engine.activities.lifecycle.activity_control import open_activities
     from worldmock.recording_engine.projections.activities.experiences import recent_verified_experiences
@@ -163,7 +175,7 @@ async def test_dataset_travel_method_name_is_the_one_wording_from_the_prompt_to_
     assert "ebike" not in requests[0]["messages"][1]["content"]
     trip = engine.context.state.activities[results[0].activity_id]
     assert trip.name.startswith("电动车前往公司（") and trip.travel_method_id == "ebike"
-    on_the_way = engine.observe(context(engine, "on-the-way"))
+    on_the_way = engine.observations._observation_data(engine.context.state.agents[1])
     validate_layer(on_the_way["environment_layer"])
     assert on_the_way["environment_layer"]["location"] == {
         "session_kind": "transit", "name": "去公司的路上", "travel_method": "电动车"}
@@ -186,14 +198,16 @@ async def test_host_corrects_a_travel_detail_that_names_no_method_and_never_defa
     wrong = {"action": "travel", "target": "公司", "detail": detail}
     _, requests, _, results = await decide(engine, "corrected", [
         ToolResponse(MAIN_TOOL, wrong), ToolResponse(MAIN_TOOL, main_arguments("travel", "公司", "划船"), "call-valid")])
-    feedback = json.loads(requests[1]["messages"][-1]["content"])
+    raw_feedback = json.loads(requests[1]["messages"][-1]["content"])
+    feedback = raw_feedback.get("result", raw_feedback)
     assert feedback["error_code"] == code
-    [item] = feedback["items"]
+    [item] = feedback["details"]["items"] if "details" in feedback else feedback["items"]
     assert item["path"][-1] == "detail" and item["written"] == detail
     assert item["allowed_values"] == ([] if detail is None else ["步行", "电动车", "划船"])
     events = list(engine.context.store.iter_events(engine.context.store.last_event_seq))
     registered = [event.data["request"] for event in events if event.event_type == "action_requested"]
-    assert registered == [main_arguments("travel", "公司", "划船")]
-    assert results[0].status == "in_progress"
+    accepted = [event for event in events if event.event_type == "action_accepted"]
+    assert len(accepted) == 1 and results[-1].status == "in_progress"
+    assert registered[-1] == main_arguments("travel", "公司", "划船")
     [trip] = engine.context.state.activities.values()
     assert (trip.travel_method_id, trip.data["exertion"]) == ("row", "heavy") and trip.name.startswith("划船前往公司（")

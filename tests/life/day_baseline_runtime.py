@@ -13,7 +13,7 @@ from tests.data_paths import ENVIRONMENT_ROOT
 from tests.dayrun_baseline import day_baseline_signature, deterministic_day_runtime
 from tests.frozen_inputs import fixture_metadata
 from tests.integration.runtime_fixtures import current_run_identity, write_agent_workspace
-from tests.life.conftest import do_at, purchase, query, sleep, stage_day_plan, travel, use_app
+from tests.life.conftest import do_at, purchase, search_world, sleep, stage_day_plan, travel, use_app
 from tests.life.environment_runtime import act, act_group, conclude_app_use, finish_activity, run_to_end
 from worldmock.resource_engine.catalog.identity import refresh_manifest_identity
 from worldmock.configuration.inputs.environment import environment_identity, load_environment
@@ -21,7 +21,7 @@ from worldmock.recording_engine.storage.checkpoint import snapshot_directory
 from worldmock.recording_engine.export.export import export_run
 from worldmock.recording_engine.validation.validation import validate_export
 from worldmock.simulation_engine.engine import LifeEngine
-from worldmock.runtime.framework.setup import stage_model_identity
+from worldmock.runtime.framework.setup import model_identity
 
 
 def _callback_rows():
@@ -70,7 +70,7 @@ def _activity_day(engine):
                         purchase("牛肉面", "薯片", "薯片", prefer="饿了么"))
     assert [item.status for item in home] == ["in_progress", "in_progress"]
     _finish_active(engine, "home")
-    _, asked = act(engine, "home-query", query("柠檬茶"))
+    _, asked = act(engine, "home-query", search_world("柠檬茶"))
     assert asked.status == "in_progress"
     finish_activity(engine, asked, "home-query")
     # 查询自己结束：做完即写下 concluded_at，不待收尾，下一组开始不被挡住。
@@ -104,7 +104,7 @@ def create_complete_day_engine(case: Path, kind: str) -> LifeEngine:
     inputs = _environment(case, kind)
     identity = current_run_identity(inputs, f"baseline-{kind}")
     return LifeEngine.create(inputs, case / "run", identity,
-        stage_model_identity(inputs.config.model, inputs.model_metadata), {})
+        model_identity(inputs.config, inputs.model_metadata), {})
 
 
 def play_complete_day(engine: LifeEngine, kind: str) -> list:
@@ -129,7 +129,8 @@ def record_complete_day(monkeypatch, case: Path, project: Path, kind: str,
         export_run(engine.context.store, engine.context.store.last_event_seq, case / "export")
         exported, _ = validate_export(case / "export")
         assert exported["experiment_completed"]
-        return {"persona_sha256": inputs.persona_sha256, "config_sha256": inputs.config_sha256,
+        return {"persona_sha256s": {str(aid): digest for aid, digest in inputs.persona_sha256s.items()},
+                "config_sha256": inputs.config_sha256,
                 "environment_identity": environment_identity(inputs), "seed": inputs.config.seed,
                 "summary": signature(case, project)}
     finally:

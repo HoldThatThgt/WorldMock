@@ -141,8 +141,8 @@ def _gate(value: Any, comparison: str, threshold: Any, note: str | None = None) 
 
 
 def _decision_model_requests(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """@brief 取人物决策的模型请求事件：排除任一带 purpose 的系统请求（工作验收、零点计划 plan_day、日月年回顾
-    memory_digest）；带工具的请求只在工具中有 start_main_activity 时计入，所以只带 submit_reflection 的就寝反思及其
+    """@brief 取人物行动唤醒的模型请求事件：排除任一带 purpose 的请求（search_session、工作验收、零点计划 plan_day、
+    日月年回顾 memory_digest）；带工具的请求只在工具中有 start_main_activity 时计入，所以只带 submit_reflection 的就寝反思及其
     校验重试不计，不带工具的记忆巩固照计（docs/design/07-evaluation.md）。"""
     selected = []
     for event in events:
@@ -150,7 +150,7 @@ def _decision_model_requests(events: list[dict[str, Any]]) -> list[dict[str, Any
         if event.get("event_type") != "model_request" or data.get("phase") != "request":
             continue
         names = request_tool_names(data.get("request"))
-        if not event.get("data", {}).get("purpose") and (not names or _ACTION_TOOL in names):
+        if not data.get("purpose") and (not names or _ACTION_TOOL in names):
             selected.append(event)
     return selected
 
@@ -170,11 +170,11 @@ def _message_text(message: Mapping[str, Any]) -> str | None:
 
 
 def _observation_gate(events: list[dict[str, Any]], notes: list[str]) -> dict[str, Any]:
-    """@brief 统计同一 user 观察文本出现于不同（人物，模拟秒）续接链中的最大数目；门禁必须为 1。
+    """@brief 统计同一 user 观察文本出现于不同（人物，唤醒标识）会话中的最大数目；门禁必须为 1。
 
-    同一人物同一模拟秒内的决策构成一条续接链，链内各决策复用链首 user 合法，只计一次；
-    跨秒或跨人物重复仍计为重复。带 purpose 的系统请求（工作验收、零点计划）不参与统计；就寝反思的请求（含校验重试，
-    其附回消息不带时刻与人物内容，不是观察）也不参与。
+    同一次唤醒（包含挂起前与搜索恢复后及同唤醒多轮 ReAct）复用同一观察文本合法，只计一次；
+    不同唤醒（含同一模拟秒因跨人物冲突或搜索恢复产生的新唤醒）出现重复仍计为重复。
+    带 purpose 的请求（search_session、工作验收、零点计划、回顾）不参与统计；就寝反思请求也不参与。
     """
     chains: dict[str, set[tuple[Any, Any]]] = {}
     user_messages = 0
@@ -184,7 +184,7 @@ def _observation_gate(events: list[dict[str, Any]], notes: list[str]) -> dict[st
             text = _message_text(message) if isinstance(message, Mapping) else None
             if text is not None:
                 user_messages += 1
-                chains.setdefault(text, set()).add((event.get("agent_id"), event.get("occurred_at")))
+                chains.setdefault(text, set()).add((event.get("agent_id"), event.get("wakeup_id")))
     if not chains:
         notes.append("决策 model_request 无 user 消息，观察重复率无法计算")
         return _gate(None, "==", 1)
@@ -470,7 +470,7 @@ def _sleep_summary(bedtimes: list[dict[str, Any]], zone: ZoneInfo) -> dict[str, 
     """@brief 汇总就寝睡眠：就寝时刻的中位数以 06:00 为一天的起点（平移后取中位数再平移回去），
     起床时刻的中位数直接取自零点的分钟，另给平均时长与段数。"""
     def minutes_of_day(epoch: int | float) -> int:
-        """将真实时刻转换为本地日内分钟。"""
+        """@brief 将真实时刻转换为本地日内分钟。"""
         local = datetime.fromtimestamp(epoch, zone)
         return local.hour * 60 + local.minute
 

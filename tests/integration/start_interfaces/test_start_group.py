@@ -1,4 +1,4 @@
-"""开始组经真实引擎与存储：两条开始调用同一决策登记、整组核验、整组原子、核验次序、登记协议与同刻预算。"""
+"""开始组经真实引擎与存储：两条开始调用同一唤醒登记、整组核验、整组原子、核验次序与沙盒协议。"""
 
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ from tests.life.conftest import (
     action_identity,
     advance_until_ready,
     conclude_request,
-    context,
     do_at,
     pause_request,
     purchase,
@@ -21,8 +20,9 @@ from tests.life.conftest import (
     use_app,
 )
 from tests.life.environment_runtime import act, act_group, action_result, events
+from worldmock.agents.life_agent import validate_life_batch
+from worldmock.agents.protocol.agent_loop import LoopToolCall
 from worldmock.foundation.errors import ProtocolError
-from worldmock.state.decisions.round import DirectToolCall
 from worldmock.state.interaction.requests import REQUEST_MODELS, StartMainActivityRequest, StartSideActivityRequest
 
 _SUFFIX = " Neither start request was started."
@@ -57,7 +57,7 @@ def _frozen(engine) -> dict:
 
 def _rejected_events(engine, label: str) -> list:
     """一个被拒开始组各动作的拒绝事件（按登记次序）。"""
-    return [row for row in events(engine, "action_rejected") if row.action_id.startswith(f"decision-{label}-1:action:")]
+    return [row for row in events(engine, "action_rejected") if row.action_id.startswith(f"wakeup-{label}-1:action:")]
 
 
 def test_two_start_calls_of_one_decision_start_two_activities_at_the_same_moment(engine_factory):
@@ -67,9 +67,9 @@ def test_two_start_calls_of_one_decision_start_two_activities_at_the_same_moment
     assert (main.status, side.status) == ("in_progress", "in_progress")
     assert (main.message, side.message) == ("Activities started", "Activities started")
     requested = [row for row in events(engine, "action_requested")
-                 if row.action_id.startswith("decision-pair-1:action:")]
+                 if row.action_id.startswith("wakeup-pair-1:action:")]
     assert [row.data["tool_name"] for row in requested] == [MAIN_TOOL, SIDE_TOOL]
-    assert len({row.decision_id for row in requested}) == 1
+    assert len({row.wakeup_id for row in requested}) == 1
     activities = engine.context.state.activities
     started = (f"activity-{action_identity('pair', 1)}", f"activity-{action_identity('pair', 2)}-purchase")
     assert set(activities) == set(started)
@@ -80,12 +80,12 @@ def test_two_start_calls_of_one_decision_start_two_activities_at_the_same_moment
     for activity, request in zip((rest, basket), requested, strict=True):
         assert activity.origin_action_id == request.action_id
         assert activity.origin_request_event_id == request.event_id
-        assert activity.origin_decision_id == request.decision_id
+        assert activity.origin_wakeup_id == request.wakeup_id
     assert [item["activity_id"] for item in main.data["activities"]] == [rest.activity_id]
     assert [item["activity_id"] for item in side.data["activities"]] == [basket.activity_id]
     assert main.data["orders"] == [] and len(side.data["orders"]) == 2
     for kind in ("action_accepted", "action_result"):
-        written = [row.action_id for row in events(engine, kind) if row.action_id.startswith("decision-pair-1:action:")]
+        written = [row.action_id for row in events(engine, kind) if row.action_id.startswith("wakeup-pair-1:action:")]
         assert written == [action_identity("pair", 1), action_identity("pair", 2)]
     session = engine.context.state.sessions[rest.session_ids[-1]]
     assert set(session.activity_ids) == set(activities) and basket.session_ids == rest.session_ids
@@ -123,63 +123,66 @@ def test_swapping_the_two_calls_gives_the_same_world(engine_factory):
 
 
 def test_commit_returns_every_result_and_persists_both(engine_factory):
-    """提交返回该决策两条动作的结果，两条结果都已落库。"""
+    """提交返回屏障回执且两项动作结果已落库；沙盒封口后再调报协议故障。"""
     engine = engine_factory()
-    decision = context(engine, "single")
-    engine.begin_decision_round([decision])
-    engine.observe(decision)
+    [wakeup] = engine.prepare_barrier((1,))
+    sandbox = engine.open_sandbox(wakeup)
     side, main = use_app("哔哩哔哩"), do_at("家", "测试闲聊")
     side_id, main_id = action_identity("single", 1), action_identity("single", 2)
-    receipts = [engine.submit_action(DirectToolCall(decision, side_id, SIDE_TOOL, side)),
-                engine.submit_action(DirectToolCall(decision, main_id, MAIN_TOOL, main))]
-    assert [receipt.action_id for receipt in receipts] == [side_id, main_id]
-    assert engine.submit_action(DirectToolCall(decision, main_id, MAIN_TOOL, main)).action_id == main_id
-    returned = engine.commit_decision_round("single")
-    assert [result.action_id for result in returned] == [side_id, main_id]
+    dispatches = [sandbox.dispatch_world_tool(SIDE_TOOL, side, side_id),
+                  sandbox.dispatch_world_tool(MAIN_TOOL, main, main_id)]
+    assert [item.accepted for item in dispatches] == [True, True]
+    assert [item.tool_message_payload["result"]["status"] for item in dispatches] == ["in_progress", "in_progress"]
+    outcome = sandbox.finish_wakeup(None)
+    with pytest.raises(ProtocolError, match="Sandbox is already finished"):
+        sandbox.dispatch_world_tool(MAIN_TOOL, main, action_identity("single", 3))
+    receipt = engine.commit_barrier([outcome])
+    assert receipt.committed_agent_ids == (1,) and receipt.conflict_requeued_agent_ids == ()
+    assert [action_result(engine, aid).action_id for aid in (side_id, main_id)] == [side_id, main_id]
     stored = engine.context.state.processed_actions
     assert {side_id, main_id} <= set(stored)
     assert stored[main_id].result["activity_id"] == f"activity-{main_id}"
     assert stored[side_id].result["activity_id"] == f"activity-{side_id}"
-    notes = [row.data["self_note"] for row in events(engine, "action_requested")]
+    notes = [row.data.get("self_note") for row in events(engine, "action_requested")]
     assert notes == [None, None]
 
 
-@pytest.mark.parametrize("requests,code", [
-    ((report_request("x"), use_app("哔哩哔哩")), "second-control"),
-    ((do_at("家", "测试休息"), do_at("家", "测试闲聊")), "same-tool"),
-    ((purchase("薯片"), use_app("哔哩哔哩")), "same-tool"),
-    ((do_at("家", "测试休息"), report_request("x")), "start-then-control"),
+@pytest.mark.parametrize("requests", [
+    (report_request("x"), use_app("哔哩哔哩")),
+    (do_at("家", "测试休息"), do_at("家", "测试闲聊")),
+    (purchase("薯片"), use_app("哔哩哔哩")),
+    (do_at("家", "测试休息"), report_request("x")),
 ])
-def test_second_registration_outside_a_start_pair_is_a_protocol_fault(engine_factory, requests, code):
-    """同一决策的第二条非开始动作、同一个开始工具第二次，都以协议故障停止运行。"""
+def test_second_registration_outside_a_start_pair_is_a_protocol_fault(engine_factory, requests):
+    """非开始对的多条调用组合在宿主批次校验被拒；屏障提交重复人物产出时以协议故障停止运行。"""
     from tests.life.conftest import tool_of
 
+    calls = [LoopToolCall(tool_of(req), req.model_dump(mode="json"), f"call-{idx}")
+             for idx, req in enumerate(requests, start=1)]
+    feedback = validate_life_batch(calls, REQUEST_MODELS)
+    assert feedback is not None and feedback.report.error_code == "TOOL_CALL_REQUIRED"
     engine = engine_factory()
-    decision = context(engine, code)
-    engine.begin_decision_round([decision])
-    engine.observe(decision)
-    engine.submit_action(DirectToolCall(decision, action_identity(code, 1), tool_of(requests[0]), requests[0]))
-    with pytest.raises(ProtocolError, match="Agent already submitted its decision round action"):
-        engine.submit_action(DirectToolCall(decision, action_identity(code, 2), tool_of(requests[1]), requests[1]))
+    [wakeup] = engine.prepare_barrier((1,))
+    outcome = engine.open_sandbox(wakeup).finish_wakeup(None)
+    with pytest.raises(ProtocolError, match="Duplicate agent in barrier commit"):
+        engine.commit_barrier([outcome, outcome])
 
 
 def test_third_action_and_retired_tool_are_protocol_faults(engine_factory):
-    """第三条动作被拒；工具清单里没有 start_activity，带这个工具名的登记不被受理。"""
-    engine = engine_factory()
-    decision = context(engine, "third")
-    engine.begin_decision_round([decision])
-    engine.observe(decision)
-    engine.submit_action(DirectToolCall(decision, action_identity("third", 1), MAIN_TOOL, do_at("家", "测试休息")))
-    engine.submit_action(DirectToolCall(decision, action_identity("third", 2), SIDE_TOOL, use_app("哔哩哔哩")))
-    with pytest.raises(ProtocolError, match="Agent already submitted its decision round action"):
-        engine.submit_action(DirectToolCall(decision, action_identity("third", 3), SIDE_TOOL, purchase("薯片")))
+    """三条调用被宿主批次校验拒绝；工具清单里没有 start_activity，沙盒拒绝该工具名。"""
+    calls = [
+        LoopToolCall(MAIN_TOOL, do_at("家", "测试休息").model_dump(mode="json"), "c1"),
+        LoopToolCall(SIDE_TOOL, use_app("哔哩哔哩").model_dump(mode="json"), "c2"),
+        LoopToolCall(SIDE_TOOL, purchase("薯片").model_dump(mode="json"), "c3"),
+    ]
+    feedback = validate_life_batch(calls, REQUEST_MODELS)
+    assert feedback is not None and feedback.report.error_code == "TOOL_CALL_REQUIRED"
     assert "start_activity" not in REQUEST_MODELS
     other = engine_factory()
-    decision = context(other, "retired")
-    other.begin_decision_round([decision])
-    with pytest.raises(ProtocolError, match="Direct tool call request type does not match its tool"):
-        other.submit_action(DirectToolCall(decision, action_identity("retired"), "start_activity",
-                                           do_at("家", "测试休息")))
+    [wakeup] = other.prepare_barrier((1,))
+    sandbox = other.open_sandbox(wakeup)
+    with pytest.raises(ProtocolError, match="Unsupported sandbox world tool: start_activity"):
+        sandbox.dispatch_world_tool("start_activity", do_at("家", "测试休息"), action_identity("retired"))
 
 
 def test_side_failure_starts_neither_call_and_changes_nothing(engine_factory):
@@ -317,32 +320,6 @@ def test_unknown_goods_name_is_refused_as_supply_not_found(engine_factory):
     assert result.status == "in_progress" and [order["goods_id"] for order in result.data["orders"]] == ["online-notebook"]
 
 
-def test_group_counts_one_same_moment_round_when_accepted_or_rejected(engine_factory):
-    """同刻预算按组计：一个开始组受理或整组被拒都只加一轮。"""
-    engine = engine_factory()
-    act_group(engine, "sleepy", sleep(60), use_app("哔哩哔哩"))
-    assert engine.context.state.agents[1].same_moment_rounds == 1
-    _, started = act_group(engine, "pair", do_at("家", "测试休息"), use_app("哔哩哔哩"))
-    assert [item.status for item in started] == ["in_progress", "in_progress"]
-    assert engine.context.state.agents[1].same_moment_rounds == 2
-    refused = engine_factory()
-    _, results = act_group(refused, "refused", sleep(60), use_app("哔哩哔哩"))
-    assert [item.status for item in results] == ["rejected", "rejected"]
-    assert refused.context.state.agents[1].same_moment_rounds == 1
-
-
-def test_name_class_rejections_are_free_per_group(engine_factory):
-    """名称类拒绝每人每秒前两次免计的规则按组计：两个被拒的开始组（四条拒绝结果）都不计轮数，第三组才计。"""
-    engine = engine_factory()
-    for label in ("one", "two"):
-        act_group(engine, label, do_at("家", "测试休息"), purchase("不存在的商品"))
-        assert engine.context.state.agents[1].same_moment_rounds == 0
-    assert engine.context.state.agents[1].body.relaxation_need == pytest.approx(0.2)
-    act_group(engine, "three", do_at("家", "测试休息"), purchase("不存在的商品"))
-    assert engine.context.state.agents[1].same_moment_rounds == 1
-    assert engine.context.state.agents[1].body.relaxation_need == pytest.approx(0.25)
-
-
 def test_control_tool_cannot_resume_through_a_start_tool_and_slot_blocks_resume(engine_factory):
     """暂停的地点活动用 report_status 恢复回到槽位 1；槽位被占时恢复被拒；暂停让出槽位 1 后可以点名另一件事。"""
     engine = engine_factory(mutate=_attentive())
@@ -424,15 +401,18 @@ def test_fare_joins_the_purchase_total_and_both_calls_are_responsible(engine_fac
 
 
 def test_start_without_a_frozen_observation_is_not_settled(engine_factory):
-    """决策没有唯一的冻结观察时不能核验名称与报价：开始组不结算，世界不变。"""
+    """调用没有携带冻结观察时不能核验名称与报价：开始组不结算，世界不变。"""
     from worldmock.foundation.errors import BusinessRuleError
+    from worldmock.simulation_engine.actions.start_group import ToolInvocation
 
     engine = engine_factory()
-    decision = context(engine, "blind")
-    engine.begin_decision_round([decision])
-    engine.submit_action(DirectToolCall(decision, action_identity("blind"), MAIN_TOOL, do_at("家", "测试休息")))
+    pending = ToolInvocation(
+        agent_id=1, wakeup_id="wakeup-blind-1", action_id=action_identity("blind"),
+        tool_name=MAIN_TOOL, request=do_at("家", "测试休息").model_dump(mode="json"),
+        request_sha256="sha-blind", requested_event_id="req-blind", observation={},
+    )
     with pytest.raises(BusinessRuleError, match="OBSERVATION_NOT_FOUND"):
-        engine.commit_decision_round("blind")
+        engine.actions.dispatch(engine.context.state, [pending])
     assert not engine.context.state.activities
 
 
@@ -448,7 +428,7 @@ def test_rejected_start_group_is_remembered_once_and_corrected_only_on_its_own_t
     assert [(row["written"], row["why"], row["times"], row["accepted_as"]) for row in remembered] == [
         ("60", reason, 1, None), (["哔哩哔哩"], reason, 1, None)]
     assert video.status == "in_progress", video.error_code
-    later = engine.observe(context(engine, "later"))["progress_layer"]["rejected_today"]
+    later = engine.observations.build_wakeup_observation(engine.context.state.agents[1])[0]["progress_layer"]["rejected_today"]
     corrected = {str(row["written"]): (row["times"], row["accepted_as"]) for row in later}
     assert corrected == {"60": (1, None), str(["哔哩哔哩"]): (1, ["抖音"])}
 
@@ -475,3 +455,25 @@ def test_resuming_two_paused_activities_checks_the_second_against_the_first_resu
     assert refused.error_code == "SESSION_LIMIT_EXCEEDED"
     assert rest_name in refused.message and douyin_name in refused.message
     assert engine.context.state.activities[rest.activity_id].status == "paused"
+
+
+def test_sandbox_rolls_back_first_start_call_atomically_when_second_fails(engine_factory):
+    """沙盒顺序收到两步开始组调用且第二步因合集校验被拒时：第一步的沙盒状态、草稿与操作账本整组回滚，沙盒仍可继续提交。"""
+    engine = engine_factory(mutate=_poor(2000))
+    before = _frozen(engine)
+    [wakeup] = engine.prepare_barrier((1,))
+    sandbox = engine.open_sandbox(wakeup)
+    main_res = sandbox.dispatch_world_tool(MAIN_TOOL, travel("公司", "打车"), f"{wakeup.wakeup_id}:action:0001")
+    assert main_res.accepted is True and main_res.terminal_exit is True
+    side_res = sandbox.dispatch_world_tool(SIDE_TOOL, purchase("薯片"), f"{wakeup.wakeup_id}:action:0002")
+    assert side_res.accepted is False and side_res.terminal_exit is False
+    assert side_res.tool_message_payload["result"]["error_code"] == "INSUFFICIENT_FUNDS"
+    assert sandbox._state.activities == {} and sandbox._state.deliveries == {}
+    assert sandbox._operations == []
+    assert [d for d in sandbox._drafts if d.event_type == "action_accepted"] == []
+    assert len([d for d in sandbox._drafts if d.event_type == "action_rejected"]) == 2
+    receipt = engine.commit_barrier([sandbox.finish_wakeup(None)])
+    assert receipt.committed_agent_ids == (1,)
+    rejected = [e for e in events(engine, "action_rejected")]
+    assert len(rejected) == 2 and all(d.data["error_code"] == "INSUFFICIENT_FUNDS" for d in rejected)
+    assert _frozen(engine) == before

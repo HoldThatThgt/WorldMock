@@ -18,7 +18,7 @@ from typing import Any
 
 from tools.analysis.errors import EvaluationError
 from worldmock.configuration.inputs.environment import load_environment
-from worldmock.configuration.inputs.models import ModelConfig, ModelMetadata
+from worldmock.configuration.inputs.models import ModelMetadata, ModelProfileConfig
 from worldmock.foundation.errors import WorldMockError
 from worldmock.resource_engine.catalog.models import Catalog
 from worldmock.simulation_engine.observation.memory.categories import RowCategory, category_book, row_categories
@@ -45,20 +45,24 @@ ROW_REASONS: Mapping[tuple[str, int, str], str] = MappingProxyType({
 _INPUT = "memory_categories_input"
 
 
-def _offline_metadata(model: ModelConfig) -> ModelMetadata:
-    """@brief 加载包时的模型元数据：取配置里写明的容量，不访问模型服务；类别表不调用模型，输出上限不被读取。"""
+def _offline_metadata(model: ModelProfileConfig) -> ModelMetadata:
+    """@brief 加载包时的模型元数据：取模型档配置里写明的容量，不访问模型服务；类别表不调用模型，输出上限不被读取。"""
     return ModelMetadata(requested_model=model.requested_model, metadata_url=model.metadata_url,
                          context_window=model.context_window, max_output_tokens=model.context_window)
 
 
-def category_table(package: Path) -> dict:
+def category_table(package: Path, agent_id: int | None = None) -> dict:
     """@brief 一个环境包的记忆类别表：结构标识、包的身份与版本、班次地点类型与逐行的类别、规则和理由。
 
-    :param package: 环境包目录（含 catalog/、persona.toml 与 config.toml）；加载失败时 load_environment 抛出的
+    :param package: 环境包目录（含 catalog/、personas/*.toml 与 config.toml）；加载失败时 load_environment 抛出的
         WorldMockError 原样上抛（构造时已写错误日志）。
+    :param agent_id: 目标人物编号；缺省取首位人物。
     """
     inputs = load_environment(package, metadata_loader=_offline_metadata)
-    book = category_book(inputs)
+    target_id = inputs.personas[0].agent_id if agent_id is None else agent_id
+    if target_id not in inputs.persona_by_id:
+        raise EvaluationError(_INPUT, f"Unknown agent_id in package: {target_id}")
+    book = category_book(inputs, target_id)
     catalog = inputs.catalog
     return {"schema_version": SCHEMA_VERSION, "environment_id": catalog.manifest.environment_id,
             "environment_version": catalog.manifest.environment_version, "workplace_kind": book.workplace_kind,
@@ -78,7 +82,7 @@ def _row(catalog: Catalog, row: RowCategory, workplace_kind: str | None) -> dict
 
 
 def main(argv: list[str] | None = None) -> int:
-    """@brief 命令行：python -m tools.analysis.memory_categories --package DIR [--output FILE]。
+    """@brief 命令行：python -m tools.analysis.memory_categories --package DIR [--agent ID] [--output FILE]。
 
     没有 --output 时把类别表写到标准输出；给了时文件必须不存在。包加载失败与输入问题返回 1（异常构造时已写错误日志）。
     """
@@ -86,12 +90,13 @@ def main(argv: list[str] | None = None) -> int:
                                      description="List the memory category, rule and reason of every content row "
                                                  "and app row of one environment package.")
     parser.add_argument("--package", required=True, type=Path, help="environment package directory")
+    parser.add_argument("--agent", type=int, default=None, help="target agent_id; defaults to first persona")
     parser.add_argument("--output", type=Path, help="table file to create; stdout when omitted")
     args = parser.parse_args(argv)
     try:
         if args.output is not None and args.output.exists():
             raise EvaluationError(_INPUT, f"Output file already exists: {args.output}")
-        text = json.dumps(category_table(args.package), ensure_ascii=False, indent=2) + "\n"
+        text = json.dumps(category_table(args.package, args.agent), ensure_ascii=False, indent=2) + "\n"
     except (EvaluationError, WorldMockError):
         return 1
     if args.output is None:

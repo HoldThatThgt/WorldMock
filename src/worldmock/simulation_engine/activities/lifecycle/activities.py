@@ -47,12 +47,12 @@ class ActivityAdvance:
 
 @dataclass(frozen=True, slots=True)
 class ActivityOrigin:
-    """@brief 活动保持原动作、决策与请求因果身份。"""
+    """@brief 活动保持原动作、唤醒与请求因果身份。"""
 
     #: 原动作身份。
     action_id: str
-    #: 原决策身份。
-    decision_id: str
+    #: 原唤醒身份。
+    wakeup_id: str
     #: 实际请求事件身份。
     request_event_id: str
 
@@ -60,7 +60,7 @@ class ActivityOrigin:
 def start_activity(agent: AgentState, request: ActivityStartParams, now: int,
                    origin: ActivityOrigin, config: BodyConfig) -> tuple[AgentState, ActivityState]:
     """@brief 按已派生时长开始一项活动；一条动作只开始一项活动，槽位由动作与所用内容 app 给出。"""
-    # 出行与内容活动的时长由路线、登记的内容时长和共享进度派生，没做完的内容只剩几十秒时照样能接着做。
+    del config
     derived = request.action in ("travel", "interact")
     if request.planned_duration_seconds < (1 if derived else 60):
         logging.error("Activity duration is too short")
@@ -73,7 +73,7 @@ def start_activity(agent: AgentState, request: ActivityStartParams, now: int,
         destination_id=request.destination_id, travel_method_id=request.travel_method_id,
         resource_claims={activity_slot(request.action, request.data.get("app_id"))},
         origin_action_id=origin.action_id,
-        origin_decision_id=origin.decision_id, origin_request_event_id=origin.request_event_id,
+        origin_wakeup_id=origin.wakeup_id, origin_request_event_id=origin.request_event_id,
         report_anchor_at=now, data={"action": request.action, **request.data},
     )
     return agent.model_copy(deep=True), activity
@@ -122,7 +122,7 @@ def advance_activity_shared(activity: ActivityState, agent: AgentState, now: int
         logging.error("Active activity settlement interval is invalid")
         raise ValueError("active activity settlement interval is invalid")
     elapsed = activity.elapsed_seconds + seconds
-    completed = elapsed >= activity.planned_duration_seconds
+    completed = activity.kind != ActivityKind.SEARCH and elapsed >= activity.planned_duration_seconds
     updates = {"last_settled_at": stop, "elapsed_seconds": elapsed}
     if activity.kind == ActivityKind.INTERACT:
         updates["media_position_seconds"] = activity.media_position_seconds + seconds

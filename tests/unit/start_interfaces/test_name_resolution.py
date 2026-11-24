@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from tests.life.conftest import MAIN_TOOL, SIDE_TOOL, context, do_at, purchase, query, sleep, travel, use_app
+from tests.life.conftest import MAIN_TOOL, SIDE_TOOL, do_at, purchase, sleep, travel, use_app
+from tests.life.environment_runtime import observe_only
 from worldmock.state.interaction.actions import binding_action
 from worldmock.state.interaction.requests import StartSideActivityRequest
 from worldmock.simulation_engine.actions.name_resolution import (
@@ -26,7 +27,7 @@ _ORDER_APP_EXPECTED = ("A target that the written action accepts is required; "
 def book(engine_factory) -> NameBook:
     """夹具环境运行开始时（人在家）真实冻结观察上的名称簿。"""
     engine = engine_factory()
-    return name_book(engine.observe(context(engine, "names")))
+    return name_book(observe_only(engine, "names"))
 
 
 def _option(action: str, detail: str | None = None, blocked: str | None = None, duration: str | None = None,
@@ -42,8 +43,8 @@ def _target(label: str, kind: str, *options: Option) -> Target:
 
 
 def _order_app_why(name: str) -> str:
-    """把只用于下单和查询的 app 写进 target 时读到的那一句，名称是目录登记的全名。"""
-    return (f"Write {name} in prefer of purchase or query, not in target: "
+    """把只用于下单和搜索的 app 写进 target 时读到的那一句，名称是目录登记的全名。"""
+    return (f"Write {name} in prefer of purchase or search_world, not in target: "
             "this app only takes orders and has no content to open.")
 
 
@@ -238,7 +239,7 @@ def test_sleep_resolves_without_any_binding_row(written, minutes, record):
 
 
 def test_order_only_app_in_target_is_refused_with_the_prefer_sentence(book):
-    """真实观察的名称簿：打开美团、购买牛肉面和美团、查询美团各得一条失败，定位到 action，written 是各自的动作，
+    """真实观察的名称簿：打开美团、购买牛肉面和美团各得一条失败，定位到 action，written 是各自的动作，
     没有允许值和候选；名称簿把 prefer_apps 里还不能打开的饿了么、美团登记成 order_app 对象排在最后。购买美团和
     饿了么得两条，按数组先后。"""
     orders = [target for target in book.targets if target.kind == ORDER_APP_KIND]
@@ -247,7 +248,6 @@ def test_order_only_app_in_target_is_refused_with_the_prefer_sentence(book):
     assert book.targets[-2:] == tuple(orders)
     assert _single(resolve_start(book, SIDE_TOOL, use_app("美团"))) == _order_app_item("美团", "interact")
     assert _single(resolve_start(book, SIDE_TOOL, purchase("牛肉面", "美团"))) == _order_app_item("美团", "purchase")
-    assert _single(resolve_start(book, SIDE_TOOL, query("美团"))) == _order_app_item("美团", "query")
     outcome = resolve_start(book, SIDE_TOOL, purchase("美团", "饿了么"))
     assert outcome.rows == ()
     assert [failure.item.payload() for failure in outcome.failures] == [
@@ -259,11 +259,10 @@ def test_normalised_order_only_app_name_is_refused_in_every_side_action(book, wr
     """规整后才对上的写法（多一个半角或全角空格）与一字不差的写法结果相同，句子里写的是登记的全名「美团」。"""
     assert _single(resolve_start(book, SIDE_TOOL, use_app(written))) == _order_app_item("美团", "interact")
     assert _single(resolve_start(book, SIDE_TOOL, purchase(written))) == _order_app_item("美团", "purchase")
-    assert _single(resolve_start(book, SIDE_TOOL, query(written))) == _order_app_item("美团", "query")
 
 
 def test_near_miss_and_function_apps_keep_name_not_found(book):
-    """打开「美团外卖」只是找不到，候选里没有只用于下单和查询的 app；功能 app 不在名称簿里，打开它们找不到、没有候选。"""
+    """打开「美团外卖」只是找不到，候选里没有只用于下单的 app；功能 app 不在名称簿里，打开它们找不到、没有候选。"""
     near = _single(resolve_start(book, SIDE_TOOL, use_app("美团外卖")))
     assert near["error_code"] == "NAME_NOT_FOUND"
     assert not {"美团", "饿了么"} & {name for row in near["candidates"] for name in row["arguments"]["target"]}
@@ -281,11 +280,11 @@ def test_main_tool_naming_an_order_only_app_gets_the_same_refusal(book):
 
 
 def test_goods_sharing_a_name_with_an_order_only_app_is_ambiguous_while_listed():
-    """手写的名称簿里一件展示中的商品与一个 order_app 对象同名：购买、打开和查询都对上两个对象，得到 NAME_AMBIGUOUS，
-    候选恰一条：购买和打开是购买那件商品，查询是查询那件商品；去掉那件商品后三种动作都得到这条退回。"""
+    """手写的名称簿里一件展示中的商品与一个 order_app 对象同名：购买和打开都对上两个对象，得到 NAME_AMBIGUOUS，
+    候选恰一条：购买和打开都是购买那件商品；去掉那件商品后各自得到对应退回。"""
     order_app = Target("美团", ORDER_APP_KIND, None, (), False)
     shared = NameBook((_target("美团", "supply", _option("purchase")), order_app), "家", "家")
-    for request, action in ((purchase("美团"), "purchase"), (use_app("美团"), "purchase"), (query("美团"), "query")):
+    for request, action in ((purchase("美团"), "purchase"), (use_app("美团"), "purchase")):
         item = _single(resolve_start(shared, SIDE_TOOL, request))
         assert item["error_code"] == "NAME_AMBIGUOUS"
         assert [(row["tool"], row["arguments"]) for row in item["candidates"]] == [
@@ -293,37 +292,3 @@ def test_goods_sharing_a_name_with_an_order_only_app_is_ambiguous_while_listed()
     alone = NameBook((order_app,), "家", "家")
     assert _single(resolve_start(alone, SIDE_TOOL, purchase("美团"))) == _order_app_item("美团", "purchase")
     assert _single(resolve_start(alone, SIDE_TOOL, use_app("美团"))) == _order_app_item("美团", "interact")
-    assert _single(resolve_start(alone, SIDE_TOOL, query("美团"))) == _order_app_item("美团", "query")
-
-
-def test_query_items_resolve_categories_first_then_shown_goods_then_hand_over_the_rest(book):
-    """查询的每一项：类别名规整后唯一对上就是类别（记一条归一）；展示的商品按逐级规整匹配；地点名、内容 app 名与
-    不存在的名称都交给环境的指名商品入口，行上带着所写的动作 query。"""
-    outcome = resolve_start(book, SIDE_TOOL, query(" 零 食", "牛 肉 面", "家", "哔哩哔哩", "不存在"))
-    assert outcome.failures == ()
-    assert outcome.resolved == ({"written": " 零 食", "as": "零食"}, {"written": "牛 肉 面", "as": "牛肉面"})
-    category, goods, *rest = outcome.rows
-    assert (category["kind"], category["category"], category["object"]) == ("category", "snack", "零食")
-    assert (goods["kind"], goods["object_id"]) == ("supply", "beef-noodles")
-    assert [(row["kind"], row["object"]) for row in rest] == [
-        ("named_supply", "家"), ("named_supply", "哔哩哔哩"), ("named_supply", "不存在")]
-    assert {row["selected_action"]["action"] for row in outcome.rows} == {"query"}
-
-
-def test_query_name_matching_several_goods_offers_query_candidates():
-    """查询写的名称对上多件展示的商品：NAME_AMBIGUOUS；候选是三个键齐全的查询调用，只替换出错的那一项、其余照写，
-    prefer 照所写原样带上，note 为 null，至多三条，每条都能通过请求模型。"""
-    buy = _option("purchase", blocked="Purchase requires presence.", duration="1–5 分钟")
-    goods = NameBook(tuple(_target(label, "supply", buy) for label in ("柠檬 茶", "柠檬  茶", "柠 檬茶", "柠檬茶 ")),
-                     "家", "家")
-    for prefer in ("美团", "美 团", None):
-        item = _single(resolve_start(goods, SIDE_TOOL, query("食品", "柠檬茶", "薯片", prefer=prefer)))
-        assert item["error_code"] == "NAME_AMBIGUOUS" and item["path"][-2:] == ["target", 1]
-        assert item["why"] == "The name 柠檬茶 identifies several known objects."
-        assert item["candidates"] == [
-            {"tool": SIDE_TOOL, "note": None, "arguments": {"action": "query", "target": ["食品", label, "薯片"],
-                                                            "prefer": prefer}}
-            for label in ("柠檬 茶", "柠檬  茶", "柠 檬茶")]
-        for candidate in item["candidates"]:
-            arguments = candidate["arguments"]
-            assert StartSideActivityRequest.model_validate(arguments).model_dump(mode="json") == arguments

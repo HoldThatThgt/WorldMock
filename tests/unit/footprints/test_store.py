@@ -69,25 +69,29 @@ def test_agent_event_queries_respect_type_person_and_exclusive_boundary(store):
     assert any('events_agent_type' in row[-1] for row in plan)
 
 
-def test_action_request_cutoff_counts_only_thinking_requests_with_the_action_tools(store):
-    """行动请求只看结构：不带 purpose、thinking 开启、原生 tools 含 start_main_activity；零点计划、没有该工具（只有
-    start_side_activity 也不算）或未开思考的请求都不算，提示文本不参与判定（docs/design/06-agent.md 第二章「单一行动阶段」）。"""
-    def request(agent_id: int = 1, *, thinking: str = 'enabled', tools=('start_main_activity',), **data) -> EventDraft:
+def test_action_request_cutoff_counts_only_auto_tool_requests_with_main_activity(store):
+    """行动请求只看结构：不带 purpose、tool_choice 为 auto、原生 tools 含 start_main_activity；零点计划、搜索子会话、
+    没有该工具（只有 start_side_activity 也不算）或强制工具选择（required）的请求都不算，提示文本不参与判定。"""
+    def request(agent_id: int = 1, *, tool_choice: str | None = 'auto', tools=('start_main_activity',),
+                **data) -> EventDraft:
         body = {'messages': [{'role': 'user', 'content': '{"progress_layer": {}}'}],
-                'extra_body': {'thinking': {'type': thinking}},
                 'tools': [{'type': 'function', 'function': {'name': name}} for name in tools]}
+        if tool_choice is not None:
+            body['tool_choice'] = tool_choice
         return EventDraft(event_type='model_request', occurred_at=100, agent_id=agent_id,
                           data={'phase': 'request', 'request': body, **data})
 
     store.append_evidence([request(),
                            request(purpose='plan_day', call_id='plan-day'),
-                           request(thinking='disabled'),
+                           request(purpose='search_session', call_id='search-1'),
+                           request(tool_choice='required'),
+                           request(tool_choice=None),
                            request(tools=('answer_question',)),
                            request(tools=('start_side_activity',)),
                            request(2, tools=('observe', 'start_main_activity', 'start_side_activity'))])
 
     assert store.last_agent_action_request_seq(1) == 1
-    assert store.last_agent_action_request_seq(2) == 6
+    assert store.last_agent_action_request_seq(2) == 8
     assert store.last_agent_action_request_seq(3) == 0
 
 
@@ -110,27 +114,27 @@ def test_last_event_seq_before_bounds_by_occurrence_time(store):
         0, 2, 5, 5, 8, 8, 9]
 
 
-def test_decision_observations_match_agent_decision_and_moment_exactly(store):
-    """决策观察按人物、决策与发生时刻精确匹配，同一秒的重复观察全部保留供唯一性复核；更早或更晚时刻、别的人物或别的
-    决策的观察都不在其中，那一秒没有观察时为空。"""
-    def observation(moment: int, decision_id: str, agent_id: int = 1) -> EventDraft:
+def test_wakeup_observations_match_agent_wakeup_and_moment_exactly(store):
+    """唤醒观察按人物、唤醒与发生时刻精确匹配，同一秒的重复观察全部保留供唯一性复核；更早或更晚时刻、别的人物或别的
+    唤醒的观察都不在其中，那一秒没有观察时为空。"""
+    def observation(moment: int, wakeup_id: str, agent_id: int = 1) -> EventDraft:
         return EventDraft(event_type='observation', occurred_at=moment, observed_at=moment, agent_id=agent_id,
-                          decision_id=decision_id, data={})
+                          wakeup_id=wakeup_id, data={})
 
     store.commit(store.state, {'version': 1, 'current_time': 120, 'balance': 50}, [
-        observation(100, 'decision-a'), observation(110, 'decision-a'), observation(110, 'decision-b'),
-        observation(110, 'decision-a', agent_id=2), observation(110, 'decision-a'), observation(120, 'decision-a'),
+        observation(100, 'wakeup-a'), observation(110, 'wakeup-a'), observation(110, 'wakeup-b'),
+        observation(110, 'wakeup-a', agent_id=2), observation(110, 'wakeup-a'), observation(120, 'wakeup-a'),
     ])
 
-    def seqs(agent_id: int, decision_id: str, moment: int) -> list[int]:
-        return [event.event_seq for event in store.read_decision_observations(agent_id, decision_id, moment)]
+    def seqs(agent_id: int, wakeup_id: str, moment: int) -> list[int]:
+        return [event.event_seq for event in store.read_wakeup_observations(agent_id, wakeup_id, moment)]
 
-    assert seqs(1, 'decision-a', 110) == [2, 5]
-    assert seqs(1, 'decision-a', 100) == [1]
-    assert seqs(1, 'decision-a', 120) == [6]
-    assert seqs(2, 'decision-a', 110) == [4]
-    assert seqs(1, 'decision-b', 120) == []
-    assert seqs(1, 'decision-a', 105) == []
+    assert seqs(1, 'wakeup-a', 110) == [2, 5]
+    assert seqs(1, 'wakeup-a', 100) == [1]
+    assert seqs(1, 'wakeup-a', 120) == [6]
+    assert seqs(2, 'wakeup-a', 110) == [4]
+    assert seqs(1, 'wakeup-b', 120) == []
+    assert seqs(1, 'wakeup-a', 105) == []
 
 
 def test_commit_last_seq_groups_one_versioned_commit_without_later_same_version_appends(store):
@@ -399,7 +403,7 @@ def test_has_event_reads_the_type_index_and_stops_at_the_first_match(store, monk
     from tests.footprints.statement_log import StatementLog
     assert store.has_event('run_failed') is False
     store.append_evidence([EventDraft(event_type='run_failed', occurred_at=100, visibility='system',
-                                      data={'error_type': 'RuntimeError', 'error': 'boom', 'round_id': None})])
+                                      data={'error_type': 'RuntimeError', 'error': 'boom', 'wakeup_id': None})])
     log = StatementLog(store.connection)
     monkeypatch.setattr(store, 'connection', log)
     assert store.has_event('run_failed') is True

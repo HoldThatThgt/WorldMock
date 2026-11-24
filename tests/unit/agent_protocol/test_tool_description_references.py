@@ -17,7 +17,7 @@ import re
 
 from worldmock.agents.prompt.life_prompt import LIFE_SYSTEM_LAYER, TOOL_DESCRIPTIONS  # noqa: E402
 from worldmock.exchange_engine.conditions.activity_rules import MAIN_ACTIVITY_ACTIONS, SIDE_ACTIVITY_ACTIONS
-from worldmock.state.interaction.actions import START_TOOLS  # noqa: E402
+from worldmock.state.interaction.actions import SEARCH_TOOL, START_TOOLS  # noqa: E402
 from worldmock.state.interaction.control_items import CONTROL_TOOLS  # noqa: E402
 from worldmock.state.interaction.requests import QUERY_MODELS, REQUEST_MODELS
 from worldmock.state.interaction.schema import deepseek_strict_schema  # noqa: E402
@@ -32,15 +32,16 @@ _PROTOCOL_PHRASES = ("exactly one", "only tool call", "registering", "registered
                      "reason")
 #: 规则、上限与校验的说法（旧参数说明来自请求模型的开发 docstring）：出现在任何说明里即违规。
 _RULE_PHRASES = ("不超过", "至多", "合计", "名额", "拒绝", "必填", "照填", "由系统", "不合法", "释放")
-#: 发给模型的全部原生工具参数模型，包含回看任务与检索记忆。
+#: 发给模型的全部原生工具参数模型，包含 search_world、回看任务与检索记忆。
 _PARAMETER_MODELS = {**REQUEST_MODELS, **QUERY_MODELS}
 MAIN_TOOL, SIDE_TOOL = START_TOOLS
 #: 用途句里放行的拉丁字母单词：只有副工具写「内容 app」。
 _PURPOSE_WORDS = {SIDE_TOOL: frozenset({"app"})}
-#: 字段说明里放行的拉丁字母单词：该工具 action 的取值（副工具是 purchase、interact、query），主工具另有 detail 要写的
-#: null，副工具另有「内容 app」与 prefer 要写的 null。不放 prefer、apps 这类键名。
+#: 字段说明里放行的拉丁字母单词：该工具 action 的取值（副工具是 purchase、interact），主工具另有 detail 要写的
+#: null，副工具另有「内容 app」与 prefer 要写的 null，search_world 另有 prefer 要写的 null。
 _FIELD_WORDS = {MAIN_TOOL: frozenset({*MAIN_ACTIVITY_ACTIONS, "null"}),
-                SIDE_TOOL: frozenset({*SIDE_ACTIVITY_ACTIONS, "app", "null"})}
+                SIDE_TOOL: frozenset({*SIDE_ACTIVITY_ACTIONS, "app", "null"}),
+                SEARCH_TOOL: frozenset({"null"})}
 #: 字段说明的句数：都是一句，只有副工具的 target 先用一句说明它是名称数组。
 _FIELD_SENTENCES = {f"{SIDE_TOOL}.properties.target": 2}
 

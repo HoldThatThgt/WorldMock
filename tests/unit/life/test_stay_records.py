@@ -46,6 +46,8 @@ def test_run_start_is_one_uncaused_system_record_of_the_stay_the_person_is_alrea
     assert (event.agent_id, event.occurred_at, event.caused_by, event.resource_changes) == (1, DEPART, [], {})
     assert event.data == {"kind": "location_entered", "session_id": "session-1-0001", "location_id": "home",
                           "entry_kind": "run_start"}
+    with pytest.raises(IntegrityError, match="Single run_start_event requires exactly one agent session"):
+        run_start_event(world(DEPART))
 
 
 def test_departure_leaves_the_stay_in_progress_caused_by_the_accepted_departure():

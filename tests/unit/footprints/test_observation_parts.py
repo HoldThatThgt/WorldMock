@@ -55,11 +55,11 @@ def _observation() -> dict:
     }
 
 
-def _stored(store, data, dates=START_DATES, decision_id="decision-a", **envelope) -> str:
+def _stored(store, data, dates=START_DATES, wakeup_id="wakeup-a", **envelope) -> str:
     """拆分后经 append_observation 写入，返回观察的事件身份。"""
     stored, parts = split_observation(data, dates)
     return store.append_observation(EventDraft(event_type="observation", occurred_at=100, observed_at=100, agent_id=1,
-                                               decision_id=decision_id, data=stored, **envelope), parts)
+                                               wakeup_id=wakeup_id, data=stored, **envelope), parts)
 
 
 def _raw(store, event_id) -> dict:
@@ -131,7 +131,7 @@ def test_every_read_method_returns_the_complete_observation(store):
     data = _observation()
     identity = _stored(store, data)
     reads = [store.read_event(identity), *store.read_agent_events("observation", 1),
-             *store.read_decision_observations(1, "decision-a", 100), *list(store.iter_events(store.last_event_seq)),
+             *store.read_wakeup_observations(1, "wakeup-a", 100), *list(store.iter_events(store.last_event_seq)),
              store.find_event(identity)]
     assert len(reads) == 5
     assert all(canonical_json(event.data) == canonical_json(data) for event in reads)
@@ -143,7 +143,7 @@ def test_identical_tables_are_stored_once(store):
     assert _count(store, "parts") == 9
     second = _observation()
     second["activity_bindings"].append(_binding(6))
-    _stored(store, second, [*START_DATES, "2026-01-07"], "decision-b")
+    _stored(store, second, [*START_DATES, "2026-01-07"], "wakeup-b")
     assert _count(store, "parts") == 10
 
 

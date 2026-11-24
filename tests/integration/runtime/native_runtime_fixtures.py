@@ -1,6 +1,7 @@
 """原生运行夹具：真实运行宿主、人物工作区、LifeAgent 与引擎，模型客户端由可替换的工厂给出，元数据服务离线。"""
 
 import copy
+import json
 import shutil
 from datetime import timedelta
 
@@ -15,28 +16,52 @@ from tests.life.conftest import MAIN_TOOL, StubMemoryDigestClient, StubPlanDayCl
 from worldmock.configuration.inputs.environment import load_environment
 from worldmock.configuration.model import model_client
 from worldmock.configuration.model.model_client import REQUEST_KEYS, ModelClient
+from worldmock.configuration.model.model_registry import ModelRegistry
+
+
+def _wakeup_handled(messages: list[dict]) -> tuple[set[str], set[str]]:
+    """@brief 提取本次唤醒已经派发过的收尾与暂停活动名，避免沙盒提交前重复点名同一活动。"""
+    concluded, paused = set(), set()
+    for msg in messages:
+        if msg.get("role") != "assistant":
+            continue
+        for call in msg.get("tool_calls") or []:
+            fn = call.get("function") or {}
+            name = fn.get("name")
+            if name not in {"conclude_activity", "pause_activity"}:
+                continue
+            args = json.loads(fn.get("arguments") or "{}")
+            names = [item["activity_name"] for item in args.get("items") or ()]
+            (concluded if name == "conclude_activity" else paused).update(names)
+    return concluded, paused
 
 
 class CurrentDecisionModel:
-    """按世界现状作答的确定性模型客户端替身：先收尾已结束的活动，再播报进行中的活动，否则在家闲聊；引擎由夹具在
-    建立或打开之后挂上。"""
+    """按世界现状作答的确定性模型客户端替身：先收尾已结束的活动，再播报或让位进行中的活动，否则在家闲聊。"""
 
     def __init__(self, prepared):
         self.engine, self.requests, self.closed = None, [], 0
 
     async def call(self, request):
-        """记下请求并给出一个工具调用；调用身份按已答请求计数。"""
+        """记下请求并给出一个工具调用；结合当前唤醒消息流推进至终端开始动作。"""
         self.requests.append(copy.deepcopy(request))
         state = self.engine.context.state
+        concluded, paused = _wakeup_handled(request["messages"][2:])
         ended = [item.name for item in state.activities.values()
-                 if item.status not in {"active", "paused"} and item.concluded_at is None]
+                 if item.status not in {"active", "paused"} and item.concluded_at is None
+                 and item.name not in concluded]
         if ended:
             return ToolResponse("conclude_activity", {"items": [{"activity_name": name, "summary": "聊完了。",
                 "memories": [], "views": []} for name in ended], "errands": []}, f"call-{len(self.requests)}")
-        active = [item.name for item in state.activities.values() if item.status == "active"]
+        active = [item for item in state.activities.values()
+                  if item.status == "active" and item.name not in paused]
         if active:
-            return ToolResponse("report_status", {"items": [{"activity_name": name, "summary": "继续聊天。"}
-                for name in active], "errands": []}, f"call-{len(self.requests)}")
+            target = active[0]
+            if target.data.get("app_id") is not None or target.planned_end_at - state.current_time >= 600:
+                return ToolResponse("pause_activity", {"items": [{"activity_name": target.name, "summary": "先停一下。"}],
+                    "errands": []}, f"call-{len(self.requests)}")
+            return ToolResponse("start_side_activity", {"action": "interact", "target": ["微博"], "prefer": None},
+                                f"call-{len(self.requests)}")
         return ToolResponse(MAIN_TOOL, main_arguments("interact", "家", "测试闲聊"), f"call-{len(self.requests)}")
 
     async def close(self):
@@ -51,9 +76,9 @@ MODEL_FACTORY = CurrentDecisionModel
 def failing_client(monkeypatch, prepared, failures) -> ModelClient:
     """真实模型客户端，只换掉 litellm 发送：failures 的键是回答调用编号，值是该调用成功前的失败发送次数（失败发送不推进
     回答编号）；每次线路请求去掉网络客户端后深拷贝记在 wire_requests，回答交给同一个确定性模型。"""
-    identity = prepared.stage_identity
-    client = ModelClient(base_url=identity["base_url"], api_key="offline", max_retries=identity["max_retries"],
-                         transport_max_retries=identity["transport_max_retries"])
+    profile = prepared.inputs.config.models[prepared.inputs.config.model_routing.action]
+    client = ModelClient(base_url=profile.base_url, api_key="offline", max_retries=profile.max_retries,
+                         transport_max_retries=profile.transport_max_retries)
     inner, remaining = CurrentDecisionModel(prepared), dict(failures)
     client.engine, client.wire_requests = None, []
 
@@ -90,10 +115,11 @@ def native_runtime(tmp_path, monkeypatch):
     models = []
 
     def build(prepared):
-        """以 prepared 调用当前工厂，记下并交出本次运行唯一的模型客户端。"""
+        """以 prepared 调用当前工厂，记下并交出通过 ModelRegistry 绑定的模型客户端。"""
         model = MODEL_FACTORY(prepared)
         models.append(model)
-        return model
+        return ModelRegistry(prepared.inputs.config, prepared.inputs.model_metadata,
+                             client_factory=lambda _profile: model)
 
     def attach(engine):
         """把刚建立或打开的引擎挂到本次运行的模型客户端上。"""
@@ -113,7 +139,7 @@ def native_runtime(tmp_path, monkeypatch):
             """调用真实的 LifeEngine.open。"""
             return attach(LifeEngine.open(*arguments))
 
-    monkeypatch.setattr(runner, "_model_client", build)
+    monkeypatch.setattr(runner, "_model_registry", build)
     monkeypatch.setattr(run_host, "LifeEngine", _AttachingEngine)
     monkeypatch.setattr(midnight, "PlanDayClient", lambda client, identity: StubPlanDayClient(identity))
     monkeypatch.setattr(midnight, "MemoryDigestClient", lambda client, identity: StubMemoryDigestClient(identity))

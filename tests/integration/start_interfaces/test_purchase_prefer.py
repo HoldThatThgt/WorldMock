@@ -14,14 +14,13 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from tests.footprints.recording import artifact_rows, export_completed
-from tests.integration.runtime.current_contract_fixtures import ScriptedModel, person
+from tests.integration.runtime.current_contract_fixtures import person
 from tests.integration.runtime_fixtures import write_agent_workspace
 from tests.life.conftest import (
     SIDE_TOOL,
     advance_next,
     advance_until_ready,
     conclude_request,
-    context,
     progress_calls,
     purchase,
     stage_day_plan,
@@ -30,16 +29,16 @@ from tests.life.conftest import (
 )
 from tests.life.current_world import stage_moment
 from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
-from tests.life.environment_runtime import act, act_group, events, finish_activity, reach, until_ended
+from tests.life.environment_runtime import act, act_group, events, finish_activity, observe_only, reach, until_ended
 from tests.life.phone_records import foreground, notices, phone_events
+from worldmock.agents.protocol.agent_loop import LoopToolCall, validate_single_tool_call
 from worldmock.recording_engine.storage.checkpoint import restore_branch, snapshot_directory
 from worldmock.simulation_engine.engine import LifeEngine
 from worldmock.simulation_engine.observation.layers.result_projection import public_result
-from worldmock.state.interaction.requests import StartSideActivityRequest
+from worldmock.state.interaction.requests import REQUEST_MODELS, StartSideActivityRequest
 from worldmock.agents.prompt.prompt_schemas import validate_layer
 from worldmock.foundation.randomness import random_stream
 from worldmock.agents.prompt.tool_groups import compact_tool_layer
-from worldmock.agents.protocol.react_loop import ReactDecision
 
 ZONE = ZoneInfo("Asia/Shanghai")
 FIRST_DAY = "2026-01-05"
@@ -73,7 +72,9 @@ def _bought(engine, label, *goods, prefer=None):
 
 def _side_record(engine, label) -> dict:
     """此刻观察里第一条副工具请求的进度层记录。"""
-    return progress_calls(engine.observe(context(engine, label)), SIDE_TOOL)[0]
+    del label
+    observed = engine.observations.build_wakeup_observation(engine.context.state.agents[1])[0]
+    return progress_calls(observed, SIDE_TOOL)[0]
 
 
 def _edited(tmp_path, name, change, *files):
@@ -127,17 +128,10 @@ def _on_the_road(engine):
     return departure
 
 
-def _host(engine):
-    """真实宿主：准备好本轮观察的 LifeAgent，用它的严格校验判断请求形状。"""
-    stage_day_plan(engine)
-    decision = context(engine, "host")
-    engine.begin_decision_round([decision])
-    observed = engine.observe(decision)
-    agent = person(engine, decision, ScriptedModel([]))
-    agent._context = decision
-    agent._prepare(observed)
-    agent.turn_tools(16, False)
-    return agent
+def _validate_side(arguments: dict):
+    """用开放给 LifeAgent 的严格请求模型校验单条副工具参数。"""
+    assert any(tool["function"]["name"] == SIDE_TOOL for tool in person().turn_tools(16, False))
+    return validate_single_tool_call(LoopToolCall(SIDE_TOOL, arguments, "call-1"), REQUEST_MODELS)
 
 
 @pytest.mark.parametrize("arguments,why", [
@@ -147,7 +141,7 @@ def _host(engine):
 def test_host_and_environment_refuse_the_same_prefer_shapes(engine_factory, arguments, why):
     """缺 prefer 与打开 app 带 prefer：宿主报 ARGUMENTS_INVALID，绕过宿主直接登记得 ACTION_REQUEST_INVALID；
     明细都定位到 prefer，原因相同；什么都没有开始，时钟没有动。"""
-    error = _host(engine_factory())._validate([ReactDecision(SIDE_TOOL, arguments, "")])
+    error = _validate_side(arguments)
     [item] = error.report.items
     assert error.report.error_code == "ARGUMENTS_INVALID" and item.why == why
     assert list(item.path[-2:]) == ["arguments", "prefer"] and error.report.reason == why
@@ -166,7 +160,7 @@ def test_host_and_environment_refuse_the_same_prefer_shapes(engine_factory, argu
 def test_any_non_blank_prefer_the_host_lets_through_is_accepted(engine_factory, prefer):
     """宿主放行的任何非空 prefer，认得出认不出，环境都受理。"""
     arguments = {"action": "purchase", "target": ["柠檬茶"], "prefer": prefer}
-    assert _host(engine_factory())._validate([ReactDecision(SIDE_TOOL, arguments, "")]) is None
+    assert _validate_side(arguments) is None
     _bought(engine_factory(), "tea", "柠檬茶", prefer=prefer)
 
 
@@ -412,7 +406,8 @@ def test_purchase_in_the_same_reply_as_departure(engine_factory):
 
 def _channels(engine, label) -> list[tuple]:
     """此刻观察里第一条副工具请求的购买明细：（商品，channel，付没付款），每行的键次序先断言；整层通过层校验。"""
-    observed = engine.observe(context(engine, label))
+    del label
+    observed = engine.observations.build_wakeup_observation(engine.context.state.agents[1])[0]
     rows = progress_calls(observed, SIDE_TOOL)[0]["result"]["details"]["purchases"]
     for row in rows:
         assert list(row)[:5] == ["product", "quantity", "channel", "destination", "expected_at"]
@@ -456,21 +451,21 @@ def test_tool_layer_lists_every_order_app_whatever_the_moment_or_place(engine_fa
 
     engine = engine_factory(_edited(tmp_path, "cafe-morning", opens_until_nine, "location.jsonl"))
     expected = ["哔哩哔哩", "饿了么", "美团"]
-    layers = [engine.observe(context(engine, "home"))["tool_layer"]]
+    layers = [observe_only(engine, "home")["tool_layer"]]
     _, trip = act(engine, "away", travel("公司", "驾车"))
     finish_activity(engine, trip, "away")
     assert engine.context.state.agents[1].location_id == "office"
-    layers.append(engine.observe(context(engine, "office"))["tool_layer"])
+    layers.append(engine.observations.build_wakeup_observation(engine.context.state.agents[1])[0]["tool_layer"])
     later = datetime(2026, 1, 5, 9, 30, tzinfo=ZONE)
     stage_moment(engine, int(later.timestamp()))
     assert not engine.context.catalog.locations["cafe"].is_open(later)
-    layers.append(engine.observe(context(engine, "closed"))["tool_layer"])
+    layers.append(observe_only(engine, "closed")["tool_layer"])
     for layer in layers:
         assert layer["callable_index"]["prefer_apps"] == expected
         validate_layer(layer)
         assert compact_tool_layer(layer)["callable_index"]["prefer_apps"] == expected
     empty = engine_factory(_without_order_apps(tmp_path))
-    layer = empty.observe(context(empty, "none"))["tool_layer"]
+    layer = observe_only(empty, "none")["tool_layer"]
     assert layer["callable_index"]["prefer_apps"] == []
     validate_layer(layer)
 
@@ -503,7 +498,7 @@ def test_copied_candidate_is_accepted_as_written(engine_factory):
     """购买写了哔哩哔哩、prefer 写饿了么：退回的候选恰是打开哔哩哔哩、prefer 为 null；原样再提交就开始使用哔哩哔哩。"""
     engine = engine_factory()
     _, refused = act(engine, "wrong", purchase("哔哩哔哩", prefer="饿了么"))
-    assert (refused.status, refused.error_code) == ("rejected", "ACTION_REQUEST_INVALID")
+    assert (refused.status, refused.error_code) == ("rejected", "ACTION_NOT_OFFERED")
     [item] = refused.data["items"]
     assert item["error_code"] == "ACTION_NOT_OFFERED"
     [candidate] = item["candidates"]
@@ -551,7 +546,7 @@ def test_settled_purchase_sentence_keeps_its_wording_without_the_channel(engine_
     _, trip = act(engine, "away", travel("公司"))
     assert trip.status == "in_progress", trip.error_code
     _next_decision(engine)
-    layer = engine.observe(context(engine, "road"))["memory_layer"]
+    layer = observe_only(engine, "road")["memory_layer"]
     memory = json.dumps(layer, ensure_ascii=False)
     paid = datetime.fromtimestamp(order.paid_at, ZONE)
     (entry,) = [item for item in layer["今天"] if any("买柠檬茶1份" in line for line in item.get("核验", ()))]

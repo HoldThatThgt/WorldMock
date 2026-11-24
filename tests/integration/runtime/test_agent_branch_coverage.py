@@ -1,5 +1,6 @@
-"""当前工具协议的观察冻结、名称守卫、受限轮不收窄工具面与检索记忆分支。"""
+"""当前工具协议的观察冻结、工具面稳定、沙盒越界守卫与检索记忆错误路径。"""
 
+from __future__ import annotations
 
 import copy
 import json
@@ -10,57 +11,37 @@ from pydantic import ValidationError
 
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
-from worldmock.agents.life_agent import LifeAgent
-from worldmock.agents.protocol.react_loop import ReactDecision, ReactToolResult
+from tests.engine_fixture import engine_factory  # noqa: F401
+from tests.integration.runtime.current_contract_fixtures import ScriptedModel, decide
 from tests.integration.runtime.test_life_agent_protocol import (
-    _Environment,
-    _GroundedCorrectionDispatcher,
     _ModelResponse,
     _NEWS,
-    _WORK_ACTION,
+    _SandboxStub,
     _WAIT,
     _WAIT_CHOICE,
     _WORK,
+    _WORK_ACTION,
     _WORK_CHOICE,
-    _add_objects,
-    _context,
+    _binding,
+    _conclude_args,
+    _functions,
     _memory,
     _observations,
-    _offer,
-    _visible_object,
-    _wire_agent,
+    _person_7,
+    _step_observation,
+    _wakeup,
     _with_activities,
 )
+from tests.life.conftest import MAIN_TOOL, SIDE_TOOL, conclude_request, main_arguments, stage_day_plan
+from worldmock.agents.life_agent import LifeAgent, _bind_query_error_paths, _life_turn_tools, validate_life_batch
+from worldmock.agents.protocol.agent_loop import LoopToolCall, tool_message, validate_single_tool_call
+from worldmock.foundation.errors import ProtocolError
 from worldmock.simulation_engine.activities.lifecycle.activity_control import PHASE_ACTIVE, PHASE_PAUSED
-from worldmock.state.interaction.requests import ConclusionMemory, REQUEST_MODELS, RecallTaskSummaryRequest
-from tests.life.conftest import MAIN_TOOL, SIDE_TOOL, conclude_request, main_arguments, side_arguments
-
-
-def _prepared(data: dict | None = None) -> LifeAgent:
-    """通过正式入口冻结单条当前观察，并按第一回合开放工具。"""
-    observations = copy.deepcopy(_observations())
-    if data is not None:
-        observations[0]["data"] = data
-    person = _wire_agent(_Environment(), None, 16)
-    person._context = _context()
-    person._prepare(observations[0]["data"])
-    person.turn_tools(16, False)
-    return person
-
-
-def _functions(person: LifeAgent) -> dict[str, dict]:
-    """读取准备后的真实工具 Schema。"""
-    return {row["function"]["name"]: row["function"]
-            for row in person.turn_tools(16, False)}
-
-
-def _decision(name: str, values: dict) -> ReactDecision:
-    """构造已解析的工具决定。"""
-    return ReactDecision(name, values, "")
+from worldmock.state.interaction.requests import ConclusionMemory, REQUEST_MODELS
 
 
 def test_memory_entries_and_finish_keep_content_limits() -> None:
-    """收尾记忆条目仍有语义上限；记忆不带 refs，来源不由模型填写（第七章）。"""
+    """收尾记忆条目保持内容上限；记忆不带 refs，来源不由模型填写。"""
     memory = _memory("我等了一会儿。")
     assert ConclusionMemory(**memory).text == "我等了一会儿。"
     with pytest.raises(ValidationError):
@@ -88,199 +69,98 @@ def _misaligned_meta(data: dict) -> None:
     (lambda data: data.pop("memory_layer"), "observation layer memory_layer is unavailable"),
     (lambda data: data.update(environment_layer=[]), "observation layer environment_layer is unavailable"),
     (lambda data: data.pop("progress_layer"), "observation layer progress_layer is unavailable"),
-    (lambda data: data.pop("persona_views"), "persona views are invalid"),
-    (lambda data: data["persona_views"].update(relationships=None), "persona views are invalid"),
-    (lambda data: data["persona_views"]["relationships"].append({"view": "可靠。"}), "persona views are invalid"),
     (_misaligned_meta, "progress metadata is invalid"),
     (lambda data: data.update(progress_meta=[{"protected": "yes", "lines": []}]), "progress metadata is invalid"),
-    (lambda data: data.pop("interaction_bindings"), "interaction bindings must be a list"),
-    (lambda data: data["interaction_bindings"].append(dict(data["interaction_bindings"][0])),
-     "interaction binding identity is invalid"),
-    (lambda data: data["interaction_bindings"][0].pop("kind"), "interaction binding identity is invalid"),
-    (lambda data: data["interaction_bindings"][0]["actions"][0].pop("action"),
-     "interaction binding action is invalid"),
-    (lambda data: data["interaction_bindings"][0].update(actions=["等待"]), "interaction binding action is invalid"),
-    (lambda data: data.pop("activity_bindings"), "activity_bindings are invalid"),
-    (lambda data: data["activity_bindings"].append({"name": "等待（1月5日 09:00 起）", "activity_id": "activity-x",
-                                                    "phase": "进行中", "resumable": False, "note_labels": None}),
-     "activity_bindings are invalid"),
-    (lambda data: data.update(goal_bindings=None), "goal_bindings are invalid"),
     (lambda data: data.update(wake_reasons=[""]), "wake reasons are invalid"),
-    (lambda data: data.pop("errand_bindings"), "errand_bindings are invalid"),
-    (lambda data: data["errand_bindings"].append({"name": "补一份食品", "errand_id": "errand-x", "outcome": "obtain"}),
-     "errand_bindings are invalid"),
-    (lambda data: data["errand_item_bindings"].append("现有食品"), "errand_item_bindings are invalid"),
+    (lambda data: data.update(current_time=-1), "current time is invalid"),
 ])
-def test_corrupt_observation_fails_before_any_model_tool(change, match: str) -> None:
-    """缺层或层名不符、关系看法或进度层元数据损坏、私有绑定损坏（含两类私有事务绑定缺失、缺键或不是对象）、菜单或唤醒
-    原因损坏的观察不能转成模型请求：都是损坏的宿主观察，在任何模型调用之前失败。"""
+@pytest.mark.asyncio
+async def test_corrupt_observation_fails_before_any_model_tool(change, match: str) -> None:
+    """缺层、层名不符、进度元数据损坏、时钟或唤醒原因无效时在任何模型调用之前失败。"""
     data = copy.deepcopy(_observations()[0]["data"])
+    wakeup = _wakeup(copy.deepcopy(data))
     change(data)
+    change(wakeup.observation)
+    sandbox = _SandboxStub(data)
+    model = ScriptedModel([])
     with pytest.raises(RuntimeError, match=match):
-        _prepared(data)
-
-
-def _empty_layer_observations() -> list[dict]:
-    """构造工具层目标与私有对象绑定都为空的当前观察。"""
-    observations = copy.deepcopy(_observations())
-    observations[0]["data"]["tool_layer"]["targets"] = []
-    observations[0]["data"]["interaction_bindings"] = []
-    return observations
+        await LifeAgent(_person_7()).decide_wakeup(wakeup, sandbox, _binding(model, max_turns=4))
+    assert model.requests == []
 
 
 @pytest.mark.asyncio
-async def test_empty_interactive_layer_decision_continues_without_failure() -> None:
-    """工具层没有目标时决策照常完成：不可见名称在本轮纠正，改为修订空计划后结束本轮。"""
-    dispatcher = _GroundedCorrectionDispatcher(responses=[
-        _ModelResponse("call-unseen", MAIN_TOOL, json.dumps(_WAIT_CHOICE, ensure_ascii=False)),
-        _ModelResponse("call-revise", "revise_day_plan", '{"goals":[]}'),
-    ])
-    environment = _Environment()
-    agent = _wire_agent(environment, dispatcher, 5)
+async def test_unknown_target_in_sandbox_is_rejected_and_retried_in_same_wakeup(engine_factory) -> None:
+    """未知对象名在沙盒派发处被业务规则拒绝并把结果消息喂回同一连续循环，改为修订空计划后再开始动作顺利提交。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    wrong = _ModelResponse("call-unseen", MAIN_TOOL,
+                           json.dumps(main_arguments("interact", "不存在的家", "歇一会儿"), ensure_ascii=False))
+    revise = _ModelResponse("call-revise", "revise_day_plan", '{"goals":[]}')
+    rest = _ModelResponse("call-rest", MAIN_TOOL,
+                          json.dumps(main_arguments("interact", "家", "测试休息"), ensure_ascii=False))
 
-    result = await agent.run_turns(_context(), _empty_layer_observations()[0]["data"])
+    _, requests, answer, results = await decide(engine, "sandbox-reject-retry", [wrong, revise, rest])
 
-    assert [decision.action for decision in result] == ["revise_day_plan"]
-    assert len(environment.calls) == 1
-    assert environment.calls[0].request.goals == []
-    action_responses = [item for item in environment.evidence if item.phase == "response"]
-    assert len(action_responses) == 2
-    assert "No known object" in action_responses[0].error
-    unseen = action_responses[0].response["protocol_feedback"]["items"][0]
-    assert (unseen["error_code"], unseen["written"], unseen["candidates"]) == ("NAME_NOT_FOUND", "自己家", [])
-    assert unseen["path"] == ["tool_calls", 0, "function", "arguments", "target"]
-    offered = {item["function"]["name"]: item["function"] for item in dispatcher.requests[0]["tools"]}
-    assert json.dumps(offered) == json.dumps(_functions(_prepared()))
-    for tool, actions in ((MAIN_TOOL, ["travel", "interact", "sleep"]), (SIDE_TOOL, ["purchase", "interact", "query"])):
+    assert answer == [MAIN_TOOL, "revise_day_plan", MAIN_TOOL]
+    assert [r.status for r in results] == ["rejected", "completed", "in_progress"]
+    rejected_payload = json.loads(requests[1]["messages"][-1]["content"])
+    assert rejected_payload["result"]["error_code"] == "NAME_NOT_FOUND"
+    assert len(requests) == 3
+    for tool, actions in ((MAIN_TOOL, ["travel", "interact", "sleep"]), (SIDE_TOOL, ["purchase", "interact"])):
+        offered = {item["function"]["name"]: item["function"] for item in requests[0]["tools"]}
         properties = offered[tool]["parameters"]["properties"]
         assert properties["action"]["enum"] == actions
         assert all("enum" not in json.dumps(properties[field]) for field in properties if field != "action")
 
 
-_APP = "学课程"
-#: 受限轮与槽位已满时环境给出的原因（工具层 reason 与私有绑定 note 同一文本）。
-_RESTRICTED = "同一时刻只能先开始或恢复一件事"
-_SLOTS_FULL = "两件事都在做，先结束一件"
-
-
-def _restricted_data(stage: str) -> dict:
-    """标上同刻受限轮阶段：一项进行中、一项暂停，应用启动标不可用并写原因。"""
-    data = copy.deepcopy(_observations()[0]["data"])
-    data["same_moment_stage"] = stage
-    _add_objects(data, _visible_object(
-        _APP,
-        "app",
-        "learn-course",
-        _offer("interact", _RESTRICTED),
-    ))
-    return _with_activities(data, (_WORK, PHASE_ACTIVE), (_NEWS, PHASE_PAUSED))
-
-
-def _conclusion(*names: str) -> dict:
-    """点名活动结束的参数（一项一个对象，写自述，不写记忆与看法；没有个人事务变更）。"""
-    return {"items": [{"activity_name": name, "summary": "先收尾。", "memories": [], "views": []} for name in names],
-            "errands": []}
-
-
-
-
-@pytest.mark.parametrize("stage", ["open", "start_or_resume", "resume_or_conclude", "conclude_only",
-                                   "conclude_pending"])
-def test_restricted_rounds_do_not_narrow_the_host_tool_surface(stage: str) -> None:
-    """受限轮与待收尾只由工具层 available/reason 表达：宿主工具面与常规轮逐字节相同，标不可用的动作与控制照常通过
-    本地校验，交给环境以同一原因业务拒绝。"""
-    person = _prepared(_restricted_data(stage))
-    assert json.dumps(_functions(person)) == json.dumps(_functions(_prepared()))
-    for decision in (_decision(SIDE_TOOL, side_arguments("interact", _APP)),
-                     _decision(MAIN_TOOL, _WAIT_CHOICE),
-                     _decision("pause_activity", {"items": [{"activity_name": _WORK, "summary": "先停。"}],
-                                                  "errands": []}),
-                     _decision("report_status", {"items": [{"activity_name": _NEWS, "summary": "接着看。"}],
-                                                 "errands": []}),
-                     _decision("conclude_activity", _conclusion(_WORK, _NEWS)),
-                     _decision("recall_task_summary", {"task_name": _NEWS})):
-        assert person._validate([decision]) is None
-
-
-def test_tool_visibility_uses_current_named_tasks_and_activities() -> None:
-    """七个请求工具整次运行都在，名称只按当前私有绑定核对；私有身份不进 Schema。"""
-    data = copy.deepcopy(_observations()[0]["data"])
-    _with_activities(data, (_WORK, PHASE_ACTIVE))
-    person = _prepared(data)
-    functions = _functions(person)
+def test_tool_surface_is_stable_across_observation_activities() -> None:
+    """全量九个原生工具整次运行保持稳定，私有身份不进 Schema；批次和请求校验只核对通用批次及参数结构。"""
+    _, models = _life_turn_tools(2, False)
+    functions = _functions(2, False)
     assert set(REQUEST_MODELS) <= set(functions)
     assert not {"purchase", "consume", "set_activity_state", "discover_places", "finish"} & set(functions)
-    assert person._validate([
-        _decision("pause_activity", {"items": [{"activity_name": _WORK, "summary": "先停。"}], "errands": []})]) is None
-    assert "not known" in person._validate([
-        _decision("pause_activity", {"items": [{"activity_name": _NEWS, "summary": "先停。"}], "errands": []})]).text
-    assert "TOOL_CALL_REQUIRED: The tool call batch is invalid." == person._validate([
-        _decision("send_message", {"recipient_name": "陌生人", "text": "你好"})]).text
+    for call in (
+        LoopToolCall(SIDE_TOOL, _WORK_CHOICE, "c1"),
+        LoopToolCall(MAIN_TOOL, _WAIT_CHOICE, "c2"),
+        LoopToolCall("pause_activity", {"items": [{"activity_name": _WORK, "summary": "先停。"}], "errands": []}, "c3"),
+        LoopToolCall("report_status", {"items": [{"activity_name": _NEWS, "summary": "接着看。"}],
+                                        "errands": []}, "c4"),
+        LoopToolCall("conclude_activity", _conclude_args(_WORK, _NEWS, memories=[[], []]), "c5"),
+        LoopToolCall("recall_task_summary", {"task_name": _NEWS}, "c6"),
+    ):
+        assert validate_single_tool_call(call, models) is None
+        assert validate_life_batch([call], models) is None
+    assert "TOOL_CALL_REQUIRED: " in validate_single_tool_call(
+        LoopToolCall("send_message", {"recipient_name": "陌生人", "text": "你好"}, "c7"), models).text
     assert "activity-private-1" not in str(functions)
     assert "session-7-0001" not in str(functions)
 
 
-def test_action_validation_rejects_unseen_object_wrong_action_and_second_action() -> None:
-    """对象名、action 的闭集、对象提供的动作、多余字段与「登记即结束本次决策」的限制都在分派前执行。
-
-    两个开始工具各自通过、同批也通过；私有身份当对象名写找不到对象；闭集之外的 action 是参数错误，闭集之内但这个对象
-    在这个工具下不提供的动作是 ACTION_NOT_OFFERED；前一次回复已经登记过世界请求后，再来的开始请求或开始组都被拒。"""
-    person = _prepared()
-    _functions(person)
-    main, side = _decision(MAIN_TOOL, _WAIT_CHOICE), _decision(SIDE_TOOL, _WORK_CHOICE)
-    for batch in ([main], [side], [main, side], [side, main]):
-        assert person._validate(batch) is None
-    for unseen in (_decision(MAIN_TOOL, main_arguments("interact", "object-private", "歇一会儿")),
-                   _decision(SIDE_TOOL, side_arguments("interact", "work-visible"))):
-        assert "No known object" in person._validate([unseen]).text
-    for verb in ("wait", "obtain", "walk"):
-        error = person._validate([_decision(MAIN_TOOL, {**_WAIT_CHOICE, "action": verb})]).text
-        assert error.startswith("ARGUMENTS_INVALID: ") and "outside the declared allowed values" in error
-    for unsupported in (_decision(MAIN_TOOL, main_arguments("travel", "自己家", "步行")),
-                        _decision(SIDE_TOOL, side_arguments("purchase", _WORK_ACTION)),
-                        _decision(SIDE_TOOL, side_arguments("interact", "自己家")),
-                        _decision(MAIN_TOOL, main_arguments("interact", _WORK_ACTION, "歇一会儿"))):
-        assert person._validate([unsupported]).text.startswith("ACTION_NOT_OFFERED: ")
-    assert "not declared" in person._validate([
-        _decision(MAIN_TOOL, {**_WAIT_CHOICE, "ways": ["等待", "睡觉"]}),
-    ]).text
-    for repeated in ([main, main], [side, side]):
-        assert "world request" in person._validate(repeated).text
-    person._action_count = 1
-    for later in ([main], [side], [main, side]):
-        assert "world request" in person._validate(later).text
+def test_life_agent_sandbox_guards_fail_closed_on_unsupported_tool(engine_factory) -> None:
+    """宿主沙盒调度越界工具时以 ProtocolError 明确拒绝，不分派。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    [wakeup] = engine.prepare_barrier((1,))
+    sandbox = engine.open_sandbox(wakeup)
+    for bad in ("start_activity", "finish", "memory_step_range", "recall_task_summary"):
+        with pytest.raises(ProtocolError, match="Unsupported sandbox world tool"):
+            sandbox.dispatch_world_tool(bad, {}, "act-bad")
 
 
-def test_life_agent_host_guards_fail_closed_on_unprepared_or_wrong_state() -> None:
-    """宿主调用越界时明确失败：未知工具不分派（宿主内部错误，不是人物可触发的业务情形）。"""
-    person = _prepared()
-    with pytest.raises(RuntimeError, match="Unsupported LifeAgent tool dispatch: start_activity"):
-        person._dispatch("start_activity", _WAIT_CHOICE)
-    with pytest.raises(RuntimeError, match="Unsupported LifeAgent tool dispatch"):
-        person._dispatch("finish", {"answer": "不存在的生活决策结束工具"})
-    with pytest.raises(RuntimeError, match="Unsupported LifeAgent tool dispatch"):
-        person._dispatch("memory_step_range", {"start_step": 0, "end_step": 1, "limit": 1})
-
-
-def test_tool_messages_follow_memory_queries_only() -> None:
-    """只读查询的结果只序列化一次写进 tool 消息；search_memory 的失败结果（ok 为假）把明细路径改写到实际调用位置；
-    世界请求登记不产生任何消息。"""
-    person = _prepared()
-    for tool, arguments in ((MAIN_TOOL, _WAIT_CHOICE), (SIDE_TOOL, _WORK_CHOICE)):
-        assert person._tool_message(_decision(tool, arguments), ReactToolResult(True, {})) is None
+def test_tool_messages_and_query_error_paths() -> None:
+    """tool_message 紧凑序列化只读查询结果，_bind_query_error_paths 将失败路径改写到真实调用位置。"""
     success = {"类别": "全部", "时间": "今天", "关键词": None, "结果": [], "未列出": []}
-    first = ReactDecision("search_memory", {"category": "全部", "time": "今天", "keyword": None}, "call-1")
-    decision = ReactDecision("search_memory", {"category": "饮食", "time": "2026-02-30", "keyword": None},
-                             "call-2")
-    assert person._validate([first, decision]) is None
-    messages = [person._tool_message(first, ReactToolResult(True, success))]
-    refused = {"error_code": "MEMORY_TIME_INVALID", "reason": "bad time", "fix": "fix it", "unmet": [],
-               "items": [{"path": ["tool_calls", 0, "function", "arguments", "time"], "written": "2026-02-30",
-                          "error_code": "MEMORY_TIME_INVALID", "allowed_values": [], "expected": "e", "why": "w",
-                          "candidates": []}]}
-    messages.append(person._tool_message(decision, ReactToolResult(False, refused)))
-    assert json.loads(messages[0]["content"]) == success
-    feedback = json.loads(messages[1]["content"])
+    msg_ok = tool_message("call-1", success)
+    assert json.loads(msg_ok["content"]) == success
+    refused = {
+        "error_code": "MEMORY_TIME_INVALID", "reason": "bad time", "fix": "fix it", "unmet": [],
+        "items": [{"path": ["tool_calls", 0, "function", "arguments", "time"], "written": "2026-02-30",
+                   "error_code": "MEMORY_TIME_INVALID", "allowed_values": [], "expected": "e", "why": "w",
+                   "candidates": []}],
+    }
+    rebound = _bind_query_error_paths(refused, 1)
+    msg_err = tool_message("call-2", rebound)
+    feedback = json.loads(msg_err["content"])
     assert set(feedback) == {"error_code", "reason", "fix", "items", "unmet"}
     assert feedback["error_code"] == "MEMORY_TIME_INVALID"
     assert feedback["items"][0]["path"] == ["tool_calls", 1, "function", "arguments", "time"]

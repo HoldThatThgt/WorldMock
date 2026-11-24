@@ -48,7 +48,7 @@ def _store(tmp_path, moments):
     sequences = []
     for version, moment in enumerate(moments, start=1):
         draft = EventDraft(event_type="action_rejected", occurred_at=moment, agent_id=1,
-                           decision_id=f"decision-{version}", action_id=f"action-{version}",
+                           wakeup_id=f"wakeup-{version}", action_id=f"action-{version}",
                            data={"error_code": "CODE", "reason": "CODE", "items": []})
         sequences.extend(event.event_seq for event in store.commit(
             store.state, {"version": version, "current_time": moment}, [draft]))
@@ -84,7 +84,7 @@ def test_day_bound_refuses_a_day_that_has_not_started(tmp_path, caplog):
 def _digest_event(store, tier: str, period: str, digests: dict, fallback: list[str]) -> int:
     """在足迹库里登记一条回顾事件（与一条作为起因的被拒证据同一步提交），返回回顾事件的序号。"""
     moment = store.state["current_time"] + 60
-    cause = EventDraft(event_type="action_rejected", occurred_at=moment, agent_id=1, decision_id=f"d-{period}",
+    cause = EventDraft(event_type="action_rejected", occurred_at=moment, agent_id=1, wakeup_id=f"d-{period}",
                        action_id=f"a-{period}", data={"error_code": "CODE", "reason": "CODE", "items": []})
     digest = EventDraft(event_type="environment_event", occurred_at=moment, agent_id=1, caused_by=[cause.event_id],
                         visibility="system", source_kind="model",

@@ -219,18 +219,18 @@ def test_memory_quality_reports_each_problem_code():
 
     记忆不再带引用、没有 memory_read 与 finish，依赖它们的问题码（unknown_memory_reference、
     finish_without_memory_update、memory_update_without_successful_finish、invalid_memory_tool_arguments、
-    invalid_memory_reference_shape）不再出现；trigger 或 decision_id 畸形归入 invalid_memory_update。
+    invalid_memory_reference_shape）不再出现；trigger 或 wakeup_id 畸形归入 invalid_memory_update。
     """
-    def update_data(identity, decision_id, trigger=("activity_conclusion",), merged=()):
+    def update_data(identity, wakeup_id, trigger=("activity_conclusion",), merged=()):
         return {"operation": "append_episodes", "created_episode_ids": [] if merged else [identity],
                 "merged_episode_ids": list(merged), "episodes": [{"id": identity, "type": "goal",
                 "text": "我想出门", "epistemic_status": "subjective"}],
                 "memory_before_sha256": "a" * 64, "memory_sha256": "b" * 64,
                 "episodes_sha256": "c" * 64, "observation_event_id": "observation-absent",
-                "verified_event_ids": [], "trigger": list(trigger), "decision_id": decision_id}
+                "verified_event_ids": [], "trigger": list(trigger), "wakeup_id": wakeup_id}
     memory_item = {"type": "goal", "text": "我想出门", "importance": 0.5, "keywords": ["出门"]}
     events = [
-        _event(1, "model_response", agent_id=1, decision_id="d1",
+        _event(1, "model_response", agent_id=1, wakeup_id="d1",
                data={**_tool_response("call-1", "{not json", error="invalid conclude_activity arguments: memories"),
                      "protocol_feedback": {"error_code": "ARGUMENTS_INVALID", "reason": "Invalid memory.",
                                            "fix": "Correct the memory.", "unmet": [], "items": [
@@ -239,18 +239,18 @@ def test_memory_quality_reports_each_problem_code():
                                                 "error_code": "ARGUMENTS_INVALID", "allowed_values": [],
                                                 "expected": "Valid memory entries are required.",
                                                 "why": "The memory is invalid.", "candidates": []}]}}),
-        _event(2, "model_response", agent_id=1, decision_id="d1",
-               data=_tool_response("call-2", {"query": "x"}, name="search", usage=_usage())),
-        _event(3, "memory_updated", agent_id=1, decision_id="d1", data={"episode_ids": "bad"}),
-        _event(4, "action_requested", agent_id=1, decision_id="d2", action_id="a2",
+        _event(2, "model_response", agent_id=1, wakeup_id="d1",
+               data=_tool_response("call-2", {"query": "x"}, name="search_world", usage=_usage())),
+        _event(3, "memory_updated", agent_id=1, wakeup_id="d1", data={"episode_ids": "bad"}),
+        _event(4, "action_requested", agent_id=1, wakeup_id="d2", action_id="a2",
                data={"tool_name": "conclude_activity", "request": _conclusion(memory_item)}),
-        _event(5, "memory_updated", agent_id=1, decision_id="d2", data=update_data("m1", "d2")),
-        _event(6, "memory_updated", agent_id=1, decision_id="d2", data=update_data("m1", "d2")),
-        _event(7, "memory_updated", agent_id=1, decision_id="d2", data=update_data("m2", "d2", ("finish",))),
-        _event(8, "memory_updated", agent_id=1, decision_id="d2", data=update_data("m3", "another")),
-        _event(9, "memory_updated", agent_id=1, decision_id="d3",
+        _event(5, "memory_updated", agent_id=1, wakeup_id="d2", data=update_data("m1", "d2")),
+        _event(6, "memory_updated", agent_id=1, wakeup_id="d2", data=update_data("m1", "d2")),
+        _event(7, "memory_updated", agent_id=1, wakeup_id="d2", data=update_data("m2", "d2", ("finish",))),
+        _event(8, "memory_updated", agent_id=1, wakeup_id="d2", data=update_data("m3", "another")),
+        _event(9, "memory_updated", agent_id=1, wakeup_id="d3",
                data=update_data("absent", "d3", (), merged=("absent",))),
-        _event(10, "action_requested", agent_id=1, decision_id="d4", action_id="a4",
+        _event(10, "action_requested", agent_id=1, wakeup_id="d4", action_id="a4",
                data={"tool_name": "conclude_activity", "request": _conclusion(memory_item)}),
         _event(11, "run_failed", occurred_at=200, data={"error": "memories corrupted"}),
     ]

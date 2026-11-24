@@ -19,8 +19,8 @@ from tests.life.conftest import (
     pause_request,
     progress_calls,
     purchase,
-    query,
     report_request,
+    search_world,
     sleep,
     stage_day_plan,
     tool_of,
@@ -43,9 +43,17 @@ from worldmock.simulation_engine.observation.layers import memory_layer
 from worldmock.simulation_engine.observation.layers.progress_layer import FACT_EVENT_KINDS, NOTICE_EVENT_KINDS
 from worldmock.simulation_engine.observation.layers.result_projection import public_result
 from worldmock.simulation_engine.observation.memory.days import day_bound, published_today
+from worldmock.state.decisions.barrier import SearchSessionOutcome
 from worldmock.state.interaction.actions import START_TOOLS
 from worldmock.state.interaction.requests import ReviseDayPlanRequest
 from worldmock.state.planning.schedule import PlanGoal
+
+
+def _observe(engine) -> dict:
+    """此刻的完整观察：就绪时走 prepare_barrier，否则直接只读构建。"""
+    if engine.scheduling_state().ready_agent_ids == (1,):
+        return observe_only(engine, "probe")
+    return engine.observations.build_wakeup_observation(engine.context.state.agents[1])[0]
 
 
 def visible_fee_rules(trigger: dict) -> list[dict]:
@@ -122,36 +130,43 @@ def test_every_slot_activity_is_carried_whatever_its_kind(engine_factory, kind):
     name = engine.context.state.activities[started.activity_id].name
     _, concluded = act(engine, "conclude", conclude_request(name), "conclude_activity")
     assert concluded.status == "completed", concluded.error_code
-    after = observe_only(engine, "concluded")
+    after = _observe(engine)
     assert _records(after, request) == []
     for observed in (running, ended, after):
         validate_layer(observed["progress_layer"])
 
 
-def test_a_query_is_carried_while_running_and_its_answer_until_departure(engine_factory):
-    """查询进行中：一条 tool_call，结果是第一条；做完以后再做两次别的决策，同一条记录的结果仍是带 details.query 答案的
+def test_a_search_is_carried_while_running_and_its_answer_until_departure(engine_factory):
+    """搜索进行中：一条 tool_call，结果是第一条；做完交卷后再做两次别的决策，同一条记录的结果仍是带 details.search 答案的
     终态结果；出发之后的观察里没有它。"""
     engine = engine_factory()
-    request = query("柠檬茶")
+    request = search_world("柠檬茶", prefer="饿了么")
     _, asked = act(engine, "tea", request)
-    (running,) = _records(observe_only(engine, "asking"), request)
-    assert running["result"]["status"] == "in_progress" and "query" not in running["result"]["details"]
-    until_ended(engine, asked.activity_id)
+    (running,) = _records(_observe(engine), request)
+    assert running["result"]["status"] == "in_progress"
+    assert "search" not in running["result"]["details"] and running["result"]["details"]["planned"]
+    while not engine.due_searches():
+        advance_next(engine)
+    [(task, _)] = engine.due_searches()
+    engine.complete_searches([SearchSessionOutcome(
+        action_id=task.action_id, agent_id=1, activity_id=task.activity_id,
+        goods_ids=("lemon-tea",), place_ids=(), summary="找到柠檬茶",
+    )])
     _, chat = act(engine, "chat", do_at("家", "测试闲聊"))
     until_ended(engine, chat.activity_id)
     name = engine.context.state.activities[chat.activity_id].name
     _, concluded = act(engine, "chat-done", conclude_request(name), "conclude_activity")
     assert concluded.status == "completed", concluded.error_code
-    later = observe_only(engine, "answered")
+    later = _observe(engine)
     records = _records(later, request)
     assert len(records) == 1, later["progress_layer"]
     answered = records[0]
     assert answered["occurred_at"] == running["occurred_at"]
     assert answered["result"] == _projected(engine, _results(engine, asked.action_id)[-1])
-    assert answered["result"]["details"]["query"]["rows"]
+    assert answered["result"]["details"]["search"]["goods_rows"]
     _, trip = act(engine, "leave", travel("公司", "驾车"))
     assert trip.status == "in_progress", trip.error_code
-    assert _records(observe_only(engine, "departed"), request) == []
+    assert _records(_observe(engine), request) == []
 
 
 def _overnight(persona, config):
@@ -167,10 +182,10 @@ def _bound_today(engine) -> int:
 
 
 def _carried_activities(engine, observed: dict) -> list:
-    """这次观察该带入的本人活动：占槽位的（进行中或待收尾），加上这段停留或路程里做完的查询。"""
+    """这次观察该带入的本人活动：占槽位的（进行中或待收尾），加上这段停留或路程里做完的搜索。"""
     state = engine.context.state
     stay = int(datetime.fromisoformat(observed["progress_layer"]["session_started_at"]).timestamp())
-    finished = [item for item in state.activities.values() if item.agent_id == 1 and item.kind == "query"
+    finished = [item for item in state.activities.values() if item.agent_id == 1 and item.kind == "search"
                 and item.status == "completed" and item.ended_at >= stay]
     return [*slot_activities(open_activities(state, 1)), *finished]
 
@@ -229,7 +244,7 @@ def test_a_delivery_is_in_the_progress_layer_until_the_next_decision_publishes_i
     name = engine.context.state.activities[nap.activity_id].name
     _, concluded = act(engine, "woke", conclude_request(name), "conclude_activity")
     assert concluded.status == "completed", concluded.error_code
-    after = observe_only(engine, "after")
+    after = _observe(engine)
     assert not [row for row in after["progress_layer"]["events"] if row["type"] == "delivery"]
     assert _published(engine) >= arrival.event_seq
 
@@ -243,19 +258,20 @@ def test_a_balance_notice_from_a_decision_commit_reaches_the_next_decision_only(
     assert trip.status == "in_progress", trip.error_code
     spent = before - engine.context.state.accounts["agent:1"]
     store = engine.context.store
-    (observation,) = [row for row in events(engine, "observation") if row.decision_id == "decision-drive-1"]
+    drive_wakeup = events(engine, "action_requested")[-1].wakeup_id
+    (observation,) = [row for row in events(engine, "observation") if row.wakeup_id == drive_wakeup]
     commit = store.commit_last_seq(_results(engine, trip.action_id)[0].event_seq)
     (notice,) = [row for row in events(engine, "environment_event") if row.data.get("kind") == "balance_decreased"]
     assert observation.event_seq < notice.event_seq <= commit
     assert advance_until_ready(engine)
-    road = observe_only(engine, "road")
+    road = _observe(engine)
     assert [row for row in road["progress_layer"]["events"] if row["type"] == "balance_decreased"] == [
         {"occurred_at": iso_time(notice.occurred_at, engine.context.config.timezone), "type": "balance_decreased",
          "message": f"余额减少了 {money_phrase(spent)}"}]
     name = engine.context.state.activities[trip.activity_id].name
     _, reported = act(engine, "report", report_request(name), "report_status")
     assert reported.status == "completed", reported.error_code
-    later = observe_only(engine, "later")
+    later = _observe(engine)
     assert not [row for row in later["progress_layer"]["events"] if row["type"] == "balance_decreased"]
 
 
@@ -325,7 +341,7 @@ def test_control_and_rejected_requests_never_enter_the_progress_layer(engine_fac
         assert advance_until_ready(engine)
         _, result = act(engine, label, request, tool)
         assert result.status == "completed", (label, result.error_code)
-        _check_tool_calls(engine, observe_only(engine, label))
+        _check_tool_calls(engine, _observe(engine))
 
 
 def _check_bounds(engine, observed: dict) -> bool:
@@ -334,7 +350,7 @@ def _check_bounds(engine, observed: dict) -> bool:
     返回这次观察里是否出现了「上一次决策提交里产生的非记忆提示」。"""
     store, published = engine.context.store, _published(engine)
     (last,) = events(engine, "action_requested")[-1:]
-    previous = max(row.event_seq for row in store.read_decision_observations(1, last.decision_id, last.occurred_at))
+    previous = max(row.event_seq for row in store.read_wakeup_observations(1, last.wakeup_id, last.occurred_at))
     notice_bound, carried = max(previous, _bound_today(engine)), _carried_sources(engine, observed)
     late_notice = False
     for event_id in observed["progress_event_ids"]:
@@ -355,7 +371,7 @@ def _check_bounds(engine, observed: dict) -> bool:
 
 
 def _check_tool_calls_or_queries(engine, observed: dict) -> None:
-    """每条 tool_call 对应一项占槽位的本人活动，或这段停留或路程里做完的一项查询（开始请求原文相同）。"""
+    """每条 tool_call 对应一项占槽位的本人活动，或这段停留或路程里做完的一项搜索（开始请求原文相同）。"""
     store = engine.context.store
     requests = [store.read_event(item.origin_request_event_id) for item in _carried_activities(engine, observed)]
     for row in progress_calls(observed):
@@ -364,41 +380,48 @@ def _check_tool_calls_or_queries(engine, observed: dict) -> None:
 
 
 def test_progress_records_lie_after_their_bounds_except_the_carried_ones(engine_factory, tmp_path):
-    """脚本化的上午：外卖购买与送达、在家查询与休息、开车出发并打开 Keep（出发时触发一条可见的支出回调）、到达后收尾。
+    """脚本化的上午：外卖购买与送达、在家搜索与休息、开车出发并打开 Keep（出发时触发一条可见的支出回调）、到达后收尾。
     每次观察：非 tool_call 记录的来源序号大于它那一种的界；序号不超过已发布界的来源只属于带入记录，或是上一次决策提交里
-    产生的非记忆提示（开车出发之后的那次观察里这一分支确实出现）；每条 tool_call 对应一项占槽位的活动或一项做完的查询；
+    产生的非记忆提示（开车出发之后的那次观察里这一分支确实出现）；每条 tool_call 对应一项占槽位的活动或一项做完的搜索；
     同一时刻已发布条目的来源与进度层的来源只在带入记录上重叠。"""
     engine = engine_factory(callback_environment(tmp_path, visible_fee_rules(_DRIVING)), mutate=every_five_minutes)
     late = []
     _, bought = act(engine, "takeaway", purchase("牛肉面"))
-    late.append(_check_bounds(engine, observe_only(engine, "buying")))
+    late.append(_check_bounds(engine, _observe(engine)))
     finish_activity(engine, bought, "takeaway")
-    _, asked = act(engine, "tea", query("柠檬茶"))
-    until_ended(engine, asked.activity_id)
-    late.append(_check_bounds(engine, observe_only(engine, "asked")))
+    _, asked = act(engine, "tea", search_world("柠檬茶", prefer="饿了么"))
+    assert asked.status == "in_progress", asked.error_code
+    while not engine.due_searches():
+        advance_next(engine)
+    [(task, _)] = engine.due_searches()
+    engine.complete_searches([SearchSessionOutcome(
+        action_id=task.action_id, agent_id=1, activity_id=task.activity_id,
+        goods_ids=("lemon-tea",), place_ids=(), summary="找到柠檬茶",
+    )])
+    late.append(_check_bounds(engine, _observe(engine)))
     _, rest = act(engine, "rest", do_at("家", "测试休息"))
     (order,) = engine.context.state.deliveries.values()
     while engine.context.state.deliveries[order.order_id].status != "delivered":
         if engine.scheduling_state().ready_agent_ids:
-            late.append(_check_bounds(engine, observe_only(engine, "resting")))
+            late.append(_check_bounds(engine, _observe(engine)))
             name = engine.context.state.activities[rest.activity_id].name
             act(engine, f"report-{engine.context.state.current_time}", report_request(name), "report_status")
         else:
             advance_next(engine)
-    late.append(_check_bounds(engine, observe_only(engine, "delivered")))
+    late.append(_check_bounds(engine, _observe(engine)))
     until_ended(engine, rest.activity_id)
     name = engine.context.state.activities[rest.activity_id].name
     act(engine, "rest-done", conclude_request(name), "conclude_activity")
     _, (trip, keep) = act_group(engine, "depart", travel("公司", "驾车"), use_app("Keep"))
     assert (trip.status, keep.status) == ("in_progress", "in_progress"), (trip.error_code, keep.error_code)
-    departed = _check_bounds(engine, observe_only(engine, "departed"))
+    departed = _check_bounds(engine, _observe(engine))
     assert departed
     until_ended(engine, trip.activity_id)
-    late.append(_check_bounds(engine, observe_only(engine, "arrived")))
+    late.append(_check_bounds(engine, _observe(engine)))
     names = [item.name for item in engine.context.state.activities.values()
              if item.status not in {"active", "paused"} and item.concluded_at is None]
     act(engine, "arrived-done", conclude_request(*names), "conclude_activity")
-    late.append(_check_bounds(engine, observe_only(engine, "settled")))
+    late.append(_check_bounds(engine, _observe(engine)))
     assert not any(late)
 
 
@@ -406,14 +429,14 @@ def test_memory_view_returns_the_published_bound(engine_factory):
     """运行开始的第一次观察：已发布界是 max(0, B_D)；一次决策之后是那次决策第一条 action_result 所在提交的末序号；睡过零点
     后醒来的第一次观察是 B_D。"""
     engine = engine_factory(mutate=_overnight)
-    observe_only(engine, "first")
+    _observe(engine)
     assert _published(engine) == max(0, _bound_today(engine))
     _, slept = act(engine, "sleep", sleep(480))
     assert slept.status == "in_progress", slept.error_code
-    observe_only(engine, "asleep")
+    _observe(engine)
     first = _results(engine, slept.action_id)[0]
     assert _published(engine) == engine.context.store.commit_last_seq(first.event_seq)
     until_ended(engine, slept.activity_id)
     assert local_date(engine.context.state.current_time, engine.context.config.timezone) == "2026-01-06"
-    observe_only(engine, "woke")
+    _observe(engine)
     assert _published(engine) == _bound_today(engine) > engine.context.store.commit_last_seq(first.event_seq)

@@ -1,4 +1,4 @@
-"""search_memory 在真实引擎上的取数（docs/design/06-agent.md「检索记忆」）：今天条目取已发布的全文、同秒链里看得到上一次决策、
+"""search_memory 在真实引擎上的取数（docs/design/06-agent.md「检索记忆」）：今天条目取已发布的全文、同秒链里看得到上一次唤醒、
 回顾事件按截止序号换成检索的回顾期、「未整理」那天退回原始条目；只读冻结观察所在序号及以前，不写事件、不改世界，结果不含
 内部身份，重新打开运行后逐字节相同。
 
@@ -10,28 +10,29 @@ from __future__ import annotations
 import json
 import re
 from datetime import datetime
-from types import MappingProxyType
+from types import MappingProxyType, SimpleNamespace
 
 from tests.life.conftest import (
     StubMemoryDigestClient,
     activity_name,
+    advance_next,
     advance_until_ready,
     conclude_request,
     do_at,
     memory_digest_response,
-    query,
+    search_world,
     settle_midnight_tasks,
     sleep,
     stage_day_plan,
-    submit_round,
     use_app,
 )
-from tests.life.environment_runtime import act, observe_only, until_ended
+from tests.life.environment_runtime import act, observe_only
 from worldmock.simulation_engine.engine import LifeEngine
 from worldmock.simulation_engine.evidence import memory_digest
 from worldmock.simulation_engine.observation.memory.days import past_day_entries, published_today
 from worldmock.simulation_engine.observation.memory.entries import entry_full
 from worldmock.simulation_engine.observation.memory.search import memory_sources
+from worldmock.state.decisions.barrier import SearchSessionOutcome
 from worldmock.state.interaction.requests import ReviseDayPlanRequest, SearchMemoryRequest
 
 #: 八位以上的十六进制串（内部身份的样子）。
@@ -49,15 +50,21 @@ def _frozen(engine, observed: dict):
 
 
 def _observation(engine, label: str):
-    """此刻的一次只读观察，返回冻结观察事件。"""
-    return _frozen(engine, observe_only(engine, label))
+    """此刻的一次只读观察，返回最新已提交截止点（就绪时同步演练只读观察）。"""
+    if 1 in engine.scheduling_state().ready_agent_ids:
+        observe_only(engine, label)
+    store = engine.context.store
+    last = list(store.iter_events(store.last_event_seq))[-1]
+    return SimpleNamespace(
+        event_id=last.event_id, event_seq=last.event_seq, occurred_at=engine.context.state.current_time,
+    )
 
 
 def _decide(engine, label: str, request, tool: str | None = None) -> None:
-    """经 submit_round 做一次决策。"""
+    """经当前唤醒沙盒与屏障执行一次真实决策。"""
     from tests.life.conftest import tool_of
 
-    submit_round(engine, {1: (tool or tool_of(request), request)}, label)
+    act(engine, label, request, tool=tool or tool_of(request))
 
 
 def _late(persona, config) -> None:
@@ -93,23 +100,26 @@ def _unsorted_life_day(engine_factory):
 
 
 def test_today_search_returns_the_published_full_entries(engine_factory):
-    """经 submit_round 依次开始测试休息、收尾时写一条 routine 记忆、查柠檬茶并在它做完后看哔哩哔哩，第五次决策里检索
-    「今天」：结果逐字节等于已发布条目的全文、按发布次序倒排，含「记住：」的 routine 记忆与「当时查到」，不含本次决策
-    自己的条目。"""
+    """依次开始测试休息、收尾写 routine 记忆、search_world 搜柠檬茶并在交卷恢复后看哔哩哔哩，
+    检索「今天」：结果逐字节等于已发布条目的全文、按发布次序倒排，含「记住：」与「当时查到」，不含本次唤醒尚未提交的结果。"""
     engine = engine_factory()
     _decide(engine, "rest", do_at("家", "测试休息"))
     assert advance_until_ready(engine)
     name = next(item.name for item in engine.context.state.activities.values())
     routine = {"type": "routine", "text": "午后歇一刻钟。", "importance": 0.5, "keywords": []}
     _decide(engine, "end", conclude_request(name, memories=[[routine]]), "conclude_activity")
-    _decide(engine, "ask", query("柠檬茶"))
-    asked = next(item for item in engine.context.state.activities.values() if item.kind == "query")
-    until_ended(engine, asked.activity_id)
+    _decide(engine, "ask", search_world("柠檬茶", prefer="饿了么"))
+    advance_next(engine)
+    [(task, _)] = engine.due_searches()
+    engine.complete_searches([SearchSessionOutcome(
+        action_id=task.action_id, agent_id=1, activity_id=task.activity_id,
+        goods_ids=("lemon-tea",), place_ids=(), summary="找到柠檬茶",
+    )])
     _decide(engine, "watch", use_app("哔哩哔哩"))
     frozen = _observation(engine, "search")
-    answer = engine.search_memory(1, _search("全部", "今天"), frozen)
+    answer = engine.search_memory(1, _search("全部", "今天"), frozen.event_seq)
     published = published_today(engine.context.inputs, engine.context.store, 1, frozen.occurred_at, frozen.event_seq)
-    assert len(published.entries) == 4
+    assert len(published.entries) == 3
     assert answer["结果"] == [entry_full(entry) for entry in reversed(published.entries)]
     texts = json.dumps(answer, ensure_ascii=False)
     assert "记住：午后歇一刻钟。" in texts and any("当时查到" in item for item in answer["结果"])
@@ -124,7 +134,7 @@ def test_today_search_in_a_same_second_chain_sees_the_previous_decision(engine_f
     moment = engine.context.state.current_time
     frozen = _observation(engine, "chain")
     assert frozen.occurred_at == moment
-    answer = engine.search_memory(1, _search("全部", "今天"), frozen)
+    answer = engine.search_memory(1, _search("全部", "今天"), frozen.event_seq)
     assert [item["核验"] for item in answer["结果"]] == [["改了今日计划"]]
 
 
@@ -148,8 +158,8 @@ def test_digest_events_become_search_digests_up_to_the_cutoff(engine_factory):
     _register(engine, "month", "2025-12", {"food": None, "work": "月底加了班。", "life": None})
     _register(engine, "year", "2025", {"food": None, "work": None, "life": "这一年搬了家。"})
     after = _observation(engine, "after")
-    assert memory_sources(engine.context, 1, before).digests == ()
-    digests = memory_sources(engine.context, 1, after).digests
+    assert memory_sources(engine.context, 1, before.event_seq, before.occurred_at).digests == ()
+    digests = memory_sources(engine.context, 1, after.event_seq, after.occurred_at).digests
     assert [(item.tier, item.period, item.texts, item.unsorted) for item in digests] == [
         ("day", "2026-01-04", {"饮食": "吃了面。"}, frozenset({"生活"})),
         ("month", "2025-12", {"工作": "月底加了班。"}, frozenset()),
@@ -161,7 +171,7 @@ def test_unsorted_day_falls_back_to_that_days_raw_entries(engine_factory):
     条目，零点收尾条目（24:00）在最前，其余按时刻从晚到早，同一时刻的按条目次序倒排。"""
     engine = _unsorted_life_day(engine_factory)
     frozen = _observation(engine, "morning")
-    answer = engine.search_memory(1, _search("生活", "2026-01-05"), frozen)
+    answer = engine.search_memory(1, _search("生活", "2026-01-05"), frozen.event_seq)
     raw = past_day_entries(engine.context.inputs, engine.context.store, 1, "2026-01-05", frozen.occurred_at)
     sliced = [part for entry in raw if (part := entry_full(entry, "生活")) is not None]
     assert raw[-1].clock == "24:00" and len(sliced) == len(raw) == 4
@@ -176,13 +186,14 @@ def test_search_reads_nothing_after_the_frozen_observation(engine_factory):
     observed, rest = act(engine, "rest", do_at("家", "测试休息"))
     frozen = _frozen(engine, observed)
     requests = [_search("全部", "今天"), _search("全部", "全部", "测试"), _search("生活", "2026-01-04~2026-01-05")]
-    first = [json.dumps(engine.search_memory(1, request, frozen), ensure_ascii=False) for request in requests]
+    first = [json.dumps(engine.search_memory(1, request, frozen.event_seq), ensure_ascii=False) for request in requests]
     assert advance_until_ready(engine)
     act(engine, "end", conclude_request(activity_name(engine, rest.activity_id)), "conclude_activity")
     _register(engine, "day", "2026-01-04", {"food": None, "work": None, "life": "测试了一整天。"})
     later = _observation(engine, "later")
-    assert engine.search_memory(1, _search("全部", "全部", "测试"), later)["结果"] != {}
-    assert [json.dumps(engine.search_memory(1, request, frozen), ensure_ascii=False) for request in requests] == first
+    assert engine.search_memory(1, _search("全部", "全部", "测试"), later.event_seq)["结果"] != {}
+    assert [json.dumps(engine.search_memory(1, request, frozen.event_seq), ensure_ascii=False)
+            for request in requests] == first
 
 
 def test_search_does_not_write_or_change_the_world(engine_factory):
@@ -192,25 +203,25 @@ def test_search_does_not_write_or_change_the_world(engine_factory):
     sequence, state = engine.context.store.last_event_seq, engine.context.state.model_dump_json()
     for request in (_search("全部", "今天"), _search("生活", "2026-01-05"), _search("全部", "全部", "测试"),
                     _search("全部", "2026-01"), _search("饮食", "2026-01-01~2026-01-05")):
-        engine.search_memory(1, request, frozen)
+        engine.search_memory(1, request, frozen.event_seq)
     assert engine.context.store.last_event_seq == sequence
     assert engine.context.state.model_dump_json() == state
 
 
 def test_search_results_carry_no_internal_identity(engine_factory):
-    """检索结果里没有事件身份、决策身份、回顾的来源身份，也没有八位以上的十六进制串。"""
+    """检索结果里没有事件身份、唤醒身份、回顾的来源身份，也没有八位以上的十六进制串。"""
     engine = _unsorted_life_day(engine_factory)
     act(engine, "woke", conclude_request(next(item.name for item in engine.context.state.activities.values()
                                               if item.kind == "sleep")), "conclude_activity")
     frozen = _observation(engine, "morning")
     store = engine.context.store
     events = list(store.iter_events(store.last_event_seq))
-    private = {event.event_id for event in events} | {event.decision_id for event in events if event.decision_id}
+    private = {event.event_id for event in events} | {event.wakeup_id for event in events if event.wakeup_id}
     private |= {source for event in events if event.data.get("kind") == "memory_digest_generated"
                 for item in event.data["digests"].values() if item for source in item["source_event_ids"]}
     for request in (_search("全部", "今天"), _search("全部", "2026-01-05"), _search("全部", "全部", "测试"),
                     _search("全部", "2026-01")):
-        text = json.dumps(engine.search_memory(1, request, frozen), ensure_ascii=False)
+        text = json.dumps(engine.search_memory(1, request, frozen.event_seq), ensure_ascii=False)
         assert not [identity for identity in private if identity in text]
         assert _HEX.search(text) is None
 
@@ -220,13 +231,13 @@ def test_search_is_byte_identical_after_reopening_the_run(engine_factory):
     engine = _unsorted_life_day(engine_factory)
     frozen = _observation(engine, "morning")
     requests = (_search("全部", "今天"), _search("生活", "2026-01-05"), _search("全部", "全部", "测试"))
-    first = [json.dumps(engine.search_memory(1, request, frozen), ensure_ascii=False) for request in requests]
+    first = [json.dumps(engine.search_memory(1, request, frozen.event_seq), ensure_ascii=False) for request in requests]
     inputs, run_dir = engine.context.inputs, engine.context.store.run_dir
     engine.close()
     reopened = LifeEngine.open(inputs, run_dir)
     try:
         again = reopened.context.store.read_event(frozen.event_id)
-        assert [json.dumps(reopened.search_memory(1, request, again), ensure_ascii=False)
+        assert [json.dumps(reopened.search_memory(1, request, again.event_seq), ensure_ascii=False)
                 for request in requests] == first
     finally:
         reopened.close()

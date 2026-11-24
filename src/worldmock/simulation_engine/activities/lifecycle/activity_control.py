@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from worldmock.foundation.errors import BusinessRuleError
 from worldmock.recording_engine.events.models import EventDraft
@@ -19,7 +19,6 @@ from worldmock.simulation_engine.evidence.actions import _activity_terminal_draf
 from worldmock.simulation_engine.activities.content.content_select import next_episode
 from worldmock.state.world.kinds import CONCLUDABLE_TERMINAL_STATUSES, ActivityKind, ActivityStatus
 from worldmock.state.world.activity import ActivityState
-from worldmock.state.decisions.state import PendingAction
 from worldmock.state.world.world import WorldState, active_activities
 from worldmock.simulation_engine.actions.name_resolution import near_names
 from worldmock.simulation_engine.observation.targets.object_labels import resolve_name
@@ -61,16 +60,10 @@ def is_pending_conclusion(activity: ActivityState) -> bool:
 
 
 def finished_at(activity: ActivityState, now: int) -> bool:
-    """@brief 活动是否在这一秒做完、要请人物决策：待收尾且结束于这一秒，或是结束于这一秒、已完成的查询。
-
-    查询做完自己结束、不经待收尾，所以要单列；种类判断只写在这里，唤醒一侧只调用它。
-
-    :param activity: 人物的一项活动。
-    :param now: 当前时钟边界。
-    """
+    """@brief 活动是否在这一秒做完、要请人物决策：待收尾且结束于这一秒，或是已完成的搜索。"""
     if activity.ended_at != now:
         return False
-    return is_pending_conclusion(activity) or (activity.kind == ActivityKind.QUERY
+    return is_pending_conclusion(activity) or (activity.kind == ActivityKind.SEARCH
                                                and activity.status == ActivityStatus.COMPLETED)
 
 
@@ -432,11 +425,9 @@ def _listed(activities: Iterable[ActivityState], names: Mapping[str, str]) -> st
     return "、".join(names.get(item.activity_id, item.name) for item in activities)
 
 
-def record_changes(before: WorldState, after: WorldState, pending: PendingAction,
+def record_changes(before: WorldState, after: WorldState, pending: Any,
                    context: RecordContext) -> list[EventDraft]:
-    """@brief 本次控制改变的每项活动写一条 environment_event；活动终结时给开始它的动作写一次终态；控制请求里每条被受理
-    的个人事务变更各写一条事务事件（errands.request_drafts，只在这条成功分支生成，docs/design/04-simulation-engine.md
-    「唤醒、日计划与个人事务」）。"""
+    """@brief 本次控制改变的每项活动写一条生命周期事件，并写终态及个人事务事件。"""
     drafts = _lifecycle_drafts(before, after, pending, context.snapshot)
     terminal = _terminal_records(before, after, pending.requested_event_id, context.index)
     return drafts + terminal + errands.request_drafts(before, after, pending)
@@ -456,7 +447,7 @@ def truncation_record(activity: ActivityState, snapshot: dict, now: int) -> Even
                       data={"kind": TRUNCATED_KIND, "activity_id": activity.activity_id, "activity": snapshot})
 
 
-def _lifecycle_drafts(before: WorldState, after: WorldState, pending: PendingAction,
+def _lifecycle_drafts(before: WorldState, after: WorldState, pending: Any,
                       snapshot: Callable[[ActivityState], dict]) -> list[EventDraft]:
     """@brief 控制工具改变（状态或收尾时刻变化）的每项本人活动各写一条带快照的 environment_event。"""
     kind = _LIFECYCLE_KINDS.get(pending.tool_name)
@@ -470,7 +461,7 @@ def _lifecycle_drafts(before: WorldState, after: WorldState, pending: PendingAct
             continue
         drafts.append(EventDraft(
             event_type="environment_event", occurred_at=after.current_time, agent_id=new.agent_id,
-            decision_id=pending.decision_id, action_id=pending.action_id, activity_id=activity_id,
+            wakeup_id=pending.wakeup_id, action_id=pending.action_id, activity_id=activity_id,
             caused_by=[pending.requested_event_id], source_kind="environment",
             data={"kind": kind, "activity_id": activity_id, "activity": snapshot(new)}))
     return drafts

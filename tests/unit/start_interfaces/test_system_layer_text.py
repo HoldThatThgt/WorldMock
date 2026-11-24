@@ -1,4 +1,4 @@
-"""系统层恰二十二条，逐字、按序钉住；记忆规则与购买规则的现行文字按组核对；旧文字与已删除的机制不再出现；用途句恰八个键；唤醒表每一行都有系统层的措辞说出；规则引用的记忆层键都在 Schema 里；提示指纹只绑定生活系统层与七层 Schema，随文字改变；核对系统层正文与工具指纹。"""
+"""系统层恰二十二条，逐字、按序钉住；记忆规则与搜索规则的现行文字按组核对；旧文字与已删除的机制不再出现；用途句恰九个键；唤醒表每一行都有系统层的措辞说出；规则引用的记忆层键都在 Schema 里；提示指纹只绑定生活系统层与七层 Schema，随文字改变；核对系统层正文与工具指纹。"""
 
 from __future__ import annotations
 
@@ -25,8 +25,9 @@ _RULES = (
      "工具层写此刻的对象、动作、条件与代价；环境层写身体感觉、位置、天气和工作安排；"
      "进度层写此刻还没了结的事：进行中或待收尾的活动、上次决策之后新到的结果与消息、这段停留或路程里查到的答案，"
      "以及今天被拒绝的请求。"),
-    ("记忆层按饮食、工作、生活三类记已经过去的事。「今天」按时刻列出今天的每次决策，一次决策一条，写明类别；"
-     "一次决策提交后，下一次决策就能看到它的条目，同一时刻接着的决策也一样。「核验」是环境确认的经过；"
+    ("记忆层按饮食、工作、生活三类记已经过去的事。「今天」按时刻列出今天已完成提交的唤醒，一次唤醒一条，写明类别；"
+     "一次唤醒提交后，下一次唤醒就能看到它的条目，同日经搜索挂起再恢复后提交的动作也会归并到那次唤醒；"
+     "「核验」是环境确认的经过；"
      "「自述」是你当时写下的话：「名称：」开头的是收尾或暂停时写的总结，「进展·名称：」是 report_status 写的进展，"
      "「看法·对象：」是看法，「记住：」是想记住的事，「正文：」是回复正文。每条至多 120 字，写不下的地方以「…」结尾；"
      "当天条目太多时，较早的条目会只留核验，或按小时合成一行，写明「条数」；全文用 search_memory 查「今天」。"
@@ -40,29 +41,30 @@ _RULES = (
      "「今天」或今天的一段时刻（今天 时:分~时:分）；查到的往日是那一天、那个月或那一年的回顾，"
      "某天某一类「未整理」时给那天的原始条目；可以加关键词，多个关键词用空格隔开，都出现才算查到；"
      "时间写「全部」时必须写关键词，比如查上次吃某样东西是哪天、以前对某样东西怎么看。"
-     "按名称回看一项任务或活动的进展用 recall_task_summary。一次决策至多查三次记忆。"),
+     "按名称回看一项任务或活动的进展用 recall_task_summary。一次唤醒至多查三次记忆。"),
     ("拿不准时可以先看记忆再定：选吃什么，看看最近几顿吃了什么、当时觉得怎样；接着做工作，看看前几个工作日做到哪里；"
      "想照以前的某个看法或习惯做，先看看它是哪天的回顾写到的、后来有没有变，近三天以外的用 search_memory 查。"
      "记忆只说明过去发生了什么、你当时怎么想，不替你决定；照旧、重复还是换一换都可以，照人设层的习惯和你现在的想法选。"),
     "天气只以环境层给出的事实为准，不用记忆、常识或外部服务猜测天气。",
-    ("每次决策以世界请求结束：要么提交一个控制请求（report_status、pause_activity、conclude_activity、"
-     "revise_day_plan 之一），要么开始活动。开始活动时 start_main_activity 与 start_side_activity 各至多调用一次；"
-     "要同时开始两项，就在同一次回复里各调用一次，两项一起核验，任何一项不成立两项都不开始。"
-     "提交前可以查询记忆或回看任务，只读查询可以同批；世界请求不与只读查询同批，开始活动也不与控制请求同批，"
-     "提交即结束本次决策。没有进行中的活动时时间不会往前走，同一时刻会接着请你决策；"
-     "等外卖或等某个钟点时，此刻能做的事都可以做，包括用工具层里可用的内容 app。"
+    ("一次唤醒里可以连续调用工具处理事务：控制请求（report_status、pause_activity、conclude_activity、"
+     "revise_day_plan）、只读查询（search_memory、recall_task_summary）与被拒绝的请求都在当前唤醒沙盒内立刻结算，"
+     "结果与层变化直接回传，供你接着决定；只读查询可以同批，但不得与控制请求、search_world 或开始活动混在同一回复里。"
+     "调用 search_world 会发起异步搜索并挂起本次唤醒，等搜索完成后带回结果恢复；提交有效的开始活动工具"
+     "（start_main_activity 与 start_side_activity 各至多一次；同时开始两项须在同一回复里各调用一次，"
+     "两项一起核验，任何一项不成立两项都不开始）会结束本次唤醒并推进世界时间。"
+     "没有进行中的活动时时间不会往前走；等外卖或等某个钟点时，此刻能做的事都可以做，包括用工具层里可用的内容 app。"
      "醒着时，手上的事做完、下单的东西送到或到站可取、提醒到点、app 推送、身体感觉变了、"
      "到了上下班时刻或写明的休息时段开始或结束，都会再请你决策；一件事做得久，中途隔一阵也会请一次；"
      "没做完的活动照常进行。"),
-    ("start_main_activity 开始占槽位 1 的活动，填 action、target、detail 三项：travel 是出行，target 写目的地地点名，"
-     "detail 写出行方式名称，照工具层该目的地下列出的名称写；interact 是在当前地点做一件事，target 写当前地点名，"
-     "detail 写这件事的名称，照工具层当前地点下列出的名称写；sleep 是睡觉，target 写要睡的分钟数（只写数字），"
-     "detail 写 null。"),
+    ("start_main_activity 开始占槽位 1 的活动，填 action、target、detail 三项：travel 是出行，"
+     "target 写目的地地点名，detail 写出行方式名称，照工具层该目的地下列出的名称写；"
+     "interact 是在当前地点做一件事，target 写当前地点名，detail 写这件事的名称，照工具层当前地点下列出的名称写；"
+     "sleep 是睡觉，target 写要睡的分钟数（只写数字），detail 写 null。"),
     ("start_side_activity 开始占槽位 2 的活动，填 action、target、prefer 三项，target 始终是名称数组："
-     "purchase 是购买，逐份写商品名，同一个名称写两次就是两份，全部商品共用一个购买过程，prefer 写想用来下单的 app；"
-     "interact 是用内容 app，数组里只写一个内容 app 名称，prefer 写 null；"
-     "query 是查询商品，数组里写商品名或商品类别名，prefer 写想在哪个 app 里查。"
-     "prefer 照工具层 prefer_apps 列出的名称写，没有想法写 null。"),
+     "purchase 是购买，逐份写商品名，同一个名称写两次就是两份，全部商品共用一个购买过程，"
+     "prefer 写想用来下单的 app；interact 是用内容 app，数组里只写一个内容 app 名称，prefer 写 null。"
+     "不确定买什么、在哪买或想去哪里时单独调用 search_world，填 query 与 prefer，prefer 照工具层 prefer_apps "
+     "写想限定的下单 app 名称，没有想法写 null。"),
     ("名称要写完整。地点、商品和内容 app 可以直接按名称调用，即使此刻没有展示；"
      "在地点做的事只能写当前地点下列出的名称。写得不准会返回候选，不会替你更改。"
      "prefer 例外：它只是意向，写得不准或那个 app 接不了这一单时环境另选一个，不退回也不给候选。"),
@@ -70,24 +72,24 @@ _RULES = (
      "用内容 app 时看到什么由环境选择，打开后放完一条自动接下一条，直到你结束它；没有可接的内容时停下，等你收尾。"
      "app 里的内容标题不是可写的名称。功能 app 不由你选择。"),
     ("用内容 app 只是看这个 app 里的内容，不显示商品，也不会下单；看到的内容像菜单或商品介绍，也不等于买了。"
-     "只列在 prefer_apps 里的 app 用来下单和查询，不能用 interact 打开。"
+     "只列在 prefer_apps 里的 app 用来下单和在 search_world 中限定范围，不能用 interact 打开。"
      "买东西只有 purchase：你所在的地点就卖这件商品时直接到店买，否则经 app 下单；"
      "一次买几件时每件各自判断，可能分成几张订单。实际是到店买的还是用了哪个 app，写在购买结果的 channel 里。"
      "查到的店铺评分可以用来挑选。拿到商品后才知道这份的品质；收尾时若想写看法，结合这份品质、自己的口味和价格。"),
-    ("不知道买什么、在哪买，用 query。查询要 5 到 10 分钟，不能暂停；"
-     "答案在查询做完时才写进这次请求的结果，写明是在哪个 app 里查的，中途结束就没有答案。"
-     "查询做完自己结束，不用收尾，可以接着下单。查询不下单，要买再用 purchase 写答案里的商品名。"
-     "人在路上不能查询，也不能和出行在同一次回复里开始。"),
-    ("同时最多两项活动，槽位 1 和槽位 2 各放一项：出行、睡眠和在地点做事占槽位 1，购买、查询和用内容 app 占槽位 2。"
-     "在地点做事可以同时购买、查询或用内容 app；睡眠要求槽位 2 空着。"
+    ("不知道买什么、在哪买或想去哪里时，用 search_world。搜索约需 3 到 7 分钟，发起后本次唤醒先挂起等待，"
+     "搜索完成拿到商品报价与同城地点结果后会自动恢复到同一对话继续决策；不用手动收尾即可接着下单或出行。"
+     "search_world 不下单也不出行，要买再用 purchase 写结果里的商品名，要去再用 travel 写地点名。"
+     "人在路上不能搜索，也不能和出行在同一次回复里开始。"),
+    ("同时最多两项活动，槽位 1 和槽位 2 各放一项：出行、睡眠和在地点做事占槽位 1，购买、搜索和用内容 app 占槽位 2。"
+     "在地点做事可以同时购买、搜索或用内容 app；睡眠要求槽位 2 空着。"
      "进行中和刚结束待收尾的活动都占槽位，暂停让出槽位。"),
     ("sleep 写的分钟数在 10 到 720 之间；就在当前地点睡，地点须能睡。"
      "睡着后到你写的时长才会再请你决策，提醒、推送和送达都不会叫醒你；"
      "过去一天睡得太少时，可能再多睡二十分钟到一小时。工具层 sleep 一行的 note 写现在睡大约多久能补满欠的觉，"
      "只供参考，睡多久由你自己写。"),
-    ("出发前先暂停或结束必须在原地的活动，没做完的查询也要先结束；app 互动和快递购买可以随出行继续。"
+    ("出发前先暂停或结束必须在原地的活动，未完成的搜索也要先结束；app 互动和快递购买可以随出行继续。"
      "地点活动到达别处前不能继续。"),
-    ("活动自然结束后先用 conclude_activity 收尾，查询除外；report_status 写进展；"
+    ("活动自然结束后先用 conclude_activity 收尾，搜索除外；report_status 写进展；"
      "pause_activity 暂停在地点做的事或内容 app 的使用；conclude_activity 结束活动并写总结、想记住的新情况与看法。"
      "在地点做的事用 conclude_activity 结束就算做完，下次点名从头做起，只是先放下、回头接着做用 pause_activity；"
      "内容 app 里没看完的内容，结束后仍留着进度。恢复暂停的活动不用开始工具：report_status 点名暂停活动时恢复它，"
@@ -107,22 +109,22 @@ _RULES = (
      "工作安排由环境给出，今日计划不能改变班次。今日计划只是自己的打算，环境不判定做没做完；"
      "发现计划里的事在工具层和拒绝原因里都找不到做法时，用 revise_day_plan 把它删掉或换成能做的事。"),
     ("工具层 available 为 false 的动作仍可提交，会按 reason 拒绝；先照原因处理。"
-     "查询记忆和回看任务当场完成，不推进时间。"
+     "查询记忆、回看任务与提交控制请求在本次唤醒内当场完成并回传，不推进时间。"
      "available 为 true 的动作单独提交都会受理；同一件事做几次、先做哪件，环境都不另作处理。"),
     ("个人事务在三个活动控制工具的 errands 中维护，提醒到点只提醒一次且不会叫醒睡眠。"
      "办成由真实结算确认，自己说办完不算。"
      "个人事务只记要买到或取到的商品，item 写商品名；打电话、做家务这类没有商品的打算不记成个人事务。"),
-    ("正文可以留空；写了就作为这次决策的自述，从下一次决策起记在记忆层「今天」里。"
-     "思考只在同一时刻连续决策之间保留，时间推进后丢弃。"),
+    ("正文可以留空；写了就作为这次唤醒的自述，在本轮提交成功后从下一次唤醒起记在记忆层「今天」里。"
+     "每次唤醒结束后不跨唤醒保留隐式思考；因 search_world 挂起的唤醒恢复后接回原对话，继续完成决策。"),
 )
 
-#: 新五条（下标 0、1、2、15、21）各自的 len 与 UTF-8 编码的 SHA-256，由提案「系统层规则原文」的终稿直接算出。
+#: 新五条（下标 0、1、2、15、21）各自的 len 与 UTF-8 编码的 SHA-256，由现行系统层定稿直接算出。
 _NEW_RULE_DIGESTS = {
     0: (153, "d57aa60d0239073aa22189ba89b75416a8ea57f84560c230a51cf0c7d70e6b51"),
-    1: (780, "19699a5038ca2008db45920f14d62b7eb2e6c421c9398d07615b114a2bc75d88"),
+    1: (796, "b2f2ddfd6c427de631a4ae5b3b2fe36d9101c8f84f34ab29928dd97872c147af"),
     2: (170, "c1b35ffa989aca497c9b1083f0d008a1386dd1b9220bf3fcb846e973ca813023"),
     15: (141, "c9536d64fe6dc081e4a33d4ff9844c88c0914d23b70cd39faf79c305b316e923"),
-    21: (63, "73ec4117944341fff516e75765cce52c4a5cbc8781833c2599d72d030d00c928"),
+    21: (100, "46b809f9b4b510923fff3d14966c3c7cc6c2696aa4bddca4c5eb81afc9c7fc59"),
 }
 
 #: 唤醒表每一行由系统层哪一条（下标）的哪段措辞说出；唤醒表增删行或改名时，这里与措辞一起改。
@@ -131,7 +133,7 @@ _WAKE_PHRASES = {
     "felt_band_change": (4, "身体感觉变了"),
     "delivery_arrival": (4, "下单的东西送到或到站可取"),
     "reconsideration_interval": (4, "中途隔一阵也会请一次"),
-    "rejection_feedback": (4, "同一时刻会接着请你决策"),
+    "rejection_feedback": (4, "被拒绝的请求都在当前唤醒沙盒内立刻结算"),
     "session_open": (12, "睡着后到你写的时长才会再请你决策"),
     "progress_report_due": (4, "中途隔一阵也会请一次"),
     "no_active_activity": (4, "没有进行中的活动时时间不会往前走"),
@@ -182,8 +184,8 @@ def test_new_rules_are_the_proposal_text_byte_for_byte():
 def test_action_rules_and_the_whole_list_match_their_digests():
     """行动规则包括收货后才能判断这一份的品质，按组并以整表核对。"""
     rules = LIFE_SYSTEM_LAYER["rules"]
-    assert _digest([*rules[3:15], *rules[16:21]]) == "d6265a7d76ee1997d4d64e999a4dce8035352d3c927175a2122566119584fbc0"
-    assert _digest(rules) == "e7099a4aaa172c36278be49dc10036d72e93bffcd396fc78806b48bafbc5cc54"
+    assert _digest([*rules[3:15], *rules[16:21]]) == "15f0c793cfb83d2a39f1c98b6f55d057a48056b07a230eb3329bcadd1bf38a39"
+    assert _digest(rules) == "587a22e53a22c972cf1d585b1a0caab4c0120b0afa7c892c24b51b3cb74260c1"
 
 
 def test_wake_sentence_names_every_wake_trigger():
@@ -195,20 +197,19 @@ def test_wake_sentence_names_every_wake_trigger():
 
 
 def test_retired_wording_is_gone_from_the_system_layers_and_tool_descriptions():
-    """旧工具名、四个旧出行动作、名额的说法、两句旧睡眠文字都不再出现；系统层与用途句也不提已删除的机制。"""
+    """旧工具名、四个旧出行动作、名额的说法、旧睡眠与旧决策文字都不再出现；系统层与用途句也不提已删除的机制。"""
     text = "".join(LIFE_SYSTEM_LAYER["rules"]) + "".join(TOOL_DESCRIPTIONS.values())
     for retired in ("start_activity", "walk", "drive", "take_taxi", "take_bus", "名额",
                     "sleep 以本人家为目标且须在家", "睡眠期间只有睡够了才会请你决策", "睡眠要求没有其他活动",
-                    "内容由环境选择，标题不是动作目标", *_RETIRED_MECHANISMS):
+                    "内容由环境选择，标题不是动作目标", "同一时刻会接着请你决策", "query_world", *_RETIRED_MECHANISMS):
         assert retired not in text, retired
 
 
-def test_tool_descriptions_are_the_eight_purpose_sentences():
-    """用途句恰为八个原生工具，次序同 REQUEST_MODELS 加 search_memory；search_memory 的用途句与它的参数模型说明逐字
-    相同。"""
+def test_tool_descriptions_are_the_nine_purpose_sentences():
+    """用途句恰为九个原生工具，次序同 LIFE_PROMPT；search_memory 的用途句与它的参数模型说明逐字相同。"""
     assert list(TOOL_DESCRIPTIONS) == [
-        "start_main_activity", "start_side_activity", "recall_task_summary", "report_status", "pause_activity",
-        "conclude_activity", "revise_day_plan", "search_memory"]
+        "start_main_activity", "start_side_activity", "search_world", "recall_task_summary", "report_status",
+        "pause_activity", "conclude_activity", "revise_day_plan", "search_memory"]
     assert TOOL_DESCRIPTIONS["search_memory"] == "按类别和时间查自己过去的记忆，可以加关键词，不改变世界。"
     assert QUERY_MODELS["search_memory"].__doc__.strip() == "@brief " + TOOL_DESCRIPTIONS["search_memory"]
 
@@ -235,17 +236,17 @@ def test_prompt_fingerprint_is_recomputable_and_follows_the_sleep_rule(monkeypat
 
 
 def test_prompt_fingerprint_binds_only_the_life_system_layer_and_the_layer_schemas():
-    """提示指纹是只含 life 与 layer_schemas 两个键的模板的摘要：恰为新值，不再是绑定只读系统层的基线值。"""
+    """提示指纹是只含 life 与 layer_schemas 两个键的模板的摘要：恰为现行值，不再是绑定只读系统层的基线值。"""
     template = {"life": LIFE_SYSTEM_LAYER, "layer_schemas": LAYER_SCHEMAS}
     encoded = json.dumps(template, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
     assert life_prompt_sha256() == hashlib.sha256(encoded).hexdigest()
-    assert life_prompt_sha256() == "01c97ec05f1f3325f2c5a3f9420fa59712e5f3ec0c828ae0dd3c72c3906625e0"
+    assert life_prompt_sha256() == "46acf4e7e3a9f4da6368a16b29c168b3b76026bbd291bf38f5e7d19c87cdb9ec"
     assert life_prompt_sha256() != "1947c112bf46fd262cc159d4163a3831a0aa55d42c70ad7645ffd3ba40524a05"
 
 
 def test_the_life_system_layer_bytes_and_the_tool_fingerprint_are_unchanged():
-    """生活决策 system 消息正文的摘要与八个原生工具的工具指纹都与基线相同。"""
+    """生活决策 system 消息正文的摘要与九个原生工具的工具指纹都与现行定稿相同。"""
     content = system_message()["content"]
     assert hashlib.sha256(content.encode()).hexdigest() == (
-        "cf3bd9d6111e34b77aa219f39bc813ada945643d0a3a799d5b232c13a08401c0")
-    assert life_tool_schema_sha256() == "aa0ed7fa01f00558ac94d6e25e71a36d983f25dbb06834c2c31911cffec5bd7e"
+        "3562ca78442691c6a868a45ea2defcc151e2311955823802d9cbd90896eace5f")
+    assert life_tool_schema_sha256() == "3b31686efb6c5f218bd8bd2faf17dfa142c8e2b09a813680bdfefdd509ade17d"

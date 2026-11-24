@@ -34,7 +34,7 @@ def activity(identity, action, started, now, **fields):
         planned_duration_seconds=1800, destination_id="office" if action == "travel" else None,
         travel_method_id=fields.get("method", "driving") if action == "travel" else None,
         resource_claims={"first" if action == "travel" else "second"}, origin_action_id=identity,
-        origin_decision_id="decision", origin_request_event_id="request", data=data,
+        origin_wakeup_id="wakeup", origin_request_event_id="request", data=data,
         concluded_at=fields.get("concluded_at"))
 
 
@@ -46,7 +46,7 @@ def world(now, *activities, foreground=None):
     agent = AgentState(agent_id=1, name="林舟", location_id="home", balance_account_id="agent:1", body=body,
                        body_settled_at=now, next_decision_at=now, navigation_foreground=foreground)
     return WorldState(schema_version=WORLD_SCHEMA_VERSION, version=0, current_time=now, end_time=DEPART + 86400,
-                      run_id="navigation", timezone="Asia/Shanghai", persona_sha256="0" * 64,
+                      run_id="navigation", timezone="Asia/Shanghai", persona_sha256s={1: "0" * 64},
                       config_sha256="1" * 64, agents={1: agent}, accounts={"agent:1": 0, "external:scenario": 0},
                       activities=list(activities), random_seed=7,
                       random_state="navigation-tests")

@@ -49,7 +49,7 @@ class InteractivityRuntime:
         :returns: （世界，活动，取件的收货草稿与减 1 的 consume_on_start 草稿）。
         """
         agent = state.agents[pending.agent_id]
-        origin = _activity_origin(state, pending)
+        origin = _activity_origin(pending.action_id, pending.wakeup_id, pending.requested_event_id)
         if row["kind"] == "app":
             request = ContentRequest(agent.agent_id, row["object_id"], stay_location_id,
                                      f"activity-{origin.action_id}")
@@ -57,7 +57,8 @@ class InteractivityRuntime:
         else:
             label, duration, data = self._unit_plan(agent, row["selected_action"])
         params = ActivityStartParams("interact", duration, data=data)
-        agent, activity = start_activity(agent, params, state.current_time, origin, self.context.body)
+        agent, activity = start_activity(agent, params, state.current_time, origin,
+                                         self.context.bodies[agent.agent_id])
         activity = activity.model_copy(update={"name": activity_name("进行", label, state.current_time,
             state.timezone), "media_position_seconds": data.get("start_position_seconds", 0.0)}, deep=True)
         activity = schedule_feedback(activity, state.current_time, self.context.config.activity_feedback_seconds)
@@ -165,7 +166,8 @@ class InteractivityRuntime:
         if effects is None:
             return state, evidence, []
         agent = state.agents[activity.agent_id]
-        body, settled, entries = settle_completion_effects(agent.body, effects, self.context.body, RELIEF_PER_HOUR)
+        body, settled, entries = settle_completion_effects(
+            agent.body, effects, self.context.bodies[agent.agent_id], RELIEF_PER_HOUR)
         changed = _put_agent(state, agent.model_copy(update={"body": body}, deep=True))
         flows = [{"resource": entry.resource, "owner": f"agent:{agent.agent_id}", "direction": entry.direction,
                   "amount": entry.amount, "cause": entry.cause} for entry in entries]

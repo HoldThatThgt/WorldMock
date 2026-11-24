@@ -67,7 +67,8 @@ def quote_goods(inputs, state: WorldState, agent_id: int, goods_id: str, prefer:
     if goods is None:
         raise BusinessRuleError("SUPPLY_NOT_FOUND")
     if goods.app_ids:
-        return courier_offer(inputs, state, goods, order_app(state, f"{goods_id}:courier", goods.app_ids, prefer))
+        return courier_offer(inputs, state, goods, (agent_id, order_app(state, f"{goods_id}:courier",
+                                                                         goods.app_ids, prefer)))
     here = present_location(state, agent_id)
     stores = tuple(key for key in sorted(inputs.catalog.goods_by_store)
                    if goods_id in inputs.catalog.goods_by_store[key])
@@ -139,16 +140,15 @@ def delivery_offer(inputs, state: WorldState, goods, route: tuple[str, str], her
                  f"{store}->{here}:delivery", meters, DELIVERY_PREP_SECONDS, delay)
 
 
-def courier_offer(inputs, state: WorldState, goods, app: str) -> Offer:
-    """@brief 经定好的下单 app 下单的快递报价：按本地日期边界到站，到站天数与运费按这个 app 的键取，不随查看次数改变。
-
-    :param app: 定好的下单 app 身份。
-    """
+def courier_offer(inputs, state: WorldState, goods, target: tuple[int, str]) -> Offer:
+    """@brief 经定好的下单 app 下单的快递报价：按本地日期边界到站，到站天数与运费按人物住处所在驿站取。"""
+    agent_id, app = target
     local = datetime.fromtimestamp(state.current_time, ZoneInfo(state.timezone))
     days_key = f"courier-days:{goods.goods_id}:{app}:{local.date().isoformat()}"
     days = random_stream(state.random_state, days_key).choice((2, 3, 4, 5))
     arrival = datetime.combine(local.date() + timedelta(days=days), time.min, local.tzinfo)
     fee = random_stream(state.random_state, f"courier-fee:{goods.goods_id}:{app}").choice((0, delivery_fee_fen()))
-    station = inputs.catalog.nearest_parcel_station(inputs.home_location_id)
+    home = inputs.home_location_ids[agent_id]
+    station = inputs.catalog.nearest_parcel_station(home)
     return Offer(goods.goods_id, None, app, station, int(arrival.timestamp()), "station_pickup", fee,
-                 inputs.home_location_id, (station,), None, 0, 0, None)
+                 home, (station,), None, 0, 0, None)

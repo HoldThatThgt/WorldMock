@@ -52,10 +52,10 @@ def awake_duty_edge_times(state: WorldState, inputs) -> list[int]:
 
 def _felt_levels(context, state, agent) -> dict[str, str]:
     """@brief 观察与唤醒共用同一餐时窗口和四个体感。"""
-    windows = meal_windows_by_agent(context.persona)[agent.agent_id]
+    windows = meal_windows_by_agent(context.persona_by_id.values())[agent.agent_id]
     values = felt_values(agent, local_hour(state.current_time, context.config.timezone), windows)
     return felt.summarize_felt_levels(values,
-        felt.EnergyReading(agent.body.energy_kcal, context.body.emergency_threshold_kcal))
+        felt.EnergyReading(agent.body.energy_kcal, context.bodies[agent.agent_id].emergency_threshold_kcal))
 
 def settle_engine_rhythm(context, staged: WorldState, boundary: RhythmBoundary) -> WorldState:
     """@brief 只结算实际清醒不适，不重复已经结算的社交和放松自然增长。
@@ -139,20 +139,23 @@ def _wake_snapshot(context, state: WorldState, agent, boundary: RhythmBoundary) 
         app_push_arrived="app_push" in flags, is_asleep=is_asleep(state, agent.agent_id))
 
 def decide_engine_rhythm(context, staged: WorldState, boundary: RhythmBoundary) -> WorldState:
-    """@brief 静默边界不调用模型；真实决策交付一次提醒并注解唯一身体草稿。"""
+    """@brief 静默边界不调用模型；真实决策交付一次提醒并注解唯一身体草稿；悬挂搜索中不触发常规唤醒。"""
     changed = staged.model_copy(deep=True)
-    for agent_id, agent in staged.agents.items():
+    for agent_id in sorted(staged.agents):
+        agent = staged.agents[agent_id]
         verdict = evaluate_wake_reasons(_wake_snapshot(context, staged, agent, boundary))
-        if verdict.decision_offered and not is_asleep(staged, agent_id):
+        offered = verdict.decision_offered
+        reasons = verdict.wake_reasons if offered else []
+        if offered and not is_asleep(staged, agent_id):
             agent = reminders.mark_reminded(agent, boundary.target)
-        next_at = boundary.target if verdict.decision_offered else next_decision_at(context, staged, agent)
-        changed.agents[agent_id] = agent.model_copy(update={"next_decision_at": next_at,
-            "pending_wake_reasons": verdict.wake_reasons if verdict.decision_offered else []}, deep=True)
+        next_at = boundary.target if offered else next_decision_at(context, staged, agent)
+        changed.agents[agent_id] = agent.model_copy(
+            update={"next_decision_at": next_at, "pending_wake_reasons": reasons}, deep=True)
         for draft in boundary.drafts:
             if draft.agent_id == agent_id and draft.data.get("kind") == "body_settlement":
-                draft.data.update(decision_offered=verdict.decision_offered, wake_reasons=verdict.wake_reasons)
+                draft.data.update(decision_offered=offered, wake_reasons=reasons)
                 validate_decision_rhythm(draft.data)
-        if verdict.decision_offered and not is_asleep(changed, agent_id):
+        if offered and not is_asleep(changed, agent_id):
             changed, drafts = errands.deliver_reminders(changed, agent_id)
             boundary.drafts.extend(drafts)
         for activity in active_activities(changed, agent_id):
@@ -161,13 +164,15 @@ def decide_engine_rhythm(context, staged: WorldState, boundary: RhythmBoundary) 
                     activity, boundary.target, context.config.activity_feedback_seconds))
     return changed
 
+
 def next_decision_at(context, state: WorldState, agent) -> int:
     """@brief 下一决策只取实际活动、身体、预排、提醒和班次边界。"""
     activities = active_activities(state, agent.agent_id)
-    factors = tuple((item.kind, shared_activity_factors(item, agent, context.body)) for item in activities)
+    body_cfg = context.bodies[agent.agent_id]
+    factors = tuple((item.kind, shared_activity_factors(item, agent, body_cfg)) for item in activities)
     clock = BoundaryClock(local_hour(state.current_time, context.config.timezone),
-                          meal_windows_by_agent(context.persona)[agent.agent_id])
-    seconds = next_shared_body_boundary_seconds(agent.body, factors, context.body, clock)
+                          meal_windows_by_agent(context.persona_by_id.values())[agent.agent_id])
+    seconds = next_shared_body_boundary_seconds(agent.body, factors, body_cfg, clock)
     candidate = next_decision_time(NextDecisionQuery(now=state.current_time,
         planned_end=min((item.planned_end_at for item in activities), default=None),
         felt_band_crossing_times=() if seconds is None else (state.current_time + seconds,),

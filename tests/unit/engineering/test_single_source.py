@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[3]
 OWNERS = {
     'src/worldmock/agents/prompt/life_prompt.py': ('life_user_layers', 'user_layer', 'last_progress_layer'),
     'src/worldmock/agents/prompt/prompt_schemas.py': ('USER_LAYER_NAMES',),
-    'src/worldmock/agents/protocol/react_loop.py': ('TURNS_EXHAUSTED', 'model_call_id'),
+    'src/worldmock/agents/protocol/agent_loop.py': ('TURNS_EXHAUSTED', 'model_call_id'),
     'src/worldmock/configuration/inputs/models.py': ('LEGACY_TEMPLATE_FIELDS', 'HourWindow', 'NonBlankText', 'Identity', 'Situation', 'Relationship', 'HabitDeclaration', 'Tastes'),
     'src/worldmock/configuration/inputs/warnings.py': ('INPUT_WARNING_CODES', 'InputWarning', 'frozen_input_warnings'),
     'src/worldmock/configuration/model/model_metadata.py': ('IndependentModelClient',),
@@ -57,7 +57,7 @@ OWNERS = {
     'src/worldmock/simulation_engine/commerce/fulfillment/order_notices.py': ('goods_names', 'goods_text', 'shipping_schedule'),
     'src/worldmock/simulation_engine/commerce/purchase/order_apps.py': ('order_app_ids', 'preferred_app_id', 'selling_app_ids'),
     'src/worldmock/simulation_engine/evidence/activity.py': ('app_use_ended', 'OUTCOME_APP_USE_ENDED'),
-    'src/worldmock/simulation_engine/evidence/stays.py': ('stay_events', 'run_start_event'),
+    'src/worldmock/simulation_engine/evidence/stays.py': ('stay_events', 'run_start_event', 'run_start_events'),
     'src/worldmock/simulation_engine/observation/memory/layout.py': ('MEMORY_LAYER_CHARS', 'MEMORY_BACKSTOP_CHARS', 'PublishedEntry', 'TodayFold', 'earliest_date', 'assemble_layer', 'layer_chars', 'require_budget', 'fold_entry', 'fold_items'),
     'src/worldmock/simulation_engine/observation/wording/activity_titles.py': ('progress_snapshot',),
     'src/worldmock/simulation_engine/observation/wording/content_prerequisite.py': ('prerequisite_unmet', 'app_prerequisite_refusal', 'time_phrase', 'app_time_state'),
@@ -155,10 +155,9 @@ def test_production_shared_rules_have_one_owner_and_no_business_clones():
 def test_observation_offers_only_current_actions_without_retired_resource_gate(engine_factory):
     """@brief 真实观察只提供五个现行动作，活动工具不附加退役资源门。"""
     engine = engine_factory()
-    from tests.life.conftest import context
-
-    data = engine.observe(context(engine, "actions"))
-    assert data["known_activity_actions"] == ["travel", "purchase", "sleep", "interact", "query"]
+    [wakeup] = engine.prepare_barrier()
+    data = wakeup.observation
+    assert data["known_activity_actions"] == ["travel", "purchase", "sleep", "interact", "search"]
     assert not {"affordance_contract", "game_boundary", "energy_projection"} & data.keys()
 
 

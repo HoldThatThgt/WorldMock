@@ -13,8 +13,8 @@ from tests.life.conftest import (
     do_at,
     pause_request,
     purchase,
-    query,
     report_request,
+    search_world,
     travel,
     use_app,
 )
@@ -303,19 +303,19 @@ def test_purchase_row_reports_the_actual_channel_when_prefer_cannot_be_used(engi
     assert "饿了么" not in noodles and "美团外卖" not in tea
 
 
-def test_query_row_names_what_was_looked_up_and_the_app(engine_factory, tmp_path, capsys):
-    """真实引擎做完一次带 app 的查询和一次没有 app 的查询：时间线各一行，名称按所写次序（类别写中文类别名），
+def test_search_row_names_what_was_looked_up_and_the_app(engine_factory, tmp_path, capsys):
+    """真实引擎做完一次带 app 的搜索和一次没有 app 的搜索：时间线各一行，名称按所写次序，
     带 app 的加「（<app 名>）」，没有 app 的不加括号，标签检查零发现；inspect_run 的活动进度行写同一句。"""
     engine = engine_factory()
     looked = []
-    for label, request in (("meals", query("食品", "柠檬茶", prefer="美团")), ("tissue", query("纸巾"))):
+    for label, request in (("meals", search_world("食品 柠檬茶", prefer="美团")), ("tissue", search_world("纸巾"))):
         _, started = act(engine, label, request)
         assert started.status == "in_progress", started.error_code
         looked.append(finish_activity(engine, started, label))
-    assert [(item.kind, item.status, item.data["app_id"]) for item in looked] == [
-        ("query", "completed", "meituan"), ("query", "completed", None)]
-    labels = _labels(engine, tmp_path / "out", "查询")
-    assert labels == ["查询食品、柠檬茶（美团）", "查询纸巾"]
+    assert [(item.kind, item.status, item.data["app_id"], item.data["scoped"]) for item in looked] == [
+        ("search", "completed", "meituan", True), ("search", "completed", "eleme", False)]
+    labels = _labels(engine, tmp_path / "out", "搜索")
+    assert labels == ["搜索食品 柠檬茶（美团）", "搜索纸巾"]
     assert not [(label, found) for label in labels for found in label_findings(label)]
     with inspect_run._connect(engine.context.store.run_dir) as conn:
         inspect_run.cmd_events(conn, argparse.Namespace(run_dir=engine.context.store.run_dir,
@@ -324,7 +324,9 @@ def test_query_row_names_what_was_looked_up_and_the_app(engine_factory, tmp_path
     for item, phrase in zip(looked, labels):
         *_, last = [row.event_seq for row in events(engine, "activity_progress") if row.activity_id == item.activity_id]
         [line] = [line for line in lines if line.startswith(f"[{last:>5}]")]
-        assert line.endswith(f" {phrase} → completed")
+        assert line.endswith(f" {phrase} → active")
+        terminal = [row for row in events(engine, "action_result") if row.activity_id == item.activity_id][-1]
+        assert terminal.data["status"] == "completed"
 
 
 def test_merges_consecutive_progress_of_same_activity(tmp_path):

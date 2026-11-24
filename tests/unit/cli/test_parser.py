@@ -10,7 +10,7 @@ def test_current_commands_require_their_explicit_inputs():
     validated = parser.parse_args(["validate", "--environment", "environment"])
     assert str(validated.environment) == "environment"
     run = parser.parse_args(["run", "--environment", "environment", "--output", "run"])
-    assert run.same_second_continuation == "on"
+    assert (str(run.environment), str(run.output)) == ("environment", "run")
     commands = next(action for action in parser._actions if action.dest == "command")
     assert set(commands.choices) == {"validate", "run", "resume", "replay", "status", "export"}
 
@@ -19,6 +19,7 @@ def test_current_commands_require_their_explicit_inputs():
     ["category"], ["environment", "generate-map"], ["validate"],
     ["validate", "--environment", "env", "--scenario", "old.json"],
     ["run", "--scenario", "old.json", "--output", "run"],
+    ["run", "--environment", "env", "--output", "run", "--same-second-continuation", "on"],
     ["resume", "--environment", "env", "--output", "run"],
     ["profile"], ["profile", "compile", "--persona", "persona.toml"],
     ["profile", "check", "--persona", "persona.toml"], ["profile", "validate", "--environment", "env"],

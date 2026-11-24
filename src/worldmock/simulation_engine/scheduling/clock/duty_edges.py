@@ -31,7 +31,7 @@ def duty_edges(inputs: Any, agent_id: int, moment: int) -> Iterator[tuple[int, s
     @param agent_id 人物身份
     @param moment 查询时刻（UTC epoch 秒）
     """
-    schedule = inputs.persona.work_schedule
+    schedule = inputs.persona_by_id[agent_id].work_schedule
     if schedule is None:
         return
     zone = ZoneInfo(inputs.config.timezone)

@@ -25,7 +25,9 @@ class CommittedWorldGuard:
         from worldmock.simulation_engine.engine import LifeEngine
 
         for name in public_methods(LifeEngine):
-            monkeypatch.setattr(LifeEngine, name, self._guarded(getattr(LifeEngine, name)))
+            method = getattr(LifeEngine, name)
+            assert not inspect.iscoroutinefunction(method), f"LifeEngine.{name} must be synchronous"
+            monkeypatch.setattr(LifeEngine, name, self._guarded(method))
 
     def _guarded(self, method):
         """@brief 调用前后各编码一次调用开始时的世界对象；字节不同即记一条，原异常照常抛出。"""

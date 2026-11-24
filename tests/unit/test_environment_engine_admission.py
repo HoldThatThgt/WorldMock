@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import pytest
 
-from tests.life.conftest import MAIN_TOOL, SIDE_TOOL, context, purchase, tool_of, travel, use_app
-from tests.life.environment_runtime import act
+from tests.life.conftest import MAIN_TOOL, SIDE_TOOL, purchase, tool_of, travel, use_app
+from tests.life.environment_runtime import act, observe_only
 from worldmock.simulation_engine.activities.lifecycle.activity_control import open_activities
 from worldmock.state.interaction.actions import binding_action
 from worldmock.simulation_engine.actions.admission import Blocked, Call, Context, group_refusal
@@ -33,7 +33,7 @@ def world() -> WorldState:
     session = SessionState(session_id="session", agent_id=1, kind=SessionKind.STAY, location_id="home",
         status=SessionStatus.ACTIVE, started_at=100, name="Home")
     return WorldState(schema_version=WORLD_SCHEMA_VERSION, version=0, current_time=100, end_time=10000,
-        run_id="run", timezone="UTC", persona_sha256="a"*64, config_sha256="b"*64,
+        run_id="run", timezone="UTC", persona_sha256s={1: "a"*64}, config_sha256="b"*64,
         agents={1:agent}, accounts={"agent:1":10000,"external:scenario":-10000}, sessions={"session":session},
         random_seed=1, random_state="frozen")
 
@@ -46,7 +46,7 @@ def running(action: str, kind: ActivityKind, slot: str, *, presence: bool = Fals
     return ActivityState(activity_id="active", agent_id=1, location_id="home", kind=kind,
         status=ActivityStatus.ACTIVE, started_at=100, planned_end_at=1000, last_settled_at=100,
         elapsed_seconds=0, planned_duration_seconds=900, resource_claims={slot}, origin_action_id="action",
-        origin_decision_id="decision", origin_request_event_id="requested", data=data, name="Activity")
+        origin_wakeup_id="wakeup", origin_request_event_id="requested", data=data, name="Activity")
 
 
 def occupied(activity: ActivityState) -> WorldState:
@@ -207,7 +207,7 @@ def test_app_interaction_and_each_travel_can_share_distinct_slots(engine_factory
     _, watching = act(engine, "watch", use_app("哔哩哔哩"))
     assert watching.status == "in_progress"
     assert engine.context.state.activities[watching.activity_id].resource_claims == {"second"}
-    observed = engine.observe(context(engine, "leave"))
+    observed = observe_only(engine, "leave")
     call = observed_call(observed, travel("公司", method))
     assert call.slot == "first"
     assert engine_refusal(engine, observed, [call]) is None
@@ -215,7 +215,7 @@ def test_app_interaction_and_each_travel_can_share_distinct_slots(engine_factory
 
 def test_several_goods_in_one_purchase_call_share_the_second_slot(engine_factory):
     engine = engine_factory(mutate=at_store)
-    observed = engine.observe(context(engine, "basket"))
+    observed = observe_only(engine, "basket")
     call = observed_call(observed, purchase("柠檬茶", "纸巾", "柠檬茶"))
     assert call.slot == "second" and call.goods_ids == ("lemon-tea", "tissue", "lemon-tea")
     assert engine_refusal(engine, observed, [call]) is None
@@ -227,7 +227,7 @@ def test_only_an_in_store_purchase_blocks_departure(engine_factory):
     _, buying = act(engine, "buy", purchase("柠檬茶"))
     assert buying.status == "in_progress"
     name = engine.context.state.activities[buying.activity_id].name
-    observed = engine.observe(context(engine, "leave"))
+    observed = observe_only(engine, "leave")
     assert engine_refusal(engine, observed, [observed_call(observed, travel("公司"))]) == Blocked(
         Refusal("ACTIVITY_PRECONDITION_UNMET", f"Conclude {name} before departure.", f"Conclude {name}.",
                 ("activities_before_departure",)), (MAIN_TOOL,))
@@ -236,7 +236,7 @@ def test_only_an_in_store_purchase_blocks_departure(engine_factory):
 @pytest.mark.parametrize("reverse", [False, True])
 def test_in_store_purchase_cannot_start_in_the_same_group_as_departure(engine_factory, reverse):
     engine = engine_factory(mutate=at_store)
-    observed = engine.observe(context(engine, "group"))
+    observed = observe_only(engine, "group")
     calls = [observed_call(observed, travel("公司")), observed_call(observed, purchase("柠檬茶"))]
     assert engine_refusal(engine, observed, list(reversed(calls)) if reverse else calls) == Blocked(
         Refusal("ACTIVITY_PRECONDITION_UNMET", "A local purchase cannot start with departure.",

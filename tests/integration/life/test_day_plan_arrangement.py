@@ -34,10 +34,12 @@ _WORKING_TUESDAY = {"date": "2026-01-06", "weekday": "星期二", "day": "工作
 def _planned_and_observed(engine):
     """运行开始那一刻：零点计划经生产入口执行一次（桩记下请求），再观察一次。返回（零点计划请求，用户消息的输入，
     观察，落库的这次观察的环境层）。"""
-    client = StubPlanDayClient({"requested_model": engine.context.config.model.requested_model})
+    cfg = engine.context.config
+    client = StubPlanDayClient({"requested_model": cfg.models[cfg.model_routing.plan_day].requested_model})
     settle_midnight_tasks(engine, client)
     [request] = client.calls
     observed = observe_only(engine, "arrangement")
+    act(engine, "arrangement", do_at("家", "测试休息"))
     stored = engine.context.store.read_agent_events("observation", 1)[-1].data["environment_layer"]
     return request, json.loads(request["messages"][1]["content"]), observed, stored
 

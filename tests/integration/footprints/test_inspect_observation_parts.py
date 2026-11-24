@@ -4,8 +4,8 @@ import argparse
 import json
 
 from scripts import inspect_run
-from tests.life.conftest import do_at, stage_day_plan
-from tests.life.environment_runtime import act, observe_only
+from tests.life.conftest import activity_name, conclude_request, do_at, stage_day_plan
+from tests.life.environment_runtime import act, until_ended
 from worldmock.foundation.serialization import canonical_json
 
 
@@ -22,10 +22,11 @@ def _run(engine, command, capsys, **arguments):
 def test_event_and_events_print_the_complete_observation(engine_factory, capsys):
     engine = engine_factory()
     stage_day_plan(engine)
-    act(engine, "rest", do_at("家", "测试休息"))
-    observed = observe_only(engine, "after-rest")
+    _, rested = act(engine, "rest", do_at("家", "测试休息"))
+    until_ended(engine, rested.activity_id)
+    act(engine, "after-rest", conclude_request(activity_name(engine, rested.activity_id)))
     store = engine.context.store
-    event = store.read_event(observed["observation_event_id"])
+    event = store.read_agent_events("observation", 1)[-1]
     seq = event.event_seq
     full_row = dict(json.loads(canonical_json(event.model_dump())), seq=seq)
     printed = _run(engine, inspect_run.cmd_event, capsys, seq=seq)

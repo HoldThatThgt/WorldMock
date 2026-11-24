@@ -214,7 +214,7 @@ def test_valid_efficiency_curve_interpolates_actual_nodes_and_keeps_boundary_fac
 
 def _mass_inputs(mass_kg, hour):
     """夹具人设只换体重，经真实人设模型装配身体结算视图与给定钟点的初始身体。"""
-    raw = tomllib.loads((ENVIRONMENT_ROOT / "persona.toml").read_text(encoding="utf-8"))
+    raw = tomllib.loads(next((ENVIRONMENT_ROOT / "personas").glob("*.toml")).read_text(encoding="utf-8"))
     persona = PersonaConfig.model_validate({**raw, "body": {**raw["body"], "mass_kg": mass_kg}})
     config = assemble_body_config(persona)
     body = initial_body(config, hour, persona)

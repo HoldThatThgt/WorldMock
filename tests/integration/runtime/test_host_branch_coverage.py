@@ -37,7 +37,6 @@ from worldmock.runtime.lifecycle.runner import (
 )
 from worldmock.runtime.framework.setup import runtime_code_sha256
 from worldmock.runtime.monitoring.status import read_status, write_status
-from worldmock.runtime.framework.setup import validate_stage_model_identity
 
 ROOT = Path(__file__).resolve().parents[3]
 SCENARIO = ENVIRONMENT_ROOT
@@ -65,14 +64,14 @@ def _prepared_stub(tmp_path, **overrides):
         run_id="child", run_dir=tmp_path, run_identity=None, intervention=None, intervention_sha256=None,
         inputs=SimpleNamespace(config=SimpleNamespace(timezone="UTC")),
         start_time=datetime(2026, 1, 5, tzinfo=ZoneInfo("UTC")),
-        stage_identity={}, agents={1: "frozen-inputs"}, memory_records={1: ()},
+        agents={1: "frozen-inputs"}, memory_records={1: ()},
     )
     base.update(overrides)
     return SimpleNamespace(**base)
 
 
 def _host_stub(monkeypatch, close_error=None) -> list:
-    """把运行宿主换成记录调用的替身（关闭可抛出给定异常），把构造模型客户端的唯一一处换成返回哨兵的函数；
+    """把运行宿主换成记录调用的替身（关闭可抛出给定异常），把构造模型注册表的唯一一处换成返回空注册表的函数；
     返回构造出的替身列表。"""
     import worldmock.runtime.lifecycle.runner as runtime
     from worldmock.runtime.lifecycle import run_host
@@ -105,8 +104,11 @@ def _host_stub(monkeypatch, close_error=None) -> list:
             if close_error is not None:
                 raise close_error
 
+    async def _noop() -> None:
+        return None
+
     monkeypatch.setattr(run_host, "RunHost", _Host)
-    monkeypatch.setattr(runtime, "_model_client", lambda prepared: object())
+    monkeypatch.setattr(runtime, "_model_registry", lambda prepared: SimpleNamespace(close=_noop))
     return built
 
 
@@ -371,7 +373,7 @@ def test_read_status_reports_event_wall_time_and_runtime(tmp_path):
                                   {"version": 0, "current_time": 100, "end_time": 200,
                                    "activities": [], "agents": {}})
     store.append_evidence([EventDraft(event_type="observation", occurred_at=100,
-                                      agent_id=1, decision_id="d1",
+                                      agent_id=1, wakeup_id="d1",
                                       data={"balance_fen": 800})])
     store.close()
     write_status(tmp_path / "run", "completed", "stopped")

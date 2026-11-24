@@ -47,7 +47,7 @@ from worldmock.simulation_engine.observation.wording.settled_text import (
     receipt_phrase,
     track_kits,
 )
-from worldmock.state.interaction.actions import START_TOOLS
+from worldmock.state.interaction.actions import SEARCH_TOOL, START_TOOLS
 from worldmock.state.interaction.control_items import CONTROL_TOOLS, control_items
 from worldmock.state.model.memory import MEMORY_CATEGORIES, MemoryCategory
 from worldmock.state.planning.errands import CANCELLED_KIND, COMPLETED_KIND, REGISTERED_KIND, UPDATED_KIND
@@ -75,7 +75,7 @@ CLOSING_CLOCK = "24:00"
 #: 四种自述前缀。
 PROGRESS_PREFIX, VIEW_PREFIX, MEMORY_PREFIX, BODY_PREFIX = "进展·", "看法·", "记住：", "正文："
 #: 核验行的种类闭集。
-LINE_KINDS = ("ending", "purchase", "delivery", "pickup", "receipt", "errand_done", "query", "pause", "start",
+LINE_KINDS = ("ending", "purchase", "delivery", "pickup", "receipt", "errand_done", "search", "pause", "start",
               "rejection", "errand_change", "revise", "fallback", "crossing")
 #: 自述项的种类闭集与渲染次序档位（routine 只进全文）。
 SELF_RANKS = {"summary": 0, "progress": 0, "view": 1, "memory": 2, "routine": 2, "body": 3}
@@ -110,10 +110,14 @@ class AgentEvents:
     snapshots: dict[str, list[tuple[int, ActivityState]]] = field(default_factory=dict)
     #: 动作身份 → 这条动作的第一条 action_result（受理、拒绝或中止那一刻）。
     first_results: dict[str, Event] = field(default_factory=dict)
-    #: 决策身份 → C_j。
-    commits: dict[str, int] = field(default_factory=dict)
-    #: 决策身份 → 已建的今天条目。
-    entries: dict[str, "TodayEntry"] = field(default_factory=dict)
+    #: (wakeup_id, local_date) → 提交末序号 C_j、非重叠事件窗口序列与计入请求条数（同日恢复合并时刷新）。
+    commits: dict[tuple[str, str], int] = field(default_factory=dict)
+    commit_spans: dict[tuple[str, str], tuple[tuple[int, int], ...]] = field(default_factory=dict)
+    commit_counts: dict[tuple[str, str], int] = field(default_factory=dict)
+    #: 连续请求片段 (key, start_seq, end_seq) → 提交末序号缓存。
+    slice_commits: dict[tuple[tuple[str, str], int, int], int] = field(default_factory=dict)
+    #: (wakeup_id, local_date) → 已建的今天条目。
+    entries: dict[tuple[str, str], "TodayEntry"] = field(default_factory=dict)
     #: 日期 → B_D（day_bound 的返回值，03 章）。
     day_bounds: dict[str, int] = field(default_factory=dict)
     #: 日期 → 零点收尾条目（没有时为 None）。
@@ -127,10 +131,11 @@ _CACHE: WeakKeyDictionary[FootprintStore, dict[int, AgentEvents]] = WeakKeyDicti
 
 
 @dataclass(frozen=True, slots=True)
-class Decision:
-    """@brief 一次决策：身份、决策时刻（首条世界请求的发生时刻）与提交末序号 C_j。"""
+class WakeupCommit:
+    """@brief 按 (wakeup_id, local_date) 归并的一次唤醒提交窗口：唤醒身份、本地日期、首条请求发生时刻与提交末序号 C_j。"""
 
-    decision_id: str
+    wakeup_id: str
+    local_date: str
     occurred_at: int
     commit: int
 
@@ -161,10 +166,10 @@ class SelfItem:
 
 @dataclass(frozen=True, slots=True)
 class TodayEntry:
-    """@brief 一条今天条目或零点收尾条目：日期、决策、时刻、类别串、各行、各项、主请求、点名活动与渲染形状。"""
+    """@brief 一条今天条目或零点收尾条目：日期、唤醒身份、时刻、类别串、各行、各项、主请求、点名活动与渲染形状。"""
 
     day: str
-    decision_id: str | None
+    wakeup_id: str | None
     clock: str
     category: str
     lines: tuple[EntryLine, ...]
@@ -189,7 +194,7 @@ class _Scope:
     book: CategoryBook
     store: FootprintStore | None
     cached: AgentEvents
-    window: tuple[int, int]
+    windows: tuple[tuple[int, int], ...]
     day: str
     clock: str
 
@@ -219,9 +224,9 @@ class _Note:
 
 @dataclass(frozen=True, slots=True)
 class _Head:
-    """@brief 条目的决策部分：决策身份、主请求与它的第一条结果、受理的控制请求点名的活动；零点收尾条目全为空。"""
+    """@brief 条目的唤醒部分：唤醒身份、主请求与它的第一条结果、受理的控制请求点名的活动；零点收尾条目全为空。"""
 
-    decision_id: str | None
+    wakeup_id: str | None
     primary: Event | None
     result: Event | None
     activity_ids: tuple[str, ...]
@@ -297,51 +302,79 @@ def activity_facts(cached: AgentEvents) -> ActivityFacts:
                          cached.kits.uses)
 
 
-def decision_commits(store: FootprintStore, cached: AgentEvents, cutoff: int) -> tuple[Decision, ...]:
-    """@brief 组内最小事件序号不超过 cutoff 的各次决策，按次序；C_j 是这次决策第一条结果所在提交的末序号，算出后缓存。
-
-    序号大于 cutoff 的 action_requested 不构成决策，也不查它的结果。
-    """
-    groups: dict[str, list[Event]] = {}
+def _commit_runs(cached: AgentEvents, cutoff: int, timezone: str) -> list[tuple[tuple[str, str], list[Event]]]:
+    """@brief 把截止序号以内的请求按连续 (wakeup_id, local_date) 片段分组，并校验每条请求均有首条结果。"""
+    runs: list[tuple[tuple[str, str], list[Event]]] = []
     for event in cached.events["action_requested"]:
         if event.event_seq > cutoff:
             break
-        groups.setdefault(event.decision_id, []).append(event)
-    decisions = []
-    for decision_id, requests in groups.items():
-        if decision_id not in cached.commits:
-            results = [cached.first_results[item.action_id] for item in requests
-                       if item.action_id in cached.first_results]
-            if not results:
-                raise _fail("Decision world request has no committed result")
-            cached.commits[decision_id] = store.commit_last_seq(min(event.event_seq for event in results))
-        decisions.append(Decision(decision_id, requests[0].occurred_at, cached.commits[decision_id]))
-    return tuple(decisions)
+        if event.action_id not in cached.first_results:
+            raise _fail("Wakeup world request has no committed result")
+        key = (event.wakeup_id or "", local_date(event.occurred_at, timezone))
+        if runs and runs[-1][0] == key:
+            runs[-1][1].append(event)
+        else:
+            runs.append((key, [event]))
+    return runs
 
 
-def build_entry(book: CategoryBook, store: FootprintStore, cached: AgentEvents, decision: Decision,
-                lower: int) -> TodayEntry:
-    """@brief 窗口 (lower, decision.commit] 上的决策条目，存进 cached.entries；只读事件与冻结输入，不读世界状态。
+def _slice_end(store: FootprintStore, cached: AgentEvents, key: tuple[str, str], reqs: list[Event]) -> int:
+    """@brief 求单个连续提交片段的事务末序号并按片段起止序号缓存。"""
+    cache_key = (key, reqs[0].event_seq, reqs[-1].event_seq)
+    if cache_key not in cached.slice_commits:
+        max_res = max(cached.first_results[item.action_id].event_seq for item in reqs)
+        cached.slice_commits[cache_key] = store.commit_last_seq(max_res)
+    return cached.slice_commits[cache_key]
 
-    :param lower: 窗口下界 max(C_{k-1}, B_D)，由调用方给出（【E4】）。
-    """
-    day = local_date(decision.occurred_at, book.timezone)
-    scope = _Scope(book, store, cached, (lower, decision.commit), day,
-                   entry_clock(decision.occurred_at, day, book.timezone))
-    requests = [event for event in _between(cached, "action_requested", scope.window)
-                if event.decision_id == decision.decision_id]
+
+def wakeup_commits(store: FootprintStore, cached: AgentEvents, cutoff: int, timezone: str) -> tuple[WakeupCommit, ...]:
+    """@brief 组内最小事件序号不超过 cutoff 的各次 (wakeup_id, local_date) 窗口；同日恢复合并保留不重叠片段。"""
+    groups: dict[tuple[str, str], list[Event]] = {}
+    spans: dict[tuple[str, str], list[tuple[int, int]]] = {}
+    prev_end = 0
+    for key, reqs in _commit_runs(cached, cutoff, timezone):
+        end_seq = _slice_end(store, cached, key, reqs)
+        groups.setdefault(key, []).extend(reqs)
+        spans.setdefault(key, []).append((prev_end, end_seq))
+        prev_end = end_seq
+    commits = []
+    for key, requests in groups.items():
+        if cached.commit_counts.get(key) != len(requests) or key not in cached.commits:
+            cached.commits[key] = spans[key][-1][1]
+            cached.commit_spans[key] = tuple(spans[key])
+            cached.commit_counts[key] = len(requests)
+            cached.entries.pop(key, None)
+        commits.append(WakeupCommit(key[0], key[1], requests[0].occurred_at, cached.commits[key]))
+    return tuple(commits)
+
+
+def build_entry(book: CategoryBook, store: FootprintStore, cached: AgentEvents,
+                commit: WakeupCommit, lower: int) -> TodayEntry:
+    """@brief 唤醒提交对应非重叠窗口上的今天条目，存进 cached.entries；只读事件与冻结输入。"""
+    day = commit.local_date
+    raw_spans = cached.commit_spans.get((commit.wakeup_id, day))
+    windows = (tuple((max(lo, lower), hi) for lo, hi in raw_spans if hi > lower)
+               if raw_spans else ((lower, commit.commit),))
+    scope = _Scope(book, store, cached, windows, day, entry_clock(commit.occurred_at, day, book.timezone))
+    requests = [event for event in _between_spans(cached, "action_requested", scope.windows)
+                if event.wakeup_id == commit.wakeup_id and local_date(event.occurred_at, book.timezone) == day]
     results = [_first_result(cached, request) for request in requests]
-    accepted = _accepted(results)
-    drafts = [*_settled_drafts(scope), *_own_drafts(scope, requests, results, accepted)]
-    notes = _notes(requests, results, accepted)
+    _validate_entry_results(results)
+    drafts = [*_settled_drafts(scope), *_own_drafts(scope, requests, results)]
+    notes = _notes(requests, results)
     if not drafts and all(note.kind == "routine" for note in notes):
-        drafts = [_fallback_draft(requests[0], results[0])]
-    primary = primary_request(requests)
-    controls = (tuple(_control_ids(requests[0], results[0]))
-                if accepted and requests[0].data["tool_name"] in CONTROL_TOOLS else ())
-    head = _Head(decision.decision_id, primary, results[requests.index(primary)], controls)
+        ctl = next(((req, res) for req, res in zip(requests, results)
+                    if res.data.get("status") in _ACCEPTED and req.data["tool_name"] in CONTROL_TOOLS), None)
+        if ctl is not None:
+            drafts = [_fallback_draft(ctl[0], ctl[1])]
+    accepted_reqs = [req for req, res in zip(requests, results) if res.data.get("status") in _ACCEPTED]
+    primary = primary_request(accepted_reqs or requests)
+    controls = tuple(cid for req, res in zip(requests, results)
+                     if res.data.get("status") in _ACCEPTED and req.data["tool_name"] in CONTROL_TOOLS
+                     for cid in _control_ids(req, res))
+    head = _Head(commit.wakeup_id, primary, results[requests.index(primary)], controls)
     entry = _assemble(scope, drafts, notes, head)
-    cached.entries[decision.decision_id] = entry
+    cached.entries[(commit.wakeup_id, day)] = entry
     return entry
 
 
@@ -351,11 +384,18 @@ def build_closing_entry(book: CategoryBook, cached: AgentEvents, day: str,
 
     :param window: (max(C_last(D), B_D), B_{D+1})。
     """
-    scope = _Scope(book, None, cached, window, day, CLOSING_CLOCK)
+    scope = _Scope(book, None, cached, (window,), day, CLOSING_CLOCK)
     drafts = [*_settled_drafts(scope), *_crossing_drafts(scope)]
     if not drafts:
         return None
     return _assemble(scope, drafts, [], _Head(None, None, None, ()))
+
+
+def _between_spans(cached: AgentEvents, name: str, windows: tuple[tuple[int, int], ...]) -> list[Event]:
+    """@brief 某类本人事件中序号落在多段非重叠窗口内的部分，按原事件序号升序。"""
+    if len(windows) == 1:
+        return _between(cached, name, windows[0])
+    return [event for span in windows for event in _between(cached, name, span)]
 
 
 def _between(cached: AgentEvents, name: str, window: tuple[int, int]) -> list[Event]:
@@ -366,25 +406,21 @@ def _between(cached: AgentEvents, name: str, window: tuple[int, int]) -> list[Ev
 
 
 def _first_result(cached: AgentEvents, request: Event) -> Event:
-    """@brief 一条世界请求的第一条 action_result（F_i）；没有时这次决策没有结算。"""
+    """@brief 一条世界请求的第一条 action_result（F_i）；没有时这次唤醒没有结算。"""
     result = cached.first_results.get(request.action_id)
     if result is None:
-        raise _fail("Decision world request has no committed result")
+        raise _fail("Wakeup world request has no committed result")
     return result
 
 
-def _accepted(results: Sequence[Event]) -> bool:
-    """@brief 这次决策的各条请求是否受理：中止、受理与拒绝以外的状态、受理与拒绝混杂都是完整性故障。"""
-    statuses = [result.data.get("status") for result in results]
-    if any(status == "failed" and result.data.get("error_code") == "DECISION_ROUND_ABORTED"
-           for status, result in zip(statuses, results)):
-        raise _fail("Aborted decision has no today entry")
-    if any(status not in _ACCEPTED and status != "rejected" for status in statuses):
-        raise _fail("Decision result status cannot form a today entry")
-    verdicts = {status in _ACCEPTED for status in statuses}
-    if len(verdicts) != 1:
-        raise _fail("Decision results disagree")
-    return verdicts.pop()
+def _validate_entry_results(results: Sequence[Event]) -> None:
+    """@brief 核验唤醒内每条第一条结果均非中止且属于可组成今天条目的状态；允许同一唤醒内先后混合被拒与受理。"""
+    for result in results:
+        status = result.data.get("status")
+        if status == "failed" and result.data.get("error_code") in {"DECISION_ROUND_ABORTED", "WAKEUP_ABORTED"}:
+            raise _fail("Aborted wakeup has no today entry")
+        if status not in _ACCEPTED and status != "rejected":
+            raise _fail("Wakeup result status cannot form a today entry")
 
 
 def _control_ids(request: Event, result: Event) -> list[str]:
@@ -427,7 +463,7 @@ def _settled_drafts(scope: _Scope) -> list[_Draft]:
 def _purchase_drafts(scope: _Scope) -> list[_Draft]:
     """@brief 本人开始请求的 completed 结果里有已付款订单的，每个结果一行购买行，只写已付款的订单。"""
     found = []
-    for event in _between(scope.cached, "action_result", scope.window):
+    for event in _between_spans(scope.cached, "action_result", scope.windows):
         paid = tuple(order for order in placed_orders(event.data.get("data") or {}) if order.get("paid_at") is not None)
         if event.data.get("status") == "completed" and paid:
             found.append((event, paid))
@@ -440,19 +476,19 @@ def _purchase_drafts(scope: _Scope) -> list[_Draft]:
 
 
 def _ending_drafts(scope: _Scope, bought: set[str]) -> list[_Draft]:
-    """@brief 结束事件落在窗口里的本人活动：查询做完一行查完行，有购买行的购买活动不写，其余一行结束行。"""
-    lower, upper = scope.window
+    """@brief 结束事件落在窗口里的本人活动：搜索做完一行搜索行，有购买行的购买活动不写，其余一行结束行。"""
+    upper = scope.windows[-1][1]
     drafts = []
     for activity_id, ending in scope.cached.endings.items():
-        if not lower < ending.event_seq <= upper:
+        if not any(lo < ending.event_seq <= hi for lo, hi in scope.windows):
             continue
         seq, activity = _snapshot(scope.cached, activity_id, upper)
         if activity.status not in _TERMINAL:
             raise _fail("Ended activity has no terminal snapshot")
         if activity.kind == ActivityKind.PURCHASE and activity.origin_action_id in bought:
             continue
-        done = activity.kind == ActivityKind.QUERY and activity.status == ActivityStatus.COMPLETED
-        drafts.append(_Draft("query" if done else "ending", (ending.event_seq, 0, activity.started_at, activity_id),
+        done = activity.kind == ActivityKind.SEARCH and activity.status == ActivityStatus.COMPLETED
+        drafts.append(_Draft("search" if done else "ending", (ending.event_seq, 0, activity.started_at, activity_id),
                              _event_ids(ending, _result_at(scope.cached, seq)), (activity_id,)))
     return drafts
 
@@ -460,7 +496,7 @@ def _ending_drafts(scope: _Scope, bought: set[str]) -> list[_Draft]:
 def _world_drafts(scope: _Scope) -> list[_Draft]:
     """@brief 窗口里人物可见的送达与办成事件各自的行。"""
     drafts = []
-    for event in _between(scope.cached, "environment_event", scope.window):
+    for event in _between_spans(scope.cached, "environment_event", scope.windows):
         kind = event.data.get("kind")
         if event.visibility != "agent":
             continue
@@ -488,7 +524,7 @@ def _arrival_drafts(event: Event) -> list[_Draft]:
 
 def _crossing_drafts(scope: _Scope) -> list[_Draft]:
     """@brief 零点时仍在进行的本人活动各一行跨过零点行：零点前已开始、结束事件不在窗口上界以内、此刻没有暂停着。"""
-    upper = scope.window[1]
+    upper = scope.windows[-1][1]
     paused = _paused_at(scope.cached, upper)
     drafts = []
     for activity_id, rows in scope.cached.snapshots.items():
@@ -510,30 +546,42 @@ def _paused_at(cached: AgentEvents, upper: int) -> set[str]:
     return {activity_id for activity_id, kind in last.items() if kind == "activity_paused"}
 
 
-def _own_drafts(scope: _Scope, requests: Sequence[Event], results: Sequence[Event], accepted: bool) -> list[_Draft]:
-    """@brief 本次决策自己的行：被拒时一行被拒行；受理时依次是暂停行、开始行、个人事务变更行与改计划行。"""
-    pairs = sorted(zip(requests, results), key=lambda pair: _slot_rank(pair[0]))
-    sources = _event_ids(*requests, *results)
+def _own_drafts(scope: _Scope, requests: Sequence[Event], results: Sequence[Event]) -> list[_Draft]:
+    """@brief 本次唤醒自己的行：支持同一次唤醒内先拒绝再重试成功的归并。"""
+    pairs = list(zip(requests, results))
+    accepted = [(req, res) for req, res in pairs if res.data.get("status") in _ACCEPTED]
+    rejected = sorted([(req, res) for req, res in pairs if res.data.get("status") == "rejected"],
+                      key=lambda pair: _slot_rank(pair[0]))
     if not accepted:
-        return [_Draft("rejection", (), sources, (), tuple(request for request, _ in pairs))]
-    drafts = [_Draft("pause", (), _event_ids(request, result), (activity_id,))
-              for request, result in zip(requests, results) if request.data["tool_name"] == "pause_activity"
-              for activity_id in _control_ids(request, result)]
-    starts = [result.activity_id for request, result in pairs if request.data["tool_name"] in START_TOOLS]
+        return [_Draft("rejection", (), _event_ids(*requests, *results), (), tuple(req for req, _ in rejected))]
+    drafts: list[_Draft] = []
+    if rejected:
+        rej_src = _event_ids(*(r for r, _ in rejected), *(s for _, s in rejected))
+        drafts.append(_Draft("rejection", (), rej_src, (), tuple(req for req, _ in rejected)))
+    for req, res in accepted:
+        if req.data["tool_name"] == "pause_activity":
+            drafts.extend(_Draft("pause", (), _event_ids(req, res), (cid,)) for cid in _control_ids(req, res))
+    starts = sorted([(req, res) for req, res in accepted if req.data["tool_name"] in (*START_TOOLS, SEARCH_TOOL)],
+                    key=lambda pair: _slot_rank(pair[0]))
     if starts:
-        if any(identity is None for identity in starts):
+        ids = [res.activity_id for _, res in starts]
+        if any(identity is None for identity in ids):
             raise _fail("Accepted start has no started activity")
-        drafts.append(_Draft("start", (), sources, tuple(starts)))
-    drafts.extend(_errand_change_drafts(scope, requests))
-    if requests[0].data["tool_name"] == "revise_day_plan":
-        drafts.append(_Draft("revise", (), _event_ids(requests[0], results[0]), ()))
+        start_src = _event_ids(*(r for r, _ in starts), *(s for _, s in starts))
+        drafts.append(_Draft("start", (), start_src, tuple(ids)))
+    drafts.extend(_errand_change_drafts(scope, [req for req, _ in accepted]))
+    for req, res in accepted:
+        if req.data["tool_name"] == "revise_day_plan":
+            drafts.append(_Draft("revise", (), _event_ids(req, res), ()))
     return drafts
 
 
 def _slot_rank(request: Event) -> int:
-    """@brief 开始组里 start_main_activity 那条在前；其余请求保持原次序。"""
+    """@brief 开始组里 start_main_activity 在前、其余按开始/搜索顺排。"""
     tool = request.data["tool_name"]
-    return START_TOOLS.index(tool) if tool in START_TOOLS else 0
+    if tool in START_TOOLS:
+        return START_TOOLS.index(tool)
+    return 2 if tool == SEARCH_TOOL else 0
 
 
 def _errand_change_drafts(scope: _Scope, requests: Sequence[Event]) -> list[_Draft]:
@@ -542,7 +590,7 @@ def _errand_change_drafts(scope: _Scope, requests: Sequence[Event]) -> list[_Dra
     if not causes:
         return []
     return [_Draft("errand_change", (event.event_seq,), (event.event_id,), (), event)
-            for event in _between(scope.cached, "environment_event", scope.window)
+            for event in _between_spans(scope.cached, "environment_event", scope.windows)
             if event.data.get("kind") in _ERRAND_CHANGES and causes & set(event.caused_by)]
 
 
@@ -552,16 +600,16 @@ def _fallback_draft(request: Event, result: Event) -> _Draft:
                   request.data["tool_name"])
 
 
-def _notes(requests: Sequence[Event], results: Sequence[Event], accepted: bool) -> list[_Note]:
-    """@brief 本次决策的各项自述，按总结与进展、看法、记住、正文四档排列；同一档按请求里的先后。"""
+def _notes(requests: Sequence[Event], results: Sequence[Event]) -> list[_Note]:
+    """@brief 本次唤醒的各项自述，按总结与进展、看法、记住、正文四档排列；同一档按请求里的先后。"""
     notes: list[_Note] = []
-    if accepted:
-        for request, result in zip(requests, results):
-            if request.data["tool_name"] in CONTROL_TOOLS:
-                notes.extend(_control_notes(request, result))
-    body = requests[0].data.get("self_note")
-    if body is not None:
-        notes.append(_Note("body", body, None, (requests[0].event_id,), None))
+    for request, result in zip(requests, results):
+        if result.data.get("status") in _ACCEPTED and request.data["tool_name"] in CONTROL_TOOLS:
+            notes.extend(_control_notes(request, result))
+    for request in requests:
+        body = request.data.get("self_note")
+        if body is not None:
+            notes.append(_Note("body", body, None, (request.event_id,), None))
     return sorted(notes, key=lambda note: SELF_RANKS[note.kind])
 
 
@@ -594,8 +642,8 @@ def _assemble(scope: _Scope, drafts: Sequence[_Draft], notes: Sequence[_Note], h
     lines = tuple(_line(scope, facts, draft) for draft in drafts)
     items = tuple(_item(facts, note, main) for note in notes)
     category = category_label(main, [*(line.category for line in lines), *(item.category for item in items)])
-    shown = None if head.decision_id is None else _shown(scope.clock, category, lines, items)
-    return TodayEntry(scope.day, head.decision_id, scope.clock, category, lines, items,
+    shown = None if head.wakeup_id is None else _shown(scope.clock, category, lines, items)
+    return TodayEntry(scope.day, head.wakeup_id, scope.clock, category, lines, items,
                       None if head.primary is None else head.primary.data["tool_name"], head.activity_ids,
                       tuple((facts.labels[identity], identity) for identity in dict.fromkeys(named)),
                       tuple(dict.fromkeys(event_id for part in (*lines, *items) for event_id in part.event_ids)), shown)
@@ -603,7 +651,7 @@ def _assemble(scope: _Scope, drafts: Sequence[_Draft], notes: Sequence[_Note], h
 
 def _facts(scope: _Scope, involved: Sequence[str], named: Sequence[str]) -> _Facts:
     """@brief 条目所涉各活动的快照与类别，以及点名活动的标注（短名重复时两项都用冻结全名）。"""
-    snapshots = {identity: _snapshot(scope.cached, identity, scope.window[1])[1]
+    snapshots = {identity: _snapshot(scope.cached, identity, scope.windows[-1][1])[1]
                  for identity in dict.fromkeys(involved)}
     categories = {identity: _activity_category(scope, snapshot) for identity, snapshot in snapshots.items()}
     shorts = {identity: short_name(snapshots[identity].name) for identity in dict.fromkeys(named)}
@@ -770,26 +818,25 @@ def _receipt_line(scope: _Scope, facts: _Facts, draft: _Draft) -> tuple[str, str
     return _same(_prefix(scope, event.occurred_at) + receipt_phrase(receipt_fields(scope.book.catalog, event.data)))
 
 
-def _query_line(scope: _Scope, facts: _Facts, draft: _Draft) -> tuple[str, str, str, tuple[str, ...]]:
-    """@brief 查完行「查完〈app〉·〈范围〉：N项可买（另M项未列），P–Q元」与它的「当时查到」。"""
+def _search_line(scope: _Scope, facts: _Facts, draft: _Draft) -> tuple[str, str, str, tuple[str, ...]]:
+    """@brief 搜索行「搜索〈query 或 app〉：查到 N 项商品、M 个地点」与全文里的 Fact Guard「当时查到」。"""
     activity = facts.snapshots[draft.activities[0]]
-    answer, app_id = activity.data["answer"], activity.data["app_id"]
-    zone, catalog = scope.book.timezone, scope.book.catalog
-    target = short_name(activity.name).removeprefix("查询")
-    app = None if app_id is None else catalog.apps[app_id].name
-    available = [row for row in answer["rows"] if row["available"]]
-    count = len({row["goods_id"] for row in available})
-    omitted = answer["omitted"]
-    prices = [row["price_fen"] for row in available]
-    price = (f"，{compact_money_phrase(min(prices)).removesuffix('元')}–"
-             f"{compact_money_phrase(max(prices)).removesuffix('元')}元") if count else ""
-    text = (f"查完{target if app is None else f'{app}·{target}'}：{count}项可买"
-            f"{f'（另{omitted}项未列）' if omitted > 0 else ''}{price}")
+    answer = activity.data["answer"]
+    app_id = answer.get("app_use") or activity.data.get("app_id")
+    catalog, zone = scope.book.catalog, scope.book.timezone
+    target = activity.data["query"] if app_id is None else catalog.apps[app_id].name
+    goods_rows, place_rows = answer.get("goods_rows", ()), answer.get("place_rows", ())
+    text = f"搜索{target}：查到 {len(goods_rows)} 项商品、{len(place_rows)} 个地点"
     clock = entry_clock(activity.ended_at, scope.day, zone)
-    answers = [f"{clock} 查{target}" if app is None else f"{clock} 在{app}查{target}"]
-    answers += [f"{catalog.goods[row['goods_id']].name} {compact_money_phrase(row['price_fen'])}"
-                f"{'' if row['available'] else '，当时不可买'}" for row in answer["rows"]]
-    answers += [f"另{omitted}项未列"] if omitted > 0 else []
+    where = "全部途径" if app_id is None else catalog.apps[app_id].name
+    answers = [f"{clock} 在{where}搜{activity.data['query']}"]
+    answers += [f"{row['name']} {row.get('price', compact_money_phrase(row['price_fen']))}"
+                f"{'' if row.get('available', True) else '，当时不可买'}" for row in goods_rows]
+    answers += [
+        f"{row['name']}（{row['kind']}，"
+        f"{'、'.join(row['today_hours']) if isinstance(row.get('today_hours'), list) else row.get('today_hours', '')}）"
+        for row in place_rows
+    ]
     return text, text, text, tuple(answers)
 
 
@@ -833,7 +880,9 @@ def _action_object(request: Event) -> str:
     if tool == START_TOOLS[1]:
         if arguments["action"] == "interact":
             return f"开始{arguments['target'][0]}"
-        return ("购买" if arguments["action"] == "purchase" else "查询") + "、".join(arguments["target"])
+        return "购买" + "、".join(arguments["target"])
+    if tool == SEARCH_TOOL:
+        return f"搜索{arguments['query']}"
     if tool in CONTROL_TOOLS:
         names = (short_name(item.activity_name) for item in control_items(tool, arguments))
         return _CONTROL_VERBS[tool] + "、".join(names)
@@ -861,7 +910,7 @@ def _crossing_line(scope: _Scope, facts: _Facts, draft: _Draft) -> tuple[str, st
 
 #: 各种核验行的写法，按 LINE_KINDS 的次序逐一对应。
 _WRITERS: dict[str, Callable[[_Scope, _Facts, _Draft], tuple[str, str, str, tuple[str, ...]]]] = dict(zip(LINE_KINDS, (
-    _ending_line, _purchase_line, _arrival_line, _arrival_line, _receipt_line, _errand_done_line, _query_line,
+    _ending_line, _purchase_line, _arrival_line, _arrival_line, _receipt_line, _errand_done_line, _search_line,
     _pause_line, _start_line, _rejection_line, _errand_change_line, _revise_line, _fallback_line, _crossing_line),
     strict=True))
 

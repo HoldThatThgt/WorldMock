@@ -2,14 +2,14 @@
 import pytest
 from pydantic import ValidationError
 from tests.engine_fixture import engine_factory
-from tests.life.conftest import MAIN_TOOL, context, main_arguments, side_arguments
+from tests.life.conftest import MAIN_TOOL, main_arguments, side_arguments
 from worldmock.state.interaction.requests import StartMainActivityRequest, StartSideActivityRequest
 from worldmock.agents.prompt.prompt_schemas import validate_layer
 
 
 def test_real_goods_targets_validate_against_the_production_tool_layer_schema(engine_factory):
     engine = engine_factory()
-    observed = engine.observe(context(engine, "catalog"))
+    observed = engine.observations._observation_data(engine.context.state.agents[1])
     validate_layer(observed["tool_layer"])
     assert any(row["kind"] == "product" for row in observed["tool_layer"]["targets"])
     assert all(row["kind"] in {"location", "app", "product", "activity"} for row in observed["tool_layer"]["targets"])

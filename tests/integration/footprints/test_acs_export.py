@@ -37,8 +37,8 @@ def real_export(engine_factory, tmp_path):
 def test_actual_purchase_content_and_current_artifacts_are_authenticated(real_export):
     manifest, activities = validate_export(real_export)
     events = artifact_rows(real_export, "events")
-    assert manifest["schema_version"] == 8
-    assert manifest["checkpoint"]["state"]["schema_version"] == 16
+    assert manifest["schema_version"] == 9
+    assert manifest["checkpoint"]["state"]["schema_version"] == 17
     assert {name: row["path"] for name, row in manifest["artifacts"].items()} == {
         "events": "events.jsonl", "activities": "activities.jsonl",
         "verified_experiences": "verified-experiences.jsonl", "purchases": "purchases.jsonl",
@@ -88,35 +88,35 @@ def test_actual_purchase_content_and_current_artifacts_are_authenticated(real_ex
     ("extra_artifact", "Export artifact set is invalid"),
 ])
 def test_retired_schema_is_rejected_before_consumption(real_export, version, reason):
-    """上一版导出清单（7）、上一版世界状态结构（13）、上一版运行清单（5），以及没有地点停留的五份工件集合，各自在读取前
+    """上一版导出清单（8）、上一版世界状态结构（16）、上一版运行清单（7），以及没有地点停留的五份工件集合，各自在读取前
     被拒绝，原因各是各的。"""
     manifest, _ = read_export(real_export)
     if version == "export":
-        manifest["schema_version"] = 7
+        manifest["schema_version"] = 8
     elif version == "world":
-        manifest["checkpoint"]["state"]["schema_version"] = 13
+        manifest["checkpoint"]["state"]["schema_version"] = 16
     elif version == "five_artifacts":
         del manifest["artifacts"]["location_stays"]
     elif version == "extra_artifact":
         manifest["artifacts"]["navigation"] = dict(manifest["artifacts"]["location_stays"])
     else:
-        assert manifest["frozen_run_manifest"]["schema_version"] == 7
-        manifest["frozen_run_manifest"]["schema_version"] = 5
+        assert manifest["frozen_run_manifest"]["schema_version"] == 8
+        manifest["frozen_run_manifest"]["schema_version"] = 7
     (real_export / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     with pytest.raises(IntegrityError, match=f"^{reason}$"):
         validate_export(real_export)
 
 
 def test_quality_report_carrying_the_previous_structure_number_is_rejected(real_export):
-    """质量报告的结构号是 9：把导出里的报告改回上一版的 8，并把清单里它的长度与摘要重写成与新字节一致，
+    """质量报告的结构号是 11：把导出里的报告改回上一版的 10，并把清单里它的长度与摘要重写成与新字节一致，
     认证按事件重算整份报告后仍然拒绝；只改报告不改清单时先被字节摘要拦下。"""
     from worldmock.foundation.serialization import canonical_json
 
     manifest, _ = read_export(real_export)
     path = real_export / "quality.json"
     quality = json.loads(path.read_bytes())
-    assert quality["schema_version"] == 10
-    retired = canonical_json({**quality, "schema_version": 8})
+    assert quality["schema_version"] == 11
+    retired = canonical_json({**quality, "schema_version": 10})
     path.write_bytes(retired)
     with pytest.raises(IntegrityError, match="^Export quality report bytes do not match its manifest$"):
         validate_export(real_export)
@@ -242,11 +242,11 @@ def test_one_order_over_two_delivery_groups_exports_with_a_single_payment(engine
         validate_export(tmp_path / "one-order")
 
 
-@pytest.mark.parametrize("rules_version", [5, 7, "6", True])
+@pytest.mark.parametrize("rules_version", [6, 8, "7", True])
 def test_export_frozen_under_another_rules_version_is_rejected_before_consumption(real_export, rules_version):
     """@brief 冻结运行清单里的规则版本不是当前规则版本时，导出在读取工件之前被拒绝。"""
     manifest, _ = read_export(real_export)
-    assert manifest["frozen_run_manifest"]["environment_identity"]["rules_version"] == 6
+    assert manifest["frozen_run_manifest"]["environment_identity"]["rules_version"] == 7
     manifest["frozen_run_manifest"]["environment_identity"]["rules_version"] = rules_version
     (real_export / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     with pytest.raises(IntegrityError, match="^Export frozen run manifest or environment identity is invalid$"):

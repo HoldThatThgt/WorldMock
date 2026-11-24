@@ -28,7 +28,7 @@ async def test_native_parallel_walk_and_app_interaction_use_both_actual_slots(en
     records = engine.context.store.read_agent_events("action_requested", 1)
     assert [(record.data["tool_name"], record.data["request"]) for record in records] == [
         (tool, arguments[tool]) for tool in order]
-    assert len({record.decision_id for record in records}) == 1
+    assert len({record.wakeup_id for record in records}) == 1
     assert [record.action_id[-4:] for record in records] == ["0001", "0002"] and result.action_id == records[0].action_id
     assert second.action_id == records[1].action_id
     assert second.model_dump(mode="json") == action_result(engine, records[1].action_id).model_dump(mode="json")
@@ -51,15 +51,16 @@ async def test_conflicting_parallel_request_registers_once_then_changes_no_activ
     业务拒绝再请求模型。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    _, requests, _, [result, second] = await decide(engine, "conflict", [_group(
-        (MAIN_TOOL, main_arguments("sleep", "450")), (SIDE_TOOL, side_arguments("interact", "抖音")))])
+    _, requests, _, [result, second, slept] = await decide(engine, "conflict", [
+        _group((MAIN_TOOL, main_arguments("sleep", "450")), (SIDE_TOOL, side_arguments("interact", "抖音"))),
+        _group((MAIN_TOOL, main_arguments("sleep", "450")))])
     assert result.error_code == "RESOURCE_CONFLICT"
     assert result.message == "Sleep requires the second activity slot to be empty. Neither start request was started."
-    assert not engine.context.state.activities
+    assert set(engine.context.state.activities) == {slept.activity_id}
     records = engine.context.store.read_agent_events("action_requested", 1)
-    assert len(requests) == 1 and [record.data["tool_name"] for record in records] == [MAIN_TOOL, SIDE_TOOL]
+    assert len(requests) == 2 and [record.data["tool_name"] for record in records[:2]] == [MAIN_TOOL, SIDE_TOOL]
     assert second == result.model_copy(update={"action_id": records[1].action_id})
-    first, second = (action_result(engine, record.action_id) for record in records)
+    first, second = (action_result(engine, record.action_id) for record in records[:2])
     assert first == result and second == result.model_copy(update={"action_id": records[1].action_id})
     assert result.data["fix"] == "Submit start_main_activity alone to sleep."
     assert [item["path"] for item in result.data["items"]] == [

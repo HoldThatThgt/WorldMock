@@ -104,9 +104,8 @@ def _when(window: DayWindow, epoch: int) -> str:
 
 
 def _persona(context: Any, agent_id: int) -> dict[str, Any]:
-    """@brief 人设表里的人物档案与背景原文：午饭、晚饭、就寝时段必填所以总在，健康习惯、社交风格与下班、到家时段
-    没有写时省略（docs/design/06-agent.md「人物身份与画像」）。"""
-    config = context.persona
+    """@brief 人设表里的人物档案与背景原文。"""
+    config = context.persona_by_id[agent_id]
     fields = {
         "名字": config.name,
         "背景": config.background_story,
@@ -135,7 +134,7 @@ def _hours(window: tuple[float, float] | None) -> str | None:
 
 def _duty_arrangement(context: Any, agent_id: int) -> dict[str, Any] | None:
     """@brief 计划日期当天的上班安排（与环境层 duty 同源，不含 status）；没有工作安排为 None。"""
-    config = context.persona
+    config = context.persona_by_id[agent_id]
     day = date.fromisoformat(plan_date(context.state.current_time, context.config.timezone))
     places = {key: item.display_name for key, item in context.catalog.locations.items()}
     return work_schedule.day_arrangement(config.work_schedule, day, places)

@@ -12,7 +12,6 @@ from tests.life.conftest import (
     action_identity,
     advance_until_ready,
     conclude_request,
-    context,
     do_at,
     main_arguments,
     pause_request,
@@ -87,7 +86,7 @@ def _decide_until(engine, moment: int) -> None:
 def test_current_location_lists_every_unit_then_sleep_with_eight_keys(engine_factory):
     """停留时当前地点逐单元列出且完整不截断，键序八字段，sleep 行排在其后且 detail 为 null。"""
     engine = engine_factory()
-    observed = engine.observe(context(engine, "look"))
+    observed = observe_only(engine, "look")
     home = _target(observed, "家")
     assert home == {"name": "家", "kind": "location", "phase": None, "state": "全天营业", "tools": [], "actions": [
         {"action": "interact", "detail": "测试闲聊", "available": True, "reason": None, "price": None,
@@ -108,7 +107,7 @@ def test_current_location_lists_every_unit_then_sleep_with_eight_keys(engine_fac
 def test_other_locations_only_offer_travel_by_each_travel_method(engine_factory):
     """别的地点只有出行各方式的行（步行在前，夹具的公共交通、驾车、打车按身份升序），看不到那里能做什么。"""
     engine = engine_factory()
-    observed = engine.observe(context(engine, "look"))
+    observed = observe_only(engine, "look")
     office = _target(observed, "公司")
     assert [(row["action"], row["detail"]) for row in office["actions"]] == [
         ("travel", "步行"), ("travel", "公共交通"), ("travel", "驾车"), ("travel", "打车")]
@@ -122,7 +121,7 @@ def test_other_locations_only_offer_travel_by_each_travel_method(engine_factory)
 def test_compact_rendering_groups_units_and_round_trips(engine_factory):
     """提示里的紧凑渲染把当前地点的单元归成一组、睡眠另成一组，并可无损还原成完整目标行。"""
     engine = engine_factory()
-    layer = engine.observe(context(engine, "look"))["tool_layer"]
+    layer = observe_only(engine, "look")["tool_layer"]
     compact = compact_tool_layer(layer)
     groups = [group for group in compact["groups"] if any(row["name"] == "家" for row in group["targets"])]
     assert groups == [
@@ -169,13 +168,13 @@ def test_no_location_offers_interact_or_sleep_while_on_the_road(engine_factory):
     _, trip = act(engine, "go", travel("五里公园", "步行"))
     assert trip.status == "in_progress" and advance_until_ready(engine)
     assert engine.context.state.activities[trip.activity_id].status == "active"
-    observed = engine.observe(context(engine, "on-road"))
+    observed = observe_only(engine, "on-road")
     locations = [row for row in observed["tool_layer"]["targets"] if row["kind"] == "location"]
     assert not any(row["action"] in {"interact", "sleep"} for target in locations for row in target["actions"])
     assert _target(observed, "家")["actions"] == []
     finish_activity(engine, trip, "go")
     assert engine.context.state.agents[1].location_id == "park"
-    arrived = engine.observe(context(engine, "arrived"))
+    arrived = engine.observations.build_wakeup_observation(engine.context.state.agents[1])[0]
     assert _target(arrived, "五里公园")["actions"] == []
     assert {row["action"] for row in _target(arrived, "家")["actions"]} == {"travel"}
 
@@ -193,7 +192,7 @@ def test_naming_a_unit_starts_exactly_that_content(engine_factory, unit, content
     assert activity.data["start_position_seconds"] == 0.0 and activity.planned_duration_seconds == seconds
     assert result.data["activities"][0]["content_title"] == unit
     until_ended(engine, result.activity_id)
-    record = progress_calls(engine.observe(context(engine, "after")), "start_main_activity")[0]
+    record = progress_calls(observe_only(engine, "after"), "start_main_activity")[0]
     assert record["arguments"] == {"action": "interact", "target": "家", "detail": unit}
 
 
@@ -202,7 +201,7 @@ def test_start_result_shows_the_content_that_actually_started(engine_factory):
     engine = engine_factory(mutate=_attentive)
     act(engine, "named", do_at("家", "测试休息"))
     assert advance_until_ready(engine)
-    record = progress_calls(engine.observe(context(engine, "during")), "start_main_activity")[0]
+    record = progress_calls(observe_only(engine, "during"), "start_main_activity")[0]
     content = record["result"]["details"]["content"]
     assert content == {"app": None, "title": "测试休息", "summary": "测试休息的测试用合成摘要。",
                        "duration": "约 15 分钟", "pushed": False}
@@ -252,7 +251,7 @@ def test_series_starts_at_its_representative_and_continues_to_the_end(engine_fac
     progress = engine.context.state.agents[1].content_progress
     assert {key: progress[key].completed_rounds for key in ("d-1-prep", "d-2-eat", "d-3-wash")} == {
         "d-1-prep": 1, "d-2-eat": 1, "d-3-wash": 1}
-    record = progress_calls(engine.observe(context(engine, "done")), "start_main_activity")[0]
+    record = progress_calls(observe_only(engine, "done"), "start_main_activity")[0]
     assert record["result"]["details"]["contents"] == [
         {"title": title, "summary": f"{title}的测试用合成摘要。", "duration": duration, "finished": True}
         for title, duration in (("备菜", "约 20 分钟"), ("吃饭", "约 25 分钟"), ("洗碗", "约 10 分钟"))]
@@ -286,7 +285,7 @@ def test_episode_title_and_unknown_detail_are_corrected_without_substitution(eng
     """写了某一集的标题或写错：环境复核合并为 ACTION_REQUEST_INVALID，系列排在候选最前，不替人物更改。"""
     engine = engine_factory(environment_root=dinner_environment)
     _, result = act(engine, "episode", do_at("家", "备菜"))
-    assert result.status == "rejected" and result.error_code == "ACTION_REQUEST_INVALID"
+    assert result.status == "rejected" and result.error_code == "NAME_NOT_FOUND"
     assert not engine.context.state.activities
     item = result.data["items"][0]
     assert item["path"] == ["tool_calls", 0, "function", "arguments", "detail"] and item["written"] == "备菜"
@@ -410,7 +409,8 @@ def _host_feedback(requests: list[dict]) -> dict:
     """宿主在本次决策内对第一条回复给出的纠错：第二次模型请求末尾那条 tool 消息的正文。"""
     message = requests[1]["messages"][-1]
     assert message["role"] == "tool"
-    return json.loads(message["content"])
+    payload = json.loads(message["content"])
+    return payload["result"] if "result" in payload else payload
 
 
 @pytest.mark.parametrize("elsewhere", [False, True], ids=["later-at-home", "elsewhere"])
@@ -541,7 +541,7 @@ def test_unfinished_half_is_only_in_the_full_line_of_app_content(engine_factory,
     assert ended.status == "completed", ended.error_code
     _, trip = act(engine, "leave", travel("五里公园", "驾车"))
     assert trip.status == "in_progress", trip.error_code
-    memory = engine.observe(context(engine, "road"))["memory_layer"]
+    memory = engine.observations.build_wakeup_observation(engine.context.state.agents[1])[0]["memory_layer"]
     label = short_name(name)
     (sentence,) = [line for item in memory["今天"] for line in item.get("核验", ()) if line.startswith(f"{label} ")]
     today = published_today(engine.context.inputs, engine.context.store, 1, engine.context.state.current_time,
@@ -599,22 +599,23 @@ async def test_interact_submitted_on_the_road_is_not_offered_by_host_or_environm
     assert trip.status == "in_progress" and advance_until_ready(engine)
     name = engine.context.state.activities[trip.activity_id].name
     _, refused = act(engine, "bypass", do_at(place, "测试休息"))
-    assert refused.status == "rejected" and refused.error_code == "ACTION_REQUEST_INVALID"
+    assert refused.status == "rejected" and refused.error_code == "ACTION_NOT_OFFERED"
     _, requests, _, results = await decide(engine, "host", [
         ToolResponse(MAIN_TOOL, main_arguments("interact", place, "测试休息")),
-        ToolResponse("report_status", report_request(name).model_dump(mode="json"), "call-valid")])
-    assert results[0].status == "completed", results[0].error_code
+        ToolResponse("report_status", report_request(name).model_dump(mode="json"), "call-valid"),
+        ToolResponse("start_side_activity", use_app("Keep").model_dump(mode="json"), "call-keep")])
+    assert results[0].status == "rejected" and results[1].status == "completed" and results[2].status == "in_progress"
     feedback = _host_feedback(requests)
     assert feedback["error_code"] == "ACTION_NOT_OFFERED"
-    (item,) = feedback["items"]
+    (item,) = feedback["details"]["items"]
     assert item["path"] == ["tool_calls", 0, "function", "arguments", "action"]
     assert (item["written"], item["error_code"], item["allowed_values"]) == ("interact", "ACTION_NOT_OFFERED", allowed)
     assert all(row["arguments"]["action"] == "travel" for row in item["candidates"])
     assert bool(item["candidates"]) is bool(allowed)
     assert refused.data["items"] == [item]
-    assert list(engine.context.state.activities) == [trip.activity_id]
+    assert list(engine.context.state.activities) == [trip.activity_id, results[2].activity_id]
     assert [row.data["tool_name"] for row in events(engine, "action_requested")] == [
-        MAIN_TOOL, MAIN_TOOL, "report_status"]
+        MAIN_TOOL, MAIN_TOOL, MAIN_TOOL, "report_status", "start_side_activity"]
 
 
 @pytest.mark.asyncio
@@ -632,19 +633,19 @@ async def test_detail_matching_two_units_after_normalisation_is_ambiguous(engine
         ToolResponse(MAIN_TOOL, main_arguments("interact", "家", "晚饭(一)"), "call-valid")])
     feedback = _host_feedback(requests)
     assert feedback["error_code"] == "NAME_AMBIGUOUS"
-    (item,) = feedback["items"]
+    (item,) = feedback["details"]["items"]
     assert item["path"] == ["tool_calls", 0, "function", "arguments", "detail"] and item["written"] == "晚饭 (一)"
     assert item["error_code"] == "NAME_AMBIGUOUS"
     assert item["allowed_values"] == ["测试闲聊", "晚饭(一)", "晚饭（一）", "测试休息"]
-    assert item["why"] == "The name 晚饭 (一) identifies several options of 家." == feedback["reason"]
+    assert item["why"] == "The name 晚饭 (一) identifies several options of 家." == feedback["details"]["reason"]
     assert [row["arguments"] for row in item["candidates"]] == [
         main_arguments("interact", "家", "晚饭(一)"), main_arguments("interact", "家", "晚饭（一）")]
-    assert results[0].status == "in_progress", results[0].error_code
-    started = engine.context.state.activities[results[0].activity_id]
+    assert results[1].status == "in_progress", results[1].error_code
+    started = engine.context.state.activities[results[1].activity_id]
     assert started.data["content_id"] == "c-dinner-a" and started.name.startswith("进行晚饭(一)（")
     bypass = engine_factory(root)
     _, refused = act(bypass, "bypass", do_at("家", "晚饭 (一)"))
-    assert refused.status == "rejected" and refused.error_code == "ACTION_REQUEST_INVALID"
+    assert refused.status == "rejected" and refused.error_code == "NAME_AMBIGUOUS"
     assert refused.data["items"] == [item] and not bypass.context.state.activities
 
 

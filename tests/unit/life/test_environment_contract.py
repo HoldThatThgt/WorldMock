@@ -13,11 +13,11 @@ from worldmock.exchange_engine.conditions.activity_rules import (
 from worldmock.state.world.kinds import ActivityKind, ActivityStatus
 from worldmock.state.world.activity import ActivityState
 from worldmock.state.world.agent import AgentState, BodyState
-from worldmock.state.identity import ModelIdentity
-from worldmock.state.interaction.requests import StartMainActivityRequest, StartSideActivityRequest
+from worldmock.configuration.inputs.models import ModelMetadata
+from worldmock.state.identity import ModelIdentity, StageProfileIdentity
+from worldmock.state.interaction.requests import SearchWorldRequest, StartMainActivityRequest, StartSideActivityRequest
 from worldmock.state.world.world import WorldState, WORLD_SCHEMA_VERSION
 from worldmock.state.planning import schedule
-from worldmock.simulation_engine.decisions.same_moment import RoundOutcome, budget_exhausted, round_wake_reasons
 from worldmock.state.planning.schedule import (
     NextDecisionQuery,
     WAKE_TRIGGERS,
@@ -40,18 +40,18 @@ def agent():
 
 
 def activity(identity, action, status=ActivityStatus.ACTIVE, app_id="media-app"):
-    """手工活动：interact 缺省用内容 app（占槽位 2），app_id 为 None 时是在地点做事（占槽位 1）；查询带 app_id，
+    """手工活动：interact 缺省用内容 app（占槽位 2），app_id 为 None 时是在地点做事（占槽位 1）；搜索带 app_id，
     不论有没有 app 都占槽位 2。"""
     kinds = {"sleep": ActivityKind.SLEEP, "interact": ActivityKind.INTERACT,
-             "purchase": ActivityKind.PURCHASE, "travel": ActivityKind.TRAVEL, "query": ActivityKind.QUERY}
+             "purchase": ActivityKind.PURCHASE, "travel": ActivityKind.TRAVEL, "search": ActivityKind.SEARCH}
     terminal = status == ActivityStatus.COMPLETED
-    data = {"action": action, **({"app_id": app_id} if action in {"interact", "query"} else {})}
+    data = {"action": action, **({"app_id": app_id} if action in {"interact", "search"} else {})}
     first = action in {"sleep", "travel"} or (action == "interact" and app_id is None)
     return ActivityState(
         activity_id=identity, agent_id=1, location_id="home", kind=kinds[action], status=status,
         started_at=0, ended_at=100 if terminal else None, planned_end_at=100 if terminal else 200,
         last_settled_at=100, elapsed_seconds=100, planned_duration_seconds=100 if terminal else 200,
-        resource_claims={"first" if first else "second"}, origin_action_id="a", origin_decision_id="d",
+        resource_claims={"first" if first else "second"}, origin_action_id="a", origin_wakeup_id="d",
         origin_request_event_id="e", data=data,
     )
 
@@ -59,7 +59,7 @@ def activity(identity, action, status=ActivityStatus.ACTIVE, app_id="media-app")
 def world(activities=(), **changes):
     payload = dict(
         schema_version=WORLD_SCHEMA_VERSION, version=0, current_time=100, end_time=10000,
-        run_id="run", timezone="UTC", persona_sha256="a" * 64, config_sha256="b" * 64,
+        run_id="run", timezone="UTC", persona_sha256s={1: "a" * 64}, config_sha256="b" * 64,
         agents={1: agent()}, accounts={"agent:1": 100, "external:scenario": -100},
         activities=list(activities), random_seed=3, random_state="frozen",
     )
@@ -72,13 +72,14 @@ _START_MODELS = ((StartMainActivityRequest, _MAIN_SLEEP), (StartSideActivityRequ
 
 
 def test_action_contract_and_request_shapes():
-    """五个动作分属两个开始工具；请求只带声明的键，所写名称原样保留。"""
-    assert ACTIVITY_ACTIONS == ("travel", "purchase", "sleep", "interact", "query")
+    """五个动作与独立搜索工具；请求只带声明的键，所写名称原样保留。"""
+    assert ACTIVITY_ACTIONS == ("travel", "purchase", "sleep", "interact", "search")
     assert MAIN_ACTIVITY_ACTIONS == ("travel", "interact", "sleep")
-    assert SIDE_ACTIVITY_ACTIONS == ("purchase", "interact", "query")
+    assert SIDE_ACTIVITY_ACTIONS == ("purchase", "interact")
     main = StartMainActivityRequest.model_validate({"action": "travel", "target": " Ｈｏｍｅ ", "detail": "步行"})
     assert main.model_dump() == {"action": "travel", "target": " Ｈｏｍｅ ", "detail": "步行"}
     assert StartSideActivityRequest.model_validate(_SIDE_PURCHASE).model_dump() == _SIDE_PURCHASE
+    assert SearchWorldRequest(query="想喝热汤", prefer=None).model_dump() == {"query": "想喝热汤", "prefer": None}
 
 
 @pytest.mark.parametrize("extra", [{"way": "sleep"}, {"app": None}, {"to": None}, {"pay_app": None},
@@ -111,19 +112,19 @@ def test_repeated_purchase_name_is_two_portions_not_a_rejection():
 
 
 def test_two_slots_and_pending_conclusion_occupancy():
-    """在地点做事占槽位 1，用内容 app、购买与查询占槽位 2；同槽位的两项进行中或待收尾活动不能并存；
+    """在地点做事占槽位 1，用内容 app、购买与搜索占槽位 2；同槽位的两项进行中或待收尾活动不能并存；
     活动的 data.action 不在五个动作之内时拒绝。"""
     world([activity("walk", "travel"), activity("media", "interact")])
     world([activity("old", "interact", ActivityStatus.PAUSED), activity("buy", "purchase")])
     world([activity("stay", "interact", app_id=None), activity("media", "interact")])
     world([activity("stay", "interact", app_id=None), activity("buy", "purchase")])
-    world([activity("stay", "interact", app_id=None), activity("look", "query", app_id=None)])
-    world([activity("stay", "interact", app_id=None), activity("look", "query", app_id="meituan")])
+    world([activity("stay", "interact", app_id=None), activity("look", "search", app_id=None)])
+    world([activity("stay", "interact", app_id=None), activity("look", "search", app_id="meituan")])
     with pytest.raises(ValidationError, match="world activity resource claims disagree with the registry"):
-        world([activity("look", "query").model_copy(update={"resource_claims": {"first"}})])
+        world([activity("look", "search").model_copy(update={"resource_claims": {"first"}})])
     with pytest.raises(ValidationError, match="world active activities claim the same resource"):
-        world([activity("look", "query"), activity("buy", "purchase")])
-    unknown = activity("look", "query")
+        world([activity("look", "search"), activity("buy", "purchase")])
+    unknown = activity("look", "search")
     with pytest.raises(ValidationError, match="Activity action is missing or unknown"):
         world([unknown.model_copy(update={"data": {**unknown.data, "action": "lookup"}})])
     with pytest.raises(ValidationError, match="same resource"):
@@ -140,7 +141,7 @@ def test_sleep_requires_empty_second_slot():
     with pytest.raises(ValidationError, match="second activity slot"):
         world([activity("sleep", "sleep"), activity("buy", "purchase")])
     with pytest.raises(ValidationError, match="Sleep requires the second activity slot to be empty"):
-        world([activity("sleep", "sleep"), activity("look", "query")])
+        world([activity("sleep", "sleep"), activity("look", "search")])
     world([activity("sleep", "sleep"), activity("media", "interact", ActivityStatus.PAUSED)])
 
 
@@ -148,7 +149,7 @@ def test_only_external_account_can_be_signed():
     world()
     with pytest.raises(ValidationError, match="cannot be negative"):
         world(accounts={"agent:1": -1, "external:scenario": 1})
-    with pytest.raises(ValidationError, match="two accounts"):
+    with pytest.raises(ValidationError, match="N\\+1 accounts"):
         world(accounts={"agent:1": 100, "external:scenario": -100, "merchant": 0})
 
 
@@ -168,7 +169,6 @@ def test_exact_wake_names_and_category_order():
     ]
     assert wake_categories(verdict.wake_reasons) == (
         "time_boundary", "state_change", "event_arrival", "reminder_due", "duty_boundary")
-    assert round_wake_reasons(False, True) == ["rejection_feedback", "no_active_activity"]
     with pytest.raises(ValueError):
         wake_categories(["alarm_ring"])
 
@@ -254,33 +254,23 @@ def test_deleted_wake_inputs_are_rejected(field):
         WakeSnapshot.model_validate({"now": 100, field: True})
 
 
-@pytest.mark.parametrize("rounds,active,pending,exhausted", [
-    (5, False, False, False), (6, False, False, True), (6, True, False, False), (6, True, True, True)])
-def test_exact_six_round_budget(rounds, active, pending, exhausted):
-    person = agent().model_copy(update={"same_moment_rounds": rounds})
-    assert budget_exhausted(RoundOutcome(100, person, active, False, pending)) is exhausted
-
-
-@pytest.mark.parametrize("growth", [0.02, 0.06, 0.10])
-def test_social_growth_is_the_value_written_in_the_persona_table(growth):
-    """社交需要每小时增长直接取人设表的值，身体初值原样带着它；0.02 到 0.10 之外的值在加载时被拒绝。"""
-    from tests.life.persona_inputs import persona_document, persona_with
-    from worldmock.configuration.inputs.models import PersonaConfig
-    from worldmock.simulation_engine.body.body import initial_body
-    from worldmock.simulation_engine.body.body_config import assemble_body_config
-
-    persona = persona_with(social_need_growth_per_hour=growth)
-    assert initial_body(assemble_body_config(persona), 8.0, persona).social_need_growth_per_hour == growth
-    for outside in (0.019, 0.101):
-        with pytest.raises(ValidationError):
-            PersonaConfig.model_validate(persona_document(social_need_growth_per_hour=outside))
-
-
 def test_model_identity_accepts_configured_endpoint_and_budgets():
-    identity = ModelIdentity(provider="openai_compatible", base_url="https://model.example/v1",
-                             requested_model="dataset-model", thinking="enabled", tool_choice="required",
-                             max_retries=2, transport_max_retries=3,
-                             prompt_sha256="a" * 64, tool_schema_sha256="b" * 64)
-    assert identity.requested_model == "dataset-model"
+    meta = ModelMetadata(requested_model="dataset-model", metadata_url="https://model.example/models",
+                         context_window=262144, max_output_tokens=8192)
+    profile = StageProfileIdentity(
+        provider="openai_compatible", base_url="https://model.example/v1", requested_model="dataset-model",
+        metadata_url="https://model.example/models", context_window=262144, thinking=True,
+        max_output_tokens=4096, max_retries=2, transport_max_retries=3, max_react_turns=8,
+        reflection_validation_max_retries=2, day_plan_validation_max_retries=2,
+        model_metadata=meta, effective_max_tokens=4096,
+    )
+    identity = ModelIdentity(
+        profiles={"default": profile},
+        routing={"action": "default", "search": "default", "plan_day": "default",
+                 "digest": "default", "agent_overrides": {}},
+        prompt_sha256s={"action": "a" * 64, "search": "b" * 64},
+        tool_schema_sha256s={"action": "c" * 64, "search": "d" * 64},
+    )
+    assert identity.profiles["default"].requested_model == "dataset-model"
     with pytest.raises(ValidationError):
-        ModelIdentity.model_validate({**identity.model_dump(), "max_retries": 11})
+        StageProfileIdentity.model_validate({**profile.model_dump(), "max_retries": 11})

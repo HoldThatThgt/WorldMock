@@ -34,14 +34,14 @@ def _event(
     agent_id: int = 1,
     data: dict[str, Any] | None = None,
     run_id: str = "run-1",
-    decision_id: str | None = None,
+    wakeup_id: str | None = None,
     activity_id: str | None = None,
     code_sha256: str = CODE_A,
     event_seq: int = 0,
 ) -> dict[str, Any]:
     """@brief 构造最小足迹事件 dict 夹具。"""
     return {"event_id": f"e{event_seq}-{event_type}-{agent_id}", "event_type": event_type,
-            "occurred_at": occurred_at, "agent_id": agent_id, "decision_id": decision_id,
+            "occurred_at": occurred_at, "agent_id": agent_id, "wakeup_id": wakeup_id,
             "activity_id": activity_id, "data": data or {}, "run_id": run_id,
             "event_seq": event_seq, "code_sha256": code_sha256, "action_id": None}
 
@@ -106,9 +106,9 @@ def _model_request(
     purpose: str | None = None,
     usage: dict[str, int] | None = None,
     code_sha256: str = CODE_A,
-    decision_id: str | None = None,
+    wakeup_id: str | None = None,
 ) -> dict[str, Any]:
-    """@brief 构造决策 model_request 事件（messages 只含 user 消息；决策身份缺省取 call_id）。"""
+    """@brief 构造决策 model_request 事件（messages 只含 user 消息；唤醒身份缺省取 call_id）。"""
     data: dict[str, Any] = {
         "phase": "request", "call_id": call_id, "attempt": 1,
         "request": {"model": "test-model",
@@ -120,7 +120,7 @@ def _model_request(
     if usage:
         data["usage"] = usage
     return _event("model_request", _clock(0, 8) + event_seq, agent_id=agent_id, data=data,
-                  decision_id=decision_id or call_id, event_seq=event_seq, code_sha256=code_sha256)
+                  wakeup_id=wakeup_id or call_id, event_seq=event_seq, code_sha256=code_sha256)
 
 
 def _model_response(event_seq: int, call_id: str, prompt_tokens: int) -> dict[str, Any]:
@@ -128,16 +128,16 @@ def _model_response(event_seq: int, call_id: str, prompt_tokens: int) -> dict[st
     return _event("model_response", _clock(0, 8, event_seq),
                   data={"phase": "response", "call_id": call_id, "attempt": 1, "request": None,
                         "response": {"usage": {"prompt_tokens": prompt_tokens}}, "error": None},
-                  decision_id=call_id, event_seq=event_seq)
+                  wakeup_id=call_id, event_seq=event_seq)
 
 
-def _action(event_seq: int, decision_id: str, tool_name: str,
+def _action(event_seq: int, wakeup_id: str, tool_name: str,
             request: dict[str, Any] | None = None, action_id: str | None = None) -> dict[str, Any]:
     """@brief 构造 action_requested 事件（动作身份缺省为 None，受理事件按身份回链）。"""
     event = _event("action_requested", _clock(0, 8, event_seq),
                    data={"tool_name": tool_name, "request": request or {}, "request_sha256": "0" * 64,
                          "reused": False},
-                   decision_id=decision_id, event_seq=event_seq)
+                   wakeup_id=wakeup_id, event_seq=event_seq)
     event["action_id"] = action_id
     return event
 
@@ -171,8 +171,8 @@ def test_observation_repetition_gate_pass_and_fail() -> None:
     assert gate["user_message_count"] == 2
 
     duplicated = [
-        _model_request(1, "call-1", ["观察 A：天气晴朗"], decision_id="d1"),
-        _model_request(2, "call-2", ["观察 A：天气晴朗"], decision_id="d2"),
+        _model_request(1, "call-1", ["观察 A：天气晴朗"], wakeup_id="w1"),
+        _model_request(2, "call-2", ["观察 A：天气晴朗"], wakeup_id="w2"),
     ]
     assert duplicated[0]["occurred_at"] != duplicated[1]["occurred_at"]
     gate = _report(duplicated)["gates"]["observation_repetition"]
@@ -181,15 +181,15 @@ def test_observation_repetition_gate_pass_and_fail() -> None:
 
 
 def _same_second(events: list[dict[str, Any]], second: int) -> list[dict[str, Any]]:
-    """@brief 把请求夹具放到同一模拟秒（同一决策或同秒续接链内的请求共享世界时刻）。"""
+    """@brief 把请求夹具放到同一模拟秒（同一唤醒或同秒不同唤醒的边界测试）。"""
     for event in events:
         event["occurred_at"] = second
     return events
 
 
 def test_observation_gate_counts_action_loop_resend_once() -> None:
-    """@brief 同一决策的行动循环内重发同一观察只计一次（E7-1、VF2）。"""
-    events = _same_second([_model_request(seq, f"call-{seq}", ["观察 A：天气晴朗"], decision_id="d1")
+    """@brief 同一唤醒的行动循环内重发同一观察只计一次（E7-1、VF2）。"""
+    events = _same_second([_model_request(seq, f"call-{seq}", ["观察 A：天气晴朗"], wakeup_id="w1")
                            for seq in (1, 2, 3)], _clock(0, 8))
     gate = _report(events)["gates"]["observation_repetition"]
     assert gate["value"] == 1 and gate["pass"] is True
@@ -197,13 +197,13 @@ def test_observation_gate_counts_action_loop_resend_once() -> None:
     assert gate["user_message_count"] == 3
 
 
-def test_observation_gate_allows_same_second_continuation_chain_reuse() -> None:
-    """@brief 同一人物同一秒的相邻决策续接复用链首 user：多个 decision_id 共享一个链键，门禁通过。"""
+def test_observation_gate_allows_same_wakeup_resume_chain_reuse() -> None:
+    """@brief 同一人物同一次唤醒（如 search_world 挂起前与恢复后）复用同一 user 观察文本，门禁通过。"""
     head = '[{"layer":"工具层"},{"layer":"进度层","events":[]}]'
     chain = _same_second([
-        _model_request(1, "call-1", [head], decision_id="round-1"),
-        _model_request(2, "call-2", [head], decision_id="round-2"),
-        _model_request(3, "call-3", [head], decision_id="round-3"),
+        _model_request(1, "call-1", [head], wakeup_id="wake-1"),
+        _model_request(2, "call-2", [head], wakeup_id="wake-1"),
+        _model_request(3, "call-3", [head], wakeup_id="wake-1"),
     ], _clock(0, 8))
     gate = _report(chain)["gates"]["observation_repetition"]
     assert gate["value"] == 1 and gate["pass"] is True
@@ -211,28 +211,32 @@ def test_observation_gate_allows_same_second_continuation_chain_reuse() -> None:
     assert gate["user_message_count"] == 3
 
 
-def test_observation_gate_fails_on_cross_second_or_cross_agent_duplicate() -> None:
-    """@brief 同一 user 文本跨秒（时间推进后）或跨人物重复出现仍失败。"""
+def test_observation_gate_fails_on_cross_wakeup_or_cross_agent_duplicate() -> None:
+    """@brief 同一 user 文本跨唤醒（含同秒不同唤醒或跨秒）或跨人物重复出现均失败。"""
     text = '[{"layer":"环境层"}]'
-    cross_second = _same_second([_model_request(1, "call-1", [text], decision_id="d1")], _clock(0, 8))
-    cross_second += _same_second([_model_request(2, "call-2", [text], decision_id="d2")], _clock(0, 8) + 1)
-    gate = _report(cross_second)["gates"]["observation_repetition"]
+    cross_wakeup = _same_second([
+        _model_request(1, "call-1", [text], wakeup_id="w1"),
+        _model_request(2, "call-2", [text], wakeup_id="w2"),
+    ], _clock(0, 8))
+    gate = _report(cross_wakeup)["gates"]["observation_repetition"]
     assert gate["value"] == 2 and gate["pass"] is False
     assert gate["duplicated_observation_count"] == 1
 
     cross_agent = _same_second([
-        _model_request(1, "call-1", [text], decision_id="d1", agent_id=1),
-        _model_request(2, "call-2", [text], decision_id="d2", agent_id=2),
+        _model_request(1, "call-1", [text], wakeup_id="w1", agent_id=1),
+        _model_request(2, "call-2", [text], wakeup_id="w2", agent_id=2),
     ], _clock(0, 8))
     gate = _report(cross_agent)["gates"]["observation_repetition"]
     assert gate["value"] == 2 and gate["pass"] is False
 
 
-def test_observation_gate_same_moment_rounds_are_separate_decisions() -> None:
-    """@brief 同一秒的两轮决策各有 decision_id，观察文本不同时门禁通过。"""
+def test_observation_gate_distinct_wakeups_with_distinct_observations_pass() -> None:
+    """@brief 同一秒的两轮唤醒各有 wakeup_id，观察文本不同时门禁通过；search_session 不计入。"""
     rounds = _same_second([
-        _model_request(1, "call-1", ["观察：刚醒，还没有进行中的活动"], decision_id="round-1"),
-        _model_request(2, "call-2", ["观察：上一轮开始被拒，仍没有进行中的活动"], decision_id="round-2"),
+        _model_request(1, "call-1", ["观察：刚醒，还没有进行中的活动"], wakeup_id="wake-1"),
+        _model_request(2, "call-2", ["观察：上一轮开始被拒，仍没有进行中的活动"], wakeup_id="wake-2"),
+        _model_request(3, "call-3", ["观察：刚醒，还没有进行中的活动"], wakeup_id="wake-search",
+                       purpose="search_session"),
     ], _clock(0, 8))
     gate = _report(rounds)["gates"]["observation_repetition"]
     assert gate["value"] == 1 and gate["pass"] is True
@@ -241,7 +245,7 @@ def test_observation_gate_same_moment_rounds_are_separate_decisions() -> None:
 
 def test_observation_gate_fails_closed_without_user_messages() -> None:
     """@brief 无任何决策 user 消息时门禁按不通过处理并注明未提供。"""
-    events = [_event("decision_started", _clock(0, 8), decision_id="d0")]
+    events = [_event("decision_started", _clock(0, 8), wakeup_id="w0")]
     report = _report(events)
     gate = report["gates"]["observation_repetition"]
     assert gate["value"] is None and gate["pass"] is False
@@ -391,15 +395,15 @@ def test_wake_reason_distribution_counts() -> None:
     assert report["body_settlement_events"] == 3
 
 
-def test_wake_reason_distribution_counts_same_moment_round_reasons() -> None:
-    """@brief 同刻轮次不写共同身体结算，其原因只从 decision_started 计数；边界计数不受影响。"""
+def test_wake_reason_distribution_counts_decision_started_wake_reasons() -> None:
+    """@brief 唤醒轮次的唤醒原因从 decision_started 计数；边界计数不受影响。"""
     second = _clock(0, 8)
     boundaries = [
         _body(1, _clock(0, 7), second, ["w1"], wake_reasons=["no_active_activity"]),
         _body(2, _clock(0, 7), second, ["w2"], wake_reasons=[]),
     ]
     rounds = [
-        _event("decision_started", second, decision_id=f"d{seq}", event_seq=seq,
+        _event("decision_started", second, wakeup_id=f"w{seq}", event_seq=seq,
                data={"wake_reasons": reasons})
         for seq, reasons in ((3, ["run_start"]), (4, ["no_active_activity"]), (5, ["rejection_feedback"]))
     ]
@@ -652,7 +656,7 @@ def test_missing_metric_evidence_is_reported_unknown_and_gates_fail_closed() -> 
     """@brief 不完整的合成指标输入保持未知，不补造静默、记忆或身份测量；不带工作安排评估输入时工作负荷与作息偏离为 null
     并写说明。"""
     events = [
-        _event("decision_started", _clock(0, 8), decision_id="d1"),
+        _event("decision_started", _clock(0, 8), wakeup_id="w1"),
         _model_request(2, "d1", ["当前观察：在家，精神不错"]),
         _progress(3, _clock(0, 9), _clock(0, 10), 'interact', activity_id="w1"),
         _event("memory_updated", _clock(0, 20),

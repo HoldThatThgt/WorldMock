@@ -9,9 +9,12 @@ from __future__ import annotations
 import json
 import logging
 
+import pytest
+
 from tests.frozen_inputs import fixture_metadata
 from tests.life.environment_inputs import catalog_rows, copy_environment, set_content, write_catalog_rows
 from tests.unit.memory.test_categories import OFFICE_DOC, add_rows, set_app, without_work_schedule
+from tools.analysis.errors import EvaluationError
 from tools.analysis.memory_categories import ROW_REASONS, SCHEMA_VERSION, category_table, main
 from worldmock.configuration.inputs.environment import load_environment
 from worldmock.simulation_engine.observation.memory.categories import category_book, row_categories
@@ -138,3 +141,9 @@ def test_cli_prints_or_writes_the_table(tmp_path, capsys, caplog):
     assert not any(message.startswith("memory_categories_input") for message in caplog.messages)
     assert not missing.exists()
     assert capsys.readouterr().out == ""
+
+
+def test_category_table_rejects_unknown_agent_id(tmp_path):
+    root = nine_kinds(tmp_path)
+    with pytest.raises(EvaluationError, match="Unknown agent_id in package: 999"):
+        category_table(root, agent_id=999)

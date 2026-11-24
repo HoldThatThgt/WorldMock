@@ -30,7 +30,7 @@ from worldmock.simulation_engine.observation.memory.entries import (
     agent_events,
     build_closing_entry,
     build_entry,
-    decision_commits,
+    wakeup_commits,
 )
 from worldmock.simulation_engine.observation.memory.categories import (
     Derivation,
@@ -85,7 +85,7 @@ def set_app(root, app_id, **fields):
 
 def without_work_schedule(root):
     """副本的人设去掉整个工作安排。"""
-    path = root / "persona.toml"
+    path = next((root / "personas").glob("*.toml"))
     document = tomlkit.parse(path.read_text(encoding="utf-8"))
     del document["work_schedule"]
     path.write_text(tomlkit.dumps(document), encoding="utf-8", newline="\n")
@@ -112,7 +112,7 @@ def activity(kind, location_id, started_at, destination_id=None, **data) -> Acti
     return ActivityState(activity_id="a-1", agent_id=1, location_id=location_id, kind=kind, status="active",
                          started_at=started_at, planned_end_at=started_at + 600, last_settled_at=started_at,
                          elapsed_seconds=0, planned_duration_seconds=600, origin_action_id="act-1",
-                         origin_decision_id="d-1", origin_request_event_id="e-1", destination_id=destination_id,
+                         origin_wakeup_id="d-1", origin_request_event_id="e-1", destination_id=destination_id,
                          data=data)
 
 
@@ -141,13 +141,13 @@ def store(tmp_path):
 
 
 def requested(store, tool, request, observed=None, observations=1, decision="d-1"):
-    """在足迹库里写一条世界请求（被拒的出行另带这次决策的观察事件），返回读回的 action_requested 事件。"""
+    """在足迹库里写一条世界请求（被拒的出行另带这次唤醒的观察事件），返回读回的 action_requested 事件。"""
     moment = store.state["current_time"]
-    drafts = [EventDraft(event_type="observation", occurred_at=moment, agent_id=1, decision_id=decision,
+    drafts = [EventDraft(event_type="observation", occurred_at=moment, agent_id=1, wakeup_id=decision,
                          observed_at=moment, data={"location_id": observed})
               for _ in range(observations if observed is not None else 0)]
     action_id = f"{decision}:action:{store.last_event_seq + len(drafts) + 1:04d}"
-    drafts.append(EventDraft(event_type="action_requested", occurred_at=moment, agent_id=1, decision_id=decision,
+    drafts.append(EventDraft(event_type="action_requested", occurred_at=moment, agent_id=1, wakeup_id=decision,
                              action_id=action_id, source_kind="model", data={"tool_name": tool, "request": request}))
     return store.append_evidence(drafts)[-1]
 
@@ -238,16 +238,15 @@ def test_purchase_goods_come_from_the_start_result_orders():
     assert purchase_goods(doing("c-chat", "home", moment), start) == ()
 
 
-def test_query_category_is_fixed_by_targets_not_by_the_answer(tmp_path):
+def test_search_category_derives_food_work_life(tmp_path):
     book = book_of(sample(tmp_path))
     moment = at(MONDAY, "10:00")
-    answer = {"rows": [{"goods_id": "beef-noodles"}, {"goods_id": "lemon-tea"}]}
-    snapshot = activity("query", "home", moment, targets=[{"kind": "category", "category": "goods"}], answer=answer)
-    assert derive(book, snapshot) == ("生活", 2)
-    assert derive(book, activity("query", "home", moment, targets=[{"kind": "category", "category": "drink"}])) == (
-        "饮食", 2)
-    assert derive(book, activity("query", "home", moment, targets=[{"kind": "goods", "goods_id": "beef-noodles"}])) == (
-        "饮食", 2)
+    assert derive(book, activity("search", "home", moment, query="买日用品")) == ("生活", 2)
+    assert derive(book, activity("search", "home", moment, query="想喝奶茶")) == ("饮食", 2)
+    assert derive(book, activity("search", "home", moment, query="看商品",
+                                 answer={"goods_rows": [{"goods_id": "beef-noodles"}], "place_rows": []})) == ("饮食", 2)
+    assert derive(book, activity("search", "home", moment, query="找公司附近",
+                                 answer={"goods_rows": [], "place_rows": [{"location_id": "office"}]})) == ("工作", 2)
 
 
 def test_commute_between_home_and_workplace_on_a_workday_is_work(tmp_path):
@@ -331,24 +330,24 @@ def test_errand_lines_take_the_category_of_the_errand_goods(tmp_path):
         goods_category(book, [])
 
 
-@pytest.mark.parametrize("action,names,category", [
-    ("query", ["盖浇饭"], "饮食"),
-    ("query", ["一人份食材包"], "饮食"),
-    ("query", ["奶茶"], "饮食"),
-    ("query", ["饮料"], "饮食"),
-    ("query", ["商品"], "生活"),
-    ("purchase", ["纸巾"], "生活"),
-    ("purchase", ["洗衣液"], "生活"),
-    ("purchase", ["纸巾", "冰美式"], "生活"),
-    ("purchase", ["纸巾", "柠檬茶"], "饮食"),
-    ("purchase", ["茶具set"], "生活"),
-    ("query", ["饮 料"], "饮食"),
-    ("purchase", [" 纸 巾 ", "柠 檬茶"], "饮食"),
+@pytest.mark.parametrize("tool,payload,category", [
+    ("search_world", {"query": "盖浇饭", "prefer": None}, "饮食"),
+    ("search_world", {"query": "一人份食材包", "prefer": None}, "饮食"),
+    ("search_world", {"query": "奶茶", "prefer": None}, "饮食"),
+    ("search_world", {"query": "饮料", "prefer": None}, "饮食"),
+    ("search_world", {"query": "商品", "prefer": None}, "生活"),
+    ("start_side_activity", {"action": "purchase", "target": ["纸巾"], "prefer": None}, "生活"),
+    ("start_side_activity", {"action": "purchase", "target": ["洗衣液"], "prefer": None}, "生活"),
+    ("start_side_activity", {"action": "purchase", "target": ["纸巾", "冰美式"], "prefer": None}, "生活"),
+    ("start_side_activity", {"action": "purchase", "target": ["纸巾", "柠檬茶"], "prefer": None}, "饮食"),
+    ("start_side_activity", {"action": "purchase", "target": ["茶具set"], "prefer": None}, "生活"),
+    ("search_world", {"query": "饮 料", "prefer": None}, "饮食"),
+    ("start_side_activity", {"action": "purchase", "target": [" 纸 巾 ", "柠 檬茶"], "prefer": None}, "饮食"),
 ])
-def test_rejected_purchase_and_query_use_rows_then_the_text_rule(tmp_path, store, action, names, category):
+def test_rejected_purchase_and_search_use_rows_then_the_text_rule(tmp_path, store, tool, payload, category):
     """名称先对商品类别名、再对商品名（去空白、不分大小写），都对不上才看文字；任一个名称为饮食即饮食。"""
     book = book_of(add_rows(sample(tmp_path), "merchant-catalog.jsonl", "goods_id", TEA_SET))
-    assert rejected_category(book, store, requested(store, "start_side_activity", side(action, *names))) == category
+    assert rejected_category(book, store, requested(store, tool, payload)) == category
 
 
 def test_rejected_start_requests_resolve_catalog_rows(tmp_path, store):
@@ -370,7 +369,7 @@ def test_rejected_start_requests_resolve_catalog_rows(tmp_path, store):
         assert rejected_category(book, store, event) == category, name
     twice = requested(store, "start_main_activity", main("travel", "公司", "步行"), observed="home", observations=2,
                       decision="d-twice")
-    with pytest.raises(IntegrityError, match="^Rejected request has no unique decision observation$"):
+    with pytest.raises(IntegrityError, match="^Rejected request has no unique wakeup observation$"):
         rejected_category(book, store, twice)
 
 
@@ -389,7 +388,7 @@ def test_primary_request_of_a_start_group_is_the_main_slot(store):
     conclude = requested(store, "conclude_activity", {"items": []}, decision="d-2")
     assert primary_request([side_request, main_request]) is main_request
     assert primary_request([conclude]) is conclude
-    with pytest.raises(IntegrityError, match="^Decision has no world request$"):
+    with pytest.raises(IntegrityError, match="^Wakeup has no world request$"):
         primary_request([])
 
 
@@ -459,7 +458,7 @@ def _state(activity_id: str, action: str, location: str, start: str, kind: str =
     return ActivityState(activity_id=activity_id, agent_id=1, location_id=location, kind=kind, status="active",
                          started_at=started, planned_end_at=started + 3600, last_settled_at=started,
                          elapsed_seconds=0, planned_duration_seconds=3600, origin_action_id=action,
-                         origin_decision_id="d", origin_request_event_id="e",
+                         origin_wakeup_id="d", origin_request_event_id="e",
                          name=name or f"进行{activity_id}（1月5日 {start} 起）", data=data).model_dump(mode="json")
 
 
@@ -489,9 +488,9 @@ def _conclude(log, activity: dict, views=(), memories=(), summary="收尾。") -
     item = {"activity_name": activity["name"], "summary": summary, "memories": list(memories), "views": list(views)}
     request = log.add("action_requested", at(MONDAY, "10:30"), {"tool_name": "conclude_activity",
                       "request": {"items": [item], "errands": []}, "self_note": None},
-                      decision_id="d-end", action_id="d-end:a")
+                      wakeup_id="d-end", action_id="d-end:a")
     log.add("action_result", at(MONDAY, "10:30"), {"status": "completed", "data": {
-        "activity_ids": [activity["activity_id"]]}}, decision_id="d-end", action_id=request.action_id)
+        "activity_ids": [activity["activity_id"]]}}, wakeup_id="d-end", action_id=request.action_id)
     log.seal()
 
 
@@ -520,9 +519,9 @@ def _case_purchase(log):
     orders = [_order("o-1", "tissue", True), _order("o-2", "lemon-tea", False)]
     buying = _state("buy", "d-buy:a", "home", "10:00", kind="purchase", order_ids=["o-1", "o-2"])
     request = log.add("action_requested", at(MONDAY, "10:00"), {"tool_name": "start_side_activity", "request": {
-        "action": "purchase", "target": ["纸巾", "柠檬茶"], "prefer": None}}, decision_id="d-buy", action_id="d-buy:a")
+        "action": "purchase", "target": ["纸巾", "柠檬茶"], "prefer": None}}, wakeup_id="d-buy", action_id="d-buy:a")
     log.add("action_result", at(MONDAY, "10:00"), {"status": "in_progress", "activity": buying, "data": {
-        "orders": [{**order, "paid_at": None} for order in orders]}}, decision_id="d-buy", action_id=request.action_id,
+        "orders": [{**order, "paid_at": None} for order in orders]}}, wakeup_id="d-buy", action_id=request.action_id,
         activity_id="buy")
     log.seal()
     log.add("action_result", at(MONDAY, "10:05"), {"status": "completed", "activity": _ended(buying, "10:05"),
@@ -542,12 +541,13 @@ def _case_delivery(log):
     return ["饮食", "生活", "生活"], [], "生活、饮食"
 
 
-def _case_query(log):
-    """查完行：查询柠檬茶做完 → 那项查询活动的类别（饮食）。"""
-    asking = _state("ask", "d-ask:a", "home", "10:00", kind="query", app_id=None, scoped=False,
-                    targets=[{"kind": "goods", "goods_id": "lemon-tea"}], name="查询柠檬茶（1月5日 10:00 起）")
+def _case_search(log):
+    """搜索行：搜索柠檬茶做完 → 那项搜索活动的类别（饮食）。"""
+    asking = _state("ask", "d-ask:a", "home", "10:00", kind="search", app_id=None, scoped=False,
+                    query="柠檬茶", prefer=None, name="搜索柠檬茶（1月5日 10:00 起）")
     entry_events.start(log, "d-ask", at(MONDAY, "10:00"), asking)
-    done = {**_ended(asking, "10:05"), "data": {**asking["data"], "answer": {"rows": [], "omitted": 0}}}
+    done = {**_ended(asking, "10:05"), "data": {**asking["data"], "answer": {
+        "query": "柠檬茶", "prefer": None, "scoped": False, "goods_rows": [], "place_rows": [], "summary": "查完"}}}
     entry_events.ended(log, at(MONDAY, "10:05"), done)
     entry_events.revise(log, "d-plan", at(MONDAY, "10:30"))
     return ["饮食", "生活"], [], "生活、饮食"
@@ -582,9 +582,9 @@ def _case_start(log):
                                   tea), ("start_main_activity", {"action": "interact", "target": "公司",
                                                                  "detail": "季度销售数据整理"}, work)):
         request = log.add("action_requested", at(MONDAY, "10:00"), {"tool_name": tool, "request": body},
-                          decision_id="d-pair", action_id=activity["origin_action_id"])
+                          wakeup_id="d-pair", action_id=activity["origin_action_id"])
         log.add("action_result", at(MONDAY, "10:00"), {"status": "in_progress", "activity": activity, "data": {
-            "orders": [_order("o-1", "lemon-tea", False)]}}, decision_id="d-pair", action_id=request.action_id,
+            "orders": [_order("o-1", "lemon-tea", False)]}}, wakeup_id="d-pair", action_id=request.action_id,
             activity_id=activity["activity_id"])
     log.seal()
     return ["工作"], [], "工作"
@@ -594,8 +594,8 @@ def _case_rejection(log):
     """被拒行与它的正文：被拒的购买柠檬茶 → 饮食；被拒的控制请求的被拒行与正文都是生活。"""
     request = log.add("action_requested", at(MONDAY, "10:00"), {"tool_name": "start_side_activity", "request": {
         "action": "purchase", "target": ["柠檬茶"], "prefer": None}, "self_note": "想喝柠檬茶。"},
-        decision_id="d-buy", action_id="d-buy:a")
-    log.add("action_result", at(MONDAY, "10:00"), {"status": "rejected", "data": {}}, decision_id="d-buy",
+        wakeup_id="d-buy", action_id="d-buy:a")
+    log.add("action_result", at(MONDAY, "10:00"), {"status": "rejected", "data": {}}, wakeup_id="d-buy",
             action_id=request.action_id)
     log.seal()
     return ["饮食"], ["饮食"], "饮食"
@@ -605,8 +605,8 @@ def _case_rejected_control(log):
     """被拒的控制请求只有被拒行与正文，二者都是生活。"""
     request = log.add("action_requested", at(MONDAY, "10:00"), {"tool_name": "report_status", "request": {
         "items": [{"activity_name": "季度销售数据整理", "summary": "继续。"}], "errands": []},
-        "self_note": "看看进度。"}, decision_id="d-report", action_id="d-report:a")
-    log.add("action_result", at(MONDAY, "10:00"), {"status": "rejected", "data": {}}, decision_id="d-report",
+        "self_note": "看看进度。"}, wakeup_id="d-report", action_id="d-report:a")
+    log.add("action_result", at(MONDAY, "10:00"), {"status": "rejected", "data": {}}, wakeup_id="d-report",
             action_id=request.action_id)
     log.seal()
     return ["生活"], ["生活"], "生活"
@@ -676,12 +676,12 @@ def _case_body(log):
 
 
 def _entry_of(inputs, log):
-    """经 agent_events、decision_commits 与 build_entry 逐次建条目，返回最后一条；窗口下界是上一次决策的提交末序号。"""
+    """经 agent_events、wakeup_commits 与 build_entry 逐次建条目，返回最后一条；窗口下界是上一次唤醒的提交末序号。"""
     book = memory_book(log, inputs)
     cached = agent_events(log, 1, inputs.catalog.kit_states())
     entry, lower = None, 0
-    for decision in decision_commits(log, cached, log.last_event_seq):
-        entry, lower = build_entry(book, log, cached, decision, lower), decision.commit
+    for commit in wakeup_commits(log, cached, log.last_event_seq, book.timezone):
+        entry, lower = build_entry(book, log, cached, commit, lower), commit.commit
     return entry
 
 
@@ -692,7 +692,7 @@ def _case_crossing(log):
 
 
 @pytest.mark.parametrize("case", [
-    _case_ending, _case_purchase, _case_delivery, _case_query, _case_errand, _case_pause, _case_start,
+    _case_ending, _case_purchase, _case_delivery, _case_search, _case_errand, _case_pause, _case_start,
     _case_rejection, _case_revise, _case_crossing, _case_fallback, _case_summary, _case_progress, _case_work_view,
     _case_home_view, _case_body, _case_report_with_delivery, _case_rejected_control,
 ], ids=lambda case: case.__name__.removeprefix("_case_"))

@@ -81,3 +81,31 @@ test('app use without content has no wording', async t => {
   assert.equal(view.summary(2), `活动段 · ${phrase} · 已完成 · 已进行 1分`);
   assert.deepEqual(view.errors, ['Missing recorded object name: null']);
 });
+
+test('search wording includes query and optional app_id and rejects missing app', async t => {
+  const {api, errors} = wording();
+  assert.deepEqual([...await loadCaseCatalog(api)], []);
+  const unscoped = {kind: 'search', location_id: 'home', data: {action: 'search', query: '咖啡', app_id: null}};
+  const scoped = {kind: 'search', location_id: 'home', data: {action: 'search', query: '咖啡', app_id: 'meituan'}};
+  const unknown = {kind: 'search', location_id: 'home',
+    data: {action: 'search', query: '咖啡', app_id: 'no-such-app'}};
+  assert.equal(api.activityPhrase(unscoped, [null], new Map()), '搜索咖啡');
+  assert.equal(api.activityPhrase(scoped, [null], new Map()), '搜索咖啡（美团）');
+  assert.deepEqual(errors, []);
+  assert.equal(api.activityPhrase(unknown, [null], new Map()), '搜索咖啡（名称缺失（no-such-app））');
+  assert.deepEqual(errors, ['Missing recorded object name: no-such-app']);
+  const activity = (status, elapsed, appId) => ({activity_id: 'search-1', agent_id: 1, kind: 'search',
+    location_id: 'home', status, planned_duration_seconds: 240, elapsed_seconds: elapsed,
+    data: {action: 'search', query: '咖啡', app_id: appId}});
+  const view = await viewer([
+    event('action_accepted', {status: 'in_progress', activity: activity('active', 0, null)},
+      {activity_id: 'search-1'}),
+    event('activity_progress', {interval_start: epoch, interval_end: epoch + 240,
+      activity: activity('completed', 240, 'meituan')}, {activity_id: 'search-1', occurred_at: epoch + 240}),
+  ]);
+  t.after(() => view.close());
+  assert.deepEqual(targets(view.activities()), ['搜索咖啡（美团）']);
+  assert.equal(view.summary(1), '已受理 · 搜索咖啡 · 计划 4分');
+  assert.equal(view.summary(2), '活动段 · 搜索咖啡（美团） · 已完成 · 已进行 4分');
+  assert.deepEqual(view.errors, []);
+});

@@ -11,22 +11,24 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
-from worldmock.state.decisions.round import DirectToolCall
+from worldmock.state.decisions.barrier import SearchSessionOutcome
+from worldmock.state.decisions.suspended import SuspendedLoopState
 from worldmock.state.model.exchange import ModelCallEvidence
 
 from tests.life.conftest import (
+    action_identity,
     activity_name,
+    advance_next,
     advance_until_ready,
     conclude_request,
-    context,
     do_at,
     errand_add,
     errand_cancel,
     errand_update,
     pause_request,
     purchase,
-    query,
     report_request,
+    search_world,
     sleep,
     stage_day_plan,
     tool_of,
@@ -34,8 +36,8 @@ from tests.life.conftest import (
     use_app,
 )
 from tests.life.day_baseline_runtime import create_complete_day_engine, play_complete_day
-from tests.life.environment_inputs import five_episode_environment, meal_environment, catalog_rows, write_catalog_rows
-from tests.life.environment_runtime import act, act_group, observe_only, reach, until_ended
+from tests.life.environment_inputs import meal_environment, catalog_rows, write_catalog_rows
+from tests.life.environment_runtime import act, act_group, action_result, observe_only, reach, until_ended
 from tests.life.observation_record import record_observations
 from tests.dayrun_baseline import deterministic_day_runtime
 from worldmock.agents.prompt.narration import render_layer_json
@@ -56,27 +58,45 @@ def _today(engine):
 
 
 def _last(engine) -> dict:
-    """下一次观察里「今天」的末项。"""
-    return observe_only(engine, "next")["memory_layer"]["今天"][-1]
+    """下一次或当前观察里「今天」的末项（就绪时经准备屏障获取，否则只读构建）。"""
+    obs = (observe_only(engine, "next") if engine.scheduling_state().ready_agent_ids == (1,)
+           else engine.observations.build_wakeup_observation(engine.context.state.agents[1])[0])
+    return obs["memory_layer"]["今天"][-1]
 
 
 def _lines(engine) -> list[str]:
-    """下一次观察里「今天」末项的核验。"""
+    """下一次或当前观察里「今天」末项的核验。"""
     return _last(engine).get("核验", [])
 
 
 def _noted(engine, label, request, note, tool=None):
-    """带正文的一次决策：登记请求之前记一对模型请求与响应，响应的正文就是 self_note。"""
-    decision = context(engine, label)
-    engine.begin_decision_round([decision])
-    observed = engine.observe(decision)
-    call = ModelCallEvidence(decision, f"{label}-call", "request", 1, {"messages": []})
-    engine.record_model_exchange(call)
-    engine.record_model_exchange(replace(call, phase="response",
-                                         response={"choices": [{"message": {"role": "assistant", "content": note}}]}))
-    engine.submit_action(DirectToolCall(decision, f"{decision.decision_id}:action:0001", tool or tool_of(request),
-                                        request))
-    return observed, engine.commit_decision_round(label)[0]
+    """带正文的一次唤醒：在沙盒内记一对模型请求与响应，随后派发世界工具并提交屏障。"""
+    [wakeup] = engine.prepare_barrier((1,))
+    sandbox = engine.open_sandbox(wakeup)
+    call = ModelCallEvidence(
+        wakeup_id=wakeup.wakeup_id, agent_id=1, call_id=f"{label}-call",
+        phase="request", attempt=1, request={"messages": []},
+    )
+    sandbox.record_model_exchange(call)
+    sandbox.record_model_exchange(replace(call, phase="response",
+                                          response={"choices": [{"message": {"role": "assistant", "content": note}}]}))
+    identity = action_identity(label, 1, wakeup.agent_id)
+    res = sandbox.dispatch_world_tool(tool or tool_of(request), request, identity, note=note)
+    suspended = None
+    if res.suspended:
+        suspended = SuspendedLoopState(
+            wakeup_id=wakeup.wakeup_id, action_id=identity,
+            activity_id=res.tool_message_payload["activity_id"],
+            pending_tool_call_id="call-1", messages=(), turn_used=1,
+            memory_search_count=0, accepted_action_ids=(identity,),
+            pending_memories=(), verified_experiences=(), local_rejection_counts={},
+            observation_event_id=wakeup.observation["observation_event_id"],
+            observation_parts=dict(wakeup.observation_parts),
+            suspended_at=wakeup.observed_at, base_layers=(),
+        )
+    outcome = sandbox.finish_wakeup(suspended)
+    engine.commit_barrier([outcome])
+    return wakeup.observation, action_result(engine, identity)
 
 
 def _at(clock: str, day: str = "2026-01-05") -> int:
@@ -115,20 +135,25 @@ def test_a_same_second_chain_decision_sees_the_previous_entry(engine_factory):
                                                    "自述": ["测试休息：收尾。"]}
 
 
-def _queried(engine):
-    """开始查询柠檬茶并推进到它做完（查询自己写下 concluded_at，不挡后面的开始）。"""
-    _, asked = act(engine, "ask", query("柠檬茶"))
+def _searched(engine, goods_ids=("lemon-tea",), place_ids=()):
+    """开始搜索柠檬茶并推进到点，经 complete_searches 完成交卷返回活动结果。"""
+    _, asked = act(engine, "ask", search_world("柠檬茶", prefer="饿了么"))
     assert asked.status == "in_progress", asked.error_code
-    until_ended(engine, asked.activity_id)
+    advance_next(engine)
+    [(task, _)] = engine.due_searches()
+    engine.complete_searches([SearchSessionOutcome(
+        action_id=task.action_id, agent_id=1, activity_id=task.activity_id,
+        goods_ids=goods_ids, place_ids=place_ids, summary="找到柠檬茶",
+    )])
     return asked
 
 
 def test_window_holds_clock_settled_facts_and_the_own_commit(engine_factory):
-    """查询在时钟推进里做完，做完那一刻开始哔哩哔哩：这次决策的条目先写查完行，再写自己的开始行。"""
+    """搜索在挂起后完成交卷、同唤醒恢复并开始哔哩哔哩：同唤醒合并入单一今天条目，按序写入搜索行与开始行。"""
     engine = engine_factory()
-    _queried(engine)
+    _searched(engine)
     act(engine, "watch", use_app("哔哩哔哩"))
-    assert _lines(engine) == ["查完饿了么·柠檬茶：1项可买，12–12元", "开始哔哩哔哩"]
+    assert _lines(engine) == ["搜索饿了么：查到 1 项商品、0 个地点", "开始哔哩哔哩、搜索柠檬茶"]
 
 
 def _late(persona, config):
@@ -159,25 +184,22 @@ def test_published_bound_is_the_previous_commit_or_the_midnight_bound(engine_fac
 
 
 def test_a_world_request_registered_after_the_cutoff_is_not_yet_a_decision(engine_factory):
-    """收尾一次之后再登记一条收尾而不结算：以这次观察的时刻与事件序号取今天，不抛错，条目与已发布界与登记之前相同；
-    结算以后下一次观察的「今天」末项是这次收尾的条目。"""
+    """在沙盒中派发控制动作而未 commit_barrier：此时已发布的今天与上界完全不变；提交以后下一观察才出现它。"""
     engine = engine_factory()
     _, started = act_group(engine, "pair", do_at("家", "测试休息"), use_app("哔哩哔哩"))
     assert advance_until_ready(engine)
     act(engine, "end", conclude_request(activity_name(engine, started[0].activity_id)), "conclude_activity")
     assert advance_until_ready(engine)
     before = _today(engine)
-    decision = context(engine, "late")
-    engine.begin_decision_round([decision])
-    observed = engine.observe(decision)
-    frozen = engine.context.store.read_event(observed["observation_event_id"])
+    [wakeup] = engine.prepare_barrier((1,))
+    sandbox = engine.open_sandbox(wakeup)
     watching = activity_name(engine, started[1].activity_id)
-    engine.submit_action(DirectToolCall(decision, f"{decision.decision_id}:action:0001", "conclude_activity",
-                                        conclude_request(watching)))
-    during = published_today(engine.context.inputs, engine.context.store, 1, frozen.occurred_at, frozen.event_seq)
+    sandbox.dispatch_world_tool("conclude_activity", conclude_request(watching), action_identity("late"))
+    during = published_today(engine.context.inputs, engine.context.store, 1,
+                             wakeup.observed_at, engine.context.store.last_event_seq)
     assert [entry.shown for entry in during.entries] == [entry.shown for entry in before.entries]
     assert during.published == before.published
-    engine.commit_decision_round("late")
+    engine.commit_barrier([sandbox.finish_wakeup(None)])
     assert _last(engine)["自述"] == ["哔哩哔哩：收尾。"]
 
 
@@ -194,10 +216,19 @@ def _report(engine):
 
 
 def _report_settled(engine):
-    """report_status，窗口里另有结算：测试闲聊与查询柠檬茶同组开始，查询做完时播报测试闲聊。"""
-    _, started = act_group(engine, "pair", do_at("家", "测试闲聊"), query("柠檬茶"))
-    assert advance_until_ready(engine)
-    act(engine, "report", report_request(activity_name(engine, started[0].activity_id)), "report_status")
+    """report_status，窗口里另有搜索完成：先在家做测试休息，重估时搜索柠檬茶，交卷恢复同一次唤醒里播报测试休息。"""
+    _, rest = act(engine, "rest", do_at("家", "测试休息"))
+    assert rest.status == "in_progress"
+    reach(engine, engine.context.state.current_time + 300)
+    _, asked = act(engine, "ask", search_world("柠檬茶", prefer="饿了么"))
+    assert asked.status == "in_progress", asked.error_code
+    advance_next(engine)
+    [(task, _)] = engine.due_searches()
+    engine.complete_searches([SearchSessionOutcome(
+        action_id=task.action_id, agent_id=1, activity_id=task.activity_id,
+        goods_ids=("lemon-tea",), place_ids=(), summary="找到柠檬茶",
+    )])
+    act(engine, "report", report_request(activity_name(engine, rest.activity_id)), "report_status")
 
 
 def _start(engine):
@@ -216,8 +247,8 @@ def _start_noted(engine):
 
 
 def _start_settled(engine):
-    """开始时窗口里有结算：查询做完那一刻开始测试休息并带正文。"""
-    _queried(engine)
+    """开始时窗口里有结算：搜索做完那一刻恢复开始测试休息并带正文。"""
+    _searched(engine)
     _noted(engine, "rest", do_at("家", "测试休息"), "查完了，先歇一会儿。")
 
 
@@ -226,9 +257,9 @@ def _purchase(engine):
     _noted(engine, "buy", purchase("柠檬茶"), "买杯柠檬茶。")
 
 
-def _query(engine):
-    """开始查询并带正文。"""
-    _noted(engine, "ask", query("柠檬茶"), "看看柠檬茶多少钱。")
+def _search(engine):
+    """开始搜索并带正文。"""
+    _noted(engine, "ask", search_world("柠檬茶"), "看看柠檬茶多少钱。")
 
 
 def _rejected(engine):
@@ -249,26 +280,28 @@ def _revise(engine):
     act(engine, "revise", ReviseDayPlanRequest(goals=[]), "revise_day_plan")
 
 
-@pytest.mark.parametrize("run,entry", [
-    (_conclude, {"时刻": "08:15", "类别": "生活", "核验": ["测试休息 08:00–08:15"], "自述": ["测试休息：收尾。"]}),
-    (_report, {"时刻": "08:30", "类别": "生活", "自述": ["进展·哔哩哔哩：继续。"]}),
-    (_report_settled, {"时刻": "08:07", "类别": "生活、饮食", "核验": ["查完饿了么·柠檬茶：1项可买，12–12元"],
-                       "自述": ["进展·测试闲聊：继续。"]}),
-    (_start, {"时刻": "08:00", "类别": "生活", "核验": ["开始测试休息"]}),
-    (_group, {"时刻": "08:00", "类别": "生活", "核验": ["开始测试休息、哔哩哔哩"]}),
-    (_start_noted, {"时刻": "08:00", "类别": "生活", "核验": ["开始测试休息"], "自述": ["正文：先歇一会儿。"]}),
-    (_start_settled, {"时刻": "08:05", "类别": "生活、饮食", "核验": ["查完饿了么·柠檬茶：1项可买，12–12元", "开始测试休息"],
-                      "自述": ["正文：查完了，先歇一会儿。"]}),
-    (_purchase, {"时刻": "08:00", "类别": "饮食", "核验": ["开始购买柠檬茶"], "自述": ["正文：买杯柠檬茶。"]}),
-    (_query, {"时刻": "08:00", "类别": "饮食", "核验": ["开始查询柠檬茶"], "自述": ["正文：看看柠檬茶多少钱。"]}),
-    (_rejected, {"时刻": "08:00", "类别": "饮食", "核验": ["被拒：购买盖浇饭"], "自述": ["正文：想吃盖浇饭。"]}),
-    (_pause, {"时刻": "08:30", "类别": "生活", "核验": ["暂停哔哩哔哩"], "自述": ["哔哩哔哩：先停一下。"]}),
-    (_revise, {"时刻": "08:00", "类别": "生活", "核验": ["改了今日计划"]}),
+@pytest.mark.parametrize("run,entry,extra_mutate", [
+    (_conclude, {"时刻": "08:15", "类别": "生活", "核验": ["测试休息 08:00–08:15"], "自述": ["测试休息：收尾。"]}, None),
+    (_report, {"时刻": "08:30", "类别": "生活", "自述": ["进展·哔哩哔哩：继续。"]}, None),
+    (_report_settled, {"时刻": "08:05", "类别": "饮食、生活",
+                       "核验": ["搜索饿了么：查到 1 项商品、0 个地点", "开始搜索柠檬茶"],
+                       "自述": ["进展·测试休息：继续。"]}, lambda _p, c: c.__setitem__("reconsideration_interval_seconds", 300)),
+    (_start, {"时刻": "08:00", "类别": "生活", "核验": ["开始测试休息"]}, None),
+    (_group, {"时刻": "08:00", "类别": "生活", "核验": ["开始测试休息、哔哩哔哩"]}, None),
+    (_start_noted, {"时刻": "08:00", "类别": "生活", "核验": ["开始测试休息"], "自述": ["正文：先歇一会儿。"]}, None),
+    (_start_settled, {"时刻": "08:00", "类别": "饮食、生活",
+                      "核验": ["搜索饿了么：查到 1 项商品、0 个地点", "开始测试休息、搜索柠檬茶"],
+                      "自述": ["正文：查完了，先歇一会儿。"]}, None),
+    (_purchase, {"时刻": "08:00", "类别": "饮食", "核验": ["开始购买柠檬茶"], "自述": ["正文：买杯柠檬茶。"]}, None),
+    (_search, {"时刻": "08:00", "类别": "饮食", "核验": ["开始搜索柠檬茶"], "自述": ["正文：看看柠檬茶多少钱。"]}, None),
+    (_rejected, {"时刻": "08:00", "类别": "饮食", "核验": ["被拒：购买盖浇饭"], "自述": ["正文：想吃盖浇饭。"]}, None),
+    (_pause, {"时刻": "08:30", "类别": "生活", "核验": ["暂停哔哩哔哩"], "自述": ["哔哩哔哩：先停一下。"]}, None),
+    (_revise, {"时刻": "08:00", "类别": "生活", "核验": ["改了今日计划"]}, None),
 ], ids=["conclude", "report", "report-with-settlement", "start", "start-group", "start-with-body",
-        "start-after-settlement", "start-purchase", "start-query", "rejected", "pause", "revise"])
-def test_twelve_decision_kinds_have_pinned_entries(engine_factory, run, entry):
+        "start-after-settlement", "start-purchase", "start-search", "rejected", "pause", "revise"])
+def test_twelve_decision_kinds_have_pinned_entries(engine_factory, run, entry, extra_mutate):
     """各类决策的下一次观察「今天」末项逐字节等于写死的条目。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=extra_mutate)
     run(engine)
     assert json.dumps(_last(engine), ensure_ascii=False) == json.dumps(entry, ensure_ascii=False)
 
@@ -463,24 +496,17 @@ def test_delivery_and_pickup_lines(engine_factory):
 
 
 def test_query_line_and_its_answers(engine_factory):
-    """查柠檬茶做完：下一次决策的条目有查完行，渲染形状里没有店名与答案行；全文的「当时查到」先写查询时刻与 app，再逐行写
-    商品与价钱；查询提前结束时写成结束行。"""
+    """搜索柠檬茶做完：合并后的条目有搜索行，渲染形状里没有店名与答案行；全文的「当时查到」先写搜索时刻与应用，再逐行写商品与价钱。"""
     engine = engine_factory()
-    asked = _queried(engine)
+    asked = _searched(engine)
     act(engine, "watch", use_app("哔哩哔哩"))
     shown = observe_only(engine, "next")["memory_layer"]
-    assert "查完饿了么·柠檬茶：1项可买，12–12元" in shown["今天"][-1]["核验"]
+    assert "搜索饿了么：查到 1 项商品、0 个地点" in shown["今天"][-1]["核验"]
     assert "三杯咖啡" not in render_layer_json(shown) and "柠檬茶 12元" not in render_layer_json(shown)
     ended = engine.context.state.activities[asked.activity_id].ended_at
     full = entry_full(_today(engine).entries[-1])
-    assert full["当时查到"][0] == f"{datetime.fromtimestamp(ended, ZONE):%H:%M} 在饿了么查柠檬茶"
+    assert full["当时查到"][0] == f"{datetime.fromtimestamp(ended, ZONE):%H:%M} 在饿了么搜柠檬茶"
     assert set(full["当时查到"][1:]) <= {"柠檬茶 12元", "柠檬茶 12元，当时不可买"} and len(full["当时查到"]) > 1
-    engine = engine_factory(mutate=_every_five)
-    _, asked = act(engine, "ask", query("柠檬茶"))
-    assert advance_until_ready(engine)
-    act(engine, "stop", conclude_request(activity_name(engine, asked.activity_id)), "conclude_activity")
-    assert [line for line in _ending_lines(engine) if line.startswith("查询柠檬茶 ")] == [
-        "查询柠檬茶 08:00–08:05，提前结束"]
 
 
 def test_errand_lines(engine_factory):
@@ -504,15 +530,18 @@ def test_errand_lines(engine_factory):
     assert "办成「备好饮料」" in _lines(engine)
 
 
-@pytest.mark.parametrize("requests,line", [
-    ((query("盖浇饭"),), "被拒：查询盖浇饭"),
-    ((do_at("家", "测试休息"), purchase("盖浇饭")), "被拒：开始测试休息、购买盖浇饭"),
-    ((ReviseDayPlanRequest(goals=[]),), "被拒：改今日计划"),
-    ((conclude_request("不存在的活动"),), "被拒：收尾不存在的活动"),
-], ids=["query-unknown-goods", "start-group", "revise-without-plan", "conclude-unknown-activity"])
-def test_rejection_lines(engine_factory, requests, line):
+@pytest.mark.parametrize("requests,line,while_travelling", [
+    ((search_world("盖浇饭"),), "被拒：搜索盖浇饭", True),
+    ((do_at("家", "测试休息"), purchase("盖浇饭")), "被拒：开始测试休息、购买盖浇饭", False),
+    ((ReviseDayPlanRequest(goals=[]),), "被拒：改今日计划", False),
+    ((conclude_request("不存在的活动"),), "被拒：收尾不存在的活动", False),
+], ids=["search-on-road", "start-group", "revise-without-plan", "conclude-unknown-activity"])
+def test_rejection_lines(engine_factory, requests, line, while_travelling):
     """被拒的请求写一行「被拒：〈动作对象〉」，不带原因。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=_every_five if while_travelling else None)
+    if while_travelling:
+        act(engine, "go", travel("公司", "步行"))
+        assert advance_until_ready(engine)
     if len(requests) == 2:
         _, results = act_group(engine, "refused", *requests)
     else:
@@ -562,13 +591,13 @@ def test_self_items_follow_prefix_order_and_routine_stays_in_the_full_text(engin
 
 
 def test_category_string_lists_the_main_category_first(engine_factory):
-    """查询做完那一刻在家开始测试休息并购买牛肉面：核验先写饮食的查完行，「类别」仍以主请求测试休息的类别打头，后接饮食。"""
+    """搜索做完那一刻在家开始测试休息并购买牛肉面：核验先写饮食的搜索行，「类别」仍以主请求测试休息的类别打头，后接饮食。"""
     engine = engine_factory()
-    _queried(engine)
+    _searched(engine)
     _, started = act_group(engine, "pair", do_at("家", "测试休息"), purchase("牛肉面", prefer="饿了么"))
     assert [result.status for result in started] == ["in_progress", "in_progress"]
     entry = _last(engine)
-    assert entry["核验"][0].startswith("查完") and entry["类别"] == "生活、饮食"
+    assert entry["核验"][0].startswith("搜索") and entry["类别"] == "生活、饮食"
 
 
 def _night(persona, config):
@@ -633,7 +662,11 @@ def test_entries_are_append_only_within_a_day(tmp_path, monkeypatch):
     assert len(days) > 10
     for (day, earlier), (later_day, later) in zip(days, days[1:]):
         if day == later_day:
-            assert later[:len(earlier)] == earlier
+            # 同一天内仅未封口挂起搜索的条目会在恢复提交时原地扩充，其余条目严格只增不改。
+            assert len(later) >= len(earlier)
+            for old, new in zip(earlier, later):
+                if new != old:
+                    assert "开始搜索" in "".join(old.get("核验", ()))
 
 
 @pytest.mark.parametrize("kind", ["activity", "callback"])
@@ -648,10 +681,11 @@ def test_a_recorded_day_has_one_entry_per_decision_within_120_characters(tmp_pat
         requests = engine.context.store.read_agent_events("action_requested", 1)
     finally:
         engine.close()
-    decisions = {event.decision_id for event in requests
-                 if datetime.fromtimestamp(event.occurred_at, ZONE).date().isoformat() == "2026-01-05"}
-    shown = [entry.shown for entry in entries if entry.decision_id is not None]
-    assert len(shown) == len(decisions) > 3
+    wakeups = {(event.wakeup_id, datetime.fromtimestamp(event.occurred_at, ZONE).date().isoformat())
+               for event in requests
+               if datetime.fromtimestamp(event.occurred_at, ZONE).date().isoformat() == "2026-01-05"}
+    shown = [entry.shown for entry in entries if entry.wakeup_id is not None]
+    assert len(shown) == len(wakeups) > 3
     for item in shown:
         assert "核验" in item or "自述" in item
         assert sum(len(text) for key in ("核验", "自述") for text in item.get(key, ())) <= 120
@@ -660,10 +694,11 @@ def test_a_recorded_day_has_one_entry_per_decision_within_120_characters(tmp_pat
 def test_a_fresh_store_rebuilds_byte_identical_entries(engine_factory):
     """同一 footprints.sqlite 新开一个存储对象（缓存为空）：今天的条目逐项渲染形状与全文相同，已发布界相同。"""
     engine = engine_factory()
-    _queried(engine)
+    _searched(engine)
+    _, watch = act(engine, "watch", use_app("哔哩哔哩"))
+    assert advance_until_ready(engine)
+    act(engine, "end", conclude_request(activity_name(engine, watch.activity_id)), "conclude_activity")
     _, started = act_group(engine, "pair", do_at("家", "测试休息"), purchase("牛肉面", prefer="饿了么"))
-    until_ended(engine, started[1].activity_id)
-    act(engine, "end", conclude_request(activity_name(engine, started[1].activity_id)), "conclude_activity")
     original = _today(engine)
     fresh = FootprintStore(engine.context.store.run_dir)
     try:
@@ -676,9 +711,93 @@ def test_a_fresh_store_rebuilds_byte_identical_entries(engine_factory):
     assert rebuilt.published == original.published and len(original.entries) == 3
 
 
+def test_same_wakeup_consolidates_into_one_entry_and_splits_across_midnight(engine_factory):
+    """同一 wakeup_id 在同日经拒绝、搜索挂起与恢复合并为单条 TodayEntry；跨越本地零点时按 (wakeup_id, local_date) 拆成两日条目。"""
+    # 同日单唤醒合并：拒绝 -> search_world 挂起 -> complete_searches -> 同 wakeup 恢复开始哔哩哔哩
+    same_day = engine_factory()
+    [w1] = same_day.prepare_barrier((1,))
+    sb1 = same_day.open_sandbox(w1)
+    bad = purchase("盖浇饭")
+    sb1.dispatch_world_tool("start_side_activity", bad, f"{w1.wakeup_id}:action:0001")
+    req_search = search_world("柠檬茶", prefer="饿了么")
+    search_id = f"{w1.wakeup_id}:action:0002"
+    res_search = sb1.dispatch_world_tool("search_world", req_search, search_id)
+    same_day.commit_barrier([sb1.finish_wakeup(SuspendedLoopState(
+        wakeup_id=w1.wakeup_id, action_id=search_id,
+        activity_id=res_search.tool_message_payload["activity_id"],
+        pending_tool_call_id="c-s", messages=(), turn_used=1,
+        memory_search_count=0, accepted_action_ids=(search_id,),
+        pending_memories=(), verified_experiences=(), local_rejection_counts={},
+        observation_event_id=w1.observation["observation_event_id"],
+        observation_parts=dict(w1.observation_parts), suspended_at=w1.observed_at, base_layers=(),
+    ))])
+    while not same_day.due_searches():
+        advance_next(same_day)
+    [(task, _)] = same_day.due_searches()
+    same_day.complete_searches([SearchSessionOutcome(
+        action_id=task.action_id, agent_id=1, activity_id=task.activity_id,
+        goods_ids=("lemon-tea",), place_ids=(), summary="找到柠檬茶",
+    )])
+    [w1_resumed] = same_day.prepare_barrier((1,))
+    assert w1_resumed.wakeup_id == w1.wakeup_id
+    sb2 = same_day.open_sandbox(w1_resumed)
+    sb2.dispatch_world_tool("start_side_activity", use_app("哔哩哔哩"), f"{w1.wakeup_id}:action:0003")
+    same_day.commit_barrier([sb2.finish_wakeup(None)])
+    today_entries = _today(same_day).entries
+    grouped = [entry for entry in today_entries if entry.wakeup_id == w1.wakeup_id]
+    assert len(grouped) == 1 and len(today_entries) == 1
+    kinds = {line.kind for line in grouped[0].lines}
+    assert {"rejection", "search", "start"} <= kinds
+
+    # 跨零点按 (wakeup_id, local_date) 拆分成 2026-01-05 与 2026-01-06 两条条目
+    def near_midnight(_p, c):
+        c["start_time"] = datetime.fromisoformat("2026-01-05T23:00:00+08:00")
+        c["stop_time"] = datetime.fromisoformat("2026-01-06T03:00:00+08:00")
+
+    from tests.life.current_world import stage_moment
+
+    cross = engine_factory(mutate=near_midnight)
+    stage_day_plan(cross, submitted=True)
+    stage_moment(cross, _at("23:58", "2026-01-05"))
+    [wc] = cross.prepare_barrier((1,))
+    sbc = cross.open_sandbox(wc)
+    aid_c = f"{wc.wakeup_id}:action:0001"
+    res_c = sbc.dispatch_world_tool("search_world", search_world("柠檬茶", prefer="饿了么"), aid_c)
+    cross.commit_barrier([sbc.finish_wakeup(SuspendedLoopState(
+        wakeup_id=wc.wakeup_id, action_id=aid_c,
+        activity_id=res_c.tool_message_payload["activity_id"],
+        pending_tool_call_id="c-cross", messages=(), turn_used=1,
+        memory_search_count=0, accepted_action_ids=(aid_c,),
+        pending_memories=(), verified_experiences=(), local_rejection_counts={},
+        observation_event_id=wc.observation["observation_event_id"],
+        observation_parts=dict(wc.observation_parts), suspended_at=wc.observed_at, base_layers=(),
+    ))])
+    while not cross.due_searches():
+        if cross.midnight_rhythm_pending:
+            cross.decide_midnight_rhythm()
+        else:
+            advance_next(cross)
+    [(t_cross, _)] = cross.due_searches()
+    cross.complete_searches([SearchSessionOutcome(
+        action_id=t_cross.action_id, agent_id=1, activity_id=t_cross.activity_id,
+        goods_ids=("lemon-tea",), place_ids=(), summary="夜宵柠檬茶",
+    )])
+    [wc_next] = cross.prepare_barrier((1,))
+    assert wc_next.wakeup_id == wc.wakeup_id
+    sb_next = cross.open_sandbox(wc_next)
+    sb_next.dispatch_world_tool("start_side_activity", use_app("哔哩哔哩"), f"{wc.wakeup_id}:action:0002")
+    cross.commit_barrier([sb_next.finish_wakeup(None)])
+    day1 = [e for e in past_day_entries(cross.context.inputs, cross.context.store, 1, "2026-01-05",
+                                       cross.context.state.current_time) if e.wakeup_id == wc.wakeup_id]
+    day2 = [e for e in _today(cross).entries if e.wakeup_id == wc.wakeup_id]
+    assert len(day1) == 1 and day1[0].day == "2026-01-05"
+    assert len(day2) == 1 and day2[0].day == "2026-01-06"
+    assert any(line.kind == "search" for line in day2[0].lines)
+
+
 def _recall(engine, name):
     """以此刻的观察回看这项活动。"""
-    observed = engine.observe(context(engine, f"recall-{engine.context.state.current_time}"))
+    observed = engine.observations.build_wakeup_observation(engine.context.state.agents[1])[0]
     return engine.read_task_summary(1, RecallTaskSummaryRequest(task_name=name), observed)["recall"]
 
 

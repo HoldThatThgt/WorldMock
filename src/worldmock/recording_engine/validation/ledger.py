@@ -56,14 +56,21 @@ def validate_account_history(events: list[Event], final_state: dict) -> None:
         raise IntegrityError("Export financial events do not reconstruct the final account balances")
 
 
+def _valid_agent_account(key: object) -> bool:
+    """@brief 人物账户键恰为 agent:<正整数>。"""
+    if not isinstance(key, str) or not key.startswith("agent:"):
+        return False
+    suffix = key.removeprefix("agent:")
+    return suffix.isascii() and suffix.isdigit() and int(suffix) > 0 and str(int(suffix)) == suffix
+
+
 def _validate_accounts(accounts: dict) -> None:
-    """@brief 所有真实账户余额必须是非负的最小货币单位整数。"""
-    if (not isinstance(accounts, dict) or len(accounts) != 2
-            or any(not isinstance(key, str) or not key for key in accounts)
-            or any(type(value) is not int or key != "external:scenario" and value < 0
-                   for key, value in accounts.items())
+    """@brief 多人物场景包含 external:scenario 与至少一个 agent:<id>，人物账户余额必须为非负整数最小货币单位。"""
+    if (not isinstance(accounts, dict) or len(accounts) < 2
             or "external:scenario" not in accounts
-            or any(key != "external:scenario" and not key.startswith("agent:") for key in accounts)):
+            or any(key != "external:scenario" and not _valid_agent_account(key) for key in accounts)
+            or any(type(value) is not int or (key != "external:scenario" and value < 0)
+                   for key, value in accounts.items())):
         logging.error("Account balances violate the current account contract")
         raise IntegrityError("Account balances must be nonnegative integer minor units")
 

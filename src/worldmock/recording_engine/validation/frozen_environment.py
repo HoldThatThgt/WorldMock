@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
+import tomllib
 from pathlib import Path
 
 from worldmock.resource_engine.catalog.identity import OPTIONAL_CATALOG_FILES, REQUIRED_CATALOG_FILES, _update_frame
@@ -14,9 +16,11 @@ from worldmock.foundation.errors import IntegrityError
 from worldmock.recording_engine.projections.presentation.display_wording import DisplayNames, display_names
 from worldmock.recording_engine.events.models import AssetRef
 from worldmock.foundation.serialization import canonical_json
+from worldmock.state.identity import check_persona_sha256s, validate_persona_sha256s_input
 
-#: 冻结素材里不随目录清单变化的四个名字。
-FIXED_ENVIRONMENT_ASSETS = frozenset({"persona.toml", "config.toml", "map.json", "catalog/manifest.json"})
+#: 冻结素材里除多个人设文件与目录文件外不随目录清单变化的三个固定名字。
+FIXED_ENVIRONMENT_ASSETS = frozenset({"config.toml", "map.json", "catalog/manifest.json"})
+_PERSONA_ASSET = re.compile(r"personas/[^/]+\.toml")
 #: 显示名称读的五份目录与各自的行模型，次序即 display_names 的入参次序；出行方式文件可选。
 _NAME_CATALOGS = (("app-catalog.jsonl", App), ("content-catalog.jsonl", Content), ("location.jsonl", Location),
                   ("merchant-catalog.jsonl", Goods), ("travel-method.jsonl", TravelMethod))
@@ -35,11 +39,9 @@ def frozen_display_names(root: Path, frozen: dict) -> DisplayNames:
 
 
 def validate_frozen_environment(root: Path, frozen: dict, activities: list[dict], events: list[dict]) -> None:
-    """@brief 核对冻结人设、配置和目录文件，并核对系统 app 事实与回调足迹匹配冻结目录。"""
+    """@brief 核对冻结多人物人设、配置和目录文件，并核对系统 app 事实与回调足迹匹配冻结目录。"""
     inputs, manifest = _frozen_inputs(root, frozen["environment_assets"])
-    for name in ("persona", "config"):
-        if hashlib.sha256(inputs[f"{name}.toml"]).hexdigest() != frozen[f"{name}_sha256"]:
-            _invalid("Frozen environment input identity disagrees with its run manifest")
+    _validate_persona_and_config(inputs, frozen)
     identity = frozen["environment_identity"]
     for key in ("environment_id", "environment_version", "rules_version", "catalog_content_sha256"):
         if manifest[key] != identity[key]:
@@ -57,13 +59,42 @@ def validate_frozen_environment(root: Path, frozen: dict, activities: list[dict]
     _validate_app_sources(events, apps, methods, rules)
 
 
+def _validate_persona_and_config(inputs: dict[str, bytes], frozen: dict) -> None:
+    """@brief 核对冻结 config.toml 与全部 personas/*.toml 的原字节摘要一致。"""
+    if hashlib.sha256(inputs["config.toml"]).hexdigest() != frozen["config_sha256"]:
+        _invalid("Frozen environment input identity disagrees with its run manifest")
+    actual: dict[int, str] = {}
+    for name in sorted(key for key in inputs if _PERSONA_ASSET.fullmatch(key)):
+        raw = inputs[name]
+        try:
+            payload = tomllib.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, tomllib.TOMLDecodeError):
+            _invalid("Frozen environment input identity disagrees with its run manifest")
+        agent_id = payload.get("agent_id")
+        if type(agent_id) is not int or agent_id <= 0 or agent_id in actual:
+            _invalid("Frozen environment input identity disagrees with its run manifest")
+        actual[agent_id] = hashlib.sha256(raw).hexdigest()
+    expected = frozen.get("persona_sha256s")
+    if not isinstance(expected, dict):
+        _invalid("Frozen environment input identity disagrees with its run manifest")
+    try:
+        validate_persona_sha256s_input(expected)
+        expected_map = {int(key): value for key, value in expected.items()}
+        check_persona_sha256s(expected_map, set(actual))
+    except ValueError:
+        _invalid("Frozen environment input identity disagrees with its run manifest")
+    if expected_map != actual or ("agent_ids" in frozen and set(actual) != set(frozen["agent_ids"])):
+        _invalid("Frozen environment input identity disagrees with its run manifest")
+
+
 def _frozen_inputs(root: Path, assets: dict) -> tuple[dict, dict]:
-    """@brief 先读冻结清单：素材名字恰为四个固定名字加文件表登记的每个目录文件，文件表不缺必需文件也不出闭集。"""
+    """@brief 先读冻结清单：素材名字恰为三个固定名字、至少一份 personas/*.toml 加文件表登记的每个目录文件。"""
     if "catalog/manifest.json" not in assets:
         _invalid("Frozen environment asset set is invalid")
     manifest = json.loads(_read_input(root, assets["catalog/manifest.json"]))
     listed = {record["path"] for record in manifest["files"]}
-    if set(assets) != FIXED_ENVIRONMENT_ASSETS | {f"catalog/{relative}" for relative in listed}:
+    personas = {name for name in assets if _PERSONA_ASSET.fullmatch(name)}
+    if not personas or set(assets) != FIXED_ENVIRONMENT_ASSETS | personas | {f"catalog/{r}" for r in listed}:
         _invalid("Frozen environment asset set is invalid")
     if not REQUIRED_CATALOG_FILES <= listed <= REQUIRED_CATALOG_FILES | OPTIONAL_CATALOG_FILES:
         _invalid("Frozen catalog file set is invalid")

@@ -56,10 +56,10 @@ async def execute(prepared):
         from worldmock.runtime.lifecycle import midnight
         from worldmock.runtime.lifecycle.run_host import RunHost
         midnight.PlanDayClient = PlanDay
-        host = RunHost(prepared.run_dir, prepared.inputs, runtime._model_client(prepared), prepared.agents,
+        host = RunHost(prepared.run_dir, prepared.inputs, runtime._model_registry(prepared), prepared.agents,
                        prepared.memory_records)
         try:
-            await host.start_new(prepared.run_identity, prepared.stage_identity, runtime._creation_options(prepared))
+            await host.start_new(prepared.run_identity, runtime._creation_options(prepared))
         finally:
             await host.close()
     return runtime.RunResult(prepared.run_id, prepared.run_dir, prepared.start_time, 0)

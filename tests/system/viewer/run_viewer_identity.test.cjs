@@ -19,8 +19,8 @@ const PRUNED = new Set(['observation', 'model_request', 'model_response']);
 /** 一条运行输入警告。 */
 const warning = (code, agent_id, message) => ({code, agent_id, message, details: {}});
 
-/** @brief 深拷贝一份录制的请求：action 或 continuation。 */
-function recorded(kind) {
+/** @brief 深拷贝一份录制的请求。 */
+function recorded(kind = 'action') {
   return JSON.parse(JSON.stringify(CONTEXT[kind]));
 }
 
@@ -50,7 +50,7 @@ function observation(balance, energy) {
     goal_bindings: [{task_name: '交纪要', intent_kind: '工作'}],
     home_location_id: 'home',
     interaction_bindings: [{object: '哔哩哔哩', kind: 'app', object_id: 'bilibili'}],
-    known_activity_actions: ['interact', 'travel', 'sleep', 'purchase', 'query'],
+    known_activity_actions: ['interact', 'travel', 'sleep', 'purchase', 'search'],
     location_id: 'home',
     locations: [{location_id: 'home', name: '家'}],
     memory_layer: {layer: '记忆层', 可查: {最早日期: '2026-01-05'}, 近三天: {饮食: [], 工作: [], 生活: []},
@@ -59,7 +59,6 @@ function observation(balance, energy) {
     progress_event_ids: ['event-1'],
     progress_layer: {layer: '进度层', events: [{type: 'tool_call', tool: 'start_side_activity'}]},
     progress_meta: {window: 'today'},
-    same_moment_stage: 'first',
     todo_layer: {layer: '待办层', goals: ['交纪要']},
     tool_layer: {layer: '工具层', groups: [{kind: 'app', action: 'interact'}]},
     verified_experiences: ['昨天去了公司。'],
@@ -79,18 +78,23 @@ function modelResponse(reasoning, message = {},
  *  是第二章的数组形状；拖入导出的顶层文件与一个运行目录（运行清单、assets 与人物的 MEMORY.md）。 */
 function identityRun() {
   const action = recorded('action');
-  const continuation = recorded('continuation');
-  const toolCalls = continuation.messages[2].tool_calls;
+  const toolCalls = [{id: 'call-action-1', type: 'function',
+    function: {name: 'start_side_activity', arguments: '{"action":"interact","target":["哔哩哔哩"],"prefer":null}'}}];
+  const searchReq = {model: 'test-model',
+    messages: [{role: 'system', content: '你是搜索子会话助手，通过目录工具寻找匹配的真实商品和地点。'},
+      {role: 'user', content: '{"query":"咖啡","prefer":null}'}],
+    tools: [{type: 'function', function: {name: 'search_goods'}}]};
   const rows = [
-    event('decision_started', {round_order: 0, wake_reasons: ['session_open']}, {decision_id: 'decision-a'}),
-    event('observation', observation(120000, 1356.25), {decision_id: 'decision-a'}),
+    event('decision_started', {wakeup_id: 'wakeup-a', world_state_version: 1, wake_reasons: ['session_open']},
+      {wakeup_id: 'wakeup-a'}),
+    event('observation', observation(120000, 1356.25), {wakeup_id: 'wakeup-a'}),
     event('model_request', {phase: 'request', call_id: 'call-a', attempt: 1, request: action},
-      {event_id: 'request-action', decision_id: 'decision-a'}),
+      {event_id: 'request-action', wakeup_id: 'wakeup-a'}),
     event('model_response', {phase: 'response', call_id: 'call-a', request: action,
       response: modelResponse('先刷一会儿哔哩哔哩。', {tool_calls: toolCalls}, {prompt_tokens: 900,
         completion_tokens: 80, total_tokens: 980, prompt_cache_hit_tokens: 640,
         completion_tokens_details: {reasoning_tokens: 55}})},
-    {caused_by: ['request-action'], decision_id: 'decision-a'}),
+    {caused_by: ['request-action'], wakeup_id: 'wakeup-a'}),
     event('action_requested', {tool_name: 'start_side_activity',
       request: {action: 'interact', target: ['哔哩哔哩'], prefer: null}, self_note: '先看会儿。'}),
     ...CASES.events[0].events.map(entry => event(entry.type, entry.data,
@@ -105,13 +109,14 @@ function identityRun() {
       resource_changes: {'account:agent:1': -1200, 'account:external:scenario': 1200}}),
     event('memory_updated', {operation: 'append_episodes', created_episode_ids: ['m-1'], merged_episode_ids: [],
       episodes: [{id: 'm-1', type: 'routine', text: '午饭点了外卖。'}]}),
-    event('decision_started', {round_order: 0, wake_reasons: ['planned_end']}, {decision_id: 'decision-b'}),
-    event('observation', observation(118800, 1230), {decision_id: 'decision-b'}),
-    event('model_request', {phase: 'request', call_id: 'call-b', attempt: 1, request: continuation},
-      {event_id: 'request-continuation', decision_id: 'decision-b'}),
-    event('model_response', {phase: 'response', call_id: 'call-b', request: null,
+    event('decision_started', {wakeup_id: 'wakeup-b', world_state_version: 2, wake_reasons: ['planned_end']},
+      {wakeup_id: 'wakeup-b'}),
+    event('observation', observation(118800, 1230), {wakeup_id: 'wakeup-b'}),
+    event('model_request', {phase: 'request', call_id: 'call-b', attempt: 1, purpose: 'search_session',
+      request: searchReq}, {event_id: 'request-search', wakeup_id: 'wakeup-b', activity_id: 'look-1'}),
+    event('model_response', {phase: 'response', call_id: 'call-b', purpose: 'search_session', request: null,
       response: modelResponse('看完这一集再说。', {content: '好。'})},
-    {caused_by: ['request-continuation'], decision_id: 'decision-b'}),
+    {caused_by: ['request-search'], wakeup_id: 'wakeup-b', activity_id: 'look-1'}),
     event('model_request', {phase: 'request', call_id: 'call-c', attempt: 1, request: otherRequest()},
       {event_id: 'request-other', agent_id: 2}),
     event('model_response', {phase: 'failure', call_id: 'call-c', error: 'Transport failed', request: null,
@@ -123,8 +128,7 @@ function identityRun() {
       response: modelResponse('先交纪要。', {content: '{"goals": []}'})}, {caused_by: ['request-plan']}),
     event('environment_event', {kind: 'day_plan_generated', day_plan: {day_end: epoch + 86400, goals: [
       {intent_kind: '工作', goal: '交纪要', registered_at: epoch, remind_at: epoch + 7200}]}}),
-    event('action_rejected', {error_code: 'ACTION_REQUEST_INVALID', same_moment_round: 1,
-      max_same_moment_decisions: 3, reason: '所选的对象不在本轮列出的范围内'}),
+    event('action_rejected', {error_code: 'ACTION_REQUEST_INVALID', reason: '所选的对象不在本轮列出的范围内'}),
     event('checkpoint_created', {checkpoint_id: 'cp-1'}, {agent_id: null}),
     event('run_ended', {end_time: epoch + 86400}, {agent_id: null, wall_elapsed_ms: 120000}),
     event('checkpoint_created', {checkpoint_id: 'cp-2'}, {agent_id: null}),
@@ -295,10 +299,12 @@ test('every view shows the same output from the index as from full bodies on a c
     for (const {seq} of app.state.events) {
       assert.equal(await app.run(`fetchBody(${seq})`), app.exported.lines[seq - 1], `byte range of event ${seq}`);
     }
-    // 覆盖面：第 16 条是续接，来源决策按 tool_call 身份找到；请求与响应按 caused_by 配对。
-    const continued = await app.run('ContextView.read(16)');
-    assert.equal(continued.current.continuation, true);
-    assert.ok(continued.current.blocks.some(block => block.label.includes('decision-a')));
+    // 覆盖面：第 16 条是 search_session，唤醒与活动归属随索引保留；请求与响应按 caused_by 配对。
+    const searchItem = await app.run('ContextView.read(16)');
+    assert.equal(searchItem.current.stage, 'search_session');
+    assert.equal(searchItem.item.wakeup, 'wakeup-b');
+    assert.equal(searchItem.item.activity, 'look-1');
+    assert.equal(searchItem.sessionItems.length, 1);
     assert.equal((await app.run('ContextView.read(3)')).response.seq, 4);
     assert.equal((await app.run('ContextView.read(16)')).response.seq, 17);
     assert.equal(JSON.parse(candidate.details)[2][0], '查看上下文');

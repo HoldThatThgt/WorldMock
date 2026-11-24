@@ -71,11 +71,11 @@ def test_new_run_writes_each_input_warning_to_the_manifest_options_and_the_opera
     metadata_service(monkeypatch, frozen)
     prepared = _prepare_new_run(RunRequest(root, tmp_path / "run", "warned", "warned"))
     options = _creation_options(prepared)
-    assert list(options) == ["same_second_continuation", "input_warnings", "persona_habit_responses"]
+    assert list(options) == ["input_warnings", "persona_habit_responses"]
     assert [row["code"] for row in options["input_warnings"]] == [
         "CONTENT_EMPTY_WITH_MEDIA_TASTES", "LOCATION_NAME_SUSPICIOUS"]
     assert options["persona_habit_responses"] == {1: ["公园慢跑半小时", "读几页小说"]}
-    assert "world_dynamics" not in options and options["same_second_continuation"] is True
+    assert "world_dynamics" not in options and "same_second_continuation" not in options
     logged = [json.loads(line) for path in sorted((tmp_path / "run/logs").glob("*"))
               for line in path.read_text(encoding="utf-8").splitlines()]
     frozen = [row for row in logged if row["detail"] == "Input warning frozen into the run manifest"]

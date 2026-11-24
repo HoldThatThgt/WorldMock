@@ -48,7 +48,7 @@ def _run(tmp_path, monkeypatch, events: list[tuple[str, datetime]]):
         monkeypatch.setattr(_At, "moment", moment, raising=False)
         monkeypatch.setattr(store_module, "datetime", _At)
         data = {"phase": "request", "call_id": f"c{index}"} if event_type == "model_request" else {}
-        store.append_evidence([EventDraft(event_type=event_type, occurred_at=100, agent_id=1, decision_id="d1",
+        store.append_evidence([EventDraft(event_type=event_type, occurred_at=100, agent_id=1, wakeup_id="w1",
                                           visibility="system", source_kind="model", data=data)])
     monkeypatch.setattr(store_module, "datetime", datetime)
     store.close()

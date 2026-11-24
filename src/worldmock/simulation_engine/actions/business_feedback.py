@@ -33,7 +33,10 @@ def _affected_fields(request: dict, code: str) -> list[tuple[str | int, ...]]:
     """@brief 依据工具实际结构和业务条件定位，不暴露内部价格、身份或时长。"""
     if isinstance(request.get("items"), list):
         return [("items", index, "activity_name") for index in range(len(request["items"]))]
-    return [("task_name" if "task_name" in request else "goals",)]
+    for field in ("task_name", "goals", "query", "target"):
+        if field in request:
+            return [(field,)]
+    return []
 
 
 def _domain_item(request: dict, code: str, reason: str, observation: dict,

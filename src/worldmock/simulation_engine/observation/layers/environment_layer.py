@@ -1,10 +1,11 @@
 """@brief 环境层只显示时钟、四项体感、真实位置、天气、今天的工作安排与明天的日期、星期和上不上班。"""
 
-from worldmock.simulation_engine.activities.lifecycle import sessions
-from worldmock.state.world.kinds import ActivityKind, SessionKind
+from worldmock.configuration.persona.work_schedule import duty, tomorrow
 from worldmock.foundation.time.readable import iso_time
 from worldmock.resource_engine.catalog.travel_methods import travel_method
-from worldmock.simulation_engine.scheduling.clock.weather import current_weather, WEATHER_LABELS
+from worldmock.simulation_engine.activities.lifecycle import sessions
+from worldmock.simulation_engine.scheduling.clock.weather import WEATHER_LABELS, current_weather
+from worldmock.state.world.kinds import ActivityKind, SessionKind
 
 _BODY_KEYS = ("appetite", "sleepiness", "relaxation", "social")
 
@@ -34,15 +35,11 @@ def _duty(context) -> dict | None:
     """@brief 工作安排直接读取实际人设声明，地点显示名来自完整目录。"""
     if context.persona.work_schedule is None:
         return None
-    from worldmock.configuration.persona.work_schedule import duty
-
     places = {key: row.display_name for key, row in context.catalog.locations.items()}
     return duty(context.persona.work_schedule, context.state.current_time, context.config.timezone, places)
 
 
 def _tomorrow(context) -> dict:
     """@brief 明天的日期、星期名与上不上班，按此刻所在本地日的下一天读实际人设声明；没有工作安排时 day 为 None。"""
-    from worldmock.configuration.persona.work_schedule import tomorrow
-
     places = {key: row.display_name for key, row in context.catalog.locations.items()}
     return tomorrow(context.persona.work_schedule, context.state.current_time, context.config.timezone, places)

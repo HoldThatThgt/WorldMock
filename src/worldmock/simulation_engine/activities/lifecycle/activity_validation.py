@@ -2,30 +2,38 @@
 from __future__ import annotations
 import logging
 import math
+from collections.abc import Mapping
+
 from worldmock.foundation.errors import IntegrityError
 from worldmock.simulation_engine.activities.content.interact import RELIEF_PER_HOUR
+from worldmock.simulation_engine.activities.travel.travel import persisted_trip
+from worldmock.simulation_engine.commerce.purchase.order_apps import order_app_ids
 from worldmock.state.world.kinds import ActivityKind
 from worldmock.state.world.world import WorldState
-from worldmock.simulation_engine.activities.travel.travel import persisted_trip
 
 _CONTENT_FIELDS = {"action", "app_id", "content_id", "start_position_seconds", "pinned_by_push_id", "accepted_event_id",
                    "draw_index", "played", "exertion", "relaxation_relief_per_hour", "social_relief_per_hour"}
 
-def validate_activity_targets(state: WorldState, catalog, persona) -> None:
-    """@brief 所有持久活动必须属于唯一人物和同一冻结目录，不接受退役字段。"""
+
+def validate_activity_targets(state: WorldState, catalog, persona_by_id) -> None:
+    """@brief 所有持久活动必须属于运行人物集合和同一冻结目录，不接受退役字段。"""
+    owners = persona_by_id if isinstance(persona_by_id, Mapping) else {persona_by_id.agent_id: persona_by_id}
     for activity in state.activities.values():
-        if not _target_is_valid(activity, catalog, persona):
+        if not _target_is_valid(activity, catalog, owners):
             logging.error("Persisted activity target is invalid: %s", activity.activity_id)
             raise IntegrityError("Persisted activity target is invalid")
 
-def _target_is_valid(activity, catalog, persona) -> bool:
-    """@brief 仅互动含内容容器，出行按原始天气和完整图核对。"""
-    if activity.agent_id != persona.agent_id or activity.location_id not in catalog.locations:
+
+def _target_is_valid(activity, catalog, owners: Mapping) -> bool:
+    """@brief 互动核对内容绑定，出行核对路线，搜索核对限定 app 与查询载荷。"""
+    if activity.agent_id not in owners or activity.location_id not in catalog.locations:
         return False
     if activity.kind == ActivityKind.TRAVEL:
         return _travel_target_is_valid(activity, catalog)
     if activity.destination_id is not None:
         return False
+    if activity.kind == ActivityKind.SEARCH:
+        return _search_target_is_valid(activity, catalog)
     if activity.kind != ActivityKind.INTERACT:
         return True
     data = activity.data
@@ -79,6 +87,17 @@ def _played_is_valid(played, activity, catalog) -> bool:
 def _position_is_valid(position, duration_seconds: int) -> bool:
     """@brief 秒数必须有限且不超过内容总长，布尔值不是秒数。"""
     return type(position) in {int, float} and math.isfinite(position) and 0 <= position <= duration_seconds
+
+def _search_target_is_valid(activity, catalog) -> bool:
+    """@brief 搜索活动的意向与限定下单应用必须在当前环境秩序范围之内。"""
+    data = activity.data
+    if data.get("action") != "search" or not isinstance(data.get("query"), str) or not data["query"].strip():
+        return False
+    app_id = data.get("app_id")
+    if app_id is not None and app_id not in order_app_ids(catalog):
+        return False
+    return isinstance(data.get("scoped"), bool)
+
 
 def _travel_target_is_valid(activity, catalog) -> bool:
     """@brief 冻结行程按原出行方式和原天气核对，不随之后天气重新规划。"""

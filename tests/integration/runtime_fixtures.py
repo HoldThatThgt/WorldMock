@@ -26,15 +26,21 @@ def write_project(root: Path) -> Path:
 
 
 def current_run_identity(inputs, run_id: str):
-    """@brief 使用当前运行代码、模型合同和真实场景建立可恢复身份。"""
+    """@brief 使用当前运行代码、多档案模型身份、多人物人设摘要和真实场景建立可恢复身份。"""
+    from worldmock.runtime.framework.setup import model_identity, runtime_code_sha256
     from worldmock.state.identity import RunIdentity
-    from worldmock.runtime.framework.setup import _model_identity, runtime_code_sha256
 
-    return RunIdentity(run_id=run_id, source_group_id=f"group-{run_id}",
-                       agent_ids=(inputs.persona.agent_id,),
-                       start_at=inputs.config.start_time.isoformat(), end_at=inputs.config.stop_time.isoformat(),
-                       timezone=inputs.config.timezone, model_identity=_model_identity(inputs.config.model),
-                       code_sha256=runtime_code_sha256())
+    return RunIdentity(
+        run_id=run_id,
+        source_group_id=f"group-{run_id}",
+        agent_ids=tuple(persona.agent_id for persona in inputs.personas),
+        persona_sha256s=dict(inputs.persona_sha256s),
+        start_at=inputs.config.start_time.isoformat(),
+        end_at=inputs.config.stop_time.isoformat(),
+        timezone=inputs.config.timezone,
+        model_identity=model_identity(inputs.config, inputs.model_metadata),
+        code_sha256=runtime_code_sha256(),
+    )
 
 
 def branch_of(parent, tmp_path: Path, kind: str, source: str):
@@ -45,18 +51,35 @@ def branch_of(parent, tmp_path: Path, kind: str, source: str):
     """
     from worldmock.recording_engine.storage.checkpoint import restore_branch, snapshot_directory
     from worldmock.simulation_engine.engine import LifeEngine
-    from worldmock.state.decisions.results import CounterfactualIntervention
     from worldmock.simulation_engine.world.world_updates import _request_sha
+    from worldmock.state.decisions.results import CounterfactualIntervention
 
-    workspace = write_agent_workspace(tmp_path / "agent")
-    checkpoint = parent.checkpoint({"agent:1": snapshot_directory(workspace, parent.context.store.assets)})
-    intervention = CounterfactualIntervention(kind="set_balance_fen", agent_id=1, balance_fen=BRANCH_BALANCE,
-                                              hypothesis="余额改变不影响已经冻结的抽取。", source_event_ids=(source,))
+    snapshots = {
+        f"agent:{agent_id}": snapshot_directory(
+            write_agent_workspace(tmp_path / f"agent-{agent_id}"),
+            parent.context.store.assets,
+        )
+        for agent_id in sorted(parent.context.state.agents)
+    }
+    checkpoint = parent.checkpoint(snapshots)
+    target_agent = sorted(parent.context.state.agents)[0]
+    intervention = CounterfactualIntervention(
+        kind="set_balance_fen",
+        agent_id=target_agent,
+        balance_fen=BRANCH_BALANCE,
+        hypothesis="余额改变不影响已经冻结的抽取。",
+        source_event_ids=(source,),
+    )
     metadata = None if kind == "resume" else {
         "branch_kind": "counterfactual",
-        "intervention_sha256": _request_sha("counterfactual_intervention", intervention)}
-    restore_branch(parent.context.store, checkpoint.checkpoint_id, tmp_path / "branch",
-                   *(() if metadata is None else (metadata,))).close()
+        "intervention_sha256": _request_sha("counterfactual_intervention", intervention),
+    }
+    restore_branch(
+        parent.context.store,
+        checkpoint.checkpoint_id,
+        tmp_path / "branch",
+        *(() if metadata is None else (metadata,)),
+    ).close()
     child = LifeEngine.open(parent.context.inputs, tmp_path / "branch")
     if kind == "replay":
         child.apply_counterfactual(intervention)
@@ -81,9 +104,15 @@ class OfflineClient:
 
 async def new_run(prepared, client):
     """@brief 按运行宿主的新建顺序启动一次准备好的新运行（建工作区、建引擎、初始检查点与零点任务），返回尚未关闭的宿主。"""
+    from worldmock.configuration.model.model_registry import ModelRegistry
     from worldmock.runtime.lifecycle.run_host import RunHost
     from worldmock.runtime.lifecycle.runner import _creation_options
 
-    host = RunHost(prepared.run_dir, prepared.inputs, client, prepared.agents, prepared.memory_records)
-    await host.start_new(prepared.run_identity, prepared.stage_identity, _creation_options(prepared))
+    registry = client if isinstance(client, ModelRegistry) else ModelRegistry(
+        prepared.inputs.config,
+        prepared.inputs.model_metadata,
+        client_factory=lambda _profile: client,
+    )
+    host = RunHost(prepared.run_dir, prepared.inputs, registry, prepared.agents, prepared.memory_records)
+    await host.start_new(prepared.run_identity, _creation_options(prepared))
     return host

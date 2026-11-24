@@ -86,8 +86,10 @@ def _server(model: ScriptedModel) -> ThreadingHTTPServer:
             self.wfile.write(raw)
 
         def do_GET(self):
-            self._send(200, {"object": "list", "data": [{"id": "test-model", "object": "model",
-                                                        "context_window": 524288, "max_output_tokens": 32768}]})
+            self._send(200, {"object": "list", "data": [
+                {"id": "test-model", "object": "model", "context_window": 524288, "max_output_tokens": 32768},
+                {"id": "test-search-model", "object": "model", "context_window": 524288, "max_output_tokens": 32768},
+            ]})
 
         def do_POST(self):
             self._send(*model.answer(json.loads(self.rfile.read(int(self.headers["Content-Length"])))))
@@ -122,8 +124,9 @@ def _environment(root: Path, port: int) -> Path:
     path = destination / "config.toml"
     document = tomlkit.parse(path.read_text(encoding="utf-8"))
     document["stop_time"] = document["start_time"] + timedelta(hours=1)
-    document["model"]["base_url"] = f"http://127.0.0.1:{port}/v1"
-    document["model"]["metadata_url"] = f"http://127.0.0.1:{port}/v1/models"
+    for profile in document["models"].values():
+        profile["base_url"] = f"http://127.0.0.1:{port}/v1"
+        profile["metadata_url"] = f"http://127.0.0.1:{port}/v1/models"
     path.write_text(tomlkit.dumps(document), encoding="utf-8", newline="\n")
     return destination
 
@@ -190,7 +193,7 @@ def test_recorded_response_run_reproduces_a_restarted_recording(source, tmp_path
 
 def test_planned_restart_failure_records_the_original_model_error(source):
     """@brief 来源第一段经真实命令行、运行宿主、人物、模型客户端与本机 HTTP 在 400 拒绝处停下：status.json、
-    中止与运行失败事件、运维日志写的都是模型客户端抛出的原异常，没有包装文字。"""
+    运行失败事件与运维日志写的都是模型客户端抛出的原异常，没有包装文字，也不存在已退役的中止轮次事件。"""
     run = source / "one"
     status_text = (run / "status.json").read_text(encoding="utf-8")
     status = json.loads(status_text)
@@ -199,23 +202,22 @@ def test_planned_restart_failure_records_the_original_model_error(source):
                     r"Last error type: BadRequestError\. Error chain: BadRequestError", status["error_message"])
     events = _events(run)
     failures = [event for event in events if event["event_type"] == "run_failed"]
-    aborts = [event for event in events if event["event_type"] == "environment_event"
-              and event["data"]["kind"] == "decision_round_aborted"]
-    assert len(failures) == 1 and len(aborts) == 1
-    failed, aborted = failures[0]["data"], aborts[0]["data"]
+    assert len(failures) == 1
+    assert not any(event["event_type"] == "environment_event"
+                   and event["data"].get("kind") == "decision_round_aborted" for event in events)
+    failed = failures[0]["data"]
     assert failed["error_type"] == "RuntimeError"
-    assert failed["error"] == aborted["error"]
+    assert "round_id" not in failed
     assert re.match(r"^LLMDispatchError\('Failed to get valid response after 1 attempts in \d+\.\d s\. "
                     r"Last error type: BadRequestError\. Error chain: BadRequestError.*'\)$", failed["error"])
-    assert failed["round_id"] == aborted["round_id"]
     lines = [line for path in sorted((run / "logs").glob("ops-*.jsonl"))
              for line in path.read_text(encoding="utf-8").splitlines()]
     records = [json.loads(line) for line in lines]
-    assert [record["detail"] for record in records if record["code"] == "DECISION_ROUND_ABORTED"] == [
-        "Decision round aborted after 0 actions: " + failed["error"]]
+    assert not any(record["code"] == "DECISION_ROUND_ABORTED" for record in records)
+    assert [record["detail"] for record in records if record["code"] == "RUN_FAILED"] == [
+        "Run failed: " + failed["error"]]
     assert [record["detail"] for record in records if record["code"] == "RUN_CRASHED"] == [
         "Run crashed: " + status["error_message"]]
-    assert not any(record["code"] == "RUN_FAILED" for record in records)
     with sqlite3.connect(run / "footprints.sqlite") as connection:
         bodies = [row[0] for row in connection.execute("SELECT body FROM events ORDER BY event_seq")]
     connection.close()

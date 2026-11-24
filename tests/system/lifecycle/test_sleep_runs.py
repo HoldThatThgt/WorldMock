@@ -15,7 +15,7 @@ from tests.footprints.recording import artifact_rows
 from tests.integration.host_run_fixtures import host_run, memory
 from tests.integration.runtime_fixtures import write_agent_workspace
 from tests.life.conftest import advance_next, oversleep_identity, sleep, stage_day_plan, travel
-from tests.life.environment_runtime import act, finish_activity, run_to_end
+from tests.life.environment_runtime import act, finish_activity, run_to_end, run_to_end_async
 from tools.analysis.behavior.metrics import behavior_metrics_report
 from worldmock.recording_engine.events.memory_evidence import MEMORY_UPDATE_KEYS
 from worldmock.recording_engine.storage.checkpoint import restore_branch, restore_directory, snapshot_directory
@@ -138,18 +138,15 @@ async def test_run_with_naps_exports_clean_memory_sources_and_makes_no_memory_mo
     stage_day_plan(engine, submitted=True)
     workspace = tmp_path / "people" / "agent_0001"
     run = await host_run(engine, workspace)
-    await run.rest_and_note("晚上在家歇了一会儿，心里踏实。")
-    await run.sleep(480)
+    await run.start("interact", "家", "测试休息")
+    await run.conclude_and_sleep(480, memory("晚上在家歇了一会儿，心里踏实。"))
     woke = engine.context.state.current_time
     saved = engine.checkpoint({"agent:1": snapshot_directory(workspace, engine.context.store.assets)})
 
-    await run.conclude()
-    await run.rest_and_note("早上又歇了一会儿。")
-    await run.sleep(60)
-    await run.conclude(memory("午前眯了一会儿，精神好些了。"))
-    await run.sleep(600)
-    await run.conclude()
-    await run.sleep(600)
+    await run.conclude_and_start()
+    await run.conclude_and_sleep(60, memory("早上又歇了一会儿。"))
+    await run.conclude_and_sleep(600, memory("午前眯了一会儿，精神好些了。"))
+    await run.conclude_and_sleep(600)
     await run.conclude()
     assert {kind for kind, _ in run.model.requests} == {"action"}
 
@@ -160,14 +157,13 @@ async def test_run_with_naps_exports_clean_memory_sources_and_makes_no_memory_mo
         restored = tmp_path / "restored" / "agent_0001"
         restore_directory(saved.snapshots["agent:1"], resumed.context.store.assets, restored)
         branch = await host_run(resumed, restored, label="resumed", create=False)
+        await branch.conclude_and_start()
         await branch.conclude()
-        await branch.start("interact", "家", "测试休息")
-        await branch.conclude()
-        assert [kind for kind, _ in branch.model.requests] == ["action"] * 3
+        assert [kind for kind, _ in branch.model.requests] == ["action"] * 4
     finally:
         resumed.close()
 
-    recorded = run_to_end(engine)
+    recorded = await run_to_end_async(engine)
     assert any(row.event_type == "run_ended" for row in recorded)
     engine.checkpoint({"agent:1": snapshot_directory(workspace, engine.context.store.assets)})
     export_run(engine.context.store, engine.context.store.last_event_seq, tmp_path / "export")

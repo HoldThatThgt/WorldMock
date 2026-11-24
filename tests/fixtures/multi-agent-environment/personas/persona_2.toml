@@ -1,0 +1,87 @@
+schema_version = 3
+agent_id = 2
+name = "陈默"
+background_story = "陈默是一名住在同一社区里的运营专员，平时习惯早睡早起，工作日在公司处理日常运营数据。他喜欢喝黑咖啡、吃清淡面食，偶尔去公园散步放松。消费习惯理性务实，对时间安排比较克制。"
+home_location = "家"
+initial_location = "家"
+initial_balance_fen = 150000
+initial_relaxation_need = 0.25
+initial_social_need = 0.3
+social_need_growth_per_hour = 0.05
+chronotype_midsleep = 3.5
+sleep_need_hours = 8.0
+wake_window = [6.5, 7.0]
+leave_home_window = [8.5, 9.0]
+lunch_window = [12.0, 12.5]
+dinner_window = [18.0, 19.0]
+bedtime_window = [22.5, 23.5]
+coping = "整理手账与听播客"
+
+[identity]
+age = 29
+occupation = "运营专员"
+living_arrangement = "合租两居室"
+
+[situation]
+busy_this_week = "活动复盘统计"
+cares_about = "周末的运动恢复"
+
+[[relationships]]
+name_or_appellation = "姐姐"
+role = "家人"
+intimacy = 24
+channels = ["电话", "微信"]
+
+[[relationships]]
+name_or_appellation = "小林"
+role = "同事"
+intimacy = 16
+channels = ["微信", "见面"]
+
+[[habits]]
+trigger = "晨起后"
+response = "泡一杯黑咖啡"
+time_window = [7.0, 7.5]
+
+[[habits]]
+trigger = "晚饭后"
+response = "社区散步二十分钟"
+time_window = [19.0, 20.0]
+
+[tastes]
+content_genres = ["播客", "科技"]
+food_preferences = ["面食", "清炒时蔬"]
+media = ["播客", "图文"]
+
+[body]
+mass_kg = 60.0
+initial_energy_kcal = 1750.0
+initial_sleep_debt_hours = 0.0
+
+[work_schedule]
+workplace = "公司"
+
+[work_schedule.weekly."0"]
+starts = 570
+ends = 1110
+breaks = [[720, 780]]
+
+[work_schedule.weekly."1"]
+starts = 570
+ends = 1110
+breaks = [[720, 780]]
+
+[work_schedule.weekly."2"]
+starts = 570
+ends = 1110
+breaks = [[720, 780]]
+
+[work_schedule.weekly."3"]
+starts = 570
+ends = 1110
+breaks = [[720, 780]]
+
+[work_schedule.weekly."4"]
+starts = 570
+ends = 1110
+breaks = [[720, 780]]

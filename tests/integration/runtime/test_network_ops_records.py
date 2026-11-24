@@ -1,39 +1,16 @@
-"""模型运维日志区分写入耗时、传输等待和协议拒绝，日计划与回顾失败也保留证据。"""
+"""日计划与回顾失败及传输等待的模型运维日志证据。"""
 
-from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
 from litellm.exceptions import APIConnectionError, AuthenticationError
 
 from tests.integration.life.test_opslog import _records
-from tests.integration.runtime.test_model_exchange_attempts import ATTEMPTS, opened_exchange
 from tests.unit.runtime.model_client_fixtures import draft_request, provider_error, scripted_client
+from worldmock.runtime.lifecycle.midnight import _CallSpec, _call_background_model
 from worldmock.simulation_engine.evidence import memory_digest
+from worldmock.simulation_engine.scheduling.plans import day_planning
 from worldmock.simulation_engine.scheduling.plans.day_planning import request_draft, response_draft
-from worldmock.runtime.lifecycle.midnight import _call_memory_digest, _call_plan_day
-
-
-@pytest.mark.parametrize("phase,code", [("response", None), ("response", "TOOL_CALL_REQUIRED"),
-                                       ("failure", "MODEL_SERVICE_FAILED")])
-@pytest.mark.parametrize("attempts", [(), ATTEMPTS])
-def test_model_exchange_logs_separate_commit_wait_and_protocol_failure(engine_factory, phase, code, attempts):
-    """每条证据报告写入耗时，仅失败发送产生等待日志，仅纠错响应产生协议拒绝日志。"""
-    engine, request = opened_exchange(engine_factory)
-    engine.record_model_exchange(request)
-    raw = {"protocol_feedback": {"error_code": code}} if code else {"choices": []}
-    engine.record_model_exchange(replace(request, phase=phase, response=raw, transport_attempts=attempts))
-    records = _records(engine)
-    exchange = [row for row in records if row["code"] == "MODEL_EXCHANGE"]
-    assert len(exchange) == 2
-    assert all(isinstance(row["commit_ms"], float) and row["commit_ms"] >= 0 for row in exchange)
-    waits = [row for row in records if row["code"] == "MODEL_TRANSPORT_WAIT"]
-    assert len(waits) == bool(attempts)
-    if waits:
-        assert waits[0]["failed_sends"] == 2 and waits[0]["waited_ms"] == 2000
-        assert waits[0]["last_error"] == "Timeout"
-    rejected = [row for row in records if row["code"] == "MODEL_PROTOCOL_REJECTED"]
-    assert [row["error_code"] for row in rejected] == ([code] if phase == "response" and code else [])
 
 
 @pytest.mark.parametrize("fails", [False, True])
@@ -50,13 +27,13 @@ async def test_plan_day_call_records_attempts_and_outcome(engine_factory, monkey
     now = engine.context.state.current_time
     request = draft_request([{"role": "user", "content": "plan"}])
     evidence = [request_draft(now, 1, ("plan", 1, None), request)]
-    link = ("plan", 1, evidence[0].event_id)
+    spec = _CallSpec(1, "plan", 1, evidence[0].event_id, "PLAN_DAY_CALL", "Plan day", day_planning.failure_draft)
     if fails:
         with pytest.raises(Exception, match="Failed to get valid response"):
-            await _call_plan_day(engine, SimpleNamespace(call=call), request, (evidence, link, 1))
+            await _call_background_model(engine, SimpleNamespace(call=call), request, evidence, spec)
     else:
-        response, attempts = await _call_plan_day(engine, SimpleNamespace(call=call), request, (evidence, link, 1))
-        evidence.append(response_draft(now, 1, (*link, attempts), response, None))
+        response, attempts = await _call_background_model(engine, SimpleNamespace(call=call), request, evidence, spec)
+        evidence.append(response_draft(now, 1, ("plan", 1, evidence[0].event_id, attempts), response, None))
         engine.context.store.append_evidence(evidence)
         assert response == raw
     rows = list(engine.context.store.iter_events(engine.context.store.last_event_seq))
@@ -86,14 +63,17 @@ async def test_memory_digest_call_records_attempts_and_outcome(engine_factory, m
     request = draft_request([{"role": "user", "content": "digest"}])
     call_id = "memory-digest:1:day:2026-01-04:attempt:1"
     evidence = [memory_digest.request_draft(now, 1, (call_id, 1, None), request)]
-    link = (call_id, 1, evidence[0].event_id)
+    spec = _CallSpec(1, call_id, 1, evidence[0].event_id, "MEMORY_DIGEST_CALL", "Memory digest",
+                     memory_digest.failure_draft)
     if fails:
         with pytest.raises(Exception, match="Failed to get valid response"):
-            await _call_memory_digest(engine, SimpleNamespace(call=call), request, (evidence, link, 1))
+            await _call_background_model(engine, SimpleNamespace(call=call), request, evidence, spec)
     else:
-        response, attempts = await _call_memory_digest(engine, SimpleNamespace(call=call), request,
-                                                       (evidence, link, 1))
-        evidence.append(memory_digest.response_draft(now, 1, (*link, attempts), response, None))
+        response, attempts = await _call_background_model(
+            engine, SimpleNamespace(call=call), request, evidence, spec,
+        )
+        evidence.append(memory_digest.response_draft(now, 1, (call_id, 1, evidence[0].event_id, attempts),
+                                                     response, None))
         engine.context.store.append_evidence(evidence)
         assert response == raw
     rows = list(engine.context.store.iter_events(engine.context.store.last_event_seq))

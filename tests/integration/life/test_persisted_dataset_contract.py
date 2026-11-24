@@ -44,7 +44,7 @@ def test_content_restore_rejects_invalid_identity_progress_effects_and_consumed_
     engine, state, activity = started(engine_factory)
     activity.data[field] = value
     with pytest.raises(IntegrityError, match="Persisted activity target is invalid"):
-        validate_activity_targets(state, engine.context.catalog, engine.context.persona)
+        validate_activity_targets(state, engine.context.catalog, engine.context.persona_by_id)
 
 
 @pytest.mark.parametrize("field", ["content_id", "app_id"])
@@ -52,7 +52,7 @@ def test_content_restore_requires_both_explicit_container_fields(engine_factory,
     engine, state, activity = started(engine_factory)
     del activity.data[field]
     with pytest.raises(IntegrityError, match="Persisted activity target is invalid"):
-        validate_activity_targets(state, engine.context.catalog, engine.context.persona)
+        validate_activity_targets(state, engine.context.catalog, engine.context.persona_by_id)
 
 
 @pytest.mark.parametrize("field,value", [
@@ -64,13 +64,13 @@ def test_content_restore_rejects_wrong_person_location_and_absolute_position(eng
     engine, state, activity = started(engine_factory)
     state.activities[activity.activity_id] = activity.model_copy(update={field: value})
     with pytest.raises(IntegrityError, match="Persisted activity target is invalid"):
-        validate_activity_targets(state, engine.context.catalog, engine.context.persona)
+        validate_activity_targets(state, engine.context.catalog, engine.context.persona_by_id)
 
 
 def test_completed_segments_remain_valid_only_at_the_actual_content_end(engine_factory):
     engine, state, activity = started(engine_factory)
     activity.data["played"] = [{"content_id": "c-course", "from_position": 120, "to_position": 1800}]
-    validate_activity_targets(state, engine.context.catalog, engine.context.persona)
+    validate_activity_targets(state, engine.context.catalog, engine.context.persona_by_id)
     assert activity.data["played"][0]["to_position"] == engine.context.catalog.contents["c-course"].duration_seconds
 
 
@@ -87,7 +87,7 @@ def test_interact_without_content_is_rejected_at_restore(engine_factory, shape):
                          "relaxation_relief_per_hour": 0.0, "social_relief_per_hour": 0.0,
                          "accepted_event_id": activity.data["accepted_event_id"]}
     with pytest.raises(IntegrityError, match="Persisted activity target is invalid"):
-        validate_activity_targets(state, engine.context.catalog, engine.context.persona)
+        validate_activity_targets(state, engine.context.catalog, engine.context.persona_by_id)
 
 
 @pytest.mark.parametrize("field,value", [
@@ -102,7 +102,7 @@ def test_frozen_travel_must_match_original_graph_route(engine_factory, field, va
         value = list(reversed(value))
     activity.data[field] = value
     with pytest.raises(IntegrityError, match="Persisted activity target is invalid"):
-        validate_activity_targets(state, engine.context.catalog, engine.context.persona)
+        validate_activity_targets(state, engine.context.catalog, engine.context.persona_by_id)
 
 
 @pytest.mark.parametrize("departed,persisted", [("步行", "driving"), ("步行", "boat"), ("步行", None), ("步行", "步行"),
@@ -111,10 +111,10 @@ def test_frozen_travel_must_keep_the_travel_method_it_departed_with(engine_facto
     """恢复时按活动保存的出行方式身份重算行程：换成别的方式、没登记的身份、名称或空值，行程身份或用时对不上就拒绝；
     速度和档位都相同的驾车与打车也不能互换，因为行程身份带着出行方式身份。"""
     engine, state, activity = started(engine_factory, travel("公司", departed))
-    validate_activity_targets(state, engine.context.catalog, engine.context.persona)
+    validate_activity_targets(state, engine.context.catalog, engine.context.persona_by_id)
     activity.travel_method_id = persisted
     with pytest.raises(IntegrityError, match="Persisted activity target is invalid"):
-        validate_activity_targets(state, engine.context.catalog, engine.context.persona)
+        validate_activity_targets(state, engine.context.catalog, engine.context.persona_by_id)
 
 
 TRAVEL_PLAN_FAULT = "^Persisted travel plan does not match the published graph$"

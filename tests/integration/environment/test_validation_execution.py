@@ -8,12 +8,12 @@ from worldmock.configuration.inputs.validation import validate_environment
 
 def test_environment_validation_aggregates_independent_errors_without_reading_metadata(tmp_path):
     root = copy_environment(tmp_path / "input")
-    (root / "persona.toml").write_text("not TOML [", encoding="utf-8")
+    (root / "personas" / "persona_1.toml").write_text("not TOML [", encoding="utf-8")
     (root / "config.toml").write_text("not TOML [", encoding="utf-8")
     calls = []
     result = validate_environment(root, metadata_loader=lambda model: calls.append(model))
     assert result["valid"] is False
-    assert {item["path"] for item in result["errors"]} == {"persona.toml", "config.toml"}
+    assert {item["path"] for item in result["errors"]} == {"personas/persona_1.toml", "config.toml"}
     assert calls == []
 
 
@@ -37,7 +37,7 @@ def test_valid_environment_returns_only_published_identity_without_creating_asse
     manifest = json.loads((root / "catalog" / "manifest.json").read_text(encoding="utf-8"))
     assert result == {"valid": True, "environment_id": manifest["environment_id"],
                       "environment_version": manifest["environment_version"]}
-    assert set(item.name for item in root.iterdir()) == {"catalog", "persona.toml", "config.toml"}
+    assert set(item.name for item in root.iterdir()) == {"catalog", "personas", "config.toml"}
 
 
 def test_environment_validation_checks_the_whole_persona_table_without_any_model_client(tmp_path, monkeypatch):
@@ -54,6 +54,6 @@ def test_environment_validation_checks_the_whole_persona_table_without_any_model
     assert validate_environment(root, metadata_loader=fixture_metadata)["valid"] is True
     edit_persona(root, lambda document: drop_field(document, "tastes.media"))
     assert validate_environment(root, metadata_loader=fixture_metadata) == {
-        "valid": False, "errors": [{"path": "persona.toml", "code": "PERSONA_INVALID",
+        "valid": False, "errors": [{"path": "personas/persona_1.toml", "code": "PERSONA_INVALID",
                                     "reason": "tastes.media is required"}]}
-    assert set(item.name for item in root.iterdir()) == {"catalog", "persona.toml", "config.toml"}
+    assert set(item.name for item in root.iterdir()) == {"catalog", "personas", "config.toml"}

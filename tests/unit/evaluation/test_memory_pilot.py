@@ -61,7 +61,7 @@ CHECK_NAMES = ["cooking_lines_name_the_kit", "yesterday_food_cell_visible", "sea
                "search_non_empty", "search_is_read_only", "memory_layer_budget", "progress_layer_median",
                "progress_layer_p90", "user_message_median", "persona_layer_stable", "fresh_turn_cache_hit",
                "cost_per_day", "decisions_per_day_band", "rejections", "turns_exhausted", "run_failures",
-               "capacity_compressions", "no_restarted_activities", "chain_append_only", "chain_without_persona_delta",
+               "capacity_compressions", "no_restarted_activities",
                "digest_fallback_share", "one_day_digest_per_day", "retired_calls", "month_digests"]
 SECTION_KEYS = {
     "M1": ["by_day", "periods", "decisions"],
@@ -74,7 +74,7 @@ SECTION_KEYS = {
     "M7": ["fresh_decision_turn", "by_call_class"],
     "M8": ["days", "per_day_usd", "by_call_class", "complete"],
     "M9": ["decisions_per_day", "decision_band", "days_outside_band", "rejections", "rejection_limit", "turns",
-           "run_failures", "capacity_compressions", "chain", "restarted"],
+           "run_failures", "capacity_compressions", "restarted"],
     "M10": ["calls_by_day", "periods", "expected", "retries", "fallback", "guard_discards", "cited",
             "view_coverage", "statistics_copy_violations", "day_digest_problems", "missing_day_digests",
             "duplicate_digests", "retired_calls", "repetition", "identity_residue"],
@@ -107,9 +107,10 @@ def _period_payload(rows_key, food=((), ()), work=((), ()), life=((), ())):
             for name, (rows, lines) in (("饮食", food), ("工作", work), ("生活", life))}
 
 
-def _query(activity_id, *targets, app_id="meituan"):
-    """查询活动的受理快照。"""
-    return activity(activity_id, "query", action="query", app_id=app_id, targets=list(targets))
+def _search(activity_id, query="", *, app_id="meituan", goods_rows=(), goods_ids=()):
+    """搜索活动的受理/完成快照。"""
+    return activity(activity_id, "search", action="search", query=query, app_id=app_id,
+                    goods_rows=list(goods_rows), goods_ids=list(goods_ids))
 
 
 def _stats(values):
@@ -246,8 +247,6 @@ def test_report_has_every_metric_section_with_its_keys(tmp_path, skip_authentica
     assert list(metrics["M6"]["token_ratio"]) == ["pairs", "weights", "memory_layer_tokens_per_char", "reference",
                                                   "reference_range", "within_range"]
     assert list(metrics["M9"]["turns"]) == ["max_react_turns", "p99", "max", "exhausted", "six_or_more"]
-    assert list(metrics["M9"]["chain"]) == ["same_second_followups", "continuations", "fresh_followups",
-                                            "append_violations", "persona_deltas"]
     assert list(metrics["M10"]["guard_discards"]) == GUARDS
     assert list(metrics["M10"]["fallback"]) == ["numerator", "denominator", "value", "cells"]
     assert list(metrics["M12"]["earlier_view_reliance"]) == ["decisions", "relying", "value", "rows"]
@@ -329,35 +328,33 @@ def test_ratios_split_first_three_days_from_day_four_on(tmp_path, skip_authentic
 
 def test_m1_counts_lunch_and_dinner_food_decisions_and_any_cooking_start(tmp_path, skip_authentication):
     builder = PilotExportBuilder(tmp_path, days=1)
-    meal = {"kind": "category", "category": "meal"}
 
     def started(name, clock, *snapshots):
-        decision = builder.decision(1, clock, decision_id=name)
+        decision = builder.decision(1, clock, wakeup_id=name)
         builder.world(decision, builder.at(1, clock), "start_main_activity", activities=snapshots)
 
     def order(goods_id, clock):
         return builder.purchase(goods_id, builder.at(1, clock))
 
     builder.kit_arrives("kit-chestnut", builder.at(1, "07:00"))
-    cooking = builder.decision(1, "08:00", decision_id="d-cook-morning")
+    cooking = builder.decision(1, "08:00", wakeup_id="d-cook-morning")
     builder.cook(cooking, builder.at(1, "08:00"), "a-cook-1")
-    started("d-breakfast-query", "09:00", _query("q-9", meal))
+    started("d-breakfast-search", "09:00", _search("s-9", "午饭", goods_rows=[{"category": "meal", "goods_id": "noodle"}]))
     # 时段左闭右开：10:30 与 16:30 落在午饭、晚饭里，14:30 与 22:00 不落在任何一顿里。
-    started("d-lunch-opens", "10:30", _query("q-1030", meal))
-    started("d-lunch-query", "12:00", _query("q-12", meal))
-    started("d-goods-query", "12:05", _query("q-goods", {"kind": "category", "category": "goods"},
-                                             {"kind": "goods", "goods_id": "tissue"}))
+    started("d-lunch-opens", "10:30", _search("s-1030", goods_rows=[{"category": "meal", "goods_id": "noodle"}]))
+    started("d-lunch-search", "12:00", _search("s-12", "午饭"))
+    started("d-goods-search", "12:05", _search("s-goods", "日用品", goods_rows=[{"category": "goods", "goods_id": "tissue"}]))
     started("d-kit-purchase", "12:30", activity("p-kit", "purchase", order_ids=[order("kit-wings", "12:30")]))
-    # 午饭时段里只买了日用品不是饮食决策。
+    # 午饭时段里只买了日用品不是饮食唤醒。
     started("d-tissue-purchase", "12:50", activity("p-tissue", "purchase", order_ids=[order("tissue", "12:50")]))
-    started("d-drink-query", "12:40", _query("q-drink", {"kind": "category", "category": "drink"}))
-    started("d-lunch-closed", "14:30", _query("q-1430", meal))
+    started("d-drink-search", "12:40", _search("s-drink", goods_rows=[{"category": "drink", "goods_id": "coffee"}]))
+    started("d-lunch-closed", "14:30", _search("s-1430", "午饭"))
     started("d-afternoon-purchase", "15:00", activity("p-15", "purchase", order_ids=[order("noodle", "15:00")]))
-    started("d-dinner-opens", "16:30", _query("q-1630", meal))
+    started("d-dinner-opens", "16:30", _search("s-1630", "晚饭"))
     started("d-dinner-purchase", "18:00", activity("p-18", "purchase", order_ids=[order("noodle", "18:00")]))
-    started("d-dinner-pair", "18:30", _query("q-coffee", {"kind": "goods", "goods_id": "coffee"}),
+    started("d-dinner-pair", "18:30", _search("s-coffee", goods_ids=["coffee"]),
             activity("p-chips", "purchase", order_ids=[order("chips", "18:30")]))
-    started("d-kit-query", "18:40", _query("q-kit", {"kind": "goods", "goods_id": "kit-wings"}))
+    started("d-kit-search", "18:40", _search("s-kit", goods_ids=["kit-wings"]))
     started("d-office-and-app", "19:00", activity("i-office", "interact", content_id="office-lunch"),
             activity("i-drama", "interact", content_id="cook-1", app_id="bilibili"))
     started("d-second-episode", "21:00", activity("i-cook-2", "interact", content_id="cook-2"))
@@ -367,26 +364,25 @@ def test_m1_counts_lunch_and_dinner_food_decisions_and_any_cooking_start(tmp_pat
     started("d-late-dinner", "21:50", activity("p-2150", "purchase", order_ids=[order("noodle", "21:50")]))
     started("d-night-purchase", "22:00", activity("p-22", "purchase", order_ids=[order("noodle", "22:00")]))
     metric = m1_past_reference(*_load(builder))
-    assert [(item["decision_id"], item["kinds"]) for item in metric["decisions"]] == [
-        ("d-cook-morning", ["cooking"]), ("d-lunch-opens", ["query"]), ("d-lunch-query", ["query"]),
-        ("d-kit-purchase", ["purchase"]), ("d-drink-query", ["query"]), ("d-dinner-opens", ["query"]),
-        ("d-dinner-purchase", ["purchase"]), ("d-dinner-pair", ["query", "purchase"]), ("d-kit-query", ["query"]),
+    assert [(item["wakeup_id"], item["kinds"]) for item in metric["decisions"]] == [
+        ("d-cook-morning", ["cooking"]), ("d-lunch-opens", ["search"]), ("d-lunch-search", ["search"]),
+        ("d-kit-purchase", ["purchase"]), ("d-drink-search", ["search"]), ("d-dinner-opens", ["search"]),
+        ("d-dinner-purchase", ["purchase"]), ("d-dinner-pair", ["search", "purchase"]), ("d-kit-search", ["search"]),
         ("d-second-episode", ["cooking"]), ("d-late-dinner", ["purchase"])]
     assert metric["by_day"]["2026-10-08"] == _ratio(0, 11, 0.0)
 
 
 def test_m1_counts_a_past_dish_or_date_from_recent_days_or_search_results(tmp_path, skip_authentication):
     builder = PilotExportBuilder(tmp_path, days=4, start="2026-10-05")
-    meal = {"kind": "category", "category": "meal"}
     noodle_cell = {"饮食": [cell("2026-10-07", "中午吃了番茄牛肉刀削面。")], "工作": [], "生活": []}
 
     def lunch(name, clock, recent=None, reasoning=None, answer=None, summary=None):
-        decision = builder.decision(4, clock, memory=memory_layer(recent=recent), decision_id=name)
+        decision = builder.decision(4, clock, memory=memory_layer(recent=recent), wakeup_id=name)
         if answer is not None:
             builder.search(decision, builder.at(4, clock), {"category": "饮食", "time": "2026-10-06"}, answer,
                            call_id=f"call-{name}")
         builder.turn(decision, builder.at(4, clock), reasoning=reasoning)
-        builder.world(decision, builder.at(4, clock), "start_main_activity", activities=[_query(f"q-{name}", meal)])
+        builder.world(decision, builder.at(4, clock), "search_world", activities=[_search(f"s-{name}", "午饭")])
         if summary is not None:
             builder.world(decision, builder.at(4, clock), "report_status", {"items": [{"summary": summary}]})
 
@@ -415,7 +411,7 @@ def test_m1_counts_a_past_dish_or_date_from_recent_days_or_search_results(tmp_pa
     lunch("d-september", "12:40", reasoning="9月30日那家还行",
           answer={"结果": [{"日期": "2026-09-30", "类别": "饮食", "回顾": "晚上吃了薯片。"}]})
     metric = m1_past_reference(*_load(builder))
-    assert [(item["decision_id"], item["past_names"], item["past_dates"], item["mentioned"])
+    assert [(item["wakeup_id"], item["past_names"], item["past_dates"], item["mentioned"])
             for item in metric["decisions"]] == [
         ("d-name", ["番茄牛肉刀削面"], ["2026-10-07"], True),
         ("d-date", ["番茄牛肉刀削面"], ["2026-10-07"], True),
@@ -434,19 +430,18 @@ def test_m1_counts_a_past_dish_or_date_from_recent_days_or_search_results(tmp_pa
 
 def test_m1_ignores_names_only_in_today_or_in_the_request_target(tmp_path, skip_authentication):
     builder = PilotExportBuilder(tmp_path, days=1)
-    meal = {"kind": "goods", "goods_id": "noodle"}
     # 往日名称只写在正文与请求参数里、不在思考里时不算引用。
     noodle = {"饮食": [cell("2026-10-07", "中午吃了番茄牛肉刀削面。")], "工作": [], "生活": []}
     today = memory_layer([entry("08:00", "饮食", ["买番茄牛肉刀削面1份"])], recent=noodle)
     first = builder.decision(1, "12:00", memory=today)
     builder.turn(first, builder.at(1, "12:00"), reasoning="吃什么好呢", content="我要番茄牛肉刀削面",
-                 tool_calls=[tool_call("c1", "start_main_activity", {"targets": ["番茄牛肉刀削面"]})])
-    builder.world(first, builder.at(1, "12:00"), "start_main_activity", activities=[_query("q-1", meal)])
+                 tool_calls=[tool_call("c1", "start_side_activity", {"target": ["番茄牛肉刀削面"]})])
+    builder.world(first, builder.at(1, "12:00"), "search_world", activities=[_search("s-1", "面", goods_ids=["noodle"])])
     recent = {"饮食": [cell("2026-10-07", "喝了美式咖啡。")], "工作": [], "生活": []}
     second = builder.decision(1, "12:30", memory=memory_layer([entry("12:00", "饮食", ["查番茄牛肉刀削面"])],
                                                              recent=recent))
     builder.turn(second, builder.at(1, "12:30"), reasoning="早上的番茄牛肉刀削面不错")
-    builder.world(second, builder.at(1, "12:30"), "start_main_activity", activities=[_query("q-2", meal)])
+    builder.world(second, builder.at(1, "12:30"), "search_world", activities=[_search("s-2", "面", goods_ids=["noodle"])])
     metric = m1_past_reference(*_load(builder))
     assert [(item["past_names"], item["mentioned"]) for item in metric["decisions"]] == [
         (["番茄牛肉刀削面"], False), (["美式咖啡"], False)]
@@ -843,7 +838,8 @@ def test_m7_reads_the_fresh_decision_turn_cache_hit_rate(tmp_path, skip_authenti
     assert m7_cache(load_export(builder.build())) == {
         "fresh_decision_turn": {"hit_tokens": 300, "miss_tokens": 700, "value": 0.3},
         "by_call_class": {"fresh_decision_turn": 0.3, "turn_with_history": 1.0, "truncation_retry": None,
-                          "consolidation": None, "reflection": None, "plan_day": None, "memory_digest": None}}
+                          "search_session": None, "consolidation": None, "reflection": None,
+                          "plan_day": None, "memory_digest": None}}
 
 
 def test_m8_prices_every_call_class_at_the_frozen_peak_price_per_day(tmp_path, skip_authentication):
@@ -856,22 +852,22 @@ def test_m8_prices_every_call_class_at_the_frozen_peak_price_per_day(tmp_path, s
     assert m8_cost(load_export(builder.build())) == {
         "days": 2, "per_day_usd": 0.238118,
         "by_call_class": {"fresh_decision_turn": 0.213, "turn_with_history": 0.0, "truncation_retry": 0.0,
-                          "consolidation": 0.0, "reflection": 0.0, "plan_day": 0.024518, "memory_digest": 0.0006},
+                          "search_session": 0.0, "consolidation": 0.0, "reflection": 0.0,
+                          "plan_day": 0.024518, "memory_digest": 0.0006},
         "complete": False}
 
 
 # ---- M9 ----
 
 def test_m9_band_rejections_turns_failures_and_compressions(tmp_path, skip_authentication):
-    # 上限取冻结清单的 max_react_turns（这里是 6，不是默认的 16）：恰为 6 回合的决策同样算达到上限。第 3 个运行日没有
-    # 决策，按 0 次列出，也在带宽外。
+    # 上限取冻结清单的多档模型身份行动回合上限（这里是 6，不是默认的 16）：恰为 6 回合的唤醒同样算达到上限。
     builder = PilotExportBuilder(tmp_path, days=3, max_react_turns=6)
     for index in range(69):
         builder.decision(1, f"{6 + index // 6:02d}:{index % 6 * 10:02d}")
-    six = builder.decision(1, "18:00", decision_id="d-six")
+    six = builder.decision(1, "18:00", wakeup_id="d-six")
     for _ in range(6):
         builder.turn(six, builder.at(1, "18:00"))
-    sixteen = builder.decision(1, "19:00", decision_id="d-sixteen")
+    sixteen = builder.decision(1, "19:00", wakeup_id="d-sixteen")
     for _ in range(16):
         builder.turn(sixteen, builder.at(1, "19:00"))
     builder.response(builder.request(sixteen, builder.at(1, "19:00"), turn=16, attempt=2))
@@ -884,7 +880,7 @@ def test_m9_band_rejections_turns_failures_and_compressions(tmp_path, skip_authe
     following = builder.decision(2, "12:00")
     builder.turn(following, builder.at(2, "12:00"), layers=[memory_layer(), {"layer": "进度层", "events": [
         {"type": "tool_call"}]}])
-    # 每条回合请求都数，不只数首个请求：这一决策第二回合的进度层带折叠记录。
+    # 每条回合请求都数，不只数首个请求：这一唤醒第二回合的进度层带折叠记录。
     builder.turn(following, builder.at(2, "12:00"), layers=[memory_layer(), {"layer": "进度层", "events": [
         {"occurred_at": "2026-10-09T11:30:00+08:00", "type": "condensed"}]}])
     builder.add("run_failed", builder.at(2, "13:00"), {"reason": "stopped"})
@@ -893,57 +889,29 @@ def test_m9_band_rejections_turns_failures_and_compressions(tmp_path, skip_authe
     assert (metric["decision_band"], metric["days_outside_band"]) == ([68.85, 93.15], ["2026-10-09", "2026-10-10"])
     assert (metric["rejections"], metric["rejection_limit"]) == (3, 7.2)
     assert metric["turns"] == {"max_react_turns": 6, "p99": 8.7, "max": 16, "exhausted": 2, "six_or_more": [
-        {"decision_id": "d-six", "time": "2026-10-08 18:00", "turns": 6},
-        {"decision_id": "d-sixteen", "time": "2026-10-08 19:00", "turns": 16}]}
+        {"wakeup_id": "d-six", "time": "2026-10-08 18:00", "turns": 6},
+        {"wakeup_id": "d-sixteen", "time": "2026-10-08 19:00", "turns": 16}]}
     assert (metric["run_failures"], metric["capacity_compressions"]) == (1, 2)
-    assert metric["chain"] == {"same_second_followups": 1, "continuations": 0, "fresh_followups": 1,
-                               "append_violations": 0, "persona_deltas": 0}
     assert metric["restarted"] == []
-
-
-def _continuation(builder, clock, today, changes):
-    """同一秒接着的决策：首个请求是续接，最后一条 tool 消息带 changes。"""
-    decision = builder.decision(1, clock, memory=memory_layer(today))
-    history = [{"role": "assistant", "content": None, "tool_calls": [tool_call("c", "report_status", {})]},
-               {"role": "tool", "tool_call_id": "a", "content": compact({"status": "completed"})},
-               {"role": "tool", "tool_call_id": "c", "content": compact({"status": "completed", "changes": changes})}]
-    builder.request(decision, builder.at(1, clock), history=history)
-
-
-def test_m9_chain_must_append_the_previous_entry_and_carry_no_persona_delta(tmp_path, skip_authentication):
-    builder = PilotExportBuilder(tmp_path, days=1)
-    e1, e2, e3, e4, e5 = (entry(f"08:0{index}", "生活", [f"第{index}件事"]) for index in range(1, 6))
-    head = builder.decision(1, "08:00", memory=memory_layer([e1]))
-    builder.turn(head, builder.at(1, "08:00"))
-    # tool 消息里的条目保持渲染键序，导出的观察是键已排序的规范 JSON：只差键序不算违例。
-    _continuation(builder, "08:00", [e1, e2], {"targets": [], "memory": {"added": [dict(reversed(e2.items()))]}})
-    _continuation(builder, "08:00", [e1, e2, e4], {"memory": {"added": [e3]}, "relationships": {"小王": "同事"}})
-    later = builder.decision(1, "08:05", memory=memory_layer([e1, e2, e4, e5]))
-    builder.turn(later, builder.at(1, "08:05"))
-    _continuation(builder, "08:05", [e1, e2, e4, e5], {"targets": [], "preferences": ["咖啡"]})
-    assert m9_guardrails(*_load(builder))["chain"] == {
-        "same_second_followups": 3, "continuations": 3, "fresh_followups": 0, "append_violations": 1,
-        "persona_deltas": 2}
 
 
 def test_m9_lists_a_restart_of_a_just_ended_activity(tmp_path, skip_authentication):
     builder = PilotExportBuilder(tmp_path, days=1)
     orders = [builder.purchase(goods_id, builder.at(1, "08:00"))
               for goods_id in ("noodle", "noodle", "noodle", "coffee", "coffee", "noodle")]
-    meal, snack = {"kind": "category", "category": "meal"}, {"kind": "category", "category": "snack"}
     pairs = [
         (activity("app-1", "interact", content_id="drama-1", app_id="bilibili"),
          activity("app-2", "interact", content_id="drama-1", app_id="bilibili")),
         (activity("cook-a", "interact", content_id="cook-1"), activity("cook-b", "interact", content_id="cook-2")),
         (activity("buy-1", "purchase", order_ids=[orders[0]]), activity("buy-2", "purchase", order_ids=[orders[1]])),
-        (_query("ask-1", meal), _query("ask-2", meal)),
+        (_search("ask-1", "番茄面"), _search("ask-2", "番茄面")),
         (activity("go-1", "travel", destination_id="office"), activity("go-2", "travel", destination_id="office")),
         (activity("nap-1", "sleep"), activity("nap-2", "sleep")),
         (activity("walk-1", "interact", content_id="walk"), activity("drama-2", "interact", content_id="drama-1",
                                                                      app_id="bilibili")),
         (activity("walk-x", "interact", content_id="walk"), activity("walk-y", "interact", content_id="walk")),
-        # 查询的类别与购买的商品按升序比较：次序相反的同一组目标算同一目标。
-        (_query("ask-3", snack, meal), _query("ask-4", meal, snack)),
+        # 搜索比较 (app_id, query)，购买的商品按升序比较：次序相反的同一组目标算同一目标。
+        (_search("ask-3", "咖啡茶饮"), _search("ask-4", "咖啡茶饮")),
         (activity("buy-3", "purchase", order_ids=orders[2:4]), activity("buy-4", "purchase", order_ids=orders[4:])),
     ]
     builder.decision(1, "08:00")
@@ -951,44 +919,44 @@ def test_m9_lists_a_restart_of_a_just_ended_activity(tmp_path, skip_authenticati
     statuses = {2: "failed", 4: "cancelled"}
     for index, (ended, started) in enumerate(pairs):
         builder.progress(ended, builder.at(1, f"09:{index * 2:02d}"), statuses.get(index, "completed"))
-        decision = builder.decision(1, f"09:{index * 2 + 1:02d}", decision_id=f"d-{index}")
+        decision = builder.decision(1, f"09:{index * 2 + 1:02d}", wakeup_id=f"d-{index}")
         builder.world(decision, builder.at(1, f"09:{index * 2 + 1:02d}"), "start_main_activity", activities=[started])
-    # 在本决策的观察之后才结束的活动不在这一次的窗口里，即使本决策又受理了同一目标。
-    late = builder.decision(1, "09:20", decision_id="d-nap-late")
+    # 在本唤醒的观察之后才结束的活动不在这一次的窗口里，即使本唤醒又受理了同一目标。
+    late = builder.decision(1, "09:20", wakeup_id="d-nap-late")
     builder.progress(activity("nap-3", "sleep"), builder.at(1, "09:20"))
     builder.world(late, builder.at(1, "09:20"), "start_main_activity", activities=[activity("nap-4", "sleep")])
     builder.progress(activity("walk-2", "interact", content_id="walk"), builder.at(1, "10:00"))
     builder.decision(1, "10:01")
-    walk = builder.decision(1, "10:02", decision_id="d-walk-later")
+    walk = builder.decision(1, "10:02", wakeup_id="d-walk-later")
     builder.world(walk, builder.at(1, "10:02"), "start_main_activity",
                   activities=[activity("walk-3", "interact", content_id="walk")])
-    # 收尾在本决策的提交里取消进行中的散步：结束事件是 activity_concluded 环境事件（没有 activity_progress），下一次决策
+    # 收尾在本唤醒的提交里取消进行中的散步：结束事件是 activity_concluded 环境事件（没有 activity_progress），下一次唤醒
     # 又开始散步。
-    stop = builder.decision(1, "10:10", decision_id="d-stop-walk")
+    stop = builder.decision(1, "10:10", wakeup_id="d-stop-walk")
     builder.conclude(stop, builder.at(1, "10:10"), [{"summary": "不走了"}], ["walk-3"])
-    again = builder.decision(1, "10:20", decision_id="d-walk-again")
+    again = builder.decision(1, "10:20", wakeup_id="d-walk-again")
     builder.world(again, builder.at(1, "10:20"), "start_main_activity",
                   activities=[activity("walk-4", "interact", content_id="walk")])
     # 时钟推进里结束、待收尾的做饭在后来的收尾提交里另有带同一终态快照的 activity_concluded，结束事件仍是更早的
-    # activity_progress：收尾的那次决策里接着开始同一系列的列出；收尾之后的下一次决策才开始的不列出。
-    cook = builder.decision(1, "11:00", decision_id="d-cook-start")
+    # activity_progress：收尾的那次唤醒里接着开始同一系列的列出；收尾之后的下一次唤醒才开始的不列出。
+    cook = builder.decision(1, "11:00", wakeup_id="d-cook-start")
     first = activity("cook-c", "interact", content_id="cook-1")
     builder.world(cook, builder.at(1, "11:00"), "start_main_activity", activities=[first])
     builder.progress(first, builder.at(1, "11:30"))
-    wrap = builder.decision(1, "11:31", decision_id="d-wrap-and-cook")
+    wrap = builder.decision(1, "11:31", wakeup_id="d-wrap-and-cook")
     builder.conclude(wrap, builder.at(1, "11:31"), [{"summary": "做完了"}], ["cook-c"])
     second = activity("cook-d", "interact", content_id="cook-2")
     builder.world(wrap, builder.at(1, "11:31"), "start_main_activity", activities=[second])
     builder.progress(second, builder.at(1, "12:00"))
     builder.conclude(builder.decision(1, "12:01"), builder.at(1, "12:01"), [{"summary": "吃完了"}], ["cook-d"])
-    after = builder.decision(1, "12:02", decision_id="d-cook-after-wrap")
+    after = builder.decision(1, "12:02", wakeup_id="d-cook-after-wrap")
     builder.world(after, builder.at(1, "12:02"), "start_main_activity",
                   activities=[activity("cook-e", "interact", content_id="cook-1")])
     restarted = m9_guardrails(*_load(builder))["restarted"]
-    assert [(item["decision_id"], item["target"]) for item in restarted] == [
+    assert [(item["wakeup_id"], item["target"]) for item in restarted] == [
         ("d-0", ["app", "bilibili"]), ("d-1", ["content", "做晚饭"]), ("d-2", ["purchase", ["noodle"]]),
-        ("d-3", ["query", "meituan", ["meal"]]), ("d-4", ["travel", "office"]), ("d-5", ["sleep"]),
-        ("d-7", ["content", "walk"]), ("d-8", ["query", "meituan", ["meal", "snack"]]),
+        ("d-3", ["search", "meituan", "番茄面"]), ("d-4", ["travel", "office"]), ("d-5", ["sleep"]),
+        ("d-7", ["content", "walk"]), ("d-8", ["search", "meituan", "咖啡茶饮"]),
         ("d-9", ["purchase", ["coffee", "noodle"]]), ("d-walk-again", ["content", "walk"]),
         ("d-wrap-and-cook", ["content", "做晚饭"])]
     assert restarted[0]["time"] == "2026-10-08 09:01"
@@ -1363,7 +1331,7 @@ def test_m12_earlier_view_reliance_by_mention_or_echo_absent_from_the_request(tm
                                      ("08:50", "汤头浓郁面条筋道", [named]), ("09:00", "楼下有只猫", None),
                                      ("09:01", "楼下咖啡店还行", None), ("09:02", "C位咖啡不错", None),
                                      ("09:03", "汤头浓郁面条筋，再说", None)):
-        decision = builder.decision(2, clock, decision_id=f"d-{clock}")
+        decision = builder.decision(2, clock, wakeup_id=f"d-{clock}")
         builder.turn(decision, builder.at(2, clock), layers=layers, reasoning=reasoning)
     # 模型文字含工具参数：items 每项去掉 views 后各自紧凑序列化，所以收尾总结里的回声算、看法正文里的不算；其余键组成的
     # 对象（没有 items 时是整个参数）紧凑序列化，键名把两段值隔开，拼不出看法对象。
@@ -1385,23 +1353,23 @@ def test_m12_earlier_view_reliance_by_mention_or_echo_absent_from_the_request(tm
             ("09:50", {"tool_calls": [tool_call("c-e", "report_status", {"items": [{"summary": "在吃"}],
                                                                           "name": "番茄牛肉", "note": "刀削面"})]}, ()),
             ("10:00", {"tool_calls": [truncated]}, ())):
-        decision = builder.decision(2, clock, decision_id=f"d-{clock}")
+        decision = builder.decision(2, clock, wakeup_id=f"d-{clock}")
         builder.turn(decision, builder.at(2, clock), history=previous, **reply)
     reliance = m12_endorsed_repurchase(*_load(builder))["earlier_view_reliance"]
     assert reliance == {"decisions": 16, "relying": 7, "value": 0.4375, "rows": [
-        {"decision_id": "d-08:10", "time": "2026-10-09 08:10",
+        {"wakeup_id": "d-08:10", "time": "2026-10-09 08:10",
          "views": [{"about": "番茄牛肉刀削面", "date": "2026-10-08", "by": "mention"}]},
-        {"decision_id": "d-08:20", "time": "2026-10-09 08:20",
+        {"wakeup_id": "d-08:20", "time": "2026-10-09 08:20",
          "views": [{"about": "番茄牛肉刀削面", "date": "2026-10-08", "by": "echo"}]},
-        {"decision_id": "d-08:40", "time": "2026-10-09 08:40",
+        {"wakeup_id": "d-08:40", "time": "2026-10-09 08:40",
          "views": [{"about": "同事小王", "date": "2026-10-08", "by": "echo"}]},
-        {"decision_id": "d-09:01", "time": "2026-10-09 09:01",
+        {"wakeup_id": "d-09:01", "time": "2026-10-09 09:01",
          "views": [{"about": "楼下的咖啡店", "date": "2026-10-08", "by": "mention"}]},
-        {"decision_id": "d-09:02", "time": "2026-10-09 09:02",
+        {"wakeup_id": "d-09:02", "time": "2026-10-09 09:02",
          "views": [{"about": "Ｃ位咖啡", "date": "2026-10-08", "by": "mention"}]},
-        {"decision_id": "d-09:10", "time": "2026-10-09 09:10",
+        {"wakeup_id": "d-09:10", "time": "2026-10-09 09:10",
          "views": [{"about": "番茄牛肉刀削面", "date": "2026-10-08", "by": "echo"}]},
-        {"decision_id": "d-10:00", "time": "2026-10-09 10:00",
+        {"wakeup_id": "d-10:00", "time": "2026-10-09 10:00",
          "views": [{"about": "番茄牛肉刀削面", "date": "2026-10-08", "by": "echo"}]}]}
 
 
@@ -1416,8 +1384,8 @@ CHECK_VALUES = [
     ("M6.persona_layer_identical.value", 1.0, 0.95), ("M7.fresh_decision_turn.value", 0.55, 0.5499),
     ("M8.per_day_usd", 0.22, 0.220001), ("M9.days_outside_band", [], ["2026-10-09"]), ("M9.rejections", 4, 5),
     ("M9.turns.exhausted", 0, 1), ("M9.run_failures", 0, 1), ("M9.capacity_compressions", 0, 2),
-    ("M9.restarted", [], [{"decision_id": "d"}]), ("M9.chain.append_violations", 0, 1),
-    ("M9.chain.persona_deltas", 0, 1), ("M10.fallback.value", 0.1, 0.1001), ("M10.day_digest_problems", 0, 1),
+    ("M9.restarted", [], [{"wakeup_id": "d"}]),
+    ("M10.fallback.value", 0.1, 0.1001), ("M10.day_digest_problems", 0, 1),
     ("M10.retired_calls", 0, 2), ("M10.periods.month", 1, 0),
 ]
 
@@ -1451,7 +1419,7 @@ def test_checks_apply_the_final_state_thresholds():
         assert pilot_checks(_metrics({**passing, **report_only})) == checks
     assert checks[13] == {"name": "rejections", "path": "M9.rejections", "comparison": "<=", "threshold": 4.8,
                           "value": 4, "pass": True}
-    assert checks[23] == {"name": "month_digests", "path": "M10.periods.month", "comparison": "==", "threshold": 1,
+    assert checks[21] == {"name": "month_digests", "path": "M10.periods.month", "comparison": "==", "threshold": 1,
                           "value": 1, "pass": True}
     assert (checks[12]["value"], checks[17]["value"]) == (0, 0)
     for index, (path, _, bad) in enumerate(CHECK_VALUES):

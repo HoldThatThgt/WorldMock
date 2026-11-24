@@ -17,9 +17,9 @@ ROOT = Path(__file__).resolve().parents[3]
 
 def _candidate():
     """@brief 构造当前候选形状，完整日的实际生成由独立整日入口验证。"""
-    return {"persona_sha256": "a" * 64, "config_sha256": "f" * 64, "seed": 20260106,
+    return {"persona_sha256s": {"1": "a" * 64}, "config_sha256": "f" * 64, "seed": 20260106,
             "environment_identity": {"environment_id": "artificial-test", "environment_version": "4",
-                                     "rules_version": 6, "catalog_content_sha256": "1" * 64,
+                                     "rules_version": 7, "catalog_content_sha256": "1" * 64,
                                      "map_sha256": "2" * 64},
             "summary": {"artifacts": {"events.jsonl": "b" * 64},
                         "checkpoints_sha256": "c" * 64, "run_assets": [["d" * 64, 12]]}}
@@ -39,7 +39,7 @@ def test_matching_full_candidates_publish_complete_summary_and_actual_generation
     candidate = _candidate()
     paths = _paths(tmp_path, candidate, candidate)
     result = freezer.freeze_matching_baseline(*paths)
-    assert set(result) == {"persona_sha256", "config_sha256", "environment_identity", "seed", "summary", "generation"}
+    assert set(result) == {"persona_sha256s", "config_sha256", "environment_identity", "seed", "summary", "generation"}
     assert {key: result[key] for key in candidate} == candidate
     assert json.loads(paths[2].read_text()) == result
     assert paths[2].read_bytes().endswith(b"\n")
@@ -54,7 +54,7 @@ def test_matching_full_candidates_publish_complete_summary_and_actual_generation
         assert generation[key] == hashlib.sha256((ROOT / relative).read_bytes()).hexdigest()
 
 
-@pytest.mark.parametrize("field", ["persona_sha256", "config_sha256", "environment_identity", "seed", "artifacts",
+@pytest.mark.parametrize("field", ["persona_sha256s", "config_sha256", "environment_identity", "seed", "artifacts",
                                    "checkpoints_sha256", "run_assets"])
 def test_mismatched_complete_day_candidates_preserve_existing_target(tmp_path, caplog, monkeypatch, field):
     """@brief 三个身份和摘要内每类证据任一失配都拒绝，旧目标不可被第一份覆盖。"""
@@ -63,7 +63,9 @@ def test_mismatched_complete_day_candidates_preserve_existing_target(tmp_path, c
                   "requirements_lock_sha256": "b" * 64, "uv_lock_sha256": "c" * 64}
     monkeypatch.setattr(freezer, "_generation", lambda: generation)
     first, second = _candidate(), _candidate()
-    if field in {"persona_sha256", "config_sha256"}:
+    if field == "persona_sha256s":
+        second[field]["1"] = "e" * 64
+    elif field == "config_sha256":
         second[field] = "e" * 64
     elif field == "environment_identity":
         second[field]["map_sha256"] = "e" * 64
@@ -93,7 +95,7 @@ def test_invalid_current_candidate_is_rejected_before_publication(tmp_path, capl
     elif change == "bool_seed":
         second["seed"] = True
     elif change == "bad_hash":
-        second["persona_sha256"] = "not a hash"
+        second["persona_sha256s"]["1"] = "not a hash"
     elif change == "partial_summary":
         second["summary"].pop("checkpoints_sha256")
     elif change == "partial_asset":
@@ -103,7 +105,7 @@ def test_invalid_current_candidate_is_rejected_before_publication(tmp_path, capl
     elif change == "partial_environment":
         second["environment_identity"].pop("map_sha256")
     elif change == "old_rules":
-        first["environment_identity"]["rules_version"] = second["environment_identity"]["rules_version"] = 5
+        first["environment_identity"]["rules_version"] = second["environment_identity"]["rules_version"] = 6
     else:
         second["environment_identity"]["rules_version"] = True
     paths = _paths(tmp_path, first, second)

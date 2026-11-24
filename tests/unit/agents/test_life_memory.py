@@ -14,10 +14,11 @@ from worldmock.agents.memory.life_memory import (
     save_step,
 )
 from worldmock.agents.memory.life_memory_store import WorldMockMemoryStore
-from worldmock.state.decisions.round import DecisionContext
 from worldmock.state.model.memory import valid_subjective_snapshot
 
 _NOW = datetime(2026, 10, 5, 8, tzinfo=timezone.utc)
+_WAKEUP_ID = "run:wake:100:v1:a1"
+_AGENT_ID = 1
 #: 「人物自述（未经核验）」一段的常量写法。
 _SELF = "\n\n## 人物自述（未经核验）\n> 暂无人物自述。\n"
 
@@ -42,11 +43,6 @@ def _store(tmp_path: Path) -> WorldMockMemoryStore:
 def _step(identity="林舟", facts=(), memories=(), now=_NOW, observation="observation-1"):
     """@brief 一次步尾保存的输入。"""
     return MemoryStep(identity, tuple(facts), observation, tuple(memories), now)
-
-
-def _context():
-    """@brief 本次决策的上下文。"""
-    return DecisionContext("run", "run:round:1:1", "run:round:1:1:agent:1:order:0", 1, _NOW, 1)
 
 
 def test_received_memory_line_preserves_actual_goods_quantity_and_source():
@@ -97,7 +93,8 @@ def test_first_step_save_has_no_previous_view_digest_and_writes_no_template(tmp_
     assert view == render_memory_view("林舟", [_received()]).encode("utf-8")
     assert b"\r" not in view and b"Identity And Profile" not in view
     assert store.episodes_path.read_bytes() == b""
-    evidence = memory_update_evidence(_context(), store, outcome)
+    evidence = memory_update_evidence(_WAKEUP_ID, _AGENT_ID, store, outcome)
+    assert (evidence.wakeup_id, evidence.agent_id) == (_WAKEUP_ID, _AGENT_ID)
     assert (evidence.operation, evidence.memory_before_sha256) == ("refresh_summary", None)
     assert evidence.observation_event_id == "observation-1" and evidence.verified_event_ids == ("receipt-event",)
 
@@ -112,10 +109,10 @@ def test_view_is_written_only_when_its_content_changes(tmp_path, monkeypatch):
     assert writes.count("MEMORY.md") == 1
     again = save_step(store, _step())
     assert writes.count("MEMORY.md") == 1 and store.write_memory_view(render_memory_view("林舟", [])) is False
-    assert memory_update_evidence(_context(), store, again) is None
+    assert memory_update_evidence(_WAKEUP_ID, _AGENT_ID, store, again) is None
     changed = save_step(store, _step(facts=[_received()]))
     assert writes.count("MEMORY.md") == 2 and "receipt-event" in store.memory_md_path.read_text(encoding="utf-8")
-    assert memory_update_evidence(_context(), store, changed).operation == "refresh_summary"
+    assert memory_update_evidence(_WAKEUP_ID, _AGENT_ID, store, changed).operation == "refresh_summary"
 
 
 def test_step_save_classifies_created_and_merged_against_identities_before_the_step(tmp_path):
@@ -138,12 +135,12 @@ def test_no_update_evidence_when_nothing_was_written_and_the_view_is_unchanged(t
     写入前摘要等于上一次写出的视图摘要。"""
     store = _store(tmp_path)
     written = save_step(store, _step(memories=[_memory("想早点睡")]))
-    appended = memory_update_evidence(_context(), store, written)
+    appended = memory_update_evidence(_WAKEUP_ID, _AGENT_ID, store, written)
     assert (appended.operation, appended.created_episode_ids, appended.merged_episode_ids) == (
         "append_episodes", ("m_000001",), ())
     assert appended.episodes == ({"id": "m_000001", "type": "goal", "text": "想早点睡", "epistemic_status": "subjective"},)
-    assert memory_update_evidence(_context(), store, save_step(store, _step())) is None
-    refreshed = memory_update_evidence(_context(), store, save_step(store, _step(facts=[_received()])))
+    assert memory_update_evidence(_WAKEUP_ID, _AGENT_ID, store, save_step(store, _step())) is None
+    refreshed = memory_update_evidence(_WAKEUP_ID, _AGENT_ID, store, save_step(store, _step(facts=[_received()])))
     assert refreshed.operation == "refresh_summary" and refreshed.created_episode_ids == ()
     assert refreshed.memory_before_sha256 == appended.memory_sha256 != refreshed.memory_sha256
 

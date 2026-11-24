@@ -15,9 +15,7 @@ from tests.life.conftest import (
     conclude_request,
     do_at,
     pause_request,
-    purchase,
     travel,
-    use_app,
 )
 from tests.life.day_baseline_runtime import create_complete_day_engine, play_complete_day
 from tests.life.environment_runtime import (
@@ -33,11 +31,6 @@ from tests.life.environment_runtime import (
 )
 from worldmock.foundation.errors import ProtocolError
 from worldmock.recording_engine.events.models import EventDraft
-from worldmock.simulation_engine.decisions.same_moment import (
-    latest_rejection_code,
-    refusal_pulse_applied,
-    rejection_counts,
-)
 
 #: 活动终结时开始动作缺失的协议故障原文。
 _MISSING = "^Activity origin action is missing from processed actions$"
@@ -173,36 +166,5 @@ def test_an_activity_that_spans_a_branch_ends_in_the_branch(engine_factory, tmp_
             settle_decision(child, f"after-{child.context.state.current_time}")
         advance_next(child)
         assert origin not in child.context.state.processed_actions
-    finally:
-        child.close()
-
-
-def _same_moment_view(engine) -> tuple:
-    """本秒的同刻轮数、最近一次计入的拒绝码、两种拒绝码是否计入与 service_refused 脉冲是否已施加。"""
-    state = engine.context.state
-    return (state.agents[1].same_moment_rounds, latest_rejection_code(state, 1),
-            rejection_counts(state, 1, "SUPPLY_NOT_FOUND"), rejection_counts(state, 1, "ACTION_REQUEST_INVALID"),
-            refusal_pulse_applied(state, 1))
-
-
-def test_a_branch_at_a_second_with_rejections_keeps_the_same_moment_budget_and_pulse(engine_factory, tmp_path):
-    """同一秒两次免计的名称类拒绝之后又有一次计入的拒绝，在这一秒开出分支：分支与父运行本秒的同刻轮数、最近一次计入的
-    拒绝码、下一次拒绝是否计入与脉冲是否已施加都相同；两边再被拒一次，结果、同刻轮数与放松需要也相同。"""
-    parent = engine_factory()
-    for label in ("reject-1", "reject-2"):
-        _, refused = act(parent, label, purchase("不存在的商品"))
-        assert (refused.status, refused.error_code) == ("rejected", "SUPPLY_NOT_FOUND")
-    _, counted = act(parent, "reject-3", use_app("不存在"))
-    assert (counted.status, counted.error_code) == ("rejected", "ACTION_REQUEST_INVALID")
-    child = branch_of(parent, tmp_path, "resume", "-")
-    try:
-        assert child.context.state.current_time == parent.context.state.current_time
-        assert _same_moment_view(child) == _same_moment_view(parent)
-        outcomes = []
-        for engine in (parent, child):
-            _, again = act(engine, "reject-4", use_app("不存在"))
-            outcomes.append((again.status, again.error_code, again.data["same_moment_round"],
-                             engine.context.state.agents[1].body.relaxation_need))
-        assert outcomes[0] == outcomes[1] and outcomes[0][0] == "rejected"
     finally:
         child.close()

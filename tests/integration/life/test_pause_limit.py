@@ -8,10 +8,11 @@ import pytest
 
 from tests.integration.runtime.current_contract_fixtures import ToolResponse, decide
 from tests.life.conftest import (
+    MAIN_TOOL,
     advance_until_ready,
     conclude_request,
-    context,
     do_at,
+    main_arguments,
     pause_request,
     progress_calls,
     purchase,
@@ -226,19 +227,21 @@ async def test_host_submits_the_pause_and_gets_the_reason_the_tool_layer_already
     世界不变；同一刻下一次决策的提示带着这次拒绝，模型改用 conclude_activity 结束成立。"""
     engine, activity_id, name = _resting(engine_factory, 179)
     pause = {"items": [{"activity_name": name, "summary": "先停一下。"}], "errands": []}
-    observed, requests, _, [refused] = await decide(engine, "pause", [ToolResponse("pause_activity", pause)])
-    assert target_tools(observed, name)["pause_activity"]["reason"] == _reason(name)
-    prompt = json.dumps(requests[0]["messages"], ensure_ascii=False)
-    assert len(requests) == 1 and _reason(name) in prompt
-    assert refused.status == "rejected" and refused.error_code == "ACTIVITY_PAUSE_UNAVAILABLE"
-    assert refused.message == _reason(name)
-    registered = [row.data["tool_name"] for row in events(engine, "action_requested")]
-    assert registered == ["start_main_activity", "pause_activity"]
-    assert engine.context.state.activities[activity_id].status == "active" and not _paused_events(engine)
     conclude = {"items": [{"activity_name": name, "summary": "就到这里。", "memories": [], "views": []}],
                 "errands": []}
-    _, again, _, [concluded] = await decide(engine, "conclude", [ToolResponse("conclude_activity", conclude)])
-    assert f"Conclude {name} or let it finish." in json.dumps(again[0]["messages"], ensure_ascii=False)
+    observed, requests, _, [refused, concluded, _] = await decide(engine, "pause", [
+        ToolResponse("pause_activity", pause, "c-pause"),
+        ToolResponse("conclude_activity", conclude, "c-conclude"),
+        ToolResponse(MAIN_TOOL, main_arguments("sleep", "60"), "c-sleep"),
+    ])
+    assert target_tools(observed, name)["pause_activity"]["reason"] == _reason(name)
+    assert len(requests) == 3 and _reason(name) in json.dumps(requests[0]["messages"], ensure_ascii=False)
+    assert refused.status == "rejected" and refused.error_code == "ACTIVITY_PAUSE_UNAVAILABLE"
+    assert refused.message == _reason(name)
+    assert f"Conclude {name} or let it finish." in json.dumps(requests[1]["messages"], ensure_ascii=False)
     assert concluded.status == "completed", concluded.error_code
-    assert engine.context.state.activities[activity_id].status == "cancelled"
-    assert engine.observe(context(engine, "after"))["todo_layer"]["paused_activities"] == []
+    registered = [row.data["tool_name"] for row in events(engine, "action_requested")]
+    assert registered == ["start_main_activity", "pause_activity", "conclude_activity", "start_main_activity"]
+    assert engine.context.state.activities[activity_id].status == "cancelled" and not _paused_events(engine)
+    assert engine.observations.build_wakeup_observation(engine.context.state.agents[1])[0]["todo_layer"][
+        "paused_activities"] == []

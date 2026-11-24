@@ -59,7 +59,7 @@ def world(inputs, location="home", balance=200000, random_state="commerce-tests"
                        body_settled_at=start, next_decision_at=start)
     return WorldState(schema_version=WORLD_SCHEMA_VERSION, version=0, current_time=start,
         end_time=start + 86400 * 10, run_id="commerce-test", timezone=inputs.config.timezone,
-        persona_sha256=inputs.persona_sha256, config_sha256=inputs.config_sha256,
+        persona_sha256s=dict(inputs.persona_sha256s), config_sha256=inputs.config_sha256,
         agents={1: agent}, accounts={"agent:1": balance, "external:scenario": -balance},
         random_seed=7, random_state=random_state,
         weather_by_date={inputs.config.start_time.date().isoformat(): "sunny"})
@@ -69,13 +69,15 @@ def runtime(inputs):
     event = SimpleNamespace(action_id="buy", event_id="accepted-result", data={"status": "in_progress"})
     store = SimpleNamespace(read_agent_events=lambda event_type, agent_id, after=0: [event],
                             last_event_seq_before=lambda occurred_at: 0)
-    context = SimpleNamespace(inputs=inputs, catalog=inputs.catalog, persona=inputs.persona,
-                              config=inputs.config, body=assemble_body_config(inputs.persona), store=store, callback_causes={})
+    persona = inputs.personas[0]
+    context = SimpleNamespace(inputs=inputs, catalog=inputs.catalog, persona_by_id=inputs.persona_by_id,
+                              config=inputs.config, bodies={1: assemble_body_config(persona)},
+                              store=store, callback_causes={})
     return StorefrontRuntime(context)
 
 
 def pending():
-    return SimpleNamespace(agent_id=1, action_id="buy", decision_id="decision", requested_event_id="request")
+    return SimpleNamespace(agent_id=1, action_id="buy", wakeup_id="wakeup", requested_event_id="request")
 
 
 def finish(state, activity):
@@ -136,7 +138,7 @@ def test_routes_are_fixed_first_and_quoted_by_the_split_offer_functions(environm
     day = datetime.fromtimestamp(state.current_time, zone).date()
     offers = {}
     for app in notebook.app_ids:
-        offer = offers[app] = courier_offer(environment, state, notebook, app)
+        offer = offers[app] = courier_offer(environment, state, notebook, (1, app))
         days = random_stream(state.random_state, f"courier-days:online-notebook:{app}:{day.isoformat()}").choice(
             (2, 3, 4, 5))
         fee = random_stream(state.random_state, f"courier-fee:online-notebook:{app}").choice((0, 500))

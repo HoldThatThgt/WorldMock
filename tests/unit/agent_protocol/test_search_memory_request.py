@@ -11,8 +11,7 @@ from typing import get_args
 import pytest
 from pydantic import ValidationError
 
-from tests.integration.runtime.test_life_agent_protocol import _prepared  # noqa: E402
-from worldmock.agents.protocol.react_loop import ReactDecision  # noqa: E402
+from worldmock.agents.protocol.agent_loop import LoopToolCall, validate_single_tool_call  # noqa: E402
 from worldmock.state.interaction.requests import (  # noqa: E402
     QUERY_MODELS,
     REQUEST_MODELS,
@@ -87,12 +86,10 @@ def test_search_memory_keyword_bounds_are_local_checks(keyword, message, log, ca
 
 
 def test_search_memory_argument_errors_use_the_host_argument_contract() -> None:
-    """五个词的关键词经 LifeAgent 的现行参数纠错回给模型：ARGUMENTS_INVALID，路径指到 keyword。"""
-    agent = _prepared()
-    agent.turn_tools(16, False)
-    decision = ReactDecision("search_memory", {"category": "饮食", "time": "今天",
-                                               "keyword": "早饭 午饭 晚饭 夜宵 零食"}, "call-1")
-    report = agent._validate([decision]).report.payload()
+    """五个词的关键词经现行参数纠错回给模型：ARGUMENTS_INVALID，路径指到 keyword。"""
+    call = LoopToolCall("search_memory", {"category": "饮食", "time": "今天",
+                                          "keyword": "早饭 午饭 晚饭 夜宵 零食"}, "call-1")
+    report = validate_single_tool_call(call, QUERY_MODELS).report.payload()
     assert report["error_code"] == "ARGUMENTS_INVALID"
     assert [item["path"] for item in report["items"]] == [["tool_calls", 0, "function", "arguments", "keyword"]]
 

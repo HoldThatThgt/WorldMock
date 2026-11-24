@@ -11,7 +11,6 @@ from tests.life.conftest import (
     action_identity,
     advance_next,
     advance_until_ready,
-    context,
     do_at,
     progress_calls,
     purchase,
@@ -24,6 +23,7 @@ from tests.life.environment_runtime import (
     action_result,
     events,
     finish_activity,
+    observe_only,
     reach,
     settle_decision,
     until_ended,
@@ -66,7 +66,7 @@ def test_same_name_twice_buys_two_portions_in_one_delivery_group(engine_factory)
     assert engine.context.state.accounts["agent:1"] == 200000
     until_ended(engine, result.activity_id)
     assert engine.context.state.accounts["agent:1"] == 200000 - 5700
-    record = progress_calls(engine.observe(context(engine, "after")), "start_side_activity")[0]
+    record = progress_calls(observe_only(engine, "after"), "start_side_activity")[0]
     assert record["arguments"] == {"action": "purchase", "target": ["牛肉面", "柠檬茶", "柠檬茶"], "prefer": None}
     purchases = record["result"]["details"]["purchases"]
     assert [(row["product"], row["quantity"], row["channel"]) for row in purchases] == [

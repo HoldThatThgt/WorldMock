@@ -37,8 +37,9 @@ def _case(root: Path, code: str = CODE, commit: str = "f" * 40, model: dict | No
         (root / relative).mkdir(parents=True)
     frozen = inputs()
     assets = _freeze_environment(frozen, AssetStore(root / "run/assets"))
-    identity = model or {"prompt_sha256": PROMPT, "tool_schema_sha256": TOOLS}
-    manifest = _bytes({"schema_version": 7, "persona_sha256": frozen.persona_sha256,
+    identity = model or {"prompt_sha256s": {"action": PROMPT, "search": PROMPT},
+                         "tool_schema_sha256s": {"action": TOOLS, "search": TOOLS}}
+    manifest = _bytes({"schema_version": 8, "persona_sha256s": {str(k): v for k, v in frozen.persona_sha256s.items()},
                        "config_sha256": frozen.config_sha256, "environment_identity": environment_identity(frozen),
                        "environment_assets": assets, "run_id": "day-test", "code_sha256": code,
                        "git_commit": commit, "git_dirty": False, "model_identity": identity})
@@ -49,7 +50,7 @@ def _case(root: Path, code: str = CODE, commit: str = "f" * 40, model: dict | No
         connection.execute("INSERT INTO checkpoints VALUES (?,?)", (zlib.compress(body), _digest(body)))
     events = _bytes({"event_id": "fact", "caused_by": [], "amount": amount}) + b"\n"
     (root / "export/events.jsonl").write_bytes(events)
-    quality = _bytes({"schema_version": 8, "day_plan_metrics": {code: {"block_count": 0}}})
+    quality = _bytes({"schema_version": 11, "day_plan_metrics": {code: {"block_count": 0}}})
     (root / "export/quality.json").write_bytes(quality)
     (root / "export/manifest.json").write_bytes(_bytes({"frozen_run_manifest": json.loads(manifest),
         "artifacts": {"events": {"path": "events.jsonl", "sha256": _digest(events)}},
@@ -96,13 +97,18 @@ def test_normalization_preserves_unknown_hashes_and_every_other_field(tmp_path):
     assert baseline.normalize(payload) == payload
 
 
-@pytest.mark.parametrize("field", ["persona_sha256", "config_sha256", "map_sha256", "catalog_content_sha256"])
+@pytest.mark.parametrize("field", ["persona_sha256s", "config_sha256", "map_sha256", "catalog_content_sha256"])
 def test_frozen_environment_input_identity_is_authenticated_before_normalizing(tmp_path, field):
     case = _case(tmp_path / "case")
     path = case / "run/manifest.json"
     manifest = json.loads(path.read_bytes())
-    identity = manifest if field in {"persona_sha256", "config_sha256"} else manifest["environment_identity"]
-    identity[field] = "0" * 64
+    if field == "persona_sha256s":
+        first_agent = next(iter(manifest["persona_sha256s"]))
+        manifest["persona_sha256s"][first_agent] = "0" * 64
+    elif field == "config_sha256":
+        manifest[field] = "0" * 64
+    else:
+        manifest["environment_identity"][field] = "0" * 64
     path.write_bytes(_bytes(manifest))
     with pytest.raises(IntegrityError):
         day_baseline_signature(case, case)
@@ -117,22 +123,24 @@ def test_behaviour_signature_ignores_only_code_identity(tmp_path):
     assert day_baseline_signature(first, first) != day_baseline_signature(second, second)
 
 
-@pytest.mark.parametrize("change", ["prompt_sha256", "tool_schema_sha256", "amount"])
+@pytest.mark.parametrize("change", ["prompt_sha256s", "tool_schema_sha256s", "amount"])
 def test_behaviour_signature_detects_fingerprint_and_business_changes(tmp_path, change):
     """@brief 系统文本或工具定义的指纹、业务数额，任何一项变化都让行为签名不等。"""
     before = _case(tmp_path / "before")
     if change == "amount":
         after = _case(tmp_path / "after", amount=3)
     else:
-        after = _case(tmp_path / "after", model={"prompt_sha256": PROMPT, "tool_schema_sha256": TOOLS,
-                                                 change: "0" * 64})
+        after = _case(tmp_path / "after", model={"prompt_sha256s": {"action": PROMPT, "search": PROMPT},
+                                                 "tool_schema_sha256s": {"action": TOOLS, "search": TOOLS},
+                                                 change: {"action": "0" * 64, "search": "0" * 64}})
     assert behaviour_signature(before, before) != behaviour_signature(after, after)
 
 
 def test_behaviour_signature_keeps_every_other_manifest_field(tmp_path):
     """@brief 屏蔽只改三项代码身份，其余字段原样；绑定代码身份时不改。"""
     manifest = {"code_sha256": CODE, "git_commit": "f" * 40, "git_dirty": True, "run_id": "day-test",
-                "model_identity": {"prompt_sha256": PROMPT}, "persona_sha256": "a" * 64}
+                "model_identity": {"prompt_sha256s": {"action": PROMPT, "search": PROMPT}},
+                "persona_sha256s": {"1": "a" * 64}}
     masked = DayBaseline(tmp_path, tmp_path, mask_code_identity=True)._code_masked(manifest)
     assert {key for key in manifest if masked[key] != manifest[key]} == {"code_sha256", "git_commit", "git_dirty"}
     assert {masked[key] for key in ("code_sha256", "git_commit", "git_dirty")} == {CODE_IDENTITY_MASK}

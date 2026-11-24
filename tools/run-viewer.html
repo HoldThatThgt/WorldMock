@@ -305,27 +305,28 @@ const TYPE_COLORS = {
   model_response:'#e3b341', action_requested:'#f0883e', action_accepted:'#3fb950',
   action_rejected:'#f85149', action_result:'#7ee787', activity_progress:'#79c0ff',
   memory_updated:'#d2a8ff', checkpoint_created:'#768390', environment_event:'#ff7b72',
-  run_ended:'#ffa657',
+  run_ended:'#ffa657', run_failed:'#f85149',
 };
-const KIND_COLORS = {interact:'#3fae8c', sleep:'#8a7fd8', travel:'#d0a03f', purchase:'#6e7681', query:'#5b8def'};
+const KIND_COLORS = {interact:'#3fae8c', sleep:'#8a7fd8', travel:'#d0a03f', purchase:'#6e7681', search:'#5b8def'};
 const typeColor = t => TYPE_COLORS[t]||'#768390';
 const kindColor = k => KIND_COLORS[k]||'#768390';
 
 /* ---------- 中文可读标签 ---------- */
 const TYPE_LABELS = {
-  decision_started:'决策', observation:'观察', model_request:'模型调用',
+  decision_started:'唤醒', observation:'观察', model_request:'模型调用',
   model_response:'模型响应', action_requested:'动作请求', action_accepted:'✓受理',
   action_rejected:'✗拒绝', action_result:'结果', activity_progress:'活动段',
   memory_updated:'记忆', checkpoint_created:'存档', environment_event:'世界事件',
   run_ended:'结束', run_failed:'运行失败',
 };
-const KIND_LABELS = {sleep:'睡眠', travel:'出行', interact:'互动', purchase:'购买', query:'查询'};
-const TOOL_LABELS = {start_main_activity:'开始槽位 1 的活动', start_side_activity:'开始槽位 2 的活动',
-  recall_task_summary:'回看任务',
+const KIND_LABELS = {sleep:'睡眠', travel:'出行', interact:'互动', purchase:'购买', search:'搜索'};
+const TOOL_LABELS = {start_main_activity:'开始主槽位活动', start_side_activity:'开始副槽位活动',
+  search_world:'搜索世界', recall_task_summary:'回看任务', search_memory:'检索记忆',
   report_status:'播报进展', pause_activity:'暂停活动', conclude_activity:'结束活动', revise_day_plan:'调整当日目标'};
-const STATUS_LABELS = { active:'进行中', completed:'已完成', in_progress:'进行中', rejected:'被拒绝', cancelled:'已取消' };
+const STATUS_LABELS = { active:'进行中', completed:'已完成', in_progress:'进行中', rejected:'被拒绝',
+  cancelled:'已取消', truncated:'已截断', failed:'已失败' };
 const BND_LABELS = { planned_end:'按计划结束', feedback:'反馈中断',
-  route_ended:'随出行结束',
+  route_ended:'随出行结束', experiment_end:'运行截止',
   paused:'已暂停', cancelled:'主动结束' };
 const ENVK_LABELS = { initial_funds_injected:'初始资金注入', time_trigger:'时间触发', weather:'天气',
   callback_effect:'回调效果', callback_reminder:'状态提醒', app_touch:'应用操作',
@@ -333,7 +334,7 @@ const ENVK_LABELS = { initial_funds_injected:'初始资金注入', time_trigger:
   app_foreground:'app 前台', order_notification:'订单通知',
   location_entered:'进入地点', location_left:'离开地点',
   delivery_arrival:'配送到达', app_push:'app 推送',
-  goods_received:'商品收货',
+  goods_received:'商品收货', memory_digest_generated:'回顾生成',
   day_plan_generated:'零点计划生成', activity_concluded:'活动收尾', activity_paused:'活动暂停',
   activity_resumed:'活动恢复', activity_truncated:'活动截断',
   errand_registered:'事务记下', errand_updated:'事务更新', errand_cancelled:'事务取消',
@@ -348,7 +349,7 @@ const WAKE_LABELS = {planned_end:'计划结束', felt_band_change:'体感变化'
   duty_boundary:'值勤边界', app_push:'app 推送'};
 const SESSION_KIND_LABELS = { stay:'停留', transit:'路上' };
 const SESSION_STATUS_LABELS = { active:'进行中', ended:'已结束' };
-const MEMOP_LABELS = { append_episodes:'追加记忆片段' };
+const MEMOP_LABELS = { append_episodes:'追加记忆片段', refresh_summary:'更新记忆摘要' };
 const MEMORY_TYPE_LABELS = {
   reflection:'反思', routine:'日常', goal:'目标', relationship:'关系',
   commitment:'承诺', preference:'偏好', resolution:'决定',
@@ -478,8 +479,9 @@ function buildIndex(log){
     for (const r of rows) fn(r);
   };
 
-  typeQuery('decision_started', ['$.data.round_order','$.data.wake_reasons'], r=>{
-    S.summaries.set(r.seq,{round:r['$.data.round_order'],wake:parseJArr(r['$.data.wake_reasons'])});
+  typeQuery('decision_started', ['$.data.wakeup_id','$.data.world_state_version','$.data.wake_reasons'], r=>{
+    S.summaries.set(r.seq,{wakeup:r['$.data.wakeup_id'],ver:r['$.data.world_state_version'],
+      wake:parseJArr(r['$.data.wake_reasons'])});
   });
   typeQuery('observation', ['$.data.balance_fen','$.data.body.values.energy_kcal',
                             '$.data.body.values.sleep_deficit_hours','$.data.body.values.relaxation_need','$.data.body.values.social_need',
@@ -501,19 +503,17 @@ function buildIndex(log){
                                 '$.data.activity.data.path','$.data.activity.data.app_id',
                                 '$.data.activity.data.content_id','$.data.activity.location_id',
                                 '$.data.activity.data.order_ids','$.data.data.activities',
-                                '$.data.activity.data.targets'], r=>{
+                                '$.data.activity.data.query'], r=>{
     S.summaries.set(r.seq,{aid:r['$.activity_id'],kind:r['$.data.activity.kind'],dur:r['$.data.activity.planned_duration_seconds'],
       tg:r['$.data.activity.data.action'],dest:r['$.data.activity.destination_id'],
       method:r['$.data.activity.travel_method_id'],origin:r['$.data.activity.data.origin_id'],
       appId:r['$.data.activity.data.app_id'],contentId:r['$.data.activity.data.content_id'],
       location:r['$.data.activity.location_id'],orderIds:parseJArr(r['$.data.activity.data.order_ids']||'[]'),
-      path:parseJArr(r['$.data.activity.data.path']||'[]'),targets:parseJArr(r['$.data.activity.data.targets']||'[]'),
+      path:parseJArr(r['$.data.activity.data.path']||'[]'),query:r['$.data.activity.data.query'],
       activities:parseJArr(r['$.data.data.activities']||'[]')});
   });
-  typeQuery('action_rejected', ['$.data.error_code','$.data.same_moment_round',
-                                '$.data.max_same_moment_decisions'], r=>{
-    S.summaries.set(r.seq,{err:r['$.data.error_code'],smr:r['$.data.same_moment_round'],
-      smmax:r['$.data.max_same_moment_decisions']});
+  typeQuery('action_rejected', ['$.data.error_code','$.data.reason'], r=>{
+    S.summaries.set(r.seq,{err:r['$.data.error_code'],reason:r['$.data.reason']});
   });
   typeQuery('action_result', ['$.data.status','$.data.message','$.data.error_code','$.data.data.orders'], r=>{
     S.summaries.set(r.seq,{status:r['$.data.status'],msg:r['$.data.message'],err:r['$.data.error_code'],
@@ -527,7 +527,7 @@ function buildIndex(log){
                                   '$.data.interval_start','$.data.interval_end','$.data.activity.data.app_id',
                                   '$.data.activity.data.content_id','$.data.content.content_id',
                                   '$.data.activity.location_id','$.data.activity.data.order_ids',
-                                  '$.data.activity.data.targets'],
+                                  '$.data.activity.data.query'],
   r=>{
     S.summaries.set(r.seq,{aid:r['$.activity_id'],kind:r['$.data.activity.kind'],status:r['$.data.activity.status'],
       start:r['$.data.activity.started_at'],end:r['$.data.activity.ended_at'],
@@ -537,7 +537,7 @@ function buildIndex(log){
       appId:r['$.data.activity.data.app_id'],contentId:r['$.data.activity.data.content_id'],
       played:r['$.data.content.content_id'],location:r['$.data.activity.location_id'],
       orderIds:parseJArr(r['$.data.activity.data.order_ids']||'[]'),origin:r['$.data.activity.data.origin_id'],
-      path:parseJArr(r['$.data.activity.data.path']||'[]'),targets:parseJArr(r['$.data.activity.data.targets']||'[]'),
+      path:parseJArr(r['$.data.activity.data.path']||'[]'),query:r['$.data.activity.data.query'],
       from:r['$.data.interval_start'],to:r['$.data.interval_end']});
   });
   typeQuery('model_request', ['$.data.request.model','$.data.attempt','$.data.purpose'], r=>{
@@ -571,6 +571,9 @@ function buildIndex(log){
   });
   typeQuery('run_ended', ['$.data.end_time','$.wall_elapsed_ms'], r=>{
     S.summaries.set(r.seq,{end:r['$.data.end_time'],wall:r['$.wall_elapsed_ms']});
+  });
+  typeQuery('run_failed', ['$.data.error'], r=>{
+    S.summaries.set(r.seq,{error:r['$.data.error']});
   });
 
   /* 观测的 agent/时间补全（从事件索引查，不重复解析 body） */
@@ -610,10 +613,10 @@ function controlItems(tool, req){
   }));
 }
 
-/* 一条个人事务变更的七个键，与 worldmock.life.control_items 的 _ERRAND_KEYS 相同、同一顺序，全部必填 */
+/* 一条个人事务变更的七个键，与 worldmock.state.interaction.control_items 的 _ERRAND_KEYS 相同、同一顺序，全部必填 */
 const ERRAND_CHANGE_KEYS = ['change', 'name', 'item', 'quantity', 'memo', 'remind_time', 'reason'];
 
-/** @brief 控制工具请求里请求级的个人事务变更，worldmock.life.control_items.control_errands 的镜像，规则相同：errands 须是
+/** @brief 控制工具请求里请求级的个人事务变更，worldmock.state.interaction.control_items.control_errands 的镜像，规则相同：errands 须是
  *  数组，每条须是对象且七个键齐全（只查键在不在，不查值的类型），不符即报错；按请求顺序返回只含这七个键的对象，
  *  值照请求所写。 */
 function controlErrands(req){
@@ -663,6 +666,9 @@ function readableReq(tool, reqRaw){
     case 'start_side_activity':
       return `${ViewerContext.actionWord(req.action, 'app')} · ${(Array.isArray(req.target)?req.target:[]).join('、')}`
         + (req.prefer!=null ? ` · 想用 ${req.prefer}` : '');
+    case 'search_world':
+      return `${ViewerContext.actionWord('search', 'app')} · ${req.query ?? ''}`
+        + (req.prefer!=null ? ` · 想用 ${req.prefer}` : '');
     case 'recall_task_summary':
       return req.task_name||'';
     case 'report_status':
@@ -680,7 +686,7 @@ function makeSummary(e){
   switch(e.type){
     case 'decision_started': {
       const wake = wakeLabels(s.wake, e);
-      return `决策开始 · 第 ${s.round??'?'} 轮${wake?' · 唤醒：'+wake:''}`;
+      return `唤醒开始${s.ver!=null?' · v'+s.ver:''}${wake?' · 唤醒：'+wake:''}`;
     }
     case 'observation': {
       const active = (s.acts||[]).map(a=>kindLabel(a.kind)).filter(Boolean);
@@ -690,8 +696,12 @@ function makeSummary(e){
         ` · 社交需要 ${s.so==null?'—':(+s.so).toFixed(2)}` +
         (active.length?' · 进行中：'+active.join('、'):'');
     }
-    case 'model_request':
-      return `${s.purpose==='plan_day'?'零点计划模型请求':'模型请求'} ${s.model||''} · 第${s.attempt??'?'}次尝试`;
+    case 'model_request': {
+      const tag = s.purpose==='plan_day'?'零点计划模型请求'
+        :(s.purpose==='memory_digest'?'回顾模型请求'
+        :(s.purpose==='search_session'?'搜索子会话模型请求':'模型请求'));
+      return `${tag} ${s.model||''} · 第${s.attempt??'?'}次尝试`;
+    }
     case 'model_response': return `模型响应 ${s.model||''} · prompt ${nf(s.pt)} + completion ${nf(s.ct)} = ${nf(s.tt)} tokens`;
     case 'action_requested': return `请求 ${toolLabel(s.tool)} · ${readableReq(s.tool, s.req)}` +
       (s.note ? ` · self_note（未经核验）：${s.note}` : '');
@@ -699,8 +709,7 @@ function makeSummary(e){
       return `已受理 · ${eventPhrase(s, ' · ')} · 计划 ${fmtDur(s.dur)}` +
         ViewerWording.continuationNote(e.seq, S.uses, fmtHM);
     case 'action_rejected':
-      return `被拒绝 · ${s.err||'—'} · 同刻第 ${s.smr??'?'} 轮` +
-        (s.smmax!=null?`（上限 ${s.smmax}）`:'');
+      return `被拒绝 · ${s.err||'—'}${s.reason?' · '+s.reason:''}`;
     case 'action_result': return resultText(s);
     case 'activity_progress':
       return `活动段 · ${eventPhrase(s, ' ')}` +
@@ -712,11 +721,12 @@ function makeSummary(e){
     case 'checkpoint_created': return '存档';
     case 'environment_event': return environmentText(e, s);
     case 'run_ended': return `运行结束 · 模拟时间 ${fmtT(s.end)} · 墙钟 ${fmtDur(Math.round((s.wall||0)/1000))}`;
+    case 'run_failed': return `运行失败${s.error?' · '+s.error:''}`;
     default: return '';
   }
 }
 
-/** @brief 一条事件里活动的写法：互动、购买与查询写统一写法（只列这条事件指向的内容），出行、睡眠等照原格式「种类 目标」。 */
+/** @brief 一条事件里活动的写法：互动、购买与搜索写统一写法（只列这条事件指向的内容），出行、睡眠等照原格式「种类 目标」。 */
 function eventPhrase(s, separator){
   return ViewerWording.targetPhrase(s, [ViewerWording.eventContentId(s.played, s.contentId)], S.orders)
     ?? `${actTypeLabel(s.kind, s.tg)}${s.tg||s.dest||s.appId? separator+actTargetText(s):''}`;
@@ -754,7 +764,7 @@ const snapshotSummary = activity => ({aid:activity.activity_id, kind:activity.ki
   end:activity.ended_at, status:activity.status, elapsed:activity.elapsed_seconds, tg:activity.data?.action,
   dest:activity.destination_id, method:activity.travel_method_id, appId:activity.data?.app_id,
   contentId:activity.data?.content_id, location:activity.location_id, orderIds:activity.data?.order_ids,
-  origin:activity.data?.origin_id, path:activity.data?.path, targets:activity.data?.targets});
+  origin:activity.data?.origin_id, path:activity.data?.path, query:activity.data?.query});
 /** @brief 把一条事件里的一项活动并进合并后的活动：最新状态、写法要读的身份、按序号累积的内容身份、第一条受理事件的
  *  序号；区间为正的进度事件记结算区间与执行段的起、止、序号和内容身份（供连续使用）。 */
 function absorbActivity(a, s, e){
@@ -767,7 +777,7 @@ function absorbActivity(a, s, e){
   if (a.method==null && s.method!=null && s.method!=='') a.method = s.method;
   if (a.location==null && s.location!=null) a.location = s.location;
   if (s.orderIds?.length) a.orderIds = s.orderIds;
-  if (s.targets?.length) a.targets = s.targets;
+  if (s.query!=null) a.query = s.query;
   a.kind = s.kind; a.appId = s.appId;
   if (s.origin!=null) a.origin = s.origin;
   if (s.path?.length) a.path = s.path;
@@ -1131,7 +1141,7 @@ async function toggleDetail(row, seq){
 
 /* ---------- 共用所选日期的活动日历、活动表与地点会话 ---------- */
 const AT = { sortKey:'start', sortDir:1, page:0, pageSize:50, filtered:[], tableOpen:false };
-/** @brief 活动表「目标」：互动、购买与查询是这项活动全部受理与进度事件（按序号）的统一写法；出行写出行方式名称、
+/** @brief 活动表「目标」：互动、购买与搜索是这项活动全部受理与进度事件（按序号）的统一写法；出行写出行方式名称、
  *  目的地与路径；其余种类（睡眠和没有专门写法的种类）显示「—」。 */
 function actTargetText(a){
   const phrase = ViewerWording.targetPhrase(a, a.contents, S.orders);

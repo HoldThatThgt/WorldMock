@@ -26,7 +26,7 @@ def owner(identity, kind, status="active", ended_at=None):
         ended_at=ended_at, destination_id="office" if kind == "travel" else None,
         travel_method_id="driving" if kind == "travel" else None,
         resource_claims={"first" if kind == "travel" else "second"}, origin_action_id=f"start-{identity}",
-        origin_decision_id="decision", origin_request_event_id="request", data=data).model_dump(mode="json")
+        origin_wakeup_id="wakeup", origin_request_event_id="request", data=data).model_dump(mode="json")
 
 
 def system(sequence, data, *, at, activity_id=None, causes=("accepted",), version=None):
@@ -151,7 +151,7 @@ SENT = notice(2, "订单已发货")
     (changed(FRONT, interval_end=START + 600), INTERVAL),
     (changed(FRONT, interval_start=float(START)), INTERVAL),
     (changed(FRONT, step="browse"), INTERVAL),
-    (changed(FRONT, step="query"), INTERVAL),
+    (changed(FRONT, step="search"), INTERVAL),
     (changed(FRONT, app_id=""), "System app event requires an actual app identity"),
     (changed(SENT, amount_fen=100), FIELDS),
     (without(SENT, "summary"), FIELDS),
@@ -288,14 +288,15 @@ ORDER, TRAVEL, CHECKPOINT = ("Location stays overlap or are out of order",
 
 
 @pytest.mark.parametrize("fault,reason", [
-    ("no_rows", ORDER), ("first_not_run_start", ORDER), ("two_run_starts", ORDER), ("late_run_start", ORDER),
-    ("open_stay_in_the_middle", ORDER), ("left_before_entering", ORDER), ("entered_before_the_last_left", ORDER),
-    ("arrival_elsewhere", TRAVEL), ("arrival_at_another_time", TRAVEL), ("trip_not_finished", TRAVEL),
-    ("trip_from_elsewhere", TRAVEL), ("trip_started_later", TRAVEL), ("arrival_without_trip", TRAVEL),
-    ("arrival_by_another_person", TRAVEL), ("early_end_elsewhere", TRAVEL), ("early_end_not_a_result", TRAVEL),
-    ("departure_not_accepted", TRAVEL), ("departure_from_elsewhere", TRAVEL), ("departure_without_cause", TRAVEL),
-    ("missing_session", CHECKPOINT), ("extra_session", CHECKPOINT), ("other_place", CHECKPOINT),
-    ("other_start", CHECKPOINT), ("other_end", CHECKPOINT), ("open_stay_not_at_the_cutoff", CHECKPOINT),
+    ("no_rows", ORDER), ("bad_agent_id", ORDER), ("first_not_run_start", ORDER), ("two_run_starts", ORDER),
+    ("late_run_start", ORDER), ("open_stay_in_the_middle", ORDER), ("left_before_entering", ORDER),
+    ("entered_before_the_last_left", ORDER), ("arrival_elsewhere", TRAVEL), ("arrival_at_another_time", TRAVEL),
+    ("trip_not_finished", TRAVEL), ("trip_from_elsewhere", TRAVEL), ("trip_started_later", TRAVEL),
+    ("arrival_without_trip", TRAVEL), ("arrival_by_another_person", TRAVEL), ("early_end_elsewhere", TRAVEL),
+    ("early_end_not_a_result", TRAVEL), ("departure_not_accepted", TRAVEL), ("departure_from_elsewhere", TRAVEL),
+    ("departure_without_cause", TRAVEL), ("missing_session", CHECKPOINT), ("extra_session", CHECKPOINT),
+    ("other_place", CHECKPOINT), ("other_start", CHECKPOINT), ("other_end", CHECKPOINT),
+    ("open_stay_not_at_the_cutoff", CHECKPOINT),
 ])
 def test_stays_that_disagree_with_order_travel_or_checkpoint_are_refused(fault, reason):
     events, trips, state, window = certified()
@@ -303,6 +304,8 @@ def test_stays_that_disagree_with_order_travel_or_checkpoint_are_refused(fault, 
     by_id = {event["event_id"]: event for event in events}
     if fault == "no_rows":
         rows = []
+    elif fault == "bad_agent_id":
+        rows[0]["agent_id"] = 0
     elif fault == "first_not_run_start":
         rows[0]["entry_kind"] = "arrival"
     elif fault == "two_run_starts":
@@ -403,13 +406,14 @@ def test_automatic_app_use_rows_must_equal_the_merged_foreground_intervals_of_th
         invariants._automatic_app_use(rows, activities, invariants._foreground_events(events))
 
 
-def query_snapshot(app_id="meituan"):
-    """一项进行中的查询的快照：占槽位 2，data.app_id 是查询所在的 app，可以为空。"""
+def search_snapshot(app_id="meituan"):
+    """一项进行中的搜索的快照：占槽位 2，data.app_id 是搜索所在的 app，可以为空。"""
     return ActivityState(
-        activity_id="look", agent_id=1, kind="query", status="active", location_id="home", started_at=START,
+        activity_id="look", agent_id=1, kind="search", status="active", location_id="home", started_at=START,
         last_settled_at=START, elapsed_seconds=0, planned_end_at=START + 420, planned_duration_seconds=420,
-        resource_claims={"second"}, origin_action_id="start-look", origin_decision_id="decision",
-        origin_request_event_id="request", data={"action": "query", "app_id": app_id}).model_dump(mode="json")
+        resource_claims={"second"}, origin_action_id="start-look", origin_wakeup_id="wakeup",
+        origin_request_event_id="request", data={"action": "search", "query": "咖啡", "app_id": app_id},
+    ).model_dump(mode="json")
 
 
 @pytest.mark.parametrize("fault,reason", [
@@ -418,10 +422,10 @@ def query_snapshot(app_id="meituan"):
     ("without_app", "App usage activity has no actual app identity"),
     ("overlap", "App use intervals overlap or have no positive duration"),
 ])
-def test_app_use_row_of_a_query_must_agree_with_the_query(fault, reason):
-    """查询那几分钟的 app 使用行由导出自查逐项核对：app 与区间等于这项查询，没有 app 的查询不能挂行，与同一人物
-    别的 app 使用不能重叠；查询的进度不能带内容消费。"""
-    query = exported("look", "query", [(0, 420)], data={"action": "query", "app_id": "meituan"})
+def test_app_use_row_of_a_search_must_agree_with_the_search(fault, reason):
+    """搜索那几分钟的 app 使用行由导出自查逐项核对：app 与区间等于这项搜索，没有 app 的搜索不能挂行，与同一人物
+    别的 app 使用不能重叠；搜索的进度不能带内容消费。"""
+    search = exported("look", "search", [(0, 420)], data={"action": "search", "query": "咖啡", "app_id": "meituan"})
     media = exported("media", "interact", [(420, 600)], data={"action": "interact", "app_id": "bilibili"})
     rows = [use_row("look", "meituan", [(0, 420)]), use_row("media", "bilibili", [(420, 600)])]
     if fault == "app":
@@ -429,18 +433,18 @@ def test_app_use_row_of_a_query_must_agree_with_the_query(fault, reason):
     elif fault == "segments":
         rows[0] = use_row("look", "meituan", [(0, 400)])
     elif fault == "without_app":
-        query["data"]["app_id"] = None
+        search["data"]["app_id"] = None
     elif fault == "overlap":
         media["segments"] = [{"started_at": START + 400, "ended_at": START + 600}]
         rows[1] = use_row("media", "bilibili", [(400, 600)])
 
     def certify():
         """跑这两项导出自查：所属活动与区间、同一时刻只有一个 app 在前台。"""
-        invariants._app_invariants(rows, by_activity(query, media))
+        invariants._app_invariants(rows, by_activity(search, media))
         invariants._app_intervals(rows)
     if reason is None:
         certify()
-        snapshot = query_snapshot()
+        snapshot = search_snapshot()
         content = {"content_id": "c", "app_id": "meituan", "position_before_seconds": 0,
                    "position_after_seconds": 60, "completed": False, "completed_rounds_after": 0}
         progress = _event(2, "activity_progress", {"activity": snapshot, "interval_start": START,

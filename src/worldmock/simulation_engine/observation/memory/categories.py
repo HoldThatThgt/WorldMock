@@ -24,7 +24,7 @@ from worldmock.recording_engine.projections.commerce.action_orders import placed
 from worldmock.recording_engine.storage.store import FootprintStore
 from worldmock.resource_engine.catalog.models import App, Catalog, Content, channel_key
 from worldmock.simulation_engine.activities.content.location_activities import location_units
-from worldmock.state.interaction.actions import START_TOOLS
+from worldmock.state.interaction.actions import SEARCH_TOOL, START_TOOLS
 from worldmock.state.interaction.control_items import CONTROL_TOOLS
 from worldmock.state.model.memory import MEMORY_CATEGORIES, MemoryCategory
 from worldmock.state.world.activity import ActivityState
@@ -72,22 +72,24 @@ class CategoryBook:
     categories: tuple[MemoryCategory, ...]
 
 
-#: 存储对象 → （构建所用的环境输入，推导输入）；换成恢复后的新存储对象时重建。
-_BOOKS: WeakKeyDictionary[FootprintStore, tuple[EnvironmentInputs, CategoryBook]] = WeakKeyDictionary()
+#: 存储对象 → （构建所用的环境输入，按人物索引的推导输入）；换成恢复后的新存储对象时重建。
+_BOOKS: WeakKeyDictionary[FootprintStore, tuple[EnvironmentInputs, dict[int, CategoryBook]]] = WeakKeyDictionary()
 
 
-def category_book(inputs: EnvironmentInputs) -> CategoryBook:
-    """@brief 从冻结的环境输入算出推导类别的全部输入：食品商品与其名称、食品单元、班次地点类型与启用的类别；纯函数。"""
+def category_book(inputs: EnvironmentInputs, agent_id: int | None = None) -> CategoryBook:
+    """@brief 从冻结的环境输入与指定人物算出推导类别的全部输入：食品商品与其名称、食品单元、班次地点类型与启用类别。"""
+    resolved = inputs.personas[0].agent_id if agent_id is None else agent_id
+    persona = inputs.persona_by_id[resolved]
     catalog = inputs.catalog
     kits = {goods_id for name in catalog.food_states() for goods_id in catalog.callback_states[name].reset_on_goods}
     food_goods = frozenset(goods_id for goods_id, goods in catalog.goods.items()
                            if goods.category in FOOD_GOODS_CATEGORIES or goods_id in kits)
-    workplace_id = inputs.workplace_location_id
+    workplace_id = inputs.workplace_location_ids[resolved]
     workplace_kind = None if workplace_id is None else catalog.locations[workplace_id].kind
     return CategoryBook(
-        catalog, inputs.persona.work_schedule, inputs.config.timezone, inputs.home_location_id, workplace_id,
+        catalog, persona.work_schedule, inputs.config.timezone, inputs.home_location_ids[resolved], workplace_id,
         workplace_kind, food_goods, tuple(catalog.goods[key].name for key in sorted(food_goods)),
-        _food_units(catalog), _enabled_categories(catalog, inputs.persona.work_schedule))
+        _food_units(catalog), _enabled_categories(catalog, persona.work_schedule))
 
 
 def _food_units(catalog: Catalog) -> frozenset[str]:
@@ -109,14 +111,17 @@ def _enabled_categories(catalog: Catalog, schedule: Any | None) -> tuple[MemoryC
     return (_FOOD, _LIFE)
 
 
-def memory_book(store: FootprintStore, inputs: EnvironmentInputs) -> CategoryBook:
-    """@brief 观察路径的入口：这个存储对象已按同一份环境输入算过时直接返回，否则重新算出并记下。"""
+def memory_book(store: FootprintStore, inputs: EnvironmentInputs, agent_id: int | None = None) -> CategoryBook:
+    """@brief 观察路径的入口：这个存储对象与人物已按同一份环境输入算过时直接返回，否则重新算出并记下。"""
+    resolved = inputs.personas[0].agent_id if agent_id is None else agent_id
     cached = _BOOKS.get(store)
-    if cached is not None and cached[0] is inputs:
-        return cached[1]
-    book = category_book(inputs)
-    _BOOKS[store] = (inputs, book)
-    return book
+    if cached is None or cached[0] is not inputs:
+        cached = (inputs, {})
+        _BOOKS[store] = cached
+    books = cached[1]
+    if resolved not in books:
+        books[resolved] = category_book(inputs, resolved)
+    return books[resolved]
 
 
 def start_content_id(activity: ActivityState) -> str:
@@ -150,8 +155,8 @@ def activity_derivation(book: CategoryBook, activity: ActivityState, goods_ids: 
         return Derivation(_LIFE, 1)
     if activity.kind == ActivityKind.PURCHASE:
         return Derivation(goods_category(book, goods_ids), 2)
-    if activity.kind == ActivityKind.QUERY:
-        return Derivation(query_category(book, activity.data["targets"]), 2)
+    if activity.kind == ActivityKind.SEARCH:
+        return Derivation(search_category(book, activity.data, activity.started_at), 2)
     if activity.kind == ActivityKind.TRAVEL:
         commute = _commutes(book, activity.location_id, activity.destination_id, activity.started_at)
         return Derivation(_WORK, 4) if commute else Derivation(_LIFE, 7)
@@ -175,19 +180,52 @@ def goods_category(book: CategoryBook, goods_ids: Sequence[str]) -> MemoryCatego
     return _FOOD if any(goods_id in book.food_goods for goods_id in goods_ids) else _LIFE
 
 
-def query_category(book: CategoryBook, targets: Sequence[Mapping[str, str]]) -> MemoryCategory:
-    """@brief 查询的类别由目标定下：任一项是食品类别或食品商品即饮食，否则生活；答案不参与。"""
-    food = any((item["kind"] == "category" and item["category"] in FOOD_GOODS_CATEGORIES)
-               or (item["kind"] == "goods" and item["goods_id"] in book.food_goods) for item in targets)
-    return _FOOD if food else _LIFE
+def search_category(book: CategoryBook, data: Mapping[str, Any], started_at: int = 0) -> MemoryCategory:
+    """@brief 搜索活动的类别：命中的商品或地点含食品线索、或检索词含食品词时为饮食，涉及工作日班次时为工作，否则生活。"""
+    answer = data.get("answer") or {}
+    goods_rows = answer.get("goods_rows") or ()
+    place_rows = answer.get("place_rows") or ()
+    query = str(data.get("query", ""))
+    if _search_has_food(book, goods_rows, place_rows, query):
+        return _FOOD
+    if _search_has_work(book, place_rows, query, started_at):
+        return _WORK
+    return _LIFE
+
+
+def _search_has_food(book: CategoryBook, goods_rows: Sequence[Mapping[str, Any]],
+                     place_rows: Sequence[Mapping[str, Any]], query: str) -> bool:
+    """@brief 搜索是否涉及食品商品、包含食品单元的地点或食品检索词。"""
+    if any(row.get("goods_id") in book.food_goods for row in goods_rows):
+        return True
+    for row in place_rows:
+        place = book.catalog.locations.get(row.get("location_id", ""))
+        if place is not None and any(u.contents[0].content_id in book.food_units
+                                     for u in location_units(book.catalog, place.kind)):
+            return True
+    return bool(query) and _food_name(book, query)
+
+
+def _search_has_work(book: CategoryBook, place_rows: Sequence[Mapping[str, Any]],
+                     query: str, started_at: int) -> bool:
+    """@brief 搜索在有班次的工作日命中班次工作地或检索工作地点名时归工作。"""
+    if book.workplace_id is None or book.schedule is None:
+        return False
+    if started_at and _shift(book, _day(book, started_at)) is None:
+        return False
+    if any(row.get("location_id") == book.workplace_id for row in place_rows):
+        return True
+    return book.catalog.locations[book.workplace_id].display_name in query
 
 
 def rejected_category(book: CategoryBook, store: FootprintStore, request: Event) -> MemoryCategory:
-    """@brief 没有开始任何活动的世界请求的类别：对上目录行的按规则判定，对不上的购买与查询按目标文字，其余为生活。
+    """@brief 没有开始任何活动的世界请求的类别：对上目录行的按规则判定，对不上的购买与搜索按文字，其余为生活。
 
-    :param request: 这条请求的 action_requested 事件；只有被拒的出行才读这次决策的观察事件。
+    :param request: 这条请求的 action_requested 事件；只有被拒的出行才读这次唤醒的观察事件。
     """
     tool, arguments = request.data["tool_name"], request.data["request"]
+    if tool == SEARCH_TOOL:
+        return _FOOD if _food_name(book, arguments["query"]) else _LIFE
     if tool not in START_TOOLS or arguments["action"] == "sleep":
         return _LIFE
     if tool == START_TOOLS[0] and arguments["action"] == "travel":
@@ -209,8 +247,8 @@ def request_category(book: CategoryBook, store: FootprintStore, request: Event, 
     :param activity_categories: 调用方为本条目读到的每项活动算出的类别（活动身份 → 类别）。
     """
     tool = request.data["tool_name"]
-    if tool in START_TOOLS:
-        identity = result.activity_id
+    if tool in START_TOOLS or tool == SEARCH_TOOL:
+        identity = None if result.data.get("status") == "rejected" else result.activity_id
     elif tool in CONTROL_TOOLS:
         identity = result.data["data"]["activity_ids"][0] if result.data["status"] == "completed" else None
     else:
@@ -224,13 +262,13 @@ def request_category(book: CategoryBook, store: FootprintStore, request: Event, 
 
 
 def primary_request(requests: Sequence[Event]) -> Event:
-    """@brief 一次决策的主请求：开始组取 start_main_activity 那一条，否则取第一条。
+    """@brief 一次唤醒的主请求：开始组取 start_main_activity 那一条，否则取第一条。
 
-    :param requests: 本次决策全部世界请求的 action_requested 事件，按事件序号排列。
+    :param requests: 本次唤醒全部世界请求的 action_requested 事件，按事件序号排列。
     """
     if not requests:
-        logging.error("Decision has no world request")
-        raise IntegrityError("Decision has no world request")
+        logging.error("Wakeup has no world request")
+        raise IntegrityError("Wakeup has no world request")
     tools = [item.data["tool_name"] for item in requests]
     if set(START_TOOLS) <= set(tools):
         return requests[tools.index(START_TOOLS[0])]
@@ -342,14 +380,14 @@ def _named_location(book: CategoryBook, name: str) -> Any:
 
 
 def _rejected_travel(book: CategoryBook, store: FootprintStore, request: Event) -> MemoryCategory:
-    """@brief 被拒出行：目的地对上时，出发地取这次决策唯一的观察事件里的位置，按规则 4 判定；对不上为生活。"""
+    """@brief 被拒出行：目的地对上时，出发地取这次唤醒唯一的观察事件里的位置，按规则 4 判定；对不上为生活。"""
     destination = _named_location(book, request.data["request"]["target"])
     if destination is None:
         return _LIFE
-    observations = store.read_decision_observations(request.agent_id, request.decision_id, request.occurred_at)
+    observations = store.read_wakeup_observations(request.agent_id, request.wakeup_id, request.occurred_at)
     if len(observations) != 1:
-        logging.error("Rejected request has no unique decision observation")
-        raise IntegrityError("Rejected request has no unique decision observation")
+        logging.error("Rejected request has no unique wakeup observation")
+        raise IntegrityError("Rejected request has no unique wakeup observation")
     origin = observations[0].data["location_id"]
     return _WORK if _commutes(book, origin, destination.location_id, request.occurred_at) else _LIFE
 

@@ -20,52 +20,44 @@ class CounterfactualRuntime:
         """@brief 只持有当前分支的唯一状态上下文。"""
         self.context = context
 
-    def apply_counterfactual(self, intervention: CounterfactualIntervention, round_open: bool) -> CounterfactualReceipt:
-        """@brief 在新反事实分支首次决策前提交一次对等余额干预。"""
+    def apply_counterfactual(self, intervention: CounterfactualIntervention) -> CounterfactualReceipt:
+        """@brief 在新反事实分支首次决策前提交一次对等余额干预，并清除悬挂搜索循环。"""
         if type(intervention) is not CounterfactualIntervention:
+            logging.error("Counterfactual intervention must use the strict life model")
             raise ProtocolError("Counterfactual intervention must use the strict life model")
         digest = _request_sha("counterfactual_intervention", intervention)
-        self._validate_counterfactual(intervention, digest, round_open)
+        self._validate_counterfactual(intervention, digest)
         agent = self.context.state.agents[intervention.agent_id]
         before = self.context.state.accounts[agent.balance_account_id]
         staged = self.context.state.model_copy(deep=True)
         staged.accounts[agent.balance_account_id] = intervention.balance_fen
         staged.accounts["external:scenario"] += before - intervention.balance_fen
+        staged.agents[intervention.agent_id] = staged.agents[intervention.agent_id].model_copy(
+            update={"suspended_loop": None}, deep=True)
         staged.version = self.context.state.version + 1
         changes = {
             f"account:{agent.balance_account_id}": intervention.balance_fen - before,
             "account:external:scenario": before - intervention.balance_fen,
         }
         data = {
-            "kind": "counterfactual_intervention",
-            "intervention_kind": intervention.kind,
-            "hypothesis": intervention.hypothesis,
-            "source_event_ids": list(intervention.source_event_ids),
-            "intervention_sha256": digest,
-            "before_balance_fen": before,
+            "kind": "counterfactual_intervention", "intervention_kind": intervention.kind,
+            "hypothesis": intervention.hypothesis, "source_event_ids": list(intervention.source_event_ids),
+            "intervention_sha256": digest, "before_balance_fen": before,
             "after_balance_fen": intervention.balance_fen,
         }
         draft = EventDraft(
-            event_type="environment_event",
-            occurred_at=staged.current_time,
-            agent_id=intervention.agent_id,
-            caused_by=list(intervention.source_event_ids),
-            visibility="evaluation",
-            source_kind="scenario",
-            data=data,
-            resource_changes=changes,
+            event_type="environment_event", occurred_at=staged.current_time,
+            agent_id=intervention.agent_id, caused_by=list(intervention.source_event_ids),
+            visibility="evaluation", source_kind="scenario", data=data, resource_changes=changes,
         )
         event = self.context.commit_step(staged, [draft])[0]
         return CounterfactualReceipt(
-            intervention_sha256=digest,
-            event_id=event.event_id,
-            agent_id=intervention.agent_id,
-            before_balance_fen=before,
-            after_balance_fen=intervention.balance_fen,
+            intervention_sha256=digest, event_id=event.event_id, agent_id=intervention.agent_id,
+            before_balance_fen=before, after_balance_fen=intervention.balance_fen,
             world_state_version=staged.version,
         )
 
-    def _validate_counterfactual(self, intervention: CounterfactualIntervention, digest: str, round_open: bool) -> None:
+    def _validate_counterfactual(self, intervention: CounterfactualIntervention, digest: str) -> None:
         """@brief 核对分支身份、唯一时序及父检查点以前的人物可见证据；只读本运行自己的事件，来源按身份逐条读。"""
         manifest = self.context.store.manifest
         if (manifest.get("branch_kind") != "counterfactual" or manifest.get("intervention_sha256") != digest
@@ -79,8 +71,7 @@ class CounterfactualRuntime:
         if branch is None:
             logging.error("Counterfactual branch creation evidence is invalid")
             raise ProtocolError("Counterfactual branch creation evidence is invalid")
-        if round_open or any(event.event_seq > branch.event_seq and _forbidden_before_intervention(event)
-                             for event in own):
+        if any(event.event_seq > branch.event_seq and _forbidden_before_intervention(event) for event in own):
             logging.error("Counterfactual intervention must precede the first decision and occur once")
             raise ProtocolError("Counterfactual intervention must precede the first decision and occur once")
         self._validate_counterfactual_sources(intervention, branch)

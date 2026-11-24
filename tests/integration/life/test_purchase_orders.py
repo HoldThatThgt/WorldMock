@@ -300,8 +300,9 @@ def test_three_orders_are_settled_one_payment_each_when_the_purchase_completes(e
     notices = business_events(engine, "payment_notification")
     sources = {tuple(row.data["order_ids"]): row.event_id for row in payments}
     assert [(row.data["app_id"], row.caused_by) for row in notices] == [
-        (order.payment_app_id, [sources[(order.order_id,)]]) for order in (parcel, noodles, tissue)
-        if order.payment_app_id is not None]
+        (order.payment_app_id or order.app_id, [sources[(order.order_id,)]])
+        for order in (final[parcel.order_id], final[noodles.order_id], final[tissue.order_id])
+        if (order.payment_app_id or order.app_id) is not None]
     (received,) = business_events(engine, "goods_received")
     assert received.data["order_id"] == tissue.order_id and received.caused_by == [sources[(tissue.order_id,)]]
     assert {row.scheduled_id: row.caused_by for row in scheduled_arrivals(engine)} == {

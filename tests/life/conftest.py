@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import shutil
 from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
@@ -15,26 +17,18 @@ import pytest
 
 if TYPE_CHECKING:
     from worldmock.simulation_engine.engine import LifeEngine
-    from worldmock.state.decisions.round import DecisionContext
+    from worldmock.state.decisions.barrier import AgentWakeupInput
 
 
-
-
-
-
-
-def context(engine: LifeEngine, round_id: str, agent_id: int = 1) -> DecisionContext:
-    """形成指向当前已提交世界的宿主上下文。"""
-    from worldmock.state.decisions.round import DecisionContext
-
-    observed = datetime.fromtimestamp(engine.context.state.current_time, ZoneInfo(engine.context.config.timezone))
-    return DecisionContext(engine.context.state.run_id, round_id, f"decision-{round_id}-{agent_id}",
-                           agent_id, observed, engine.context.state.version)
+def wakeup_for(engine: LifeEngine, agent_id: int = 1) -> AgentWakeupInput:
+    """从引擎当前就绪状态准备单个人物唤醒输入（不写事件）。"""
+    [wakeup] = engine.prepare_barrier((agent_id,))
+    return wakeup
 
 
 def action_identity(label: str, number: int = 1, agent_id: int = 1) -> str:
-    """@brief 测试决策 decision-<标签>-<人物> 的第 number 条动作身份，形式与 LifeAgent 相同。"""
-    return f"decision-{label}-{agent_id}:action:{number:04d}"
+    """@brief 测试唤醒 wakeup-<标签>-<人物> 的第 number 条动作身份，形式与 LifeAgent 相同。"""
+    return f"wakeup-{label}-{agent_id}:action:{number:04d}"
 
 
 def oversleep_identity(engine: LifeEngine, label: str, seconds: int | None = None) -> str:
@@ -105,7 +99,7 @@ def stage_legacy_control_request(engine: LifeEngine, tool: str, agent_id: int = 
     data = {**requested.data, "request": request, "request_sha256": hashlib.sha256(content).hexdigest()}
     staged = engine.context.state.model_copy(deep=True)
     staged.version += 1
-    shared = {"occurred_at": staged.current_time, "agent_id": agent_id, "decision_id": requested.decision_id,
+    shared = {"occurred_at": staged.current_time, "agent_id": agent_id, "wakeup_id": requested.wakeup_id,
               "action_id": action_id}
     engine.context.store.commit(engine.context.state.model_dump(mode="json"), staged.model_dump(mode="json"), [
         EventDraft(event_type="action_requested", source_kind="model", data=data, **shared),
@@ -259,26 +253,46 @@ class StubMemoryDigestClient:
 
 
 def drive(coroutine):
-    """不经事件循环驱动只含立即完成的 await 的协程（确定性客户端桩），同步与异步用例都能调用。"""
-    try:
-        coroutine.send(None)
-    except StopIteration as stop:
-        return stop.value
-    coroutine.close()
-    raise AssertionError("coroutine suspended on a real await")
+    """用独立事件循环同步驱动确定性协程（仅用于同步测试用例）。"""
+    return asyncio.run(coroutine)
+
+
+def _midnight_registry(engine: LifeEngine, plan_client=None, digest_client=None):
+    """构建零点阶段复用注册表桩与计划/回顾客户端。"""
+    from worldmock.configuration.model.model_registry import ResolvedModelBinding
+
+    cfg = engine.context.config
+    routing = cfg.model_routing
+
+    def _binding(stage: str, client):
+        pid = getattr(routing, stage)
+        prof = cfg.models[pid]
+        meta = engine.context.inputs.model_metadata[pid]
+        eff = min(prof.max_output_tokens, meta.max_output_tokens)
+        return ResolvedModelBinding(pid, prof, meta, client, eff)
+
+    model = {"requested_model": cfg.models[routing.plan_day].requested_model}
+    p_cli = plan_client or StubPlanDayClient(model)
+    d_cli = digest_client or StubMemoryDigestClient({"requested_model": cfg.models[routing.digest].requested_model})
+    return SimpleNamespace(resolve=lambda stage, aid: _binding(stage, p_cli if stage == "plan_day" else d_cli))
+
+
+async def settle_midnight_tasks_async(engine: LifeEngine, plan_client=None, digest_client=None) -> list[dict]:
+    """在异步用例中依次执行零点后台任务（先回顾，再零点计划，再零点节律）。"""
+    from worldmock.runtime.lifecycle.midnight import settle_pending_day_plans, settle_pending_memory_digests
+
+    registry = _midnight_registry(engine, plan_client, digest_client)
+    await settle_pending_memory_digests(engine, registry)
+    registered = await settle_pending_day_plans(engine, registry)
+    if engine.midnight_rhythm_pending:
+        engine.decide_midnight_rhythm()
+    return registered
 
 
 def settle_midnight_tasks(engine: LifeEngine, plan_client=None, digest_client=None) -> list[dict]:
     """依次执行零点的后台任务（缺省都用确定性桩）：先回顾，再零点计划，零点边界随后执行零点节律入口；返回零点计划的
     登记摘要。"""
-    from worldmock.runtime.lifecycle.midnight import settle_pending_day_plans, settle_pending_memory_digests
-
-    model = {"requested_model": engine.context.config.model.requested_model}
-    drive(settle_pending_memory_digests(engine, client=digest_client or StubMemoryDigestClient(model)))
-    registered = drive(settle_pending_day_plans(engine, client=plan_client or StubPlanDayClient(model)))
-    if engine.midnight_rhythm_pending:
-        engine.decide_midnight_rhythm()
-    return registered
+    return drive(settle_midnight_tasks_async(engine, plan_client, digest_client))
 
 
 def travel_quote(engine: LifeEngine, mode: str, base_seconds: int) -> int:
@@ -287,21 +301,34 @@ def travel_quote(engine: LifeEngine, mode: str, base_seconds: int) -> int:
         mode, base_seconds, engine.context.state.current_time)
 
 
-def submit_round(engine: LifeEngine, requests: dict[int, tuple[str, object]], round_id: str):
-    """按全部就绪人物创建并提交一个真实决策轮。"""
-    from worldmock.state.decisions.round import DirectToolCall
+def submit_barrier(engine: LifeEngine, requests: dict[int, tuple[str, object]], label: str = "barrier"):
+    """按全部就绪人物创建并提交一个真实全局屏障唤醒。"""
+    from worldmock.state.decisions.suspended import SuspendedLoopState
 
     ready = engine.scheduling_state().ready_agent_ids
-    contexts = [context(engine, round_id, agent_id) for agent_id in ready]
-    engine.begin_decision_round(contexts)
-    for item in contexts:
-        engine.observe(item)
-    receipts = []
-    for item in reversed(contexts):
-        tool_name, request = requests[item.agent_id]
-        action_id = f"{item.decision_id}:action:0001"
-        receipts.append(engine.submit_action(DirectToolCall(item, action_id, tool_name, request)))
-    return receipts, engine.commit_decision_round(round_id)
+    wakeups = engine.prepare_barrier(ready)
+    outcomes = []
+    action_ids = []
+    for wakeup in wakeups:
+        tool_name, request = requests[wakeup.agent_id]
+        sandbox = engine.open_sandbox(wakeup)
+        action_id = f"{wakeup.wakeup_id}:action:0001"
+        action_ids.append(action_id)
+        res = sandbox.dispatch_world_tool(tool_name, request, action_id)
+        suspended = None
+        if res.suspended:
+            suspended = SuspendedLoopState(
+                wakeup_id=wakeup.wakeup_id, action_id=action_id,
+                activity_id=res.tool_message_payload["activity_id"], pending_tool_call_id="call-1",
+                messages=(), turn_used=1, memory_search_count=0, accepted_action_ids=(action_id,),
+                pending_memories=(), verified_experiences=(), local_rejection_counts={},
+                observation_event_id=wakeup.observation["observation_event_id"],
+                observation_parts=dict(wakeup.observation_parts), suspended_at=wakeup.observed_at,
+                base_layers=(),
+            )
+        outcomes.append(sandbox.finish_wakeup(suspended))
+    receipt = engine.commit_barrier(outcomes)
+    return receipt, action_ids
 
 
 #: 两个开始工具：start_main_activity 开始占槽位 1 的活动，start_side_activity 开始占槽位 2 的活动。
@@ -318,6 +345,15 @@ def advance_next(engine: LifeEngine) -> None:
     engine.advance(int(state.next_event_at.timestamp()) - engine.context.state.current_time, state.next_event_at)
     if engine.midnight_rhythm_pending:
         settle_midnight_tasks(engine)
+
+
+async def advance_next_async(engine: LifeEngine) -> None:
+    """@brief 在异步宿主协程内推进到下一未来边界并在零点边界直接 await 确定性零点任务。"""
+    state = engine.scheduling_state()
+    assert state.next_event_at is not None
+    engine.advance(int(state.next_event_at.timestamp()) - engine.context.state.current_time, state.next_event_at)
+    if engine.midnight_rhythm_pending:
+        await settle_midnight_tasks_async(engine)
 
 
 def advance_until_ready(engine: LifeEngine, limit: int = 64) -> bool:
@@ -381,11 +417,14 @@ def use_app(app: str):
     return StartSideActivityRequest.model_validate(side_arguments("interact", app))
 
 
-def query(*targets: str, prefer: str | None = None):
-    """@brief 查询请求：商品的完整名称或商品类别名，可以混写；prefer 是想在其中查询的 app 名称原文，缺省为 null。"""
-    from worldmock.state.interaction.requests import StartSideActivityRequest
+SEARCH_TOOL = "search_world"
 
-    return StartSideActivityRequest.model_validate(side_arguments("query", *targets, prefer=prefer))
+
+def search_world(query_text: str, prefer: str | None = None):
+    """@brief 原生搜索工具请求：想找的商品、预算或地点说明；prefer 是意向 app 完整名称，缺省为 null。"""
+    from worldmock.state.interaction.requests import SearchWorldRequest
+
+    return SearchWorldRequest(query=query_text, prefer=prefer)
 
 
 def tool_of(request) -> str:
@@ -447,17 +486,21 @@ def pending_names(observed: dict) -> list[str]:
     return [row["name"] for row in observed["activity_bindings"] if row["phase"] == PHASE_PENDING]
 
 
-def conclude_pending(engine: LifeEngine, round_id: str, agent_id: int = 1):
-    """单个就绪人物当秒给全部待收尾活动收尾（第七章「活动一结束就要结束它」），返回本轮动作结果。"""
-    from worldmock.state.decisions.round import DirectToolCall
-
-    decision = context(engine, round_id, agent_id)
-    engine.begin_decision_round([decision])
-    names = pending_names(engine.observe(decision))
+def conclude_pending(engine: LifeEngine, label: str = "conclude", agent_id: int = 1):
+    """单个就绪人物当秒给全部待收尾活动收尾，返回本动作提交结果。"""
+    [wakeup] = engine.prepare_barrier((agent_id,))
+    sandbox = engine.open_sandbox(wakeup)
+    names = pending_names(wakeup.observation)
     assert names, "no activity is awaiting conclusion"
-    engine.submit_action(DirectToolCall(decision, f"{decision.decision_id}:action:0001", "conclude_activity",
-                                        conclude_request(*names)))
-    return engine.commit_decision_round(round_id)[0]
+    action_id = f"{wakeup.wakeup_id}:action:0001"
+    sandbox.dispatch_world_tool("conclude_activity", conclude_request(*names), action_id)
+    outcome = sandbox.finish_wakeup(None)
+    engine.commit_barrier([outcome])
+    row = next(event for event in engine.context.store.iter_events(engine.context.store.last_event_seq)
+               if event.event_type == "action_result" and event.action_id == action_id)
+    from worldmock.state.decisions.results import ActionResult
+
+    return ActionResult.model_validate({key: row.data[key] for key in ActionResult.model_fields if key in row.data})
 
 
 def tool_targets(observed: dict) -> dict[str, dict]:

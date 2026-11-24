@@ -16,9 +16,9 @@ function contextRequest(kind = 'action') {
 }
 
 /** @brief 构造实际事件形状，并故意复用调用标记以验证因果关联。 */
-function contextEvent(id, request, agent = 1) {
+function contextEvent(id, request, agent = 1, extra = {}) {
   return event('model_request', {request, call_id:'reused-call', attempt:1},
-    {event_id:id, agent_id:agent, decision_id:'decision-' + id});
+    {event_id:id, agent_id:agent, wakeup_id:'wakeup-' + id, ...extra});
 }
 
 /** @brief 构造不属于人物行动的当前调用，验证原文保持未解析。 */
@@ -29,16 +29,29 @@ function otherRequest() {
   return request;
 }
 
-test('context reads current seven-layer actions and complete other requests', async () => {
+test('context reads current seven-layer actions, search_session calls and complete other requests', async () => {
+  const actionReq = contextRequest();
+  actionReq.messages.push(
+    {role:'assistant', content:'', reasoning_content:'先看下咖啡。',
+      tool_calls:[{id:'call-s1', type:'function', function:{name:'search_world', arguments:'{"query":"咖啡"}'}}]},
+    {role:'tool', tool_call_id:'call-s1', content:'{"result":{"status":"suspended"}}'},
+  );
+  const searchReq = {model:'deepseek-chat', messages:[
+    {role:'system', content:'你是搜索子会话助手，通过目录工具寻找匹配的真实商品和地点。'},
+    {role:'user', content:'{"query":"咖啡"}'},
+  ], tools:[{type:'function', function:{name:'search_goods'}}]};
   const app = await viewer([
     contextEvent('other', otherRequest()),
-    contextEvent('action', contextRequest()),
-    contextEvent('continuation', contextRequest('continuation')),
+    contextEvent('action', actionReq),
+    event('model_request', {phase:'request', purpose:'search_session', call_id:'search-call', attempt:1,
+      request:searchReq}, {event_id:'search-1', agent_id:1, wakeup_id:'wakeup-action', activity_id:'look-1'}),
   ]);
   try {
     const items = app.run('ContextView.index()');
-    assert.deepEqual(Array.from(items, item => item.stage), ['other', 'action', 'action']);
+    assert.deepEqual(Array.from(items, item => item.stage), ['other', 'action', 'search_session']);
     assert.equal(items[0].label, '其他调用·未解析');
+    assert.equal(items[1].wakeup, 'wakeup-action');
+    assert.equal(items[2].activity, 'look-1');
     assert.equal(app.state.bodyCache.size, 0, 'Index must not load complete requests');
     const model = await app.run('ContextView.read(2)');
     assert.deepEqual(Array.from(model.current.blocks.filter(block => block.role === 'user'), block => block.key),
@@ -56,9 +69,12 @@ test('context reads current seven-layer actions and complete other requests', as
     assert.ok(!html.includes('self_note'));
     assert.ok(html.includes('完整请求消息与工具'));
     assert.ok(!html.includes('形成自述'));
-    const continuation = await app.run('ContextView.read(3)');
-    assert.deepEqual(Array.from(continuation.current.blocks.filter(block => block.messageIndex > 1),
-      block => `${block.role}:${block.key}`), ['assistant:message', 'assistant:reasoning', 'tool:message']);
+    assert.deepEqual(Array.from(model.current.blocks.filter(block => block.messageIndex > 1),
+      block => `${block.role}:${block.key}`), ['assistant:message', 'tool:message']);
+    await app.run('ContextView.select(3)');
+    const searchHtml = app.get('#ctx-body').innerHTML;
+    assert.ok(searchHtml.includes('LLM Search Session 多轮目录检索'));
+    assert.ok(searchHtml.includes('LLM Search Session 内部轨迹（活动 look-1 · 共 1 轮）'));
     await app.run('ContextView.select(1)');
     assert.ok(app.get('#ctx-body').innerHTML.includes('未解析'));
     assert.equal((await app.run('ContextView.read(1)')).current.blocks.find(block => block.role === 'user').text,
@@ -68,41 +84,44 @@ test('context reads current seven-layer actions and complete other requests', as
   } finally { app.close(); }
 });
 
-test('a decision first request with extra messages is a continuation matched to its source decision', async () => {
-  const continued = contextRequest('continuation');
-  continued.messages[2].reasoning_content = '上一决策的思考。';
-  const response = {choices: [{message: {content: '', reasoning_content: '上一决策的思考。',
-    tool_calls: continued.messages[2].tool_calls}}],
-  usage: {prompt_tokens: 900, prompt_cache_hit_tokens: 640, prompt_cache_miss_tokens: 260, completion_tokens: 80,
-    completion_tokens_details: {reasoning_tokens: 55}}};
+test('search_session multi-turn requests group by activity_id and preserve linked reasoning and token usage', async () => {
+  const searchTurn1 = {model:'deepseek-chat', messages:[
+    {role:'system', content:'你是搜索子会话助手，通过目录工具寻找匹配的真实商品和地点。'},
+    {role:'user', content:'{"query":"咖啡"}'},
+  ], tools:[{type:'function', function:{name:'search_goods'}}]};
+  const searchTurn2 = {model:'deepseek-chat', messages:[
+    ...searchTurn1.messages,
+    {role:'assistant', content:'', reasoning_content:'先检索咖啡商品。',
+      tool_calls:[{id:'s-1', type:'function', function:{name:'search_goods', arguments:'{"query":"咖啡"}'}}]},
+    {role:'tool', tool_call_id:'s-1', content:'{"rows":[]}'},
+  ], tools:searchTurn1.tools};
+  const response = {choices:[{message:{content:'', reasoning_content:'先检索咖啡商品。',
+    tool_calls:searchTurn2.messages[2].tool_calls}}],
+  usage:{prompt_tokens:900, prompt_cache_hit_tokens:640, prompt_cache_miss_tokens:260, completion_tokens:80,
+    completion_tokens_details:{reasoning_tokens:55}}};
   const app = await viewer([
-    contextEvent('head', contextRequest()),
-    event('model_response', {call_id: 'reused-call', response}, {caused_by: ['head'], decision_id: 'decision-head'}),
-    contextEvent('next', continued),
-    event('model_request', {request: continued, call_id: 'second', attempt: 1},
-      {event_id: 'later', decision_id: 'decision-next'}),
+    event('model_request', {phase:'request', purpose:'search_session', call_id:'c-1', attempt:1,
+      request:searchTurn1}, {event_id:'s-head', wakeup_id:'wakeup-a', activity_id:'look-1'}),
+    event('model_response', {phase:'response', purpose:'search_session', call_id:'c-1', response},
+      {caused_by:['s-head'], wakeup_id:'wakeup-a', activity_id:'look-1'}),
+    event('model_request', {phase:'request', purpose:'search_session', call_id:'c-2', attempt:1,
+      request:searchTurn2}, {event_id:'s-next', wakeup_id:'wakeup-a', activity_id:'look-1'}),
   ]);
   try {
     const model = await app.run('ContextView.read(3)');
-    assert.equal(model.current.continuation, true);
-    const reasoning = model.current.blocks.find(block => block.key === 'reasoning');
-    assert.equal(reasoning.text, continued.messages[2].reasoning_content);
-    assert.ok(reasoning.label.endsWith(' · decision-head'), reasoning.label);
-    assert.equal((await app.run('ContextView.read(4)')).current.continuation, false,
-      'only a first request continues');
+    assert.equal(model.current.stage, 'search_session');
+    assert.equal(Object.hasOwn(model.current, 'continuation'), false);
+    assert.equal(model.sessionItems.length, 2);
+    assert.equal(model.previous.seq, 1);
     await app.run('ContextView.select(3)');
-    assert.ok(app.get('#ctx-body').innerHTML.includes('同秒续接：本决策首个请求多于两条消息'));
-    assert.ok(app.get('#ctx-body').innerHTML.includes('续接 · assistant · 来源决策'));
-    // 选中续接的 assistant 块：说明写每个世界请求各一条 tool 消息，开始组两条，changes 与 events 只在最后一条上。
-    await app.get('button:message:2:message').onclick();
-    const filled = app.get('#ctx-body').innerHTML;
-    assert.ok(filled.includes('为它的每个世界请求各追加一条 tool 消息'), filled);
-    assert.ok(filled.includes('一个世界请求一条，开始组两条，changes 与 events 只写在最后一条上；'
-      + 'changes.memory.added 是上一决策的今天条目。'));
-    assert.ok(!filled.includes('与一条 tool 消息'));
+    const html = app.get('#ctx-body').innerHTML;
+    assert.ok(html.includes('LLM Search Session 内部轨迹（活动 look-1 · 共 2 轮）'));
+    assert.ok(html.includes('所属唤醒：wakeup-a · 归属活动：look-1'));
+    await app.get('button:message:0:system').onclick();
+    assert.ok(app.get('#ctx-body').innerHTML.includes('search_goods'));
     await app.run('ContextView.select(1)');
     const output = app.get('#ctx-body').innerHTML;
-    assert.ok(output.includes('本次思考原文') && output.includes('上一决策的思考。'));
+    assert.ok(output.includes('本次思考原文') && output.includes('先检索咖啡商品。'));
     assert.ok(output.includes('&quot;cache_hit_tokens&quot;: 640'));
     assert.ok(output.includes('&quot;reasoning_tokens&quot;: 55'));
     assert.equal(app.errors.length, 0, app.errors.join('\n'));
@@ -182,7 +201,7 @@ test('context navigation, stage filter and all rule paths are available through 
     assert.equal(app.run('contextTimelineRow.nextElementSibling.children[0].textContent'), '查看上下文');
     await app.run('contextTimelineRow.nextElementSibling.children[0].onclick()');
     assert.equal(app.state.view, 'context');
-    assert.ok(app.get('#ctx-body').innerHTML.includes('系统层与六层输入 → 选择世界请求'));
+    assert.ok(app.get('#ctx-body').innerHTML.includes('系统层与六层输入 → 世界请求或挂起搜索'));
     await app.get('#ctx-view').onchange({target:{value:'growth'}});
     const growth = app.get('#ctx-body').innerHTML;
     assert.ok(growth.includes('ctx-rule'));
@@ -203,7 +222,7 @@ test('context navigation, stage filter and all rule paths are available through 
     for (const [rule, label, sentence] of [
       ['memory', '兜底', '追加一条后超过 14,000 字时一次回落到 12,000 字以内：先把只交了播报的条目的自述换成「…」，' +
         '再让其余条目只留核验，最后按小时合成计数行。'],
-      ['progress', '已发布界', '下界是上一次决策的提交，且不早于本地零点；在它之前已经了结的事在记忆层「今天」里。'],
+      ['progress', '已发布界', '下界是上一次唤醒的提交，且不早于本地零点；在它之前已经了结的事在记忆层「今天」里。'],
       ['digest', '校验重试', '输出被截断、参数不合格式，或正文为空、超过字数上限、依据为空或不属于这一类时附英文错误重试，' +
         '至多 reflection_validation_max_retries 次；用尽时没通过的类记为 null 并写进 fallback，运行不失败。']]) {
       await app.get('#ctx-rule').onchange({target: {value: rule}});
@@ -257,15 +276,15 @@ test('context drills into current tools and progress records', async () => {
     records.value = '0';
     records.onchange();
     assert.equal(app.get('#ctx-raw').textContent, JSON.stringify(values[5].events[0], null, 2));
-    // 工具定义块的说明按现行工具面计数：六个世界请求、一个回看工具、一个记忆检索工具，共八个；录制的请求正是这八个。
-    assert.equal(request.tools.length, 8);
+    // 工具定义块的说明按现行工具面计数：七个世界请求（含 search_world）、一个回看工具、一个记忆检索工具，共九个。
+    assert.equal(request.tools.length, 9);
     assert.deepEqual(request.tools.map(tool => tool.function.name), ['start_main_activity', 'start_side_activity',
-      'report_status', 'pause_activity', 'conclude_activity', 'revise_day_plan', 'recall_task_summary',
-      'search_memory']);
+      'report_status', 'pause_activity', 'conclude_activity', 'revise_day_plan', 'search_world',
+      'recall_task_summary', 'search_memory']);
     await app.get('button:tools').onclick();
     const filled = app.get('#ctx-body').innerHTML;
-    assert.ok(filled.includes('<dt>填入</dt><dd>六个世界请求工具（两个开始工具、三个活动控制工具与计划修订）、' +
-      '一个回看工具（recall_task_summary）与一个记忆检索工具（search_memory），共八个，严格参数结构，整次运行字节相同。</dd>'),
+    assert.ok(filled.includes('<dt>填入</dt><dd>七个世界请求工具（两个开始工具、search_world、三个活动控制工具与计划修订）、' +
+      '一个回看工具（recall_task_summary）与一个记忆检索工具（search_memory），共九个，严格参数结构，整次运行字节相同。</dd>'),
     filled);
     assert.doesNotMatch(filled, /query_world|memory_recent|memory_time_range|三个记忆查询|共十个/);
   } finally { app.close(); }
@@ -311,11 +330,11 @@ test('context drills into an inline current tool layer and lists travel methods 
     select.onchange();
     assert.deepEqual(JSON.parse(app.get('#ctx-raw').textContent), {action: 'travel', state: '全天营业', available: true,
       name: '公司', detail: '公共交通', price: '2 元', duration: '约 8 分钟', note: '轻松', kind: 'location'});
-    // 工具定义块的「填入」说明是现行工具面的定稿，不读录制样例：一个回看工具与一个记忆检索工具，共八个，没有世界查询工具。
+    // 工具定义块的「填入」说明是现行工具面的定稿，不读录制样例：一个回看工具与一个记忆检索工具，共九个，没有世界查询工具。
     await app.get('button:tools').onclick();
     const filled = app.get('#ctx-body').innerHTML;
-    assert.ok(filled.includes('<dt>填入</dt><dd>六个世界请求工具（两个开始工具、三个活动控制工具与计划修订）、' +
-      '一个回看工具（recall_task_summary）与一个记忆检索工具（search_memory），共八个，严格参数结构，整次运行字节相同。</dd>'),
+    assert.ok(filled.includes('<dt>填入</dt><dd>七个世界请求工具（两个开始工具、search_world、三个活动控制工具与计划修订）、' +
+      '一个回看工具（recall_task_summary）与一个记忆检索工具（search_memory），共九个，严格参数结构，整次运行字节相同。</dd>'),
     filled);
     assert.doesNotMatch(filled, /query_world|世界查询|三个记忆查询|共十个/);
     assert.deepEqual(app.errors, []);
@@ -357,8 +376,8 @@ test('action request summaries show self_note as unverified only when the reply 
       request_sha256: 'e'.repeat(64), reused: false, self_note: null}),
   ]);
   t.after(() => view.close());
-  assert.equal(view.summary(1), '请求 开始槽位 2 的活动 · 使用 · 哔哩哔哩 · self_note（未经核验）：先歇一会儿，再去买菜。');
-  assert.equal(view.summary(2), '请求 开始槽位 1 的活动 · 睡觉 · 450 分钟');
+  assert.equal(view.summary(1), '请求 开始副槽位活动 · 使用 · 哔哩哔哩 · self_note（未经核验）：先歇一会儿，再去买菜。');
+  assert.equal(view.summary(2), '请求 开始主槽位活动 · 睡觉 · 450 分钟');
   assert.deepEqual(view.errors, []);
 });
 
@@ -406,7 +425,7 @@ test('locations accumulate across people and replace fixed home office market la
   assert.deepEqual(targets(view.activities()), locations.map(place => `→ ${place.name}`));
   locations.forEach((place, index) => {
     for (const offset of [1, 2, 3]) assert.ok(view.summary(index * 3 + offset).includes(place.name));
-    assert.equal(view.summary(index * 3 + 1), `请求 开始槽位 1 的活动 · ${place.name} · 出行 · 步行`);
+    assert.equal(view.summary(index * 3 + 1), `请求 开始主槽位活动 · ${place.name} · 出行 · 步行`);
   });
   assert.deepEqual(view.errors, []);
 });
@@ -528,7 +547,7 @@ test('progress-only activity titles name both activity rows and request summarie
   ], {catalog: withCatalog({contents: [{content_id: 'article', title}]})});
   t.after(() => view.close());
   assert.deepEqual(targets(view.activities()), [`在家：${title}`]);
-  assert.equal(view.summary(1), `请求 开始槽位 1 的活动 · 家 · 做 · ${title}`);
+  assert.equal(view.summary(1), `请求 开始主槽位活动 · 家 · 做 · ${title}`);
   assert.equal(view.summary(2), `活动段 · 在家：${title} · 进行中 · 已进行 1分`);
   assert.deepEqual(view.errors, []);
 });
@@ -543,12 +562,12 @@ test('the two start tools display their own arguments: place, action and detail,
   ]);
   t.after(() => view.close());
   // 副工具：动作在前，名称数组照所写顺序以顿号相连，同名写两次就是两份；用内容 app 的动作写「使用」。
-  assert.equal(view.summary(1), '请求 开始槽位 2 的活动 · 购买 · 菜饭、菜饭、柠檬茶');
-  assert.equal(view.summary(2), '请求 开始槽位 2 的活动 · 使用 · 哔哩哔哩');
+  assert.equal(view.summary(1), '请求 开始副槽位活动 · 购买 · 菜饭、菜饭、柠檬茶');
+  assert.equal(view.summary(2), '请求 开始副槽位活动 · 使用 · 哔哩哔哩');
   // 主工具：地点名、动作、detail（出行方式名称或内容单元名）；在地点做事写「做」；睡眠只写分钟数。
-  assert.equal(view.summary(3), '请求 开始槽位 1 的活动 · 张江公寓 · 出行 · 驾车');
-  assert.equal(view.summary(4), '请求 开始槽位 1 的活动 · 张江公寓 · 做 · 测试休息');
-  assert.equal(view.summary(5), '请求 开始槽位 1 的活动 · 睡觉 · 450 分钟');
+  assert.equal(view.summary(3), '请求 开始主槽位活动 · 张江公寓 · 出行 · 驾车');
+  assert.equal(view.summary(4), '请求 开始主槽位活动 · 张江公寓 · 做 · 测试休息');
+  assert.equal(view.summary(5), '请求 开始主槽位活动 · 睡觉 · 450 分钟');
   for (const sequence of [1, 2, 3, 4, 5]) {
     assert.doesNotMatch(view.summary(sequence),
       /food-rice|purchase|interact|travel|sleep|start_main_activity|start_side_activity|null|undefined|进行/);
@@ -563,8 +582,8 @@ test('readableReq reads the two start tools directly and keeps no branch for the
   ]);
   t.after(() => view.close());
   const readable = (tool, request) => view.run(`readableReq(${JSON.stringify(tool)}, ${JSON.stringify(request)})`);
-  assert.equal(view.run('TOOL_LABELS.start_main_activity'), '开始槽位 1 的活动');
-  assert.equal(view.run('TOOL_LABELS.start_side_activity'), '开始槽位 2 的活动');
+  assert.equal(view.run('TOOL_LABELS.start_main_activity'), '开始主槽位活动');
+  assert.equal(view.run('TOOL_LABELS.start_side_activity'), '开始副槽位活动');
   for (const [detail, text] of [['步行', '公司 · 出行 · 步行'], ['驾车', '公司 · 出行 · 驾车'],
     ['打车', '公司 · 出行 · 打车'], ['公共交通', '公司 · 出行 · 公共交通']]) {
     assert.equal(readable('start_main_activity', {action: 'travel', target: '公司', detail}), text);
@@ -587,24 +606,25 @@ test('readableReq reads the two start tools directly and keeps no branch for the
   assert.deepEqual(view.errors, []);
 });
 
-test('start requests show prefer and the query action', async t => {
+test('start and search_world requests show prefer and the search action', async t => {
   const view = await viewer([
     sideRequest('purchase', ['冰美式咖啡'], '瑞幸咖啡'),
     sideRequest('purchase', ['牛肉面']),
-    sideRequest('query', ['食品'], '美团外卖'),
-    sideRequest('query', ['纸巾', '零食']),
+    event('action_requested', {tool_name: 'search_world', request: {query: '食品', prefer: '美团外卖'}}),
+    event('action_requested', {tool_name: 'search_world', request: {query: '纸巾、零食', prefer: null}}),
     sideRequest('interact', ['哔哩哔哩']),
     event('action_requested', {tool_name: 'query_world', request: {action: 'search', category: 'meal', offset: 0}}),
   ]);
   t.after(() => view.close());
   // prefer 不为 null 时在名称后写「 · 想用 <人物所写的原文>」（样例环境登记的是「美团」，写「美团外卖」也照原文），null 时不写。
-  assert.equal(view.summary(1), '请求 开始槽位 2 的活动 · 购买 · 冰美式咖啡 · 想用 瑞幸咖啡');
-  assert.equal(view.summary(2), '请求 开始槽位 2 的活动 · 购买 · 牛肉面');
-  // 查询的动作名取「上下文」画面的同一张中文表。
-  assert.equal(view.summary(3), '请求 开始槽位 2 的活动 · 查询 · 食品 · 想用 美团外卖');
-  assert.equal(view.summary(4), '请求 开始槽位 2 的活动 · 查询 · 纸巾、零食');
-  assert.equal(view.summary(5), '请求 开始槽位 2 的活动 · 使用 · 哔哩哔哩');
-  assert.equal(view.run("ViewerContext.actionWord('query', 'app')"), '查询');
+  assert.equal(view.summary(1), '请求 开始副槽位活动 · 购买 · 冰美式咖啡 · 想用 瑞幸咖啡');
+  assert.equal(view.summary(2), '请求 开始副槽位活动 · 购买 · 牛肉面');
+  // 搜索的动作名取「上下文」画面的同一张中文表。
+  assert.equal(view.summary(3), '请求 搜索世界 · 搜索 · 食品 · 想用 美团外卖');
+  assert.equal(view.summary(4), '请求 搜索世界 · 搜索 · 纸巾、零食');
+  assert.equal(view.summary(5), '请求 开始副槽位活动 · 使用 · 哔哩哔哩');
+  assert.equal(view.run("ViewerContext.actionWord('search', 'app')"), '搜索');
+  assert.equal(view.run('TOOL_LABELS.search_world'), '搜索世界');
   // 已删除的 query_world 没有中文名也没有请求摘要分支：工具名原样显示，请求内容不被解读。
   assert.equal(view.run('TOOL_LABELS.query_world'), undefined);
   assert.equal(view.run("readableReq('query_world', {action: 'search', category: 'meal', offset: 0})"), '');
@@ -711,7 +731,7 @@ test('activity end reasons name reminders route and partner endings pauses and c
   ]);
   t.after(() => view.close());
   reasons.forEach(([, label], index) => assert.ok(view.summary(index + 1).endsWith(` · ${label}`)));
-  assert.ok(view.summary(reasons.length + 1).endsWith(' · experiment_end'));
+  assert.ok(view.summary(reasons.length + 1).endsWith(' · 运行截止'));
   for (const item of view.state.events) assert.doesNotMatch(item.sum, /undefined/);
 });
 
@@ -740,43 +760,42 @@ test('environment events name midnight plans and activity lifecycle records', as
   assert.equal(view.summary(lifecycle.length + 3), '世界事件 · body_settlement');
 });
 
-test('rejections show the same-moment round instead of consecutive rejections', async t => {
+test('rejections show error code and reason without same-moment rounds', async t => {
   const view = await viewer([
-    event('action_rejected', {error_code: 'ACTION_REQUEST_INVALID', same_moment_round: 2,
-      max_same_moment_decisions: 3, next_decision_at: epoch, reason: '所选的对象不在本轮列出的范围内'}),
-    event('action_rejected', {error_code: 'ACTIVITY_DURATION_INVALID', same_moment_round: 1}),
+    event('action_rejected', {error_code: 'ACTION_REQUEST_INVALID', reason: '所选的对象不在本轮列出的范围内'}),
+    event('action_rejected', {error_code: 'ACTIVITY_DURATION_INVALID'}),
   ]);
   t.after(() => view.close());
-  assert.equal(view.summary(1), '被拒绝 · ACTION_REQUEST_INVALID · 同刻第 2 轮（上限 3）');
-  assert.equal(view.summary(2), '被拒绝 · ACTIVITY_DURATION_INVALID · 同刻第 1 轮');
-  for (const sequence of [1, 2]) assert.doesNotMatch(view.summary(sequence), /连续拒绝/);
+  assert.equal(view.summary(1), '被拒绝 · ACTION_REQUEST_INVALID · 所选的对象不在本轮列出的范围内');
+  assert.equal(view.summary(2), '被拒绝 · ACTIVITY_DURATION_INVALID');
+  for (const sequence of [1, 2]) assert.doesNotMatch(view.summary(sequence), /同刻|连续拒绝/);
 });
 
 /** @brief 事务商品纯牛奶登记在冻结的商品目录里（在用例文件的目录行之外）。 */
 const MILK_CATALOG = withCatalog({goods: [{goods_id: 'food-milk', name: '纯牛奶'}]});
 
-test('decision starts show their wake reasons from the frozen vocabulary', async t => {
+test('decision starts show world state version and wake reasons from the frozen vocabulary', async t => {
   const names = ['planned_end','felt_band_change','delivery_arrival','reconsideration_interval',
     'rejection_feedback','session_open','progress_report_due','no_active_activity','reminder_due','duty_boundary','app_push'];
   const due = epoch + 3600;
   const view = await viewer([
-    event('decision_started', {round_order: 0, wake_reasons: ['session_open']}),
-    event('decision_started', {round_order: 0, wake_reasons: [
+    event('decision_started', {wakeup_id: 'w-1', world_state_version: 1, wake_reasons: ['session_open']}),
+    event('decision_started', {wakeup_id: 'w-2', world_state_version: 2, wake_reasons: [
       'no_active_activity', 'reminder_due', 'progress_report_due']}),
-    event('decision_started', {round_order: 1, wake_reasons: []}),
-    event('decision_started', {round_order: 0}),
-    // 词表含 errand_reminder_due：同一人物同一时刻先交付一条事务提醒，该原因才有事务名称可写。
+    event('decision_started', {wakeup_id: 'w-3', world_state_version: 3, wake_reasons: []}),
+    event('decision_started', {wakeup_id: 'w-4'}),
+    // 词表含 reminder_due：同一人物同一时刻先交付一条事务提醒，该原因才有事务名称可写。
     errandEvent('errand_reminded', errandSnapshot({reminded_at: due}), {}, {occurred_at: due}),
-    event('decision_started', {round_order: 0, wake_reasons: names}, {occurred_at: due}),
+    event('decision_started', {wakeup_id: 'w-5', world_state_version: 4, wake_reasons: names}, {occurred_at: due}),
   ], {catalog: MILK_CATALOG});
   t.after(() => view.close());
   const labelsByName = JSON.parse(view.run('JSON.stringify(WAKE_LABELS)'));
   assert.deepEqual(Object.keys(labelsByName).sort(), [...names].sort());
   assert.equal(labelsByName.app_push, 'app 推送');
-  assert.equal(view.summary(1), '决策开始 · 第 0 轮 · 唤醒：会话开始');
-  assert.equal(view.summary(2), '决策开始 · 第 0 轮 · 唤醒：没有进行中的活动、提醒到点、该播报进展');
-  assert.equal(view.summary(3), '决策开始 · 第 1 轮');
-  assert.equal(view.summary(4), '决策开始 · 第 0 轮');
+  assert.equal(view.summary(1), '唤醒开始 · v1 · 唤醒：会话开始');
+  assert.equal(view.summary(2), '唤醒开始 · v2 · 唤醒：没有进行中的活动、提醒到点、该播报进展');
+  assert.equal(view.summary(3), '唤醒开始 · v3');
+  assert.equal(view.summary(4), '唤醒开始');
   const labels = view.summary(6).split(' · 唤醒：')[1].split('、');
   assert.equal(labels.length, names.length);
   labels.forEach((label, index) => assert.match(label,
@@ -802,7 +821,7 @@ function errandSnapshot(fields = {}) {
  *  另加 extra（quantity_added 或 reason），决策、动作与活动身份为空，提醒与办成两种人物可见。 */
 function errandEvent(kind, snapshot, extra = {}, envelope = {}) {
   return event('environment_event', {kind, errand: snapshot, ...extra}, {
-    decision_id: null, action_id: null, activity_id: null, source_kind: 'environment',
+    wakeup_id: null, action_id: null, activity_id: null, source_kind: 'environment',
     visibility: ['errand_completed', 'errand_reminded'].includes(kind) ? 'agent' : 'system', ...envelope,
   });
 }
@@ -888,7 +907,7 @@ test('a control request that is not in the current shape fails the timeline inde
   }
   // 其他工具的请求不带 errands，照常显示。
   const other = await viewer([sideRequest('interact', ['哔哩哔哩'])]);
-  assert.equal(other.summary(1), '请求 开始槽位 2 的活动 · 使用 · 哔哩哔哩');
+  assert.equal(other.summary(1), '请求 开始副槽位活动 · 使用 · 哔哩哔哩');
   other.close();
 });
 
@@ -965,24 +984,26 @@ test('current reminder wakes list delivered errands and preserve plan-only remin
   const due = epoch + 60;
   const view = await viewer([
     errandEvent('errand_reminded',errandSnapshot(),{},{occurred_at:due}),
-    event('decision_started',{round_order:0,wake_reasons:['reminder_due']},{occurred_at:due}),
-    event('decision_started',{round_order:0,wake_reasons:['reminder_due']},{occurred_at:due+60}),
+    event('decision_started',{wakeup_id:'w-1',world_state_version:2,wake_reasons:['reminder_due']},{occurred_at:due}),
+    event('decision_started',{wakeup_id:'w-2',world_state_version:2,wake_reasons:['reminder_due']},{occurred_at:due+60}),
   ], {catalog: MILK_CATALOG});
   t.after(() => view.close());
-  assert.equal(view.summary(2),'决策开始 · 第 0 轮 · 唤醒：提醒到点「买牛奶」');
-  assert.equal(view.summary(3),'决策开始 · 第 0 轮 · 唤醒：提醒到点');
+  assert.equal(view.summary(2),'唤醒开始 · v2 · 唤醒：提醒到点「买牛奶」');
+  assert.equal(view.summary(3),'唤醒开始 · v2 · 唤醒：提醒到点');
   assert.deepEqual(view.errors, []);
 });
 
-test('midnight plan model requests are named by their recorded purpose', async t => {
+test('midnight plan and search_session model requests are named by their recorded purpose', async t => {
   const request = {model: 'deepseek-flash', messages: []};
   const view = await viewer([
     event('model_request', {phase: 'request', purpose: 'plan_day', attempt: 2, request}),
+    event('model_request', {phase: 'request', purpose: 'search_session', attempt: 1, request}),
     event('model_request', {phase: 'request', attempt: 1, request}),
   ]);
   t.after(() => view.close());
   assert.equal(view.summary(1), '零点计划模型请求 deepseek-flash · 第2次尝试');
-  assert.equal(view.summary(2), '模型请求 deepseek-flash · 第1次尝试');
+  assert.equal(view.summary(2), '搜索子会话模型请求 deepseek-flash · 第1次尝试');
+  assert.equal(view.summary(3), '模型请求 deepseek-flash · 第1次尝试');
 });
 
 test('activities page lists location sessions from the final world state', async t => {
@@ -1581,8 +1602,7 @@ test('activity table lanes and timeline write the shared wording and keep the ki
     {order_id: 'order-noodles', goods_id: 'beef-noodles', app_id: 'meituan', total_price_fen: 2800,
       payment_app_id: 'alipay'},
     {order_id: 'order-tissue', goods_id: 'tissue', app_id: null, total_price_fen: 600, payment_app_id: null}];
-  const lookup = {action: 'query', app_id: 'meituan', scoped: true,
-    targets: [{kind: 'category', category: 'meal'}, {kind: 'goods', goods_id: 'lemon-tea'}]};
+  const lookup = {action: 'search', query: '食品咖啡', app_id: 'meituan'};
   const view = await viewer([
     // 用哔哩哔哩连播剧集：第一条进度事件就是第一集做到头的那一条，快照里的当前内容已经换成第二集。
     accepted('watch', 'interact', 0, {data: watch('c-drama-1')}),
@@ -1601,26 +1621,25 @@ test('activity table lanes and timeline write the shared wording and keep the ki
     event('action_result', {status: 'in_progress', data: {orders}}, {activity_id: 'buy', occurred_at: at(120)}),
     accepted('drive', 'travel', 130, {destination_id: 'office', travel_method_id: 'driving', data: {action: 'travel'}}),
     accepted('sleep', 'sleep', 150, {data: {action: 'sleep'}}),
-    // 一次带 app 的查询（类别名与商品名）做完，一次没有 app 的查询（商品名）。
-    accepted('look', 'query', 160, {data: lookup}),
-    step('look', 'query', 160, {status: 'completed', elapsed_seconds: 420, data: lookup},
+    // 一次带 app 的搜索做完，一次没有 app 的搜索。
+    accepted('look', 'search', 160, {data: lookup}),
+    step('look', 'search', 160, {status: 'completed', elapsed_seconds: 420, data: lookup},
       {interval_start: at(160), interval_end: at(167)}),
-    accepted('ask', 'query', 170, {data: {action: 'query', targets: [{kind: 'goods', goods_id: 'tissue'}],
-      app_id: null, scoped: false}}),
+    accepted('ask', 'search', 170, {data: {action: 'search', query: '纸巾', app_id: null}}),
   ]);
   t.after(() => view.close());
   const markup = view.activities();
   const phrases = ['使用哔哩哔哩《测试剧集第一集》《测试剧集第二集》', '在家：做晚饭《备菜做饭》《吃晚饭》',
     '购买牛肉面（经美团下单）；纸巾（到店）'];
-  // 查询写「查询<名称列表>（<app 名>）」，名称按所写次序，类别写中文类别名；没有 app 的不写括号。
-  const queries = ['查询食品、柠檬茶（美团）', '查询纸巾'];
-  // 活动类型列仍是种类标签（查询是「查询」），「目标」列是写法；泳道的标签同一句，出行、睡眠的泳道照原格式「种类 目标」。
+  // 搜索写「搜索<query>（<app 名>）」，没有 app 的不写括号。
+  const searches = ['搜索食品咖啡（美团）', '搜索纸巾'];
+  // 活动类型列仍是种类标签（搜索是「搜索」），「目标」列是写法；泳道的标签同一句，出行、睡眠的泳道照原格式「种类 目标」。
   assert.deepEqual(tableRows(markup, 'act-table').map(cells => [cells[2].replace(/<[^>]*>/g, ''), cells[3]]), [
     ['互动', phrases[0]], ['互动', phrases[1]], ['购买', phrases[2]], ['出行', '驾车 · → 公司'], ['睡眠', '—'],
-    ['查询', queries[0]], ['查询', queries[1]]]);
-  assert.deepEqual(activityGroups(markup).map(lane => lane.label), [...phrases, '出行 驾车 · → 公司', '睡眠 —', ...queries]);
-  // 查询的类型标签用它自己的颜色。
-  assert.ok(markup.includes('<span class="act-kind" style="background:#5b8def33;color:#5b8def">查询</span>'));
+    ['搜索', searches[0]], ['搜索', searches[1]]]);
+  assert.deepEqual(activityGroups(markup).map(lane => lane.label), [...phrases, '出行 驾车 · → 公司', '睡眠 —', ...searches]);
+  // 搜索的类型标签用它自己的颜色。
+  assert.ok(markup.includes('<span class="act-kind" style="background:#5b8def33;color:#5b8def">搜索</span>'));
   // 时间线：受理行和活动段行直接写写法；一集做到头的那条活动段行写的是刚做完的这一集。
   assert.equal(view.summary(1), `已受理 · 使用哔哩哔哩《测试剧集第一集》 · 计划 10分`);
   assert.equal(view.summary(2), '活动段 · 使用哔哩哔哩《测试剧集第一集》 · 进行中 · 已进行 30分');
@@ -1632,9 +1651,9 @@ test('activity table lanes and timeline write the shared wording and keep the ki
   // 出行、睡眠行与改动之前逐字相同。
   assert.equal(view.summary(9), '已受理 · 出行 · 驾车 · → 公司 · 计划 10分');
   assert.equal(view.summary(10), '已受理 · 睡眠 · — · 计划 10分');
-  assert.equal(view.summary(11), `已受理 · ${queries[0]} · 计划 10分`);
-  assert.equal(view.summary(12), `活动段 · ${queries[0]} · 已完成 · 已进行 7分`);
-  assert.equal(view.summary(13), `已受理 · ${queries[1]} · 计划 10分`);
+  assert.equal(view.summary(11), `已受理 · ${searches[0]} · 计划 10分`);
+  assert.equal(view.summary(12), `活动段 · ${searches[0]} · 已完成 · 已进行 7分`);
+  assert.equal(view.summary(13), `已受理 · ${searches[1]} · 计划 10分`);
   assert.deepEqual(view.errors, []);
 });
 
@@ -1844,9 +1863,9 @@ test('only app uses of one person join, never location activities, purchases, qu
     ...handWritten('buy', 'purchase', at('20:01:00'), at('20:02:00'),
       {action: 'purchase', order_ids: ['order-notebook']}),
     event('action_result', {status: 'completed', data: {orders: [notebook]}}, {occurred_at: at('20:02:00')}),
-    // 一项种类为 query、带同一个 app_id 的活动，同一秒接着一次哔哩哔哩使用。
-    ...handWritten('look', 'query', at('20:02:00'), at('20:03:00'), {action: 'query',
-      targets: [{kind: 'goods', goods_id: 'online-notebook'}], app_id: 'bilibili', scoped: true}),
+    // 一项种类为 search、带同一个 app_id 的活动，同一秒接着一次哔哩哔哩使用。
+    ...handWritten('look', 'search', at('20:02:00'), at('20:03:00'), {action: 'search',
+      query: '笔记本', app_id: 'bilibili'}),
     ...appUse('watch-2', 'bilibili', 'c-image', at('20:03:00'), at('20:04:00')),
     // 一条同一 app 的 app 前台世界事件把两次使用之间的空档补满。
     event('environment_event', {kind: 'app_foreground', app_id: 'bilibili', step: 'ordering',

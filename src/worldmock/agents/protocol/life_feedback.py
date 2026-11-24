@@ -10,7 +10,14 @@ from typing import Any, NamedTuple
 
 from pydantic import BaseModel, ValidationError
 
-from worldmock.state.interaction.errors import ErrorItem, ErrorReport, host_defaults, host_report, items_fix
+from worldmock.state.interaction.errors import (
+    ErrorItem,
+    ErrorReport,
+    bind_report,
+    host_defaults,
+    host_report,
+    items_fix,
+)
 from worldmock.state.interaction.request_errors import argument_report
 
 FEEDBACK_INSTRUCTION = "No world action was registered. Correct the reported parameters and submit again."
@@ -50,7 +57,8 @@ def merged_feedback(issues: Sequence[HostIssue], total: int,
 
 def argument_feedback(tool: str, error: ValidationError, model: type[BaseModel], arguments: Any) -> ProtocolFeedback:
     """@brief 保留全部 Pydantic loc、原值、有限枚举及明确格式条件。"""
-    return host_feedback(argument_report(tool, error, model, arguments), f"Invalid {tool} arguments.")
+    report = bind_report(argument_report(tool, error, model, arguments), 0)
+    return host_feedback(report, report.reason)
 
 
 def stage_feedback(code: str, path: tuple) -> ProtocolFeedback:

@@ -270,19 +270,19 @@ def reset_on_receipt(state: WorldState, catalog, receipt: EventDraft) -> Callbac
 
 def compare_callback_states(before: WorldState, state: WorldState, catalog, drafts: list[EventDraft],
                             causes: dict[str, CallbackCause]) -> CallbackOutcome:
-    """@brief 每次提交对最终状态只比较一次，阈值效果不递归或延迟追补。"""
+    """@brief 每次提交对最终状态按人物编号升序比较一次，阈值效果不递归或延迟追补。"""
     pending = []
     for rule in sorted(catalog.callback_rules.values(), key=lambda value: value.rule_id):
         trigger = rule.trigger
         if trigger.trigger_class != "state":
             continue
-        identity = next(iter(state.agents))
-        old = before.agents[identity].callback_states[trigger.key]
-        new = state.agents[identity].callback_states[trigger.key]
-        if old >= trigger.below > new:
-            source = _crossing_source(drafts, trigger.key, trigger.below)
-            pending.append((rule, CallbackCause("state", trigger.key, identity,
-                                                source.caused_by[0], causes[source.event_id].anchor)))
+        for identity in sorted(state.agents):
+            old = before.agents[identity].callback_states[trigger.key]
+            new = state.agents[identity].callback_states[trigger.key]
+            if old >= trigger.below > new:
+                source = _crossing_source(drafts, identity, trigger.key, trigger.below)
+                pending.append((rule, CallbackCause("state", trigger.key, identity,
+                                                    source.caused_by[0], causes[source.event_id].anchor)))
     emitted = []
     for rule, cause in pending:
         outcome = _apply_rule(state, catalog, rule, cause)
@@ -290,9 +290,10 @@ def compare_callback_states(before: WorldState, state: WorldState, catalog, draf
     return CallbackOutcome(state, emitted)
 
 
-def _crossing_source(drafts: list[EventDraft], name: str, below: int) -> EventDraft:
-    """@brief 直接原因取最后一次造成越阈的真实效果对应的触发事件。"""
-    candidates = [draft for draft in drafts if draft.data.get("kind") == "callback_effect"
+def _crossing_source(drafts: list[EventDraft], agent_id: int, name: str, below: int) -> EventDraft:
+    """@brief 直接原因取对应人物最后一次造成越阈的真实效果所对应的触发事件。"""
+    candidates = [draft for draft in drafts if draft.agent_id == agent_id
+                  and draft.data.get("kind") == "callback_effect"
                   and draft.data.get("state") == name and draft.data.get("before", -1) >= below
                   and draft.data.get("after", below) < below]
     if not candidates:
@@ -301,24 +302,26 @@ def _crossing_source(drafts: list[EventDraft], name: str, below: int) -> EventDr
 
 
 def issue_callback_reminders(state: WorldState, catalog) -> CallbackOutcome:
-    """@brief 清醒推送整点投递每天一次静默阈值提醒，睡眠不消耗日期。"""
-    identity = next(iter(state.agents))
-    if any(activity.kind == ActivityKind.SLEEP for activity in active_activities(state, identity)):
-        return CallbackOutcome(state, [])
+    """@brief 按人物编号升序给清醒人物在整点投递每天一次静默阈值提醒，睡眠不消耗日期。"""
     local = datetime.fromtimestamp(state.current_time, ZoneInfo(state.timezone))
     if local.minute or local.second or not 8 <= local.hour <= 21:
         return CallbackOutcome(state, [])
-    agent, drafts = state.agents[identity], []
     today = local.date().isoformat()
-    for rule in sorted(catalog.callback_rules.values(), key=lambda value: value.rule_id):
-        reminder = rule.notify
-        if (not isinstance(reminder, StateReminder) or agent.callback_reminder_days.get(rule.rule_id) == today
-                or agent.callback_states[reminder.when.state] >= reminder.when.below):
+    drafts: list[EventDraft] = []
+    for identity in sorted(state.agents):
+        if any(activity.kind == ActivityKind.SLEEP for activity in active_activities(state, identity)):
             continue
-        drafts.append(EventDraft(event_type="environment_event", occurred_at=state.current_time, agent_id=identity,
-                                  source_kind="environment", visibility="agent",
-                                  data={"kind": "callback_reminder", "rule_id": rule.rule_id,
-                                        "app_id": reminder.app_id, "text": reminder.text}))
-        agent = agent.model_copy(update={"callback_reminder_days": {**agent.callback_reminder_days,
-                                                                   rule.rule_id: today}})
-    return CallbackOutcome(_put_agent(state, agent), drafts)
+        agent = state.agents[identity]
+        for rule in sorted(catalog.callback_rules.values(), key=lambda value: value.rule_id):
+            reminder = rule.notify
+            if (not isinstance(reminder, StateReminder) or agent.callback_reminder_days.get(rule.rule_id) == today
+                    or agent.callback_states[reminder.when.state] >= reminder.when.below):
+                continue
+            drafts.append(EventDraft(event_type="environment_event", occurred_at=state.current_time,
+                                     agent_id=identity, source_kind="environment", visibility="agent",
+                                     data={"kind": "callback_reminder", "rule_id": rule.rule_id,
+                                           "app_id": reminder.app_id, "text": reminder.text}))
+            agent = agent.model_copy(update={"callback_reminder_days": {**agent.callback_reminder_days,
+                                                                        rule.rule_id: today}})
+        state = _put_agent(state, agent)
+    return CallbackOutcome(state, drafts)

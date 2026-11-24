@@ -25,9 +25,8 @@ from tests.life.conftest import (
     MAIN_TOOL,
     NIGHT_SLEEP_MINUTES,
     SIDE_TOOL,
-    StubMemoryDigestClient,
-    StubPlanDayClient,
     main_arguments,
+    settle_midnight_tasks_async,
     side_arguments,
     stage_day_plan,
 )
@@ -36,7 +35,6 @@ from tools.analysis.memory_pilot import main, pilot_report
 from worldmock.foundation.errors import IntegrityError
 from worldmock.recording_engine.export.export import export_run
 from worldmock.recording_engine.validation.validation import validate_export
-from worldmock.runtime.lifecycle.midnight import settle_pending_day_plans, settle_pending_memory_digests
 
 #: 修订计划的参数。
 PLAN = {"goals": [{"intent_kind": "休息", "goal": "早点睡", "remind_time": None, "around_time": None}]}
@@ -57,20 +55,29 @@ def _items(names, **extra) -> list[dict]:
     return [{"activity_name": name, "summary": "这件事先这样。", **extra} for name in names]
 
 
-def _response(engine, label: str) -> ToolResponse:
-    """按此刻的实际活动选一次回复：有已结束待收尾的活动就收尾，有进行中的就播报；都没有时今天还没歇过就在家歇一刻钟，
-    歇过了就在家上床。"""
+def _until_midnight_turns(engine, label: str) -> list[ToolResponse]:
+    """构建零点前单个唤醒的多轮响应，控制工具后接开始工具以退出决策循环。"""
     activities = list(engine.context.state.activities.values())
     pending = [item.name for item in activities if item.status not in {"active", "paused"} and item.concluded_at is None]
-    if pending:
-        return ToolResponse("conclude_activity", {"items": _items(pending, memories=[], views=[]), "errands": []},
-                            call_id=label)
-    active = [item.name for item in activities if item.status == "active"]
-    if active:
-        return ToolResponse("report_status", {"items": _items(active), "errands": []}, call_id=label)
+    active = [item for item in activities if item.status == "active"]
+    turns: list[ToolResponse] = []
     if not any("测试休息" in item.name for item in activities):
-        return ToolResponse(MAIN_TOOL, REST, call_id=label)
-    return ToolResponse(MAIN_TOOL, main_arguments("sleep", str(NIGHT_SLEEP_MINUTES)), call_id=label)
+        if pending:
+            turns.append(ToolResponse("conclude_activity", {"items": _items(pending, memories=[], views=[]), "errands": []},
+                                      call_id=f"{label}-end"))
+        turns.append(ToolResponse(MAIN_TOOL, REST, call_id=f"{label}-rest"))
+        return turns
+    if active and not any(item.kind == "interact" and item.data.get("app_id") for item in activities):
+        turns.append(ToolResponse("report_status", {"items": _items([item.name for item in active]), "errands": []},
+                                  call_id=f"{label}-report"))
+        turns.append(ToolResponse(SIDE_TOOL, side_arguments("interact", "Keep"), call_id=f"{label}-keep"))
+        return turns
+    to_close = [item.name for item in activities if item.status != "paused" and item.concluded_at is None]
+    if to_close:
+        turns.append(ToolResponse("conclude_activity", {"items": _items(to_close, memories=[], views=[]), "errands": []},
+                                  call_id=f"{label}-close"))
+    turns.append(ToolResponse(MAIN_TOOL, main_arguments("sleep", str(NIGHT_SLEEP_MINUTES)), call_id=f"{label}-sleep"))
+    return turns
 
 
 def _advance(engine) -> None:
@@ -85,7 +92,7 @@ async def _until_midnight(engine) -> None:
     while not engine.midnight_rhythm_pending:
         if engine.scheduling_state().ready_agent_ids:
             counter += 1
-            await decide(engine, f"evening-{counter}", [_response(engine, f"evening-{counter}")])
+            await decide(engine, f"evening-{counter}", _until_midnight_turns(engine, f"evening-{counter}"))
         else:
             _advance(engine)
 
@@ -93,17 +100,24 @@ async def _until_midnight(engine) -> None:
 async def _two_day_export(engine, directory: Path) -> Path:
     """两天的真实宿主运行：第一天的决策、零点回顾与计划、第二天的两次决策，睡到截止后导出到 directory。"""
     stage_day_plan(engine, submitted=True)
-    await decide(engine, "plan", [ToolResponse("revise_day_plan", PLAN, call_id="plan")])
-    await decide(engine, "tea", [ToolResponse(SIDE_TOOL, side_arguments("purchase", "柠檬茶"), call_id="tea")])
+    await decide(engine, "plan-and-tea", [
+        ToolResponse("revise_day_plan", PLAN, call_id="plan"),
+        ToolResponse(SIDE_TOOL, side_arguments("purchase", "柠檬茶"), call_id="tea"),
+    ])
     await _until_midnight(engine)
-    model = {"requested_model": engine.context.config.model.requested_model}
-    await settle_pending_memory_digests(engine, StubMemoryDigestClient(model))
-    await settle_pending_day_plans(engine, StubPlanDayClient(model))
-    engine.decide_midnight_rhythm()
-    for label in ("wake", "morning"):
+    await settle_midnight_tasks_async(engine)
+    for label, follow in (("wake", main_arguments("interact", "家", "测试闲聊")),
+                          ("morning", main_arguments("sleep", str(NIGHT_SLEEP_MINUTES)))):
         while not engine.scheduling_state().ready_agent_ids:
             _advance(engine)
-        await decide(engine, label, [_response(engine, label)])
+        pending = [item.name for item in engine.context.state.activities.values()
+                   if item.status != "paused" and item.concluded_at is None]
+        turns = [
+            ToolResponse("conclude_activity", {"items": _items(pending, memories=[], views=[]), "errands": []},
+                         call_id=f"{label}-end"),
+            ToolResponse(MAIN_TOOL, follow, call_id=label),
+        ]
+        await decide(engine, label, turns)
     while engine.context.state.current_time < engine.context.state.end_time:
         assert not engine.scheduling_state().ready_agent_ids
         _advance(engine)
@@ -135,7 +149,7 @@ def _requested_tools(directory: Path) -> dict[str, list[str]]:
 def test_pilot_report_reads_a_real_two_day_export(two_day_export):
     tools = _requested_tools(two_day_export)
     assert {"revise_day_plan", MAIN_TOOL, SIDE_TOOL, "report_status"} <= set(tools["2026-01-05"])
-    assert len(tools["2026-01-06"]) == 2
+    assert len(tools["2026-01-06"]) == 4 and set(tools["2026-01-06"]) == {"conclude_activity", MAIN_TOOL}
     report = pilot_report(two_day_export)
     metrics = report["metrics"]
     assert report["days"] == ["2026-01-05", "2026-01-06"]
@@ -143,8 +157,8 @@ def test_pilot_report_reads_a_real_two_day_export(two_day_export):
     assert metrics["M10"]["periods"]["day"] == 1
     assert metrics["M3"]["periods"]["all"]["value"] == 1.0
     assert metrics["M6"]["memory_layer_by_observation"]["max"] <= 14000
-    assert metrics["M9"]["chain"]["continuations"] > 0
-    assert metrics["M9"]["chain"]["append_violations"] == 0
+    assert metrics["M9"]["turns"]["exhausted"] == 0
+    assert metrics["M9"]["restarted"] == []
     assert {check["name"] for check in report["checks"]} == set(CHECK_NAMES)
     assert len(report["checks"]) == len(CHECK_NAMES)
     # M11 ② 照算、只报告，不是检查项。

@@ -197,7 +197,7 @@ def test_assumed_sleep_before_the_run_ends_at_the_habitual_wake_time_used_for_th
     assert assumed_sleep(start, 8.0, 4.0, 8.0) == (_at(5, "00:00"), _at(5, "08:00"))
     assert assumed_sleep(start, 8.0, 4.0, 7.5) == (_at(5, "00:15"), _at(5, "07:45"))
     assert assumed_sleep(_at(5, "00:00"), 0.0, 4.0, 7.5) == (_at(4, "00:15"), _at(4, "07:45"))
-    raw = tomllib.loads((ENVIRONMENT_ROOT / "persona.toml").read_text(encoding="utf-8"))
+    raw = tomllib.loads(next((ENVIRONMENT_ROOT / "personas").glob("*.toml")).read_text(encoding="utf-8"))
     for midsleep, need, clock in ((4.0, 7.5, "08:00"), (3.25, 8.25, "06:30"), (5.0, 7.0, "23:00")):
         persona = PersonaConfig.model_validate({**raw, "chronotype_midsleep": midsleep, "sleep_need_hours": need})
         hour = int(clock[:2]) + int(clock[3:]) / 60

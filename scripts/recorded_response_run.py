@@ -108,9 +108,9 @@ class Plan:
     chain: Chain  #: 来源运行链
     calls: tuple[RecordedCall, ...]  #: 全部录音调用
     boundaries: tuple[Boundary, ...]  #: 各重启边界
-    metadata: dict  #: 冻结的模型元数据（requested_model、context_window、max_output_tokens、metadata_url）
-    api_key_env: str  #: 冻结配置声明的凭据变量名
-    continuation: bool  #: 冻结的同秒续接开关
+    profiles: dict[str, dict]  #: 冻结的多模型档配置与元数据（含 requested_model、base_url、metadata_url、model_metadata）
+    api_key_envs: tuple[str, ...]  #: 冻结配置声明的凭据变量名（去重保序）
+    requested_model: str  #: 默认行动模型档的 requested_model
 
 
 def _open(run: Path) -> sqlite3.Connection:
@@ -177,29 +177,46 @@ def load_plan(sources: list[Path]) -> Plan:
         calls = _recorded_calls(chain, connection)
     final = chain.manifests[-1]
     _, config = _frozen_config(chain.runs[-1], final)
-    continuation = final["stage_model_identity"]["stages"]["action"]["same_second_continuation"]
-    return Plan(chain, calls, _boundaries(chain, calls), dict(final["model_metadata"]),
-                config["model"]["api_key_env"], bool(continuation))
+    identity = final["model_identity"]
+    profiles = {pid: dict(prof) for pid, prof in identity["profiles"].items()}
+    action_profile = identity["routing"]["action"]
+    requested_model = profiles[action_profile]["requested_model"]
+    api_key_envs = tuple(dict.fromkeys(config["models"][pid]["api_key_env"] for pid in profiles))
+    return Plan(chain, calls, _boundaries(chain, calls), profiles, api_key_envs, requested_model)
 
 
-def rewrite_model_urls(text: str, urls: tuple[str, str], port: int) -> str:
-    """@brief 只改 base_url 与 metadata_url 到 127.0.0.1:port（保留路径），并核对其余不变。"""
+def _rewrite_expected_url(expected: dict, old_url: str, local_url: str) -> None:
+    """@brief 在期望配置字典的模型节中按原 URL 更新为本地回环地址。"""
+    if isinstance(expected.get("model"), dict):
+        for key in ("base_url", "metadata_url"):
+            if expected["model"].get(key) == old_url:
+                expected["model"][key] = local_url
+    if isinstance(expected.get("models"), dict):
+        for section in expected["models"].values():
+            if isinstance(section, dict):
+                for key in ("base_url", "metadata_url"):
+                    if section.get(key) == old_url:
+                        section[key] = local_url
+
+
+def rewrite_model_urls(text: str, urls: tuple[str, ...], port: int) -> str:
+    """@brief 只改各模型地址到 127.0.0.1:port（保留路径），并核对其余不变。"""
     expected = tomllib.loads(text)
     rewritten = text
-    for key, url in zip(("base_url", "metadata_url"), urls):
+    for url in sorted(dict.fromkeys(urls), key=len, reverse=True):
         quoted = json.dumps(url)
-        if text.count(quoted) != 1:
-            raise _fail(f"Config file must contain each model URL exactly once: {key}")
+        if text.count(quoted) < 1:
+            raise _fail(f"Config file must contain model URL at least once: {url}")
         local = f"http://127.0.0.1:{port}{urlsplit(url).path}"
         rewritten = rewritten.replace(quoted, json.dumps(local))
-        expected["model"][key] = local
+        _rewrite_expected_url(expected, url, local)
     if tomllib.loads(rewritten) != expected:
-        raise _fail("Rewritten config differs from the source beyond the two model URLs")
+        raise _fail("Rewritten config differs from the source beyond the model URLs")
     return rewritten
 
 
 def write_input(plan: Plan, destination: Path, port: int) -> None:
-    """@brief 从冻结素材复原输入并改写两个模型地址；任何素材摘要不符时什么都不写。"""
+    """@brief 从冻结素材复原输入并改写全部激活模型档地址；任何素材摘要不符时什么都不写。"""
     run, manifest = plan.chain.runs[-1], plan.chain.manifests[-1]
     files = {}
     for reference in manifest["environment_assets"].values():
@@ -211,11 +228,14 @@ def write_input(plan: Plan, destination: Path, port: int) -> None:
             raise _fail(f"Frozen input asset {source['path']} does not match its recorded digest")
         files[source["path"]] = content
     text, config = _frozen_config(run, manifest)
-    identity = manifest["stage_model_identity"]
-    urls = (config["model"]["base_url"], config["model"]["metadata_url"])
-    if urls != (identity["base_url"], identity["metadata_url"]):
-        raise _fail("Frozen config disagrees with the manifest model identity")
-    files["config.toml"] = rewrite_model_urls(text, urls, port).encode("utf-8")
+    profiles = manifest["model_identity"]["profiles"]
+    urls: list[str] = []
+    for pid, prof in profiles.items():
+        cfg = config["models"][pid]
+        if (cfg["base_url"], cfg["metadata_url"]) != (prof["base_url"], prof["metadata_url"]):
+            raise _fail("Frozen config disagrees with the manifest model identity")
+        urls.extend((cfg["base_url"], cfg["metadata_url"]))
+    files["config.toml"] = rewrite_model_urls(text, tuple(urls), port).encode("utf-8")
     for relative, content in files.items():
         target = Path(destination) / relative
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -299,8 +319,8 @@ def _purpose(request: dict | None, data_purpose: str | None) -> str | None:
     """@brief 偏差记录里的调用用途（信息性）。"""
     if request is None:
         return None
-    if data_purpose == "plan_day":
-        return "plan_day"
+    if data_purpose in ("plan_day", "memory_digest", "search_session"):
+        return data_purpose
     names = [((tool or {}).get("function") or {}).get("name") for tool in request.get("tools") or []]
     if "start_main_activity" in names:
         return "decision"
@@ -340,10 +360,18 @@ class Cassette:
         self.lock = threading.Lock()
         self.connections = [_open(run) for run in plan.chain.runs]
         (self.work / "server" / "bodies").mkdir(parents=True, exist_ok=True)
-        identity = plan.chain.manifests[-1]["stage_model_identity"]
-        self.metadata_path = urlsplit(identity["metadata_url"]).path
-        base_path = urlsplit(identity["base_url"]).path.rstrip("/")
-        self.chat_path = f"{base_path}/chat/completions"
+        self.metadata_by_path: dict[str, list[dict]] = {}
+        for profile in plan.profiles.values():
+            path = urlsplit(profile["metadata_url"]).path
+            meta = profile["model_metadata"]
+            entry = {"id": meta["requested_model"], "object": "model",
+                     "context_window": meta["context_window"],
+                     "max_output_tokens": meta["max_output_tokens"]}
+            bucket = self.metadata_by_path.setdefault(path, [])
+            if entry not in bucket:
+                bucket.append(entry)
+        self.chat_paths = {f"{urlsplit(profile['base_url']).path.rstrip('/')}/chat/completions"
+                           for profile in plan.profiles.values()}
 
     def begin_segment(self, segment: int) -> None:
         """@brief 父进程启动第 segment 段之前调用。"""
@@ -383,9 +411,9 @@ class Cassette:
                     logger.error("Refused a request without the recorded-response credential")
                     return self._reject("credential", (method, path, body))
                 route = urlsplit(path).path
-                if method == "GET" and route == self.metadata_path:
-                    return self._models(method, path)
-                if method == "POST" and route == self.chat_path:
+                if method == "GET" and route in self.metadata_by_path:
+                    return self._models(method, path, self.metadata_by_path[route])
+                if method == "POST" and route in self.chat_paths:
                     return self._chat(method, path, body)
                 logger.error("Refused an unexpected request %s %s", method, path)
                 return self._reject("unexpected_path", (method, path, body))
@@ -394,14 +422,11 @@ class Cassette:
                 self.error = f"Recorded-response cassette failed on {method} {path}"
                 return self._reject("cassette_error", (method, path, body))
 
-    def _models(self, method: str, path: str) -> tuple[int, bytes]:
+    def _models(self, method: str, path: str, models: list[dict]) -> tuple[int, bytes]:
         """@brief 模型元数据：冻结的容量，计入本段的元数据请求次数。"""
         self.models_requests[self.segment] += 1
         self._log(method, path, b"", None, "models")
-        metadata = self.plan.metadata
-        payload = {"object": "list", "data": [{"id": metadata["requested_model"], "object": "model",
-                                               "context_window": metadata["context_window"],
-                                               "max_output_tokens": metadata["max_output_tokens"]}]}
+        payload = {"object": "list", "data": models}
         return 200, json.dumps(payload).encode()
 
     def _chat(self, method: str, path: str, body: bytes) -> tuple[int, bytes]:
@@ -573,11 +598,15 @@ def project_pythonpath(root: Path) -> str:
     return os.pathsep.join(str(path) for path in (root / "src", root))
 
 
-def child_environment(parent: Mapping[str, str], project: Path, api_key_env: str) -> dict[str, str]:
+def child_environment(parent: Mapping[str, str], project: Path,
+                      api_key_env: str | tuple[str, ...]) -> dict[str, str]:
     """@brief 子进程环境：去掉凭据与代理，只给占位凭据，只导入项目自己的代码。"""
     variables = {name: value for name, value in parent.items() if not _secret_name(name) and not _routing_name(name)}
     project = Path(project).resolve()
-    variables.update({api_key_env: DUMMY_CREDENTIAL, "NO_PROXY": "127.0.0.1,localhost",
+    envs = (api_key_env,) if isinstance(api_key_env, str) else api_key_env
+    for name in envs:
+        variables[name] = DUMMY_CREDENTIAL
+    variables.update({"NO_PROXY": "127.0.0.1,localhost",
                       "PYTHONDONTWRITEBYTECODE": "1", "PYTHONUTF8": "1", "LITELLM_LOCAL_MODEL_COST_MAP": "True",
                       "PYTHONPATH": project_pythonpath(project)})
     return variables
@@ -647,9 +676,7 @@ def _segment_argv(job: SegmentJob) -> tuple[str, list[str], str | None]:
     work = job.work
     output = str(_segment_dir(work, job.segment))
     if job.segment == 1:
-        switch = "on" if job.plan.continuation else "off"
-        return "run", ["run", "--environment", str(work / "input"), "--output", output,
-                       "--same-second-continuation", switch], None
+        return "run", ["run", "--environment", str(work / "input"), "--output", output], None
     checkpoint = _resume_checkpoint(job)
     parent = str(_segment_dir(work, job.segment - 1))
     return "resume", ["resume", "--environment", str(work / "input"), "--parent", parent,
@@ -666,7 +693,7 @@ def _kill_tree(process: subprocess.Popen) -> None:
 
 def _run_child(command: list[str], job: SegmentJob, log: Path) -> tuple[int, bool]:
     """@brief 起一段子进程（新进程组），拒绝或偏差之后超过看守时限仍未退出就结束整棵进程树。"""
-    environment = child_environment(os.environ, job.project, job.plan.api_key_env)
+    environment = child_environment(os.environ, job.project, job.plan.api_key_envs)
     group = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt"
              else {"start_new_session": True})
     log.parent.mkdir(parents=True, exist_ok=True)
@@ -765,7 +792,8 @@ def _days(run: Path, cutoff: int, timezone: str) -> list[dict]:
             for date, day in sorted(days.items())]
 
 
-def _child_command(command: list[str], project: Path, api_key_env: str, log: Path) -> subprocess.CompletedProcess:
+def _child_command(command: list[str], project: Path, api_key_env: str | tuple[str, ...],
+                   log: Path) -> subprocess.CompletedProcess:
     """@brief 在被测检出里用子进程环境跑一条命令，输出写进日志。"""
     result = subprocess.run(command, cwd=project, env=child_environment(os.environ, project, api_key_env),
                             capture_output=True, text=True, encoding="utf-8", errors="replace")
@@ -781,7 +809,7 @@ def finish(plan: Plan, work: Path, project: Path, report: dict) -> None:
     cutoff = plan.chain.positions[count - 1] if count < len(plan.chain.runs) else None
     command = [sys.executable, "-P", "-m", "worldmock.cli", "export", "--run-dir",
                str(last_run), "--output", str(work / "export"), *(["--cutoff", str(cutoff)] if cutoff else [])]
-    exported = _child_command(command, project, plan.api_key_env, work / "logs" / "export.log")
+    exported = _child_command(command, project, plan.api_key_envs, work / "logs" / "export.log")
     if exported.returncode != 0:
         report.update(verdict="error", error=str(_fail(f"Export failed; see {work / 'logs' / 'export.log'}")))
         return
@@ -789,8 +817,13 @@ def finish(plan: Plan, work: Path, project: Path, report: dict) -> None:
     entry = {"check": "not_applicable", "cutoff": manifest["cutoff_event_seq"], "dir": str(work / "export"),
              "error": None}
     if cutoff is None:
-        check = [sys.executable, "-P", "-c", 'import sys; from pathlib import Path; from worldmock.recording_engine.validation.validation import validate_export; validate_export(Path(sys.argv[1]))', str(work / "export")]
-        checked = _child_command(check, project, plan.api_key_env, work / "logs" / "export-check.log")
+        snippet = (
+            "import sys; from pathlib import Path; "
+            "from worldmock.recording_engine.validation.validation import validate_export; "
+            "validate_export(Path(sys.argv[1]))"
+        )
+        check = [sys.executable, "-P", "-c", snippet, str(work / "export")]
+        checked = _child_command(check, project, plan.api_key_envs, work / "logs" / "export-check.log")
         entry["check"] = "passed" if checked.returncode == 0 else "failed"
         if checked.returncode != 0:
             entry["error"] = (checked.stderr.strip().splitlines() or [""])[-1]
@@ -806,8 +839,9 @@ def _plan_document(plan: Plan, port: int) -> dict:
                   for item in plan.boundaries]
     segments = [{"index": index, "run_dir": str(run), "run_id": manifest["run_id"]}
                 for index, (run, manifest) in enumerate(zip(plan.chain.runs, plan.chain.manifests), start=1)]
-    return {"api_key_env": plan.api_key_env, "boundaries": boundaries, "calls": len(plan.calls),
-            "continuation": plan.continuation, "port": port, "requested_model": plan.metadata["requested_model"],
+    return {"api_key_envs": list(plan.api_key_envs), "boundaries": boundaries, "calls": len(plan.calls),
+            "port": port, "requested_model": plan.requested_model,
+            "requested_models": sorted({prof["requested_model"] for prof in plan.profiles.values()}),
             "segments": segments, "timezone": plan.chain.timezone}
 
 
@@ -984,9 +1018,10 @@ def export_source(project: Path, source: Path, cutoff: int, work: Path) -> int:
     shutil.copytree(source / "assets", copy / "assets")
     manifest = json.loads((copy / "manifest.json").read_text(encoding="utf-8"))
     _, config = _frozen_config(copy, manifest)
+    api_key_envs = tuple(dict.fromkeys(section["api_key_env"] for section in config["models"].values()))
     command = [sys.executable, "-P", "-m", "worldmock.cli", "export", "--run-dir",
                str(copy), "--cutoff", str(cutoff), "--output", str(work / "source-export")]
-    result = _child_command(command, project, config["model"]["api_key_env"], work / "export-source.log")
+    result = _child_command(command, project, api_key_envs, work / "export-source.log")
     if result.returncode != 0:
         raise _fail(f"Source export failed; see {work / 'export-source.log'}")
     print(f"Source export made by project code at {_git_state(project)[0]}")

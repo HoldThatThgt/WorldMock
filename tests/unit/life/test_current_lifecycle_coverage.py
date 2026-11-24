@@ -1,9 +1,6 @@
-"""真实单人生命周期的严格拒绝、只读回看与因果证据。"""
+"""@brief 真实多数字人屏障唤醒、隔离沙盒、只读回看、检查点与因果证据合同。"""
 
-import logging
 from dataclasses import replace
-from datetime import timedelta
-from types import SimpleNamespace
 
 import pytest
 
@@ -12,215 +9,105 @@ from tests.life.conftest import (
     SIDE_TOOL,
     advance_until_ready,
     conclude_request,
-    context,
     do_at,
     pause_request,
     report_request,
     stage_day_plan,
     use_app,
 )
-from tests.life.environment_runtime import act, events
+from tests.life.environment_runtime import act, events, observe_only
 from worldmock.foundation.errors import BusinessRuleError, IntegrityError, ProtocolError
-from worldmock.recording_engine.events.memory_evidence import MemoryUpdateEvidence
-from worldmock.state.decisions.round import DirectToolCall
+from worldmock.recording_engine.events.models import EventDraft
 from worldmock.state.interaction.requests import RecallTaskSummaryRequest, ReviseDayPlanRequest
 from worldmock.state.model.exchange import ModelCallEvidence
 
 
-@pytest.mark.parametrize("change,message", [
-    ({"run_id": "another-run"}, "run or agent"),
-    ({"agent_id": 999}, "run or agent"),
-    ({"world_state_version": 999}, "world version"),
-    ({"observed_at": "later"}, "observation time"),
-])
-def test_foreign_or_stale_context_cannot_open_or_change_a_real_run(engine_factory, change, message):
+def test_prepare_and_open_sandbox_reject_invalid_agents_versions_and_closed_sandbox(engine_factory):
+    """未就绪或重复人物不能准备屏障；过时 version 或已封口沙盒均被协议拒绝且零事件写入。"""
     engine = engine_factory()
-    frozen = context(engine, "invalid")
-    if change.get("observed_at") == "later":
-        change = {"observed_at": frozen.observed_at + timedelta(seconds=1)}
     before = engine.context.state.model_dump(mode="json")
-    count = engine.context.store.last_event_seq
-    with pytest.raises(ProtocolError, match=message):
-        engine.begin_decision_round([replace(frozen, **change)])
-    assert engine.context.state.model_dump(mode="json") == before
-    assert engine.context.store.last_event_seq == count
-    assert engine.decisions.round is None
-
-
-def test_round_rejects_absent_duplicate_unscheduled_and_incomplete_participants(engine_factory):
-    engine = engine_factory()
-    frozen = context(engine, "round")
-    for proposed in ([], [SimpleNamespace()], [frozen, frozen]):
+    seq = engine.context.store.last_event_seq
+    for bad_ids in ((), (1, 1), (999,)):
         with pytest.raises(ProtocolError):
-            engine.begin_decision_round(proposed)
-    with pytest.raises(ProtocolError, match="scheduled agent order"):
-        engine.decisions.begin_decision_round([frozen], ())
-    engine.begin_decision_round([frozen])
-    with pytest.raises(ProtocolError, match="cannot be started"):
-        engine.begin_decision_round([frozen])
-    with pytest.raises(ProtocolError, match="every expected agent"):
-        engine.commit_decision_round("round")
-    with pytest.raises(ProtocolError, match="not open"):
-        engine.commit_decision_round("wrong")
+            engine.prepare_barrier(bad_ids)
+    [wakeup] = engine.prepare_barrier((1,))
+    with pytest.raises(ProtocolError):
+        engine.open_sandbox(wakeup.model_copy(update={"world_state_version": 999}))
+    sandbox = engine.open_sandbox(wakeup)
+    with pytest.raises(ProtocolError):
+        sandbox.dispatch_world_tool("recall_task_summary", RecallTaskSummaryRequest(task_name="家"), "c-1")
+    with pytest.raises(ProtocolError):
+        sandbox.dispatch_world_tool("query_world", do_at("家", "测试休息"), "c-2")
+    assert engine.context.state.model_dump(mode="json") == before
+    assert engine.context.store.last_event_seq == seq
+
+
+def test_commit_barrier_rejects_empty_duplicate_or_unready_outcomes(engine_factory):
+    """commit_barrier 拒绝空列表、重复人物、未知人物与非就绪人物。"""
+    engine = engine_factory()
+    [wakeup] = engine.prepare_barrier((1,))
+    sandbox = engine.open_sandbox(wakeup)
+    outcome = sandbox.finish_wakeup(None)
+    for bad in ([], [outcome, outcome], [outcome.model_copy(update={"agent_id": 999})]):
+        with pytest.raises(ProtocolError):
+            engine.commit_barrier(bad)
     assert not events(engine, "action_result")
     assert not engine.context.state.activities
-    engine.abort_decision_round("round", "test incomplete decision")
-    assert len(events(engine, "run_failed")) == 1
 
 
-@pytest.mark.parametrize("tool,payload", [
-    ("query_world", do_at("家", "测试休息")),
-    ("recall_task_summary", RecallTaskSummaryRequest(task_name="家")),
-    ("unknown_tool", do_at("家", "测试休息")),
-    ("pause_activity", do_at("家", "测试休息")),
-    (SIDE_TOOL, do_at("家", "测试休息")),
-    (MAIN_TOOL, use_app("哔哩哔哩")),
-])
-def test_only_typed_mutations_can_enter_the_real_action_queue(engine_factory, tool, payload):
+def test_sandbox_model_exchange_enforces_request_pairing_and_ownership(engine_factory):
+    """沙盒内模型响应/失败必须与先登记的请求摘要匹配且归属当前人物与唤醒。"""
     engine = engine_factory()
-    frozen = context(engine, "typed")
-    engine.begin_decision_round([frozen])
-    engine.observe(frozen)
-    sequence = engine.context.store.last_event_seq
+    [wakeup] = engine.prepare_barrier((1,))
+    sandbox = engine.open_sandbox(wakeup)
+    req = ModelCallEvidence(wakeup_id=wakeup.wakeup_id, agent_id=1, call_id="c1",
+                            phase="request", attempt=1, request={"messages": []})
+    resp = replace(req, phase="response", response={"protocol_feedback": {"error_code": "TOOL_CALL_REQUIRED"}})
     with pytest.raises(ProtocolError):
-        engine.submit_action(DirectToolCall(frozen, f"{frozen.decision_id}:action:0001", tool, payload))
-    assert engine.context.store.last_event_seq == sequence
-    assert not engine.decisions.round.pending_actions
-
-
-@pytest.mark.parametrize("tool,message", [
-    ("query_world", "^Direct tool call request type does not match its tool$"),
-    ("recall_task_summary", "^Read-only queries must use the immediate query channel$"),
-])
-def test_removed_query_world_cannot_be_registered_as_a_world_action(engine_factory, tool, message):
-    """已删除的 query_world 落到「工具名没有对应的请求模型」，回看任务仍走只读通道；两种都不写事件、不入队。"""
-    engine = engine_factory()
-    frozen = context(engine, "removed")
-    engine.begin_decision_round([frozen])
-    engine.observe(frozen)
-    sequence = engine.context.store.last_event_seq
-    with pytest.raises(ProtocolError, match=message):
-        engine.submit_action(DirectToolCall(frozen, f"{frozen.decision_id}:action:0001", tool,
-                                            RecallTaskSummaryRequest(task_name="家")))
-    assert engine.context.store.last_event_seq == sequence
-    assert not engine.decisions.round.pending_actions
-
-
-def test_duplicate_submission_reuses_receipt_and_commits_one_actual_activity(engine_factory, caplog):
-    """同一开放轮里重复登记同一动作返回第一次的回执；同一身份换了参数是协议故障并写英文错误日志；只结算一项活动。"""
-    engine = engine_factory()
-    frozen = context(engine, "duplicate")
-    request = do_at("家", "测试休息")
-    same = f"{frozen.decision_id}:action:0001"
-    call = DirectToolCall(frozen, same, MAIN_TOOL, request)
-    with pytest.raises(ProtocolError, match="open decision round"):
-        engine.submit_action(call)
-    engine.begin_decision_round([frozen])
-    engine.observe(frozen)
-    first = engine.submit_action(call)
-    assert engine.submit_action(call) == first
-    assert len(engine.decisions.round.pending_actions) == 1
-    caplog.set_level(logging.ERROR)
-    with pytest.raises(ProtocolError, match="different parameters"):
-        engine.submit_action(DirectToolCall(frozen, same, MAIN_TOOL, do_at("家", "测试闲聊")))
-    assert f"Action identity {same} was reused with different parameters" in caplog.text
-    with pytest.raises(ProtocolError, match="different parameters"):
-        engine.submit_action(DirectToolCall(frozen, same, SIDE_TOOL, use_app("哔哩哔哩")))
-    with pytest.raises(ProtocolError, match="already submitted"):
-        engine.submit_action(DirectToolCall(frozen, f"{frozen.decision_id}:action:0002", MAIN_TOOL, request))
-    with pytest.raises(ProtocolError, match="another decision round"):
-        engine.submit_action(DirectToolCall(replace(frozen, round_id="foreign"), same, MAIN_TOOL, request))
-    [result] = engine.commit_decision_round("duplicate")
-    assert result.status == "in_progress"
-    assert len(engine.context.state.activities) == 1
-    assert len(events(engine, "action_requested")) == 1
-
-
-@pytest.mark.parametrize("change", [
-    {"phase": "invalid"}, {"attempt": 0}, {"call_id": ""}, {"call_id": 3},
-])
-def test_invalid_model_exchange_is_not_recorded_as_evidence(engine_factory, change):
-    engine = engine_factory()
-    frozen = context(engine, "exchange")
-    engine.begin_decision_round([frozen])
-    engine.observe(frozen)
-    evidence = ModelCallEvidence(frozen, "call", "request", 1, {"messages": []})
-    count = engine.context.store.last_event_seq
-    with pytest.raises(ProtocolError, match="phase or attempt"):
-        engine.record_model_exchange(replace(evidence, **change))
-    assert engine.context.store.last_event_seq == count
-    assert not events(engine, "model_request")
-
-
-def test_model_response_requires_one_request_and_keeps_its_actual_cause(engine_factory):
-    engine = engine_factory()
-    frozen = context(engine, "exchange")
-    engine.begin_decision_round([frozen])
-    engine.observe(frozen)
-    request = ModelCallEvidence(frozen, "call", "request", 1, {"messages": []})
-    response = replace(request, phase="response", response={"protocol_feedback": {"error_code": "TOOL_CALL_REQUIRED"}})
-    with pytest.raises(ProtocolError, match="no recorded request"):
-        engine.record_model_exchange(response)
-    engine.record_model_exchange(request)
-    with pytest.raises(ProtocolError, match="recorded twice"):
-        engine.record_model_exchange(request)
-    engine.record_model_exchange(response)
+        sandbox.record_model_exchange(resp)
+    with pytest.raises(ProtocolError):
+        sandbox.record_model_exchange(replace(req, agent_id=999))
+    sandbox.record_model_exchange(req)
+    sandbox.record_model_exchange(resp)
+    outcome = sandbox.finish_wakeup(None)
+    engine.commit_barrier([outcome])
     [stored_request] = events(engine, "model_request")
     [stored_response] = events(engine, "model_response")
     assert stored_response.caused_by == [stored_request.event_id]
     assert stored_response.data["protocol_feedback"] == {"error_code": "TOOL_CALL_REQUIRED"}
     assert stored_request.data["request"] == {"messages": []}
     assert stored_response.data["request"] is None
-    assert not engine.evidence.request_events
-    assert not engine.context.state.activities
+    with pytest.raises(ProtocolError):
+        sandbox.finish_wakeup(None)
 
 
-@pytest.mark.parametrize("claim", ["missing", "not-an-observation", "another-decision", "source-window"])
-def test_memory_evidence_cannot_claim_another_observation_or_source_window(engine_factory, claim):
-    """步尾登记的观察必须是本决策的那份观察事件：不存在的身份、别的事件种类、别的决策的观察，以及事实窗口不一致，
-    都按协议违约拒绝且不留登记。"""
+def test_record_failed_evidence_flushes_model_drafts_without_advancing_world(engine_factory):
+    """并发故障追记只写纯模型与唤醒草稿，不修改已提交世界版本且拒绝非证据类型。"""
     engine = engine_factory()
-    frozen = context(engine, "memory")
-    engine.begin_decision_round([frozen])
-    observed = engine.observe(frozen)
-
-    def requested() -> str:
-        """同一人物、同一决策但不是观察的事件：本决策的行动请求。"""
-        engine.submit_action(DirectToolCall(frozen, f"{frozen.decision_id}:action:0001", MAIN_TOOL,
-                                            do_at("家", "测试休息")))
-        return events(engine, "action_requested")[-1].event_id
-
-    claims = {"missing": lambda: "missing-observation",
-              "not-an-observation": requested,
-              "another-decision": lambda: engine.observe(context(engine, "elsewhere"))["observation_event_id"],
-              "source-window": lambda: observed["observation_event_id"]}
-    evidence = MemoryUpdateEvidence(context=frozen, operation="refresh_summary", created_episode_ids=(),
-        merged_episode_ids=(), episodes=(), memory_before_sha256="a" * 64, memory_sha256="b" * 64,
-        episodes_sha256="c" * 64,
-        observation_event_id=claims[claim](),
-        verified_event_ids=("not-visible",) if claim == "source-window" else ())
-    with pytest.raises(ProtocolError, match="Memory update evidence is invalid"):
-        engine.record_memory_update(evidence)
-    assert not events(engine, "memory_updated")
-    assert not engine.context.state.activities
+    [wakeup] = engine.prepare_barrier((1,))
+    sandbox = engine.open_sandbox(wakeup)
+    req = ModelCallEvidence(wakeup_id=wakeup.wakeup_id, agent_id=1, call_id="crash",
+                            phase="request", attempt=1, request={"messages": [{"role": "user", "content": "hi"}]})
+    sandbox.record_model_exchange(req)
+    drafts = sandbox.drain_evidence()
+    version_before = engine.context.state.version
+    engine.record_failed_evidence(1, wakeup.wakeup_id, drafts)
+    assert engine.context.state.version == version_before
+    assert len(events(engine, "model_request")) == 1
+    bad = EventDraft(event_type="action_result", occurred_at=wakeup.observed_at, agent_id=1,
+                     wakeup_id=wakeup.wakeup_id, data={"status": "completed"})
+    with pytest.raises(ProtocolError):
+        engine.record_failed_evidence(1, wakeup.wakeup_id, [bad])
 
 
-def test_summary_refresh_is_recorded_without_a_life_transition_or_fabricated_write_point(engine_factory):
+def test_dispatch_rejects_mismatched_tool_payload_type(engine_factory):
+    """与工具名不匹配的 Typed 请求模型会被拒绝，沙盒状态保持不变。"""
     engine = engine_factory()
-    frozen = context(engine, "memory-summary")
-    engine.begin_decision_round([frozen])
-    observed = engine.observe(frozen)
-    before = engine.context.state.model_dump(mode="json")
-    evidence = MemoryUpdateEvidence(context=frozen, operation="refresh_summary", created_episode_ids=(),
-        merged_episode_ids=(), episodes=(), memory_before_sha256="a" * 64, memory_sha256="b" * 64,
-        episodes_sha256="c" * 64,
-        observation_event_id=observed["observation_event_id"], verified_event_ids=())
-    engine.record_memory_update(evidence)
-    [recorded] = events(engine, "memory_updated")
-    assert recorded.data["operation"] == "refresh_summary"
-    assert recorded.data["trigger"] == []
-    assert recorded.data["decision_id"] == frozen.decision_id
-    assert engine.context.state.model_dump(mode="json") == before
+    [wakeup] = engine.prepare_barrier((1,))
+    sandbox = engine.open_sandbox(wakeup)
+    for tool, payload in ((SIDE_TOOL, do_at("家", "测试休息")), (MAIN_TOOL, use_app("哔哩哔哩"))):
+        with pytest.raises(ProtocolError):
+            sandbox.dispatch_world_tool(tool, payload, f"{wakeup.wakeup_id}:action:0001")
 
 
 def test_incomplete_person_snapshot_cannot_publish_a_joint_checkpoint(engine_factory):
@@ -251,7 +138,7 @@ def test_activity_recall_is_readonly_and_returns_real_progress_and_note_history(
     activity = engine.context.state.activities[started.activity_id]
     _, report = act(engine, "reported", report_request(activity.name, summary="看了一段内容。"), "report_status")
     assert report.status == "completed"
-    observed = engine.observe(context(engine, "recall"))
+    observed = observe_only(engine, "recall")
     before = engine.context.state.model_dump(mode="json")
     count = engine.context.store.last_event_seq
     recalled = engine.read_task_summary(1, RecallTaskSummaryRequest(task_name=activity.name), observed)
@@ -299,3 +186,61 @@ def test_unavailable_activity_and_missing_day_plan_are_business_refusals(engine_
     assert no_plan.status == "rejected" and no_plan.error_code == "PLAN_NOT_FOUND"
     assert not engine.context.state.activities
     assert not events(engine, "run_failed")
+
+
+def test_uncovered_search_recorder_failed_evidence_dispatcher_and_presentation_branches(engine_factory):
+    """覆盖 SearchSessionEvidenceRecorder 传输重试、失败追记归属/空草稿/未知人物、dispatch 控制分支及空合并。"""
+    from tests.life.conftest import advance_next
+    from worldmock.agents.search.search_session import _SearchEvidenceCollector
+    from worldmock.simulation_engine.actions.start_group import ToolInvocation
+    from worldmock.simulation_engine.evidence.model import validate_failed_evidence
+    from worldmock.simulation_engine.observation.targets.presentation import merge_presentation
+    from worldmock.state.decisions.barrier import SearchTaskSpec
+
+    spec = SearchTaskSpec(
+        action_id="act-s", agent_id=1, activity_id="search-1", origin_wakeup_id="wake-s",
+        query="咖啡", prefer=None, scoped_app_id=None, current_location_id="home",
+        location_name="家", opened_at_clock="08:00", local_date="2026-01-05",
+        weather_label="晴", open_apps=("美团",), category_overview={}, turn_budget=4,
+    )
+    rec = _SearchEvidenceCollector(spec)
+    ev_req = ModelCallEvidence(wakeup_id="wake-s", agent_id=1, call_id="c-1",
+                               phase="request", attempt=1, request={"messages": []})
+    ev_res = replace(ev_req, phase="response", response={"choices": []},
+                     transport_attempts=({"attempt": 1, "wait_seconds": 0.5},))
+    rec.record(ev_req)
+    rec.record(ev_res)
+    assert rec.drafts[-1].data["transport_attempts"] == [{"attempt": 1, "wait_seconds": 0.5}]
+
+    engine = engine_factory()
+    [wakeup] = engine.prepare_barrier((1,))
+    state = engine.context.state
+    assert merge_presentation(state, {}) is state
+
+    engine.record_failed_evidence(1, wakeup.wakeup_id, ())
+    wrong_owner = EventDraft(event_type="model_request", occurred_at=wakeup.observed_at,
+                             agent_id=2, wakeup_id=wakeup.wakeup_id, data={})
+    with pytest.raises(ProtocolError, match="Failed evidence ownership mismatch"):
+        validate_failed_evidence(1, wakeup.wakeup_id, [wrong_owner])
+    with pytest.raises(ProtocolError, match="Failed evidence targets unknown agent"):
+        engine.record_failed_evidence(999, wakeup.wakeup_id, ())
+
+    obs = observe_only(engine, "disp")
+    inv_ctl = ToolInvocation(1, wakeup.wakeup_id, f"{wakeup.wakeup_id}:action:0001",
+                             "revise_day_plan", {"goals": []}, "a" * 64, "ev-ctl", obs, None)
+    with pytest.raises(BusinessRuleError, match="ACTION_REQUEST_INVALID"):
+        engine.actions.dispatch(state, [inv_ctl, inv_ctl])
+    bad_ctl = ToolInvocation(1, wakeup.wakeup_id, f"{wakeup.wakeup_id}:action:0002",
+                             "revise_day_plan", {"goals": "bad"}, "b" * 64, "ev-bad", obs, None)
+    with pytest.raises(BusinessRuleError, match="ACTION_REQUEST_INVALID"):
+        engine.actions.dispatch(state, [bad_ctl])
+
+    _, started = act(engine, "rest", do_at("家", "测试休息"))
+    while engine.context.state.activities[started.activity_id].status == "active":
+        next_at = engine.scheduling_state().next_event_at
+        if next_at is not None:
+            advance_next(engine)
+        else:
+            break
+    with pytest.raises(BusinessRuleError, match="ACTIVITY_CONCLUSION_REQUIRED"):
+        engine.actions.dispatch(engine.context.state, [inv_ctl])

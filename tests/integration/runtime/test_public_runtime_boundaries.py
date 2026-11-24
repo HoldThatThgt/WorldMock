@@ -13,17 +13,20 @@ from tests.integration.runtime.current_contract_fixtures import inputs, profile,
 from tests.integration.runtime_fixtures import OfflineClient
 from tests.life.conftest import StubMemoryDigestClient, StubPlanDayClient, stage_day_plan
 from tests.life.environment_runtime import settle_decision
-from worldmock.agents.protocol.life_continuation import tool_message
+from worldmock.agents.protocol.agent_loop import tool_message
 from worldmock.agents.prompt.life_persona import persona_layer
 from worldmock.foundation.errors import EnvironmentInputError, IntegrityError
 from worldmock.agents.prompt.narration import RenderBudgetExceededError
 from worldmock.configuration.model import model_metadata as model_endpoint
 from worldmock.configuration.model.model_metadata import credential_value, load_model_metadata, model_context_length
-from worldmock.runtime.framework.setup import validate_manifest_stage_identity, validate_stage_model_identity
+from worldmock.runtime.framework.setup import model_identity, stage_profile_identity
 from worldmock.runtime.lifecycle.midnight import MemoryDigestClient, PlanDayClient
 from worldmock.runtime.lifecycle.runner import CounterfactualRequest, ResumeRequest, RunRequest
 from worldmock.runtime.lifecycle.runner import run_world, resume_world, replay_world
+from worldmock.simulation_engine.world.world_setup import open_world
 from worldmock.state.decisions.results import CounterfactualIntervention
+from worldmock.state.identity import ModelIdentity, StageProfileIdentity
+from pydantic import ValidationError
 
 
 def test_persona_layer_rejects_actual_overlong_card_without_truncation():
@@ -35,21 +38,31 @@ def test_persona_layer_rejects_actual_overlong_card_without_truncation():
     assert prepared == original
 
 
-def test_continuation_tool_message_preserves_actual_events_and_omits_empty_changes():
-    result = {"status": "completed"}
-    event = {"text": "计划提醒到了。"}
-    message = tool_message("call-report", result, {}, [event])
+def test_loop_tool_message_preserves_actual_payload_and_call_id():
+    payload = {"result": {"status": "completed"}, "events": [{"text": "计划提醒到了。"}]}
+    message = tool_message("call-report", payload)
     assert message["tool_call_id"] == "call-report"
-    assert json.loads(message["content"]) == {"result": result, "events": [event]}
+    assert json.loads(message["content"]) == payload
 
 
-@pytest.mark.parametrize("manifest,reason", [
-    ({}, "decision stage identity is missing"),
-    ({"two_stage_model_identity": {}}, "two_stage_model_identity is retired"),
-])
-def test_manifest_stage_identity_requires_the_current_actual_stage(manifest, reason):
-    with pytest.raises(IntegrityError, match=reason):
-        validate_manifest_stage_identity(manifest)
+@pytest.mark.parametrize("retired_key", ["stage_model_identity", "two_stage_model_identity", "same_second_continuation"])
+def test_open_world_rejects_retired_manifest_identity_keys(tmp_path, retired_key):
+    from tests.integration.runtime_fixtures import current_run_identity
+    from worldmock.simulation_engine.engine import LifeEngine
+
+    frozen = inputs()
+    run_dir = tmp_path / f"retired-{retired_key}"
+    engine = LifeEngine.create(
+        frozen, run_dir, current_run_identity(frozen, f"run-{retired_key}"),
+        model_identity(frozen.config, frozen.model_metadata), {},
+    )
+    engine.close()
+    manifest_path = run_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest[retired_key] = {}
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(IntegrityError, match="retired model identity keys"):
+        open_world(frozen, run_dir)
 
 
 @pytest.mark.parametrize("field,value", [
@@ -58,28 +71,34 @@ def test_manifest_stage_identity_requires_the_current_actual_stage(manifest, rea
     ("context_window", 262143),
 ])
 def test_stage_identity_rejects_a_different_actual_service_capability(field, value):
-    identity = profile()["model_identity"]
+    frozen = inputs()
+    pid = frozen.config.model_routing.action
+    identity = stage_profile_identity(frozen.config.models[pid], frozen.model_metadata[pid]).model_dump(mode="json")
     identity["model_metadata"][field] = value
-    with pytest.raises(IntegrityError, match="inconsistent model metadata"):
-        validate_stage_model_identity(identity)
+    with pytest.raises(ValidationError, match="stage profile model metadata disagrees"):
+        StageProfileIdentity.model_validate(identity)
 
 
 def test_stage_identity_cannot_include_a_credential_reference():
-    identity = profile()["model_identity"]
+    frozen = inputs()
+    pid = frozen.config.model_routing.action
+    identity = stage_profile_identity(frozen.config.models[pid], frozen.model_metadata[pid]).model_dump(mode="json")
     identity["api_key_env"] = "MODEL_SECRET"
-    with pytest.raises(IntegrityError, match="unexpected fields"):
-        validate_stage_model_identity(identity)
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        StageProfileIdentity.model_validate(identity)
 
 
 def test_frozen_context_capacity_cannot_be_used_for_a_different_model():
-    metadata = inputs().model_metadata
+    frozen = inputs()
+    metadata = frozen.model_metadata[frozen.config.model_routing.action]
     with pytest.raises(ValueError, match="model context metadata is unavailable"):
         model_context_length("different-model", metadata)
 
 
 @pytest.mark.parametrize("value", [None, "", "  "])
 def test_model_credential_is_required_and_never_included_in_the_error(monkeypatch, value):
-    config = inputs().config.model
+    frozen = inputs()
+    config = frozen.config.models[frozen.config.model_routing.action]
     if value is None:
         monkeypatch.delenv(config.api_key_env, raising=False)
     else:
@@ -92,7 +111,7 @@ def test_model_credential_is_required_and_never_included_in_the_error(monkeypatc
 def test_actual_model_metadata_rejects_transport_capacity_and_service_identity(monkeypatch, failure):
     frozen = inputs()
     metadata_service(monkeypatch, frozen)
-    config = frozen.config.model
+    config = frozen.config.models[frozen.config.model_routing.action]
     gets, waits = [], []
     if failure == "transport":
         def unavailable(*args, **kwargs):
@@ -121,7 +140,10 @@ def test_actual_model_metadata_rejects_transport_capacity_and_service_identity(m
 async def test_business_clients_send_the_draft_unchanged():
     """零点计划与回顾的业务客户端把底稿的深拷贝原样交给模型客户端：max_tokens 不截到服务上限，不加重试次数，调用方的
     请求不变。"""
-    identity = profile()["model_identity"]
+    frozen = inputs()
+    pid = frozen.config.model_routing.plan_day
+    identity = stage_profile_identity(frozen.config.models[pid], frozen.model_metadata[pid]).model_dump(mode="json")
+    assert ModelIdentity.model_validate(model_identity(frozen.config, frozen.model_metadata).model_dump(mode="json"))
     received = []
 
     async def call(request):

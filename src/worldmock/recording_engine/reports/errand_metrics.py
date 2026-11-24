@@ -115,11 +115,11 @@ def conclusion_memories(events: Sequence[Mapping[str, Any]]) -> dict[str, int] |
     total = routine = overlap = 0
     for event in events:
         if event["event_type"] == "observation":
-            observed[(event["agent_id"], event["decision_id"])] = event["data"]
+            observed[(event["agent_id"], event["wakeup_id"])] = event["data"]
             continue
         if not _conclusion(event):
             continue
-        texts = _errand_texts(observed.get((event["agent_id"], event["decision_id"]), {}))
+        texts = _errand_texts(observed.get((event["agent_id"], event["wakeup_id"]), {}))
         for item in control_items("conclude_activity", event["data"]["request"]):
             for memory in item.plain_memories:
                 total += 1

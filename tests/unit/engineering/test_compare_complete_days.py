@@ -11,7 +11,8 @@ import pytest
 import scripts.compare_complete_days as complete_days
 from scripts.bootstrap_environment import environment_python
 
-SIGNATURE = {"persona_sha256": "1" * 64, "config_sha256": "2" * 64, "environment_identity": {"map_sha256": "3" * 64},
+SIGNATURE = {"persona_sha256s": {"1": "1" * 64}, "config_sha256": "2" * 64,
+             "environment_identity": {"map_sha256": "3" * 64},
              "seed": 20260105, "summary": {"artifacts": {"events.jsonl": "4" * 64, "quality.json": "5" * 64},
                                            "checkpoints_sha256": "6" * 64, "run_assets": [["7" * 64, 10]]}}
 

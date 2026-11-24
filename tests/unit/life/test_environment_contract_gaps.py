@@ -31,9 +31,11 @@ def inputs():
 
 
 def configured(inputs, start, stop, rules):
-    values = {**{name: getattr(inputs.config, name) for name in RunConfig.model_fields}, "timezone": "America/New_York",
-              "start_time": datetime.fromisoformat(start), "stop_time": datetime.fromisoformat(stop)}
-    return replace(inputs, config=RunConfig.model_validate(values),
+    config = inputs.config.model_copy(
+        update={"timezone": "America/New_York", "start_time": datetime.fromisoformat(start),
+                "stop_time": datetime.fromisoformat(stop)},
+    )
+    return replace(inputs, config=config,
                    catalog=replace(inputs.catalog, callback_rules={rule.rule_id: rule for rule in rules}))
 
 
@@ -66,9 +68,10 @@ def test_closed_local_store_is_observable_and_refuses_purchase_without_world_fai
     path.write_text("".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
                     encoding="utf-8", newline="\n")
     refresh_manifest_identity(root / "catalog")
-    persona = (root / "persona.toml").read_text(encoding="utf-8")
-    (root / "persona.toml").write_text(persona.replace('initial_location = "家"', 'initial_location = "四季便利"'),
-                                       encoding="utf-8", newline="\n")
+    persona_path = next((root / "personas").glob("*.toml"))
+    persona = persona_path.read_text(encoding="utf-8")
+    persona_path.write_text(persona.replace('initial_location = "家"', 'initial_location = "四季便利"'),
+                            encoding="utf-8", newline="\n")
     engine = engine_factory(environment_root=root)
     before = dict(engine.context.state.accounts)
     _, result = act(engine, "closed-purchase", purchase("饭团"))
@@ -88,7 +91,7 @@ def test_restore_rejects_retired_navigation_app_activity_field(engine_factory, n
     state.activities[result.activity_id] = entry.model_copy(
         update={"data": {**entry.data, "navigation_app_id": navigation}})
     with pytest.raises(IntegrityError, match="Persisted activity target is invalid"):
-        validate_activity_targets(state, engine.context.catalog, engine.context.persona)
+        validate_activity_targets(state, engine.context.catalog, engine.context.persona_by_id)
 
 
 def test_relief_at_interval_end_still_bills_the_preceding_actual_discomfort(inputs):
@@ -101,8 +104,8 @@ def test_relief_at_interval_end_still_bills_the_preceding_actual_discomfort(inpu
     staged = state.model_copy(deep=True)
     staged.current_time += 900
     staged.agents[1].body.energy_kcal = 1800.0
-    context = SimpleNamespace(state=state, persona=inputs.persona, config=inputs.config,
-                              body=engine_body(inputs))
+    context = SimpleNamespace(state=state, persona_by_id=inputs.persona_by_id, config=inputs.config,
+                              bodies={1: engine_body(inputs)})
     settled = staged.agents[1].body.model_dump(mode="json")
     record = EventDraft(event_type="environment_event", occurred_at=staged.current_time, agent_id=1,
                         data={"kind": "body_settlement", "interval_start": now, "interval_end": staged.current_time,
@@ -121,7 +124,7 @@ def test_relief_at_interval_end_still_bills_the_preceding_actual_discomfort(inpu
 def engine_body(inputs):
     from worldmock.simulation_engine.body.body_config import assemble_body_config
 
-    return assemble_body_config(inputs.persona)
+    return assemble_body_config(inputs.personas[0])
 
 
 @pytest.mark.parametrize("start,stop,hours", [

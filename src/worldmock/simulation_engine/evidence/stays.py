@@ -21,9 +21,18 @@ RUN_START, ARRIVAL, TRAVEL_ENDED_EARLY = "run_start", "arrival", "travel_ended_e
 
 
 def run_start_event(state: WorldState) -> EventDraft:
-    """@brief 运行开始时人物已在的那段停留：不是一次真实的进入，没有起因，整次运行恰一条。"""
-    (session,) = state.sessions.values()
-    return _entered(session, RUN_START, [])
+    """@brief 运行开始时唯一人物所在那段停留的进入事件。"""
+    drafts = run_start_events(state)
+    if len(drafts) != 1:
+        _LOGGER.error("Single run_start_event requires exactly one agent session")
+        raise IntegrityError("Single run_start_event requires exactly one agent session")
+    return drafts[0]
+
+
+def run_start_events(state: WorldState) -> list[EventDraft]:
+    """@brief 运行开始时每位人物已在各自起始地的那段停留，按人物编号升序产出进入事件。"""
+    return [_entered(session, RUN_START, [])
+            for session in sorted(state.sessions.values(), key=lambda item: item.agent_id)]
 
 
 def stay_events(before: WorldState, after: WorldState, drafts: list[EventDraft]) -> list[EventDraft]:

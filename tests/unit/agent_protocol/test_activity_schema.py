@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-from copy import deepcopy
 from typing import Any
 
 import pytest
@@ -14,52 +13,57 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 from jsonschema import Draft202012Validator
 from pydantic import ValidationError
 
-from worldmock.agents.life_agent import LifeAgent
-from worldmock.agents.protocol.life_feedback import ProtocolFeedback
-from worldmock.agents.protocol.react_loop import ReactDecision
-from worldmock.agents.prompt.life_prompt import TOOL_DESCRIPTIONS
-from tests.integration.runtime.test_life_agent_protocol import (
-    _REST,
-    _WAIT,
-    _WAIT_CHOICE,
-    _WORK_ACTION,
-    _WORK_CHOICE,
-    _add_objects,
-    _memory,
-    _observations,
-    _offer,
-    _prepared,
-    _visible_object,
-    _with_activities,
+from tests.integration.runtime.current_contract_fixtures import inputs
+from tests.life.conftest import (
+    MAIN_TOOL,
+    SEARCH_TOOL,
+    SIDE_TOOL,
+    advance_until_ready,
+    main_arguments,
+    side_arguments,
+    stage_day_plan,
+    wakeup_for,
 )
-from worldmock.simulation_engine.activities.lifecycle.activity_control import PHASE_ACTIVE
+from tests.life.environment_runtime import act
+from worldmock.agents.life_agent import LifeAgent, person_inputs, validate_life_batch
+from worldmock.agents.prompt.life_prompt import TOOL_DESCRIPTIONS
+from worldmock.agents.protocol.agent_loop import LoopToolCall, validate_single_tool_call
+from worldmock.agents.protocol.life_feedback import ProtocolFeedback
 from worldmock.state.interaction.requests import QUERY_MODELS, REQUEST_MODELS
 from worldmock.state.interaction.schema import deepseek_strict_schema
-from tests.life.conftest import MAIN_TOOL, SIDE_TOOL, main_arguments, side_arguments
 
 
 _UNSUPPORTED_KEYS = {"oneOf", "minLength", "maxLength", "minItems", "maxItems", "default"}
-#: 稳定工具面的七件请求工具（两个开始工具在前）；当日计划由零点后台任务 plan_day 生成，不是人物工具（时间与能量规格第四章）。
-_ACTION_TOOLS = {"start_main_activity", "start_side_activity", "recall_task_summary", "report_status", "pause_activity",
-                 "conclude_activity", "revise_day_plan"}
+#: 稳定工具面的八件请求工具（两个开始工具与搜索在前）；当日计划由零点后台任务 plan_day 生成，不是人物工具（时间与能量规格第四章）。
+_ACTION_TOOLS = {
+    "start_main_activity",
+    "start_side_activity",
+    "search_world",
+    "recall_task_summary",
+    "report_status",
+    "pause_activity",
+    "conclude_activity",
+    "revise_day_plan",
+}
+_FULL_MODELS = {**REQUEST_MODELS, **QUERY_MODELS}
+_REST = main_arguments("interact", "家", "测试休息")
+_APP = side_arguments("interact", "抖音")
+_WAIT = "测试休息（1月5日 08:00 起）"
 
 
-def _prepared_agent(revise: bool = False) -> LifeAgent:
-    """用本轮公开事实及私有身份绑定准备实际人物工具（当前停留里有一项进行中的等待）。"""
-    observations = deepcopy(_observations())
-    data = observations[0]["data"]
-    _with_activities(data, (_WAIT, PHASE_ACTIVE))
-    if revise:
-        data["todo_layer"]["day_plan"] = {"date": "2026-01-05", "goals": []}
-    agent = _prepared(data)
-    agent.turn_tools(16, False)
-    return agent
+def _memory(text: str = "记住这一刻。", *, kind: str = "commitment") -> dict[str, Any]:
+    """一条最小合法的收尾记忆。"""
+    return {"type": kind, "text": text, "importance": 0.5, "keywords": ["测试"]}
+
+
+def _agent() -> LifeAgent:
+    """用冻结测试夹具构造无状态人物适配器。"""
+    return LifeAgent(person_inputs(inputs().persona_by_id[1]))
 
 
 def _function(name: str) -> dict[str, Any]:
     """取得模型本轮真正可见的函数声明。"""
-    agent = _prepared_agent(revise=name == "revise_day_plan")
-    return next(item["function"] for item in agent.turn_tools(16, False)
+    return next(item["function"] for item in _agent().turn_tools(16, False)
                 if item["function"]["name"] == name)
 
 
@@ -98,8 +102,9 @@ def _properties(schema: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
 
 
 def test_all_action_tools_use_closed_strict_schemas_from_one_model() -> None:
-    """全部七件请求工具采用同一请求模型，身份与执行参数不进工具面。"""
-    assert set(REQUEST_MODELS) == _ACTION_TOOLS and list(REQUEST_MODELS)[:2] == [MAIN_TOOL, SIDE_TOOL]
+    """全部八件请求工具采用同一请求模型，身份与执行参数不进工具面。"""
+    assert set(REQUEST_MODELS) == _ACTION_TOOLS
+    assert list(REQUEST_MODELS)[:3] == [MAIN_TOOL, SIDE_TOOL, SEARCH_TOOL]
     for name, model in REQUEST_MODELS.items():
         function = _function(name)
         schema = function["parameters"]
@@ -113,15 +118,25 @@ def test_all_action_tools_use_closed_strict_schemas_from_one_model() -> None:
 
 
 def _host_error(tool: str, arguments: dict) -> ProtocolFeedback | None:
-    """宿主按本轮私有绑定对名称的本地校验结果（None 即通过）。"""
-    return _prepared_agent()._validate([ReactDecision(tool, arguments, "")])
+    """按开放工具表对单条工具调用的参数合同本地校验（None 即通过）。"""
+    return validate_single_tool_call(LoopToolCall(tool, arguments, "call-0"), _FULL_MODELS)
 
 
-def test_start_tools_declare_the_model_schema_and_take_readable_frozen_names() -> None:
-    """模型本轮可见的两个开始工具声明就是各自请求模型的 DeepSeek strict Schema，对象名与 detail 不做逐轮枚举；宿主按
-    本轮私有绑定核对名称：照工具层写的完整名称通过（两个工具同批即开始组），私有身份当名称写、已知对象不提供所写动作、
-    闭集之外的 action 与旧的 items 形状都在分派前被拒。"""
-    for tool, valid in ((MAIN_TOOL, _WAIT_CHOICE), (SIDE_TOOL, _WORK_CHOICE)):
+def _with_active_rest(engine_factory):
+    """提交一个当前在家的休息活动并推进到首个可决策点，返回（唤醒输入，活动可读名，沙盒句柄）。"""
+    engine = engine_factory(mutate=lambda _, config: config.update(progress_report_interval_seconds=60))
+    stage_day_plan(engine)
+    act(engine, "wait", _REST, MAIN_TOOL)
+    assert advance_until_ready(engine)
+    wakeup = wakeup_for(engine)
+    name = wakeup.observation["activity_bindings"][0]["name"]
+    return wakeup, name, engine.open_sandbox(wakeup)
+
+
+def test_start_tools_declare_the_model_schema_and_take_readable_frozen_names(engine_factory) -> None:
+    """模型本轮可见的开始工具与 search_world 声明就是各自请求模型的 DeepSeek strict Schema，对象名与 detail 不做
+    逐轮枚举；协议层校验批次与闭集，沙盒分派核对可读完整名称。"""
+    for tool, valid in ((MAIN_TOOL, _REST), (SIDE_TOOL, _APP)):
         function = _function(tool)
         schema = function["parameters"]
         assert schema == deepseek_strict_schema(REQUEST_MODELS[tool])
@@ -132,25 +147,37 @@ def test_start_tools_declare_the_model_schema_and_take_readable_frozen_names() -
         assert list(Draft202012Validator(schema).iter_errors(valid)) == []
         REQUEST_MODELS[tool].model_validate(valid)
         assert _host_error(tool, valid) is None
-        retired = {"items": [{"action": "interact", "target": "自己家"}]}
+        retired = {"items": [{"action": "interact", "target": "家"}]}
         assert list(Draft202012Validator(schema).iter_errors(retired))
         assert _host_error(tool, retired).report.error_code == "ARGUMENTS_INVALID"
-    group = [ReactDecision(MAIN_TOOL, _WAIT_CHOICE, ""), ReactDecision(SIDE_TOOL, _WORK_CHOICE, "")]
-    assert _prepared_agent()._validate(group) is None
-    private = [(MAIN_TOOL, main_arguments("interact", "internal:task:1", _REST), ("target",), "internal:task:1"),
-               (MAIN_TOOL, main_arguments("interact", "自己家", "rest-visible"), ("detail",), "rest-visible"),
-               (SIDE_TOOL, side_arguments("interact", "work-visible"), ("target", 0), "work-visible")]
-    for tool, arguments, path, written in private:
-        [item] = _host_error(tool, arguments).report.items
-        assert (item.error_code, item.path[4:], item.written) == ("NAME_NOT_FOUND", path, written)
-    unsupported = {MAIN_TOOL: (main_arguments("travel", "自己家", "步行"), ("interact", "sleep")),
-                   SIDE_TOOL: (side_arguments("purchase", _WORK_ACTION), ("interact",))}
-    for tool, (arguments, offered) in unsupported.items():
-        [item] = _host_error(tool, arguments).report.items
-        assert (item.error_code, item.path[4:], item.written) == ("ACTION_NOT_OFFERED", ("action",), arguments["action"])
-        assert item.allowed_values == offered
-    for tool, allowed in ((MAIN_TOOL, ("travel", "interact", "sleep")), (SIDE_TOOL, ("purchase", "interact", "query"))):
-        valid = _WAIT_CHOICE if tool == MAIN_TOOL else _WORK_CHOICE
+    search_fn = _function(SEARCH_TOOL)
+    assert search_fn["parameters"] == deepseek_strict_schema(REQUEST_MODELS[SEARCH_TOOL])
+    assert search_fn["description"] == TOOL_DESCRIPTIONS[SEARCH_TOOL]
+    group = [LoopToolCall(MAIN_TOOL, _REST, "c1"), LoopToolCall(SIDE_TOOL, _APP, "c2")]
+    assert validate_life_batch(group, REQUEST_MODELS) is None
+    engine = engine_factory()
+    stage_day_plan(engine)
+    wakeup = wakeup_for(engine)
+    sandbox = engine.open_sandbox(wakeup)
+    private = [(MAIN_TOOL, main_arguments("interact", "internal:task:1", "测试休息"), ["target"], "internal:task:1"),
+               (MAIN_TOOL, main_arguments("interact", "家", "rest-visible"), ["detail"], "rest-visible"),
+               (SIDE_TOOL, side_arguments("interact", "work-visible"), ["target", 0], "work-visible")]
+    for index, (tool, arguments, path, written) in enumerate(private, start=1):
+        res = sandbox.dispatch_world_tool(tool, arguments, f"{wakeup.wakeup_id}:action:{index:04d}")
+        assert not res.accepted
+        [item] = res.tool_message_payload["result"]["details"]["items"]
+        assert (item["error_code"], item["path"][4:], item["written"]) == ("NAME_NOT_FOUND", path, written)
+    unsupported = {MAIN_TOOL: (main_arguments("travel", "家", "步行"), ["interact", "sleep"]),
+                   SIDE_TOOL: (side_arguments("purchase", "抖音"), ["interact"])}
+    for index, (tool, (arguments, offered)) in enumerate(unsupported.items(), start=10):
+        res = sandbox.dispatch_world_tool(tool, arguments, f"{wakeup.wakeup_id}:action:{index:04d}")
+        assert not res.accepted
+        [item] = res.tool_message_payload["result"]["details"]["items"]
+        assert (item["error_code"], item["path"][4:], item["written"]) == (
+            "ACTION_NOT_OFFERED", ["action"], arguments["action"])
+        assert item["allowed_values"] == offered
+    for tool, allowed in ((MAIN_TOOL, ("travel", "interact", "sleep")), (SIDE_TOOL, ("purchase", "interact"))):
+        valid = _REST if tool == MAIN_TOOL else _APP
         for action in ("wait", "walk", "invented_action"):
             [item] = _host_error(tool, {**valid, "action": action}).report.items
             assert (item.error_code, item.path[4:], item.written) == ("ARGUMENTS_INVALID", ("action",), action)
@@ -158,10 +185,9 @@ def test_start_tools_declare_the_model_schema_and_take_readable_frozen_names() -
 
 
 @pytest.mark.parametrize("name", ["report_status", "pause_activity", "conclude_activity"])
-def test_activity_control_schemas_use_paired_readable_activity_and_summary(name: str) -> None:
+def test_activity_control_schemas_use_paired_readable_activity_and_summary(engine_factory, name: str) -> None:
     """三条活动控制工具一项一个对象：每项点名可读活动并写人物自述，只有结束工具每项另带记忆与看法；外层键是 items
-    （不是提示字段黑名单里的 activities）与请求级 errands；活动名不做 Schema 枚举（docs/design/04-simulation-engine.md
-    第六章）；缺 errands 的请求被拒。"""
+    （不是提示字段黑名单里的 activities）与请求级 errands；活动名不做 Schema 枚举；缺 errands 的请求被拒。"""
     schema = _function(name)["parameters"]
     assert set(schema["properties"]) == set(schema["required"]) == {"items", "errands"}
     item = schema["properties"]["items"]["items"]
@@ -170,14 +196,22 @@ def test_activity_control_schemas_use_paired_readable_activity_and_summary(name:
     assert set(item["properties"]) == set(item["required"]) == expected
     assert "enum" not in item["properties"]["activity_name"]
     assert item["properties"]["summary"]["type"] == "string"
-    valid = _control_payload(name, [(_WAIT, "我还想等一会儿。")])
+    wakeup, active_name, sandbox = _with_active_rest(engine_factory)
+    valid = _control_payload(name, [(active_name, "我还想等一会儿。")])
     assert list(Draft202012Validator(schema).iter_errors(valid)) == []
     REQUEST_MODELS[name].model_validate(valid)
     assert _host_error(name, valid) is None
-    assert _host_error(name, _control_payload(name, [("别的活动", "继续。")])).report.error_code == "NAME_NOT_FOUND"
-    for invalid in ({"items": [], "errands": []}, _control_payload(name, [(_WAIT, "a"), (_WAIT, "b")]),
-                    _control_payload(name, [(_WAIT, " ")]), {"items": [{"activity_name": _WAIT}], "errands": []},
-                    {"task": [_WAIT], "summary": ["继续。"]}, {"items": valid["items"]}):
+    bad = sandbox.dispatch_world_tool(name, _control_payload(name, [("别的活动", "继续。")]),
+                                    f"{wakeup.wakeup_id}:action:0001")
+    result = bad.tool_message_payload["result"]
+    assert not bad.accepted and result["error_code"] == "ACTION_REQUEST_INVALID"
+    assert result["details"]["items"][0]["error_code"] == "NAME_NOT_FOUND"
+    ok = sandbox.dispatch_world_tool(name, valid, f"{wakeup.wakeup_id}:action:0002")
+    assert ok.accepted
+    for invalid in ({"items": [], "errands": []}, _control_payload(name, [(active_name, "a"), (active_name, "b")]),
+                    _control_payload(name, [(active_name, " ")]), {"items": [{"activity_name": active_name}],
+                                                                  "errands": []},
+                    {"task": [active_name], "summary": ["继续。"]}, {"items": valid["items"]}):
         with pytest.raises(ValidationError):
             REQUEST_MODELS[name].model_validate(invalid)
 
@@ -249,24 +283,23 @@ def test_control_tool_fields_carry_format_and_source_descriptions(name: str) -> 
         assert "对象" in described["items.views.about"]["description"]
 
 
-def test_recall_uses_readable_activity_name_and_retired_world_tools_are_absent() -> None:
+def test_recall_uses_readable_activity_name_and_retired_world_tools_are_absent(engine_factory) -> None:
     """回看绑定真实活动名称，旧消息、工作提交与闹钟工具不再提供。"""
-    names = {entry["function"]["name"] for entry in _prepared_agent().turn_tools(16, False)}
+    names = {entry["function"]["name"] for entry in _agent().turn_tools(16, False)}
     assert {"start_activity", "submit_work", "send_message", "set_alarm", "finish"}.isdisjoint(names)
-    assert len(names) == 8 and {MAIN_TOOL, SIDE_TOOL} <= names
+    assert len(names) == 9 and {MAIN_TOOL, SIDE_TOOL, SEARCH_TOOL} <= names
     recall = _function("recall_task_summary")["parameters"]
     assert set(recall["properties"]) == {"task_name"}
-    for name in (_WAIT,):
-        assert _host_error("recall_task_summary", {"task_name": name}) is None
-    for name in ("同事", "自己家（1月4日 18:00 起）"):
-        assert _host_error("recall_task_summary", {"task_name": name}) .report.error_code == "NAME_NOT_FOUND"
+    _, active_name, sandbox = _with_active_rest(engine_factory)
+    assert "error_code" not in sandbox.recall_task_summary({"task_name": active_name})
+    for bad in ("同事", "家（1月4日 18:00 起）"):
+        assert sandbox.recall_task_summary({"task_name": bad})["error_code"] == "TASK_NOT_FOUND"
 
 
 def test_revise_day_plan_schema_inlines_goal_with_required_nullable_remind_time() -> None:
     """人物工具面没有 plan_day；修订的目标内联意图、文字与两个必填可空的场景本地 HH:MM——提醒 remind_time 与大致时刻
     around_time（docs/design/04-simulation-engine.md ），不向模型索要时长或内部时刻（时间与能量规格第四章「计划与提醒」）。"""
-    agent = _prepared_agent(revise=True)
-    tools = {item["function"]["name"] for item in agent.turn_tools(16, False)}
+    tools = {item["function"]["name"] for item in _agent().turn_tools(16, False)}
     assert "revise_day_plan" in tools and "plan_day" not in tools
     schema = _function("revise_day_plan")["parameters"]
     assert set(schema["properties"]) == {"goals"}
@@ -331,11 +364,7 @@ def test_conclusion_memory_and_view_nested_schemas_remain_strict() -> None:
                "errands": []}
     assert list(Draft202012Validator(conclude).iter_errors(payload)) == []
     REQUEST_MODELS["conclude_activity"].model_validate(payload)
-    agent = _prepared_agent()
-    agent.turn_tools(16, False)
-    assert agent._validate(
-        [ReactDecision("conclude_activity", payload, "")]) is None
-
+    assert _host_error("conclude_activity", payload) is None
 
 
 @pytest.mark.parametrize("retired_type", ["event", "observation"])

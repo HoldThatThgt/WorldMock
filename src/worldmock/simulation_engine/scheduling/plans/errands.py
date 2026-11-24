@@ -29,7 +29,6 @@ from worldmock.state.interaction.errors import ErrorItem, items_fix
 from worldmock.simulation_engine.observation.wording.guidance import Refusal, items_refusal, refusal_for_code
 from worldmock.state.world.kinds import ActivityKind
 from worldmock.state.world.agent import AgentState
-from worldmock.state.decisions.state import PendingAction
 from worldmock.state.world.world import WorldState, active_activities
 from worldmock.simulation_engine.actions.name_resolution import near_names
 from worldmock.simulation_engine.observation.targets.object_labels import resolve_name
@@ -191,19 +190,8 @@ def apply_changes(agent: AgentState, changes: Sequence[Mapping[str, Any]], obser
 
 
 
-def request_drafts(before: WorldState, after: WorldState, pending: PendingAction) -> list[EventDraft]:
-    """@brief 一次被受理的控制请求里每条事务变更恰好一条事务事件（docs/design/04-simulation-engine.md「唤醒、日计划与个人事务」），
-    按请求顺序；不是控制工具时为空列表。只在成功分支调用，不经拒绝分支也会提交的暂存通道。
-
-    变更只经 control_items.control_errands 读取（控制请求的唯一读取入口）。新增写 errand_registered（after 里新记下的
-    事务）；更新写 errand_updated（after 里更新后的快照，内容没有变化也写）；取消写 errand_cancelled（before 里移出前的
-    快照，另带原因）。更新与取消按所写名称在 before 里本人未完成事务的名称中解析，与受理时同一解析。三种事件都是
-    environment_event、系统可见、人物为事务所有人，决策、动作与活动身份为空，caused_by 只有请求事件。
-
-    :param before: 本动作受理前的暂存世界。
-    :param after: 本动作受理后的暂存世界。
-    :raises IntegrityError: 被受理的变更在世界里找不到对应的事务。
-    """
+def request_drafts(before: WorldState, after: WorldState, pending: Any) -> list[EventDraft]:
+    """@brief 一次被受理的控制请求里每条事务变更恰好一条事务事件，按请求顺序；不是控制工具时为空列表。"""
     if pending.tool_name not in CONTROL_TOOLS:
         return []
     owner = pending.agent_id
@@ -528,7 +516,7 @@ def _draft(head: _Head, kind: str, snapshot: dict, extra: Mapping[str, Any] | No
     """@brief 唯一的事务事件草稿构造（docs/design/04-simulation-engine.md）：environment_event，来源为环境，人物为事务所有
     人，决策、动作与活动身份都为空，只经 caused_by 关联；载荷为 {kind, errand}（事务快照）另加 extra；提醒与办成两种人物
     可见，其余系统可见。"""
-    return EventDraft(event_type="environment_event", occurred_at=head.now, agent_id=head.owner, decision_id=None,
+    return EventDraft(event_type="environment_event", occurred_at=head.now, agent_id=head.owner, wakeup_id=None,
                       action_id=None, activity_id=None, caused_by=list(head.caused_by), source_kind="environment",
                       visibility="agent" if kind in AGENT_VISIBLE_KINDS else "system",
                       data={"kind": kind, "errand": snapshot, **(extra or {})})

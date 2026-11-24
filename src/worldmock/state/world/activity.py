@@ -34,7 +34,7 @@ class ActivityState(StrictModel):
     travel_method_id: str | None = None
     resource_claims: set[str] = Field(default_factory=set)
     origin_action_id: str = Field(min_length=1)
-    origin_decision_id: str = Field(min_length=1)
+    origin_wakeup_id: str = Field(min_length=1)
     origin_request_event_id: str = Field(min_length=1)
     boundary_type: str | None = None
     interruption_reason: str | None = None

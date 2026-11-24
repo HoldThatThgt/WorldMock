@@ -73,26 +73,26 @@ def _feedback(code="ARGUMENTS_INVALID", path=("items", 0, "memories")):
                        (ErrorItem(path, None, code),)).payload()
 
 
-def _memory_update(identity, observation_id, decision_id, trigger=("activity_conclusion",)):
-    """引擎写出的 memory_updated.data（恰为十一个键）：写入点 trigger 与所属决策 decision_id 由引擎按登记推导。"""
+def _memory_update(identity, observation_id, wakeup_id, trigger=("activity_conclusion",)):
+    """引擎写出的 memory_updated.data（恰为十一个键）：写入点 trigger 与所属唤醒 wakeup_id 由引擎按登记推导。"""
     return {"operation": "append_episodes", "created_episode_ids": [identity],
             "merged_episode_ids": [], "episodes": [{"id": identity, "type": "goal",
             "text": "想继续生活", "epistemic_status": "subjective"}],
             "memory_before_sha256": "a" * 64, "memory_sha256": "b" * 64,
             "episodes_sha256": "c" * 64, "observation_event_id": observation_id,
-            "verified_event_ids": [], "trigger": list(trigger), "decision_id": decision_id}
+            "verified_event_ids": [], "trigger": list(trigger), "wakeup_id": wakeup_id}
 
 
-def _concluded(sequence, decision_id, *memories, action_id=None):
+def _concluded(sequence, wakeup_id, *memories, action_id=None):
     """一条已登记的 conclude_activity 请求事件。"""
-    return _event(sequence, "action_requested", agent_id=1, decision_id=decision_id,
-                  action_id=action_id or f"action-{decision_id}",
+    return _event(sequence, "action_requested", agent_id=1, wakeup_id=wakeup_id,
+                  action_id=action_id or f"action-{wakeup_id}",
                   data={"tool_name": "conclude_activity", "request": _conclusion(*memories)})
 
 
-def _started(reasons=()):
-    """decision_started.data 的闭集四个字段（docs/design/06-agent.md 第二章「单一行动阶段」）。"""
-    return {"round_id": "round", "round_order": 0, "world_state_version": 1, WAKE_REASONS_FIELD: list(reasons)}
+def _started(reasons=(), wakeup_id="wakeup"):
+    """decision_started.data 的闭集三个字段（docs/design/05-recording-engine.md）。"""
+    return {"wakeup_id": wakeup_id, "world_state_version": 1, WAKE_REASONS_FIELD: list(reasons)}
 
 
 def _activity(identity, kind, elapsed, status="completed", **fields):
@@ -122,21 +122,21 @@ def _content_event(sequence, *, before=0, after=300, completed=False, rounds=0, 
 def test_quality_report_covers_run_behavior_usage_cost_and_speedup():
     """整份质量报告；两次收尾各在同一决策写出收尾记忆，第二次登记后结算被拒，记忆照写，不报问题。"""
     events = [
-        _event(1, "observation", agent_id=1, decision_id="decision-1", data={"verified_experiences": []}),
-        _event(2, "model_request", agent_id=1, decision_id="decision-1", data={"call_id": "call-1"}),
-        _event(3, "model_response", agent_id=1, decision_id="decision-1",
+        _event(1, "observation", agent_id=1, wakeup_id="wakeup-1", data={"verified_experiences": []}),
+        _event(2, "model_request", agent_id=1, wakeup_id="wakeup-1", data={"call_id": "call-1"}),
+        _event(3, "model_response", agent_id=1, wakeup_id="wakeup-1",
                data=_tool_response("call-1", _usage())),
-        _concluded(4, "decision-1", _memory(), action_id="action-1"),
-        _event(5, "memory_updated", agent_id=1, decision_id="decision-1",
-               data=_memory_update("memory-1", "event-1", "decision-1")),
+        _concluded(4, "wakeup-1", _memory(), action_id="action-1"),
+        _event(5, "memory_updated", agent_id=1, wakeup_id="wakeup-1",
+               data=_memory_update("memory-1", "event-1", "wakeup-1")),
         _event(6, "action_result", agent_id=1, action_id="action-1", data={"status": "completed"}),
-        _event(7, "observation", agent_id=1, decision_id="decision-2", data={"verified_experiences": []}),
-        _event(8, "model_request", agent_id=1, decision_id="decision-2", data={"call_id": "call-2"}),
-        _event(9, "model_response", agent_id=1, decision_id="decision-2",
+        _event(7, "observation", agent_id=1, wakeup_id="wakeup-2", data={"verified_experiences": []}),
+        _event(8, "model_request", agent_id=1, wakeup_id="wakeup-2", data={"call_id": "call-2"}),
+        _event(9, "model_response", agent_id=1, wakeup_id="wakeup-2",
                data=_tool_response("call-2", _usage())),
-        _concluded(10, "decision-2", _memory("我想早点回家。"), action_id="action-2"),
-        _event(11, "memory_updated", agent_id=1, decision_id="decision-2",
-               data=_memory_update("memory-2", "event-7", "decision-2")),
+        _concluded(10, "wakeup-2", _memory("我想早点回家。"), action_id="action-2"),
+        _event(11, "memory_updated", agent_id=1, wakeup_id="wakeup-2",
+               data=_memory_update("memory-2", "event-7", "wakeup-2")),
         _event(12, "action_rejected", agent_id=1, action_id="action-2",
                data={"error_code": "ACTIVITY_CONCLUSION_REQUIRED"}),
         _event(13, "action_result", agent_id=1, action_id="action-2", data={"status": "rejected"}),
@@ -292,12 +292,12 @@ def test_cost_band_uses_request_time_when_response_crosses_boundary():
 def test_memory_quality_reports_conclusion_without_memory_update():
     """带非空 memories 的 conclude_activity 在同一决策没有收尾写入点的 memory_updated 时报
     conclusion_without_memory_update；memories 全是空组的收尾不要求写记忆（时间与能量规格第七章「来源由系统记录」）。"""
-    events = [_event(1, "observation", agent_id=1, decision_id="quiet", data={"verified_experiences": []}),
+    events = [_event(1, "observation", agent_id=1, wakeup_id="quiet", data={"verified_experiences": []}),
               _concluded(2, "quiet"),
-              _event(3, "observation", agent_id=1, decision_id="decision", data={"verified_experiences": []}),
-              _event(4, "model_request", agent_id=1, decision_id="decision", data={"call_id": "call"}),
-              _event(5, "model_response", agent_id=1, decision_id="decision", data=_tool_response("call", _usage())),
-              _concluded(6, "decision", _memory()),
+              _event(3, "observation", agent_id=1, wakeup_id="wakeup", data={"verified_experiences": []}),
+              _event(4, "model_request", agent_id=1, wakeup_id="wakeup", data={"call_id": "call"}),
+              _event(5, "model_response", agent_id=1, wakeup_id="wakeup", data=_tool_response("call", _usage())),
+              _concluded(6, "wakeup", _memory()),
               _event(7, "run_ended", occurred_at=200)]
 
     memory = build_quality_report(events, [], _manifest(end=200), sample_display_names())["memory_references"]
@@ -318,13 +318,13 @@ def test_memory_quality_reads_current_control_items_and_structured_errors():
                     "errands": []},
         "with_memory": _conclusion(_memory()),
     }
-    events = [_event(index + 1, "action_requested", agent_id=1, decision_id=label, action_id=f"action-{label}",
+    events = [_event(index + 1, "action_requested", agent_id=1, wakeup_id=label, action_id=f"action-{label}",
                      data={"tool_name": "conclude_activity", "request": request})
               for index, (label, request) in enumerate(requests.items())]
     views_error = _tool_response("call", _usage())
     views_error["error"] = "invalid conclude_activity arguments: items.0.views.0.about Field required"
     views_error["protocol_feedback"] = _feedback(path=("items", 0, "views", 0, "about"))
-    events += [_event(len(events) + 1, "model_response", agent_id=1, decision_id="protocol", data=views_error),
+    events += [_event(len(events) + 1, "model_response", agent_id=1, wakeup_id="protocol", data=views_error),
                _event(len(events) + 2, "run_ended", occurred_at=200)]
 
     memory = build_quality_report(events, [], _manifest(end=200), sample_display_names())["memory_references"]
@@ -338,13 +338,13 @@ def test_memory_quality_reads_current_control_items_and_structured_errors():
 
 def test_a_conclusion_that_only_changes_errands_is_no_memory_write_point():
     """个人事务变更不是记忆写入点（docs/design/04-simulation-engine.md、3.4 第 2 项）：只记下一条事务、没有 memories 与
-    views 的收尾不要求同一决策写出收尾记忆，不报 conclusion_without_memory_update；同样带着这条事务变更、另写了一条记忆的
+    views 的收尾不要求同一唤醒写出收尾记忆，不报 conclusion_without_memory_update；同样带着这条事务变更、另写了一条记忆的
     收尾照常要求，只有它被报出。"""
     added = {"change": "新增", "name": "买牛奶", "outcome": "取得", "item": "纯牛奶", "quantity": 1, "memo": None,
              "remind_time": None, "reason": None}
     requests = {"errands_only": {**_conclusion(), "errands": [added]},
                 "errands_and_memory": {**_conclusion(_memory()), "errands": [added]}}
-    events = [_event(index + 1, "action_requested", agent_id=1, decision_id=label, action_id=f"action-{label}",
+    events = [_event(index + 1, "action_requested", agent_id=1, wakeup_id=label, action_id=f"action-{label}",
                      data={"tool_name": "conclude_activity", "request": request})
               for index, (label, request) in enumerate(requests.items())]
     events.append(_event(len(events) + 1, "run_ended", occurred_at=200))
@@ -359,7 +359,7 @@ def test_a_conclusion_recorded_without_errands_is_an_integrity_fault():
     请求级 errands 的旧形状记录是完整性故障。同一条请求带着 errands（空列表）时报告照常生成、没有记忆问题。"""
     def report(request: dict) -> dict:
         """只有这一条收尾请求与运行终点的事件集的质量报告。"""
-        events = [_event(1, "action_requested", agent_id=1, decision_id="decision", action_id="action",
+        events = [_event(1, "action_requested", agent_id=1, wakeup_id="wakeup", action_id="action",
                          data={"tool_name": "conclude_activity", "request": request}),
                   _event(2, "run_ended", occurred_at=200)]
         return build_quality_report(events, [], _manifest(end=200), sample_display_names())
@@ -376,7 +376,7 @@ def test_non_memory_tool_json_error_is_counted_without_memory_warning():
     response["error"] = "invalid tool arguments for report_status"
     function = response["response"]["choices"][0]["message"]["tool_calls"][0]["function"]
     function.update(name="report_status", arguments="{invalid json")
-    event = _event(1, "model_response", agent_id=1, decision_id="decision", data=response)
+    event = _event(1, "model_response", agent_id=1, wakeup_id="wakeup", data=response)
     quality = build_quality_report([event], [], _manifest(), sample_display_names())
     assert quality["model_usage"]["protocol_error_responses"] == 1
     assert quality["memory_references"]["problem_count"] == 0
@@ -384,7 +384,7 @@ def test_non_memory_tool_json_error_is_counted_without_memory_warning():
     oversized = _tool_response("call", _usage())
     oversized["error"] = "invalid conclude_activity arguments: memories exceed eight entries in total"
     oversized["protocol_feedback"] = _feedback()
-    event = _event(1, "model_response", agent_id=1, decision_id="decision", data=oversized)
+    event = _event(1, "model_response", agent_id=1, wakeup_id="wakeup", data=oversized)
     memory = build_quality_report([event], [], _manifest(), sample_display_names())["memory_references"]
     assert memory["problems"] == [{"code": "memory_protocol_error", "event_id": "event-1", "agent_id": 1}]
 
@@ -394,13 +394,13 @@ def test_non_memory_tool_json_error_is_counted_without_memory_warning():
     (["planned_end"], False, ()),
 ])
 def test_memory_update_whose_write_point_has_no_registration_has_no_source(wake_reasons, registered, trigger):
-    """写入点找不到对应登记即 memory_update_without_source：收尾写入点没有同一决策的 conclude_activity，或写入了条目
+    """写入点找不到对应登记即 memory_update_without_source：收尾写入点没有同一唤醒的 conclude_activity，或写入了条目
     却没有任何写入点。"""
-    events = [_event(1, "observation", agent_id=1, decision_id="decision",
+    events = [_event(1, "observation", agent_id=1, wakeup_id="wakeup",
                      data={"verified_experiences": [], "wake_reasons": wake_reasons}),
-              *([_concluded(2, "decision", _memory())] if registered else []),
-              _event(3, "memory_updated", agent_id=1, decision_id="decision",
-                     data=_memory_update("m1", "event-1", "decision", trigger))]
+              *([_concluded(2, "wakeup", _memory())] if registered else []),
+              _event(3, "memory_updated", agent_id=1, wakeup_id="wakeup",
+                     data=_memory_update("m1", "event-1", "wakeup", trigger))]
     memory = build_quality_report(events, [], _manifest(), sample_display_names())["memory_references"]
     assert memory["write_points_checked"] == len(trigger)
     assert memory["problems"] == [{"code": "memory_update_without_source", "event_id": "event-3", "agent_id": 1}]
@@ -408,9 +408,9 @@ def test_memory_update_whose_write_point_has_no_registration_has_no_source(wake_
 
 def _single_update_problems(data):
     """观察、带记忆的收尾与一条 memory_updated（数据为 data）三条事件的记忆问题码与更新条数。"""
-    events = [_event(1, "observation", agent_id=1, decision_id="decision", data={"verified_experiences": []}),
-              _concluded(2, "decision", _memory()),
-              _event(3, "memory_updated", agent_id=1, decision_id="decision", data=data)]
+    events = [_event(1, "observation", agent_id=1, wakeup_id="wakeup", data={"verified_experiences": []}),
+              _concluded(2, "wakeup", _memory()),
+              _event(3, "memory_updated", agent_id=1, wakeup_id="wakeup", data=data)]
     memory = build_quality_report(events, [], _manifest(), sample_display_names())["memory_references"]
     return [item["code"] for item in memory["problems"]], memory["memory_update_events"]
 
@@ -418,23 +418,23 @@ def _single_update_problems(data):
 @pytest.mark.parametrize("change", [
     {"trigger": "activity_conclusion"}, {"trigger": ["finish"]}, {"trigger": ["reflection", "activity_conclusion"]},
     {"trigger": ["reflection"]}, {"trigger": ["activity_conclusion", "activity_conclusion"]},
-    {"decision_id": "another-decision"}, {"decision_id": None},
+    {"wakeup_id": "another-wakeup"}, {"wakeup_id": None},
 ])
 def test_malformed_trigger_or_decision_is_an_invalid_memory_update(change):
     """trigger 须是写入点闭集（只有 activity_conclusion）按序、无重复的列表，含 reflection 的列表按形状不符处理；
-    decision_id 须等于事件所属决策；否则整条记为 invalid_memory_update。"""
-    codes, updates = _single_update_problems({**_memory_update("m1", "event-1", "decision"), **change})
+    wakeup_id 须等于事件所属唤醒；否则整条记为 invalid_memory_update。"""
+    codes, updates = _single_update_problems({**_memory_update("m1", "event-1", "wakeup"), **change})
     assert updates == 0
     assert codes == ["invalid_memory_update", "conclusion_without_memory_update"]
 
 
 @pytest.mark.parametrize("change", [
-    {"consolidated": False}, {"reflection": None}, {"state_sha256": "d" * 64}, "decision_id",
+    {"consolidated": False}, {"reflection": None}, {"state_sha256": "d" * 64}, "wakeup_id",
 ])
 def test_memory_update_payload_must_have_exactly_the_eleven_keys(change):
     """memory_updated.data 的键集合须恰为 MEMORY_UPDATE_KEYS 的十一个键：多出已删的 consolidated、reflection、
-    state_sha256，或缺 decision_id，都记 invalid_memory_update。"""
-    data = _memory_update("m1", "event-1", "decision")
+    state_sha256，或缺 wakeup_id，都记 invalid_memory_update。"""
+    data = _memory_update("m1", "event-1", "wakeup")
     if isinstance(change, str):
         del data[change]
     else:
@@ -447,10 +447,10 @@ def test_memory_update_payload_must_have_exactly_the_eleven_keys(change):
 def test_a_null_previous_view_digest_is_a_valid_memory_update():
     """人物第一条更新的写入前摘要为 null：是合法的更新，计入更新与条目，没有记忆问题；写入前摘要既不是 null
     也不是摘要时记 invalid_memory_update。"""
-    codes, updates = _single_update_problems({**_memory_update("m1", "event-1", "decision"),
+    codes, updates = _single_update_problems({**_memory_update("m1", "event-1", "wakeup"),
                                               "memory_before_sha256": None})
     assert (codes, updates) == ([], 1)
-    codes, updates = _single_update_problems({**_memory_update("m1", "event-1", "decision"),
+    codes, updates = _single_update_problems({**_memory_update("m1", "event-1", "wakeup"),
                                               "memory_before_sha256": ""})
     assert (codes, updates) == (["invalid_memory_update", "conclusion_without_memory_update"], 0)
 
@@ -458,7 +458,7 @@ def test_a_null_previous_view_digest_is_a_valid_memory_update():
 def test_a_summary_refresh_without_a_view_change_is_an_invalid_memory_update():
     """refresh_summary 没有新建与合并的条目，写入前后 MEMORY.md 的摘要必须不同：两者相等记 invalid_memory_update、
     不计入更新；不同则是合法的视图刷新，计入一条更新。"""
-    data = {**_memory_update("m1", "event-1", "decision", trigger=()), "operation": "refresh_summary",
+    data = {**_memory_update("m1", "event-1", "wakeup", trigger=()), "operation": "refresh_summary",
             "created_episode_ids": [], "episodes": []}
     codes, updates = _single_update_problems(data | {"memory_sha256": "a" * 64})
     assert "invalid_memory_update" in codes and updates == 0
@@ -467,11 +467,11 @@ def test_a_summary_refresh_without_a_view_change_is_an_invalid_memory_update():
 
 
 def test_memory_update_must_carry_its_observation_fact_window():
-    """记忆证据的观察身份与已核验经历窗口须等于同一决策绑定的观察，否则报 invalid_memory_update_source_window。"""
-    events = [_event(1, "observation", agent_id=1, decision_id="decision", data={"verified_experiences": []}),
-              _concluded(2, "decision", _memory()),
-              _event(3, "memory_updated", agent_id=1, decision_id="decision",
-                     data=_memory_update("m1", "event-absent", "decision"))]
+    """记忆证据的观察身份与已核验经历窗口须等于同一唤醒绑定的观察，否则报 invalid_memory_update_source_window。"""
+    events = [_event(1, "observation", agent_id=1, wakeup_id="wakeup", data={"verified_experiences": []}),
+              _concluded(2, "wakeup", _memory()),
+              _event(3, "memory_updated", agent_id=1, wakeup_id="wakeup",
+                     data=_memory_update("m1", "event-absent", "wakeup"))]
     memory = build_quality_report(events, [], _manifest(), sample_display_names())["memory_references"]
     assert [item["code"] for item in memory["problems"]] == ["invalid_memory_update_source_window"]
 
@@ -481,14 +481,14 @@ def test_merged_memory_identity_is_not_reported_as_a_duplicate():
     merged = {**_memory_update('m1', 'event-4', 'second'), 'created_episode_ids': [],
               'merged_episode_ids': ['m1']}
     events = [
-        _event(1, 'observation', agent_id=1, decision_id='first', data={'verified_experiences': []}),
-        _event(2, 'model_response', agent_id=1, decision_id='first', data=_tool_response('first', _usage())),
+        _event(1, 'observation', agent_id=1, wakeup_id='first', data={'verified_experiences': []}),
+        _event(2, 'model_response', agent_id=1, wakeup_id='first', data=_tool_response('first', _usage())),
         _concluded(3, 'first', _memory()),
-        _event(4, 'memory_updated', agent_id=1, decision_id='first', data=first),
-        _event(5, 'observation', agent_id=1, decision_id='second', data={'verified_experiences': []}),
-        _event(6, 'model_response', agent_id=1, decision_id='second', data=_tool_response('second', _usage())),
+        _event(4, 'memory_updated', agent_id=1, wakeup_id='first', data=first),
+        _event(5, 'observation', agent_id=1, wakeup_id='second', data={'verified_experiences': []}),
+        _event(6, 'model_response', agent_id=1, wakeup_id='second', data=_tool_response('second', _usage())),
         _concluded(7, 'second', _memory()),
-        _event(8, 'memory_updated', agent_id=1, decision_id='second',
+        _event(8, 'memory_updated', agent_id=1, wakeup_id='second',
                data={**merged, 'observation_event_id': 'event-5'}),
     ]
     memory = build_quality_report(events, [], _manifest(), sample_display_names())['memory_references']
@@ -502,7 +502,7 @@ def test_valid_looking_observed_fact_must_equal_its_committed_source():
     forged = {"kind": "received", "agent_id": 1, "activity_id": None, "source_event_id": "event-1",
               "event_seq": 1, "occurred_at": 101, "order_id": "order", "goods_id": "goods", "category": "meal",
               "quantity": 2}
-    observation = _event(2, "observation", agent_id=1, decision_id="decision",
+    observation = _event(2, "observation", agent_id=1, wakeup_id="wakeup",
                          data={"verified_experiences": [forged]})
     quality = build_quality_report([source, observation], [], _manifest(), sample_display_names())["memory_references"]
     assert [item["code"] for item in quality["problems"]] == ["invalid_verified_experience_source"]
@@ -517,22 +517,21 @@ def test_valid_looking_observed_fact_must_equal_its_committed_source():
 ])
 def test_progress_sources_must_be_this_persons_prior_events(source, valid):
     """观察的 progress_event_ids 每个都须解析到本人更早提交的事件；否则记 invalid_observed_result_reference。"""
-    events = [_event(2, 'observation', agent_id=1, decision_id='current',
+    events = [_event(2, 'observation', agent_id=1, wakeup_id='current',
                      data={'progress_event_ids': ['event-1' if source is None or source['sequence'] == 1
                                                   else 'event-3'], 'verified_experiences': []})]
     if source is not None:
         sequence = source['sequence']
         fields = {key: value for key, value in source.items() if key not in {'sequence', 'event_type'}}
         events.insert(0 if sequence == 1 else 1, _event(sequence, source['event_type'], **fields))
-    events.append(_event(4, 'model_response', agent_id=1, decision_id='current',
+    events.append(_event(4, 'model_response', agent_id=1, wakeup_id='current',
                          data=_tool_response('call', _usage())))
     memory = build_quality_report(events, [], _manifest(), sample_display_names())['memory_references']
     assert [item['code'] for item in memory['problems']] == ([] if valid else ['invalid_observed_result_reference'])
 
 
 def test_decision_rhythm_counts_silent_boundaries_and_wake_reasons():
-    """决策节律只透传边界与唤醒原因计数；自述两项计数已删除（报告版本 2 起），报告版本现为 4（版本 3 是一日运行保真的
-    新节，版本 4 是个人事务与工作安排规格的两个新节）。"""
+    """决策节律只透传边界与唤醒原因计数；报告版本现为 11。"""
     events = [
         _event(1, "environment_event", agent_id=1, data={"kind": "body_settlement", DECISION_OFFERED_FIELD: False,
                                              WAKE_REASONS_FIELD: []}),
@@ -541,8 +540,9 @@ def test_decision_rhythm_counts_silent_boundaries_and_wake_reasons():
         _event(3, "environment_event", agent_id=1, data={"kind": "body_settlement", DECISION_OFFERED_FIELD: True,
                                              WAKE_REASONS_FIELD: ["planned_end", "mystery"]}),
         _event(4, "environment_event", agent_id=1, data={"kind": "body_settlement"}),
-        _event(5, "decision_started", agent_id=1, decision_id="decision-1", data=_started()),
-        _event(6, "decision_started", agent_id=1, decision_id="decision-2", data=_started(["session_open"])),
+        _event(5, "decision_started", agent_id=1, wakeup_id="wakeup-1", data=_started(wakeup_id="wakeup-1")),
+        _event(6, "decision_started", agent_id=1, wakeup_id="wakeup-2",
+               data=_started(["session_open"], "wakeup-2")),
         _event(7, "environment_event", agent_id=1, data={"kind": "decision_budget_exhausted",
                                                          "error_code": "ACTION_REQUEST_INVALID",
                                                          "next_decision_at": 1000}),
@@ -552,7 +552,7 @@ def test_decision_rhythm_counts_silent_boundaries_and_wake_reasons():
     report = build_quality_report(events, [], _manifest(), sample_display_names())
     rhythm = report["decision_rhythm"]
 
-    assert report["schema_version"] == 10
+    assert report["schema_version"] == 11
     assert "decision_budget_exhausted_events" not in rhythm
     assert rhythm["body_settlement_events"] == 4
     assert rhythm["boundaries_with_decision_field"] == 3
@@ -563,18 +563,14 @@ def test_decision_rhythm_counts_silent_boundaries_and_wake_reasons():
     assert rhythm["wake_reason_counts"] == {"delivery_arrival": 1, "planned_end": 2}
     assert rhythm["unrecognized_wake_reason_counts"] == {"mystery": 1}
     assert rhythm["decision_started_events"] == 2
+    assert rhythm["unique_wakeup_ids"] == 2
     assert not {"decision_started_with_decision_statement", "decision_started_missing_decision_statement"} & set(
         rhythm)
 
 
 def test_report_sections_are_the_documented_grouping_without_a_language_count():
     """报告的分组恰是记录引擎设计「质量报告」登记的十九组（docs/design/05-recording-engine.md），顺序相同，另有版本与
-    运行身份；报告结构为 9：父运行各段的 lineage 紧随 acceleration；个人事务与工作安排规格的两个新组
-    errand_metrics、conclusion_memories
-    在报告与登记句里都紧随 day_plan_metrics（docs/design/01-architecture.md），没有任何事务事件与收尾记忆时两组
-    都为 null。其中没有语言计数：一日运行保真裁决 D18 不作语言要求，人物写的正文、总结与记忆用中文还是英文不在报告里
-    计数（docs/design/06-agent.md），一日运行保真新增的五节是输入警告、时间线标签、联系人回复守卫、名称类
-    拒绝与截断。"""
+    运行身份；报告版本为 11。"""
     report = build_quality_report([_event(1, "run_ended", occurred_at=200)], [], _manifest(end=200), sample_display_names())
     documented = ['event_range', 'run_outcome', 'actions', 'activities', 'content_contact', 'app_pushes', 'conversion_efficiency', 'decision_rhythm', 'memory_references', 'model_usage', 'acceleration', 'lineage', 'day_plan_metrics', 'errand_metrics', 'conclusion_memories', 'input_warnings', 'timeline_labels', 'name_rejections', 'truncations']
     assert len(documented) == len(set(documented)) == 19
@@ -583,44 +579,47 @@ def test_report_sections_are_the_documented_grouping_without_a_language_count():
     assert documented[plan:plan + 3] == ["day_plan_metrics", "errand_metrics", "conclusion_memories"]
     assert list(report)[3:] == documented
     assert set(report) == {"schema_version", "run_id", "source_group_id", *documented}
-    assert report["schema_version"] == 10
+    assert report["schema_version"] == 11
     assert (report["errand_metrics"], report["conclusion_memories"]) == (None, None)
     assert [key for key in report if any(word in key for word in ("language", "english", "chinese"))] == []
 
 
-def test_decision_rhythm_counts_same_moment_rounds():
-    """时间与能量规格第一章：同刻轮数按（人物, 模拟秒）计 decision_started，轮次原因取 decision_started。"""
+def test_decision_rhythm_counts_unique_wakeup_ids_and_reasons():
+    """唯一唤醒数按 wakeup_id 去重（如 search_world 挂起与恢复共享同一 wakeup_id），唤醒原因从各 decision_started 累加。"""
     first, later = 200, 300
 
-    def started(sequence, agent_id, occurred_at, reasons):
+    def started(sequence, agent_id, occurred_at, reasons, wid=None):
+        wakeup_id = wid or f"wakeup-{sequence}"
         return _event(sequence, "decision_started", occurred_at=occurred_at, agent_id=agent_id,
-                      decision_id=f"decision-{sequence}", data=_started(reasons))
+                      wakeup_id=wakeup_id, data=_started(reasons, wakeup_id))
 
     events = [
-        started(1, 1, first, ["session_open"]),
-        started(2, 1, first, ["no_active_activity"]),
-        started(3, 1, first, ["rejection_feedback"]),
-        started(4, 2, first, ["session_open"]),
+        started(1, 1, first, ["session_open"], "wakeup-1"),
+        started(2, 1, first, ["no_active_activity"], "wakeup-2"),
+        started(3, 1, first, ["rejection_feedback"], "wakeup-3"),
+        started(4, 2, first, ["session_open"], "wakeup-4"),
         _event(5, "environment_event", occurred_at=later, agent_id=1,
                data={"kind": "body_settlement", DECISION_OFFERED_FIELD: True,
                      WAKE_REASONS_FIELD: ["no_active_activity"]}),
-        started(6, 1, later, ["planned_end"]),
+        started(6, 1, later, ["planned_end"], "wakeup-1"),
         _event(7, "run_ended", occurred_at=1100),
     ]
 
     rhythm = build_quality_report(events, [], _manifest(), sample_display_names())["decision_rhythm"]
 
-    assert rhythm["same_moment_round_counts"] == {"1": 2, "3": 1}
+    assert "same_moment_round_counts" not in rhythm
     assert rhythm["decision_started_events"] == 5
+    assert rhythm["unique_wakeup_ids"] == 4
     assert rhythm["decision_started_wake_reason_counts"] == {
         "no_active_activity": 1, "planned_end": 1, "rejection_feedback": 1, "session_open": 2}
     assert rhythm["wake_reason_counts"] == {"no_active_activity": 1}
     assert rhythm["unrecognized_decision_started_wake_reason_counts"] == {}
     assert rhythm["unrecognized_wake_reason_counts"] == {}
 
-    foreign = events[:-1] + [started(7, 2, later, ["mystery"]), _event(8, "run_ended", occurred_at=1100)]
+    foreign = events[:-1] + [started(7, 2, later, ["mystery"], "wakeup-7"), _event(8, "run_ended", occurred_at=1100)]
     rhythm = build_quality_report(foreign, [], _manifest(), sample_display_names())["decision_rhythm"]
-    assert rhythm["same_moment_round_counts"] == {"1": 3, "3": 1}
+    assert rhythm["decision_started_events"] == 6
+    assert rhythm["unique_wakeup_ids"] == 5
     assert rhythm["unrecognized_decision_started_wake_reason_counts"] == {"mystery": 1}
 
 
@@ -631,10 +630,11 @@ def test_errand_reminder_due_is_a_known_wake_reason():
     events = [
         _event(1, "environment_event", agent_id=1, data={"kind": "body_settlement", DECISION_OFFERED_FIELD: True,
                                                          WAKE_REASONS_FIELD: reasons}),
-        _event(2, "decision_started", agent_id=1, decision_id="decision-1", data=_started(reasons)),
+        _event(2, "decision_started", agent_id=1, wakeup_id="wakeup-1", data=_started(reasons, "wakeup-1")),
         _event(3, "environment_event", agent_id=1, data={"kind": "body_settlement", DECISION_OFFERED_FIELD: True,
                                                          WAKE_REASONS_FIELD: ["reminder_due"]}),
-        _event(4, "decision_started", agent_id=1, decision_id="decision-2", data=_started(["reminder_due"])),
+        _event(4, "decision_started", agent_id=1, wakeup_id="wakeup-2",
+               data=_started(["reminder_due"], "wakeup-2")),
         _event(5, "run_ended", occurred_at=1100),
     ]
 
@@ -649,7 +649,7 @@ def test_errand_reminder_due_is_a_known_wake_reason():
 
 def test_decision_rhythm_reports_zero_coverage_for_legacy_event_sets():
     events = [_event(1, "environment_event", agent_id=1, data={"kind": "body_settlement"}),
-              _event(2, "decision_started", agent_id=1, decision_id="decision-1", data=_started()),
+              _event(2, "decision_started", agent_id=1, wakeup_id="wakeup-1", data=_started(wakeup_id="wakeup-1")),
               _event(3, "run_ended", occurred_at=1100)]
 
     rhythm = build_quality_report(events, [], _manifest(), sample_display_names())["decision_rhythm"]
@@ -661,6 +661,7 @@ def test_decision_rhythm_reports_zero_coverage_for_legacy_event_sets():
     assert rhythm["wake_reason_counts"] == {}
     assert rhythm["unrecognized_wake_reason_counts"] == {}
     assert rhythm["decision_started_events"] == 1
+    assert rhythm["unique_wakeup_ids"] == 1
     assert "decision_budget_exhausted_events" not in rhythm
 
 
@@ -747,21 +748,21 @@ def test_truncations_count_length_responses_with_their_output_and_reasoning_toke
     一条（重复终态不重复计），按用途分列（人物决策记为 decision）；浪费的输出 token 与思考 token 取提供商实报的
     completion_tokens 与 completion_tokens_details.reasoning_tokens；正常回复与没有回复的传输失败不计入。"""
     events = [
-        _event(1, "model_request", agent_id=1, decision_id="d1", data={"call_id": "call-1"}),
-        _event(2, "model_response", agent_id=1, decision_id="d1",
+        _event(1, "model_request", agent_id=1, wakeup_id="d1", data={"call_id": "call-1"}),
+        _event(2, "model_response", agent_id=1, wakeup_id="d1",
                data=_truncated_response("call-1", _truncation_usage(8000, 8000))),
-        _event(3, "model_request", agent_id=1, decision_id="d1", data={"call_id": "call-2"}),
-        _event(4, "model_response", agent_id=1, decision_id="d1", data=_tool_response("call-2", _usage())),
-        _event(5, "model_request", agent_id=1, decision_id="d2", data={"call_id": "call-3"}),
-        _event(6, "model_response", agent_id=1, decision_id="d2",
+        _event(3, "model_request", agent_id=1, wakeup_id="d1", data={"call_id": "call-2"}),
+        _event(4, "model_response", agent_id=1, wakeup_id="d1", data=_tool_response("call-2", _usage())),
+        _event(5, "model_request", agent_id=1, wakeup_id="d2", data={"call_id": "call-3"}),
+        _event(6, "model_response", agent_id=1, wakeup_id="d2",
                data=_truncated_response("call-3", _truncation_usage(8001, 7990))),
-        _event(7, "model_response", agent_id=1, decision_id="d2",
+        _event(7, "model_response", agent_id=1, wakeup_id="d2",
                data=_truncated_response("call-3", _truncation_usage(8001, 7990))),
         _event(8, "model_request", agent_id=1, data={"call_id": "plan-1", "purpose": "plan_day"}),
         _event(9, "model_response", agent_id=1,
                data=_truncated_response("plan-1", _truncation_usage(500, 0), "plan_day")),
-        _event(10, "model_request", agent_id=1, decision_id="d3", data={"call_id": "call-4"}),
-        _event(11, "model_response", agent_id=1, decision_id="d3",
+        _event(10, "model_request", agent_id=1, wakeup_id="d3", data={"call_id": "call-4"}),
+        _event(11, "model_response", agent_id=1, wakeup_id="d3",
                data={"phase": "failure", "call_id": "call-4", "attempt": 1, "error": "TimeoutError()"}),
     ]
 
@@ -780,10 +781,10 @@ def test_truncation_tokens_missing_from_a_response_stay_unknown_instead_of_zero(
     没有截断的运行次数与两项合计都是 0。"""
     no_details = {"prompt_tokens": 10, "completion_tokens": 8000, "total_tokens": 8010}
     events = [
-        _event(1, "model_request", agent_id=1, decision_id="d1", data={"call_id": "call-1"}),
-        _event(2, "model_response", agent_id=1, decision_id="d1", data=_truncated_response("call-1", None)),
-        _event(3, "model_request", agent_id=1, decision_id="d1", data={"call_id": "call-2"}),
-        _event(4, "model_response", agent_id=1, decision_id="d1", data=_truncated_response("call-2", no_details)),
+        _event(1, "model_request", agent_id=1, wakeup_id="d1", data={"call_id": "call-1"}),
+        _event(2, "model_response", agent_id=1, wakeup_id="d1", data=_truncated_response("call-1", None)),
+        _event(3, "model_request", agent_id=1, wakeup_id="d1", data={"call_id": "call-2"}),
+        _event(4, "model_response", agent_id=1, wakeup_id="d1", data=_truncated_response("call-2", no_details)),
     ]
 
     section = build_quality_report(events, [], _manifest(end=200), sample_display_names())["truncations"]
@@ -890,12 +891,12 @@ def test_timeline_labels_count_hexadecimal_and_hash_identifiers_as_internal_ids(
     assert (near["english_kind_names"], near["internal_ids"], near["findings"]) == (0, 0, [])
 
 
-def test_timeline_label_that_leaks_the_english_query_kind_is_counted():
-    """查询是第五种活动：时间线标签里漏出的英文 query 与其余四种的英文种类名一样计一项。"""
-    report = _labels_report("中山公园", "query", "周报")
+def test_timeline_label_that_leaks_the_english_search_kind_is_counted():
+    """搜索是第五种活动：时间线标签里漏出的英文 search 与其余四种的英文种类名一样计一项。"""
+    report = _labels_report("中山公园", "search", "周报")
     assert (report["english_kind_names"], report["internal_ids"]) == (1, 0)
     assert [(item["label"], item["item"], item["text"]) for item in report["findings"]] == [
-        ("使用query《周报》", "english_kind_name", "query")]
+        ("使用search《周报》", "english_kind_name", "search")]
 
 
 def _protocol_error(sequence, call_id, code, purpose=None):
@@ -905,7 +906,7 @@ def _protocol_error(sequence, call_id, code, purpose=None):
     response["protocol_feedback"] = _feedback(code, ("tool_calls", 0))
     if purpose is not None:
         response["purpose"] = purpose
-    return _event(sequence, "model_response", agent_id=1, decision_id=f"decision-{call_id}", data=response)
+    return _event(sequence, "model_response", agent_id=1, wakeup_id=f"wakeup-{call_id}", data=response)
 
 
 def _rejected(sequence, code, occurred_at):
@@ -982,6 +983,7 @@ def _class_request(name):
     request = {"messages": [{"role": "system"}, {"role": "user"}]}
     if name in {"fresh_decision_turn", "turn_with_history", "truncation_retry"}:
         request["tools"] = [{"function": {"name": "start_main_activity"}}]
+        request["tool_choice"] = "required" if name == "truncation_retry" else "auto"
         request["extra_body"] = {"thinking": {"type": "disabled" if name == "truncation_retry" else "enabled"}}
         if name != "fresh_decision_turn":
             request["messages"] += [{"role": "assistant"}, {"role": "tool"}]
@@ -989,13 +991,13 @@ def _class_request(name):
     if name in tools:
         request["tools"] = [{"function": {"name": tools[name]}}]
     data = {"call_id": name, "request": request}
-    if name in {"plan_day", "memory_digest"}:
+    if name in {"search_session", "plan_day", "memory_digest"}:
         data["purpose"] = name
     return data
 
 
 def test_memory_digest_requests_form_their_own_call_class():
-    """purpose 为 memory_digest 的请求归 memory_digest 一类，不看工具名；它是调用类的最后一类，报告结构号是 10。"""
+    """purpose 为 memory_digest / search_session 的请求各归对应一类，不看工具名；报告结构号是 11。"""
     for tools in ([{"function": {"name": "submit_memory_digest"}}], [{"function": {"name": "start_main_activity"}}],
                   [{"function": {"name": "submit_reflection"}}], []):
         data = {"call_id": "digest", "purpose": "memory_digest",
@@ -1003,11 +1005,12 @@ def test_memory_digest_requests_form_their_own_call_class():
                             "extra_body": {"thinking": {"type": "enabled"}}}}
         assert _call_class(data) == "memory_digest"
     assert _call_class({**_class_request("plan_day"), "purpose": "plan_day"}) == "plan_day"
-    assert CALL_CLASSES[-1] == "memory_digest" and len(CALL_CLASSES) == 7
+    assert _call_class({**_class_request("search_session"), "purpose": "search_session"}) == "search_session"
+    assert CALL_CLASSES[-1] == "memory_digest" and "search_session" in CALL_CLASSES and len(CALL_CLASSES) == 8
     events = [_event(1, "model_request", data=_class_request("memory_digest")),
               _event(2, "model_response", data=_tool_response("memory_digest", _usage()))]
     report = build_quality_report(events, [], _manifest(), sample_display_names())
-    assert report["schema_version"] == 10
+    assert report["schema_version"] == 11
     [row] = [row for row in report["model_usage"]["by_call_class"] if row["call_class"] == "memory_digest"]
     assert row["request_events"] == row["provider_responses"] == 1
 
@@ -1051,7 +1054,7 @@ def test_call_class_comes_from_the_request_event_not_the_response():
 def test_a_start_tool_request_without_the_retry_switch_is_unrecognized():
     events = []
     for index, switch in enumerate((None, {"thinking": {"type": "enabled", "budget": 1}})):
-        data = _class_request("fresh_decision_turn")
+        data = _class_request("truncation_retry")
         data["request"].pop("extra_body")
         if switch is not None:
             data["request"]["extra_body"] = switch

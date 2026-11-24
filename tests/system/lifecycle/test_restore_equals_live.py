@@ -18,14 +18,13 @@ def _world(engine) -> bytes:
 
 def test_a_branch_at_every_step_matches_the_live_world_and_observation(tmp_path, monkeypatch):
     """每次决策轮提交、每次推进与每次零点判定之后：分支的世界与父运行相同、版本多一，活动先后相同；人物就绪时分支同样
-    就绪，两边同一时刻的观察（用私有构建器取，不写观察事件，父运行的本秒呈现暂存原样放回）逐字节相同。"""
+    就绪，两边同一时刻的观察（用私有无状态构建器取，不写观察事件）逐字节相同。"""
     parent = create_complete_day_engine(tmp_path / "case", "activity")
     steps = []
 
     def probe(parent, origins) -> None:
         """在此刻开出恢复分支并与父运行逐项比较，比较完关闭并删掉分支。"""
         step_dir = tmp_path / f"step-{len(steps)}"
-        pending = dict(parent.observations.pending_presentation)
         child = branch_of(parent, step_dir, "resume", "-")
         try:
             assert child.context.state.version == parent.context.state.version + 1
@@ -40,7 +39,6 @@ def test_a_branch_at_every_step_matches_the_live_world_and_observation(tmp_path,
             steps.append(bool(ready))
         finally:
             child.close()
-            parent.observations.pending_presentation = pending
             shutil.rmtree(step_dir)
 
     check_every_step(monkeypatch, parent, probe)

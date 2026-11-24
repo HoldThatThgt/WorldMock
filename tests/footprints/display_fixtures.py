@@ -39,7 +39,8 @@ def freeze_environment(run_dir: Path, root: Path = ENVIRONMENT_ROOT, replaced: d
 
     store = AssetStore(Path(run_dir) / "assets")
     listed = json.loads((root / "catalog" / "manifest.json").read_bytes())["files"]
-    names = ["persona.toml", "config.toml", "catalog/manifest.json", *(f"catalog/{row['path']}" for row in listed)]
+    persona_names = [f"personas/{path.name}" for path in sorted((root / "personas").glob("*.toml"))]
+    names = [*persona_names, "config.toml", "catalog/manifest.json", *(f"catalog/{row['path']}" for row in listed)]
     contents = {name: (root / name).read_bytes() for name in names}
     contents["map.json"] = b"{}"
     contents.update(replaced or {})

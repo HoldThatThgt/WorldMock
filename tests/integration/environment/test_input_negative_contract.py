@@ -27,10 +27,10 @@ def write_input(root, name, values):
 ])
 def test_invalid_work_shift_cannot_be_loaded(tmp_path, shift):
     root = copy_environment(tmp_path / "input")
-    write_input(root, "persona.toml", {"work_schedule": {"workplace": "公司", "weekly": {"0": shift}}})
+    write_input(root, "personas/persona_1.toml", {"work_schedule": {"workplace": "公司", "weekly": {"0": shift}}})
     with pytest.raises(EnvironmentInputError, match=r"^work_schedule\.weekly\.0(\.breaks\.0)?: ") as caught:
-        parse_persona_file(root / "persona.toml")
-    assert (caught.value.path, caught.value.code) == ("persona.toml", "PERSONA_INVALID")
+        parse_persona_file(root / "personas" / "persona_1.toml")
+    assert (caught.value.path, caught.value.code) == ("personas/persona_1.toml", "PERSONA_INVALID")
 
 
 @pytest.mark.parametrize("schedule", [
@@ -42,10 +42,10 @@ def test_invalid_work_shift_cannot_be_loaded(tmp_path, shift):
 ])
 def test_work_schedule_has_canonical_weekdays_dates_and_one_daily_shift(tmp_path, schedule):
     root = copy_environment(tmp_path / "input")
-    write_input(root, "persona.toml", {"work_schedule": schedule})
+    write_input(root, "personas/persona_1.toml", {"work_schedule": schedule})
     with pytest.raises(EnvironmentInputError, match=r"^work_schedule: ") as caught:
-        parse_persona_file(root / "persona.toml")
-    assert (caught.value.path, caught.value.code) == ("persona.toml", "PERSONA_INVALID")
+        parse_persona_file(root / "personas" / "persona_1.toml")
+    assert (caught.value.path, caught.value.code) == ("personas/persona_1.toml", "PERSONA_INVALID")
 
 
 @pytest.mark.parametrize("shift,reason", [
@@ -57,18 +57,19 @@ def test_work_schedule_has_canonical_weekdays_dates_and_one_daily_shift(tmp_path
     ({"starts": "nine", "ends": 700, "breaks": []},
      "work_schedule.exceptions.2026-01-05.starts: Input should be a valid integer"),
     ({"starts": 600, "ends": 700, "breaks": [], "overtime": True},
-     "work_schedule.exceptions.2026-01-05.overtime is not a persona.toml field"),
+     "work_schedule.exceptions.2026-01-05.overtime is not a persona field"),
     ("rest", "work_schedule.exceptions.2026-01-05: Input should be a valid dictionary or instance of WorkShift"),
 ])
 def test_a_bad_shift_in_a_date_exception_is_named_by_its_date_without_validator_tags(tmp_path, shift, reason):
     """日期例外里的班次出错时，原因的路径写到那个日期或班次里的字段为止：只由字段名、表的键和数组下标组成，
     不带校验库内部的联合分支与校验器标记。"""
     root = copy_environment(tmp_path / "input")
-    write_input(root, "persona.toml", {"work_schedule": {"workplace": "公司", "weekly": {},
-                                                         "exceptions": {"2026-01-05": shift}}})
+    write_input(root, "personas/persona_1.toml", {"work_schedule": {"workplace": "公司", "weekly": {},
+                                                                       "exceptions": {"2026-01-05": shift}}})
     with pytest.raises(EnvironmentInputError) as caught:
-        parse_persona_file(root / "persona.toml")
-    assert (caught.value.path, caught.value.code, caught.value.reason) == ("persona.toml", "PERSONA_INVALID", reason)
+        parse_persona_file(root / "personas" / "persona_1.toml")
+    assert (caught.value.path, caught.value.code, caught.value.reason) == (
+        "personas/persona_1.toml", "PERSONA_INVALID", reason)
 
 
 @pytest.mark.parametrize("exception", [
@@ -79,9 +80,9 @@ def test_nested_arrays_and_the_union_branch_load_from_toml_arrays(tmp_path, exce
     """带 breaks 的班次，以及 exceptions 里写一个班次或写空数组，都能从 TOML 数组读入，读回的数组是元组。"""
     root = copy_environment(tmp_path / "input")
     shift = {"starts": 540, "ends": 1080, "breaks": [[720, 780]]}
-    write_input(root, "persona.toml", {"work_schedule": {"workplace": "公司", "weekly": {"0": shift},
-                                                         "exceptions": {"2026-01-05": exception}}})
-    persona = parse_persona_file(root / "persona.toml")[0]
+    write_input(root, "personas/persona_1.toml", {"work_schedule": {"workplace": "公司", "weekly": {"0": shift},
+                                                                       "exceptions": {"2026-01-05": exception}}})
+    persona = parse_persona_file(root / "personas" / "persona_1.toml")[0]
     schedule = persona.work_schedule
     assert schedule.weekly["0"].breaks == ((720, 780),)
     loaded = schedule.exceptions["2026-01-05"]
@@ -93,10 +94,10 @@ def test_integer_arrays_still_take_only_strict_integers(tmp_path, value):
     """容器一层不按严格模式，元素仍按严格模式校验：整数数组里写 "1"、true、1.0 照旧被拒。"""
     root = copy_environment(tmp_path / "input")
     shift = {"starts": 540, "ends": 1080, "breaks": [[720, value]]}
-    write_input(root, "persona.toml", {"work_schedule": {"workplace": "公司", "weekly": {"0": shift}}})
+    write_input(root, "personas/persona_1.toml", {"work_schedule": {"workplace": "公司", "weekly": {"0": shift}}})
     with pytest.raises(EnvironmentInputError) as caught:
-        parse_persona_file(root / "persona.toml")
-    assert (caught.value.path, caught.value.code) == ("persona.toml", "PERSONA_INVALID")
+        parse_persona_file(root / "personas" / "persona_1.toml")
+    assert (caught.value.path, caught.value.code) == ("personas/persona_1.toml", "PERSONA_INVALID")
     assert caught.value.reason == "work_schedule.weekly.0.breaks.0.1: Input should be a valid integer"
 
 
@@ -111,10 +112,11 @@ def test_integer_arrays_still_take_only_strict_integers(tmp_path, value):
 def test_personal_windows_need_two_finite_hours_in_order(tmp_path, values, reason):
     """每个时段只有形状这一条检查，不成立时在纯准入阶段被拒绝，英文原因随 PERSONA_INVALID 返回并写出字段。"""
     root = copy_environment(tmp_path / "input")
-    write_input(root, "persona.toml", values)
+    write_input(root, "personas/persona_1.toml", values)
     with pytest.raises(EnvironmentInputError) as caught:
-        parse_persona_file(root / "persona.toml")
-    assert (caught.value.path, caught.value.code, caught.value.reason) == ("persona.toml", "PERSONA_INVALID", reason)
+        parse_persona_file(root / "personas" / "persona_1.toml")
+    assert (caught.value.path, caught.value.code, caught.value.reason) == (
+        "personas/persona_1.toml", "PERSONA_INVALID", reason)
 
 
 @pytest.mark.parametrize("values", [
@@ -131,8 +133,8 @@ def test_windows_that_contradict_each_other_or_leave_the_day_load_as_written(tmp
     from worldmock.simulation_engine.world.world_updates import meal_windows_by_agent
 
     root = copy_environment(tmp_path / "input")
-    write_input(root, "persona.toml", values)
-    loaded = load_environment(root, metadata_loader=fixture_metadata).persona
+    write_input(root, "personas/persona_1.toml", values)
+    loaded = load_environment(root, metadata_loader=fixture_metadata).persona_by_id[1]
     assert {name: list(getattr(loaded, name)) for name in values} == values
     windows = meal_windows_by_agent(loaded)[loaded.agent_id]
     assert (windows.lunch, windows.dinner) == (tuple(loaded.lunch_window), tuple(loaded.dinner_window))
@@ -141,9 +143,9 @@ def test_windows_that_contradict_each_other_or_leave_the_day_load_as_written(tmp
 @pytest.mark.parametrize("field", ["occupation", "routine_preference", "consumption_preference", "risk_preference"])
 def test_deleted_persona_templates_are_rejected_as_input(tmp_path, field):
     root = copy_environment(tmp_path / "input")
-    write_input(root, "persona.toml", {field: "obsolete"})
+    write_input(root, "personas/persona_1.toml", {field: "obsolete"})
     with pytest.raises(EnvironmentInputError, match="legacy template fields are deleted, merge them into the card"):
-        parse_persona_file(root / "persona.toml")
+        parse_persona_file(root / "personas" / "persona_1.toml")
 
 
 @pytest.mark.parametrize("values,reason", [
@@ -164,7 +166,7 @@ def test_invalid_run_windows_fail_before_metadata_or_assets(tmp_path, values, re
     with pytest.raises(EnvironmentInputError, match=reason):
         load_environment(root, metadata_loader=lambda model: calls.append(model))
     assert calls == []
-    assert set(item.name for item in root.iterdir()) == {"catalog", "config.toml", "persona.toml"}
+    assert set(item.name for item in root.iterdir()) == {"catalog", "config.toml", "personas"}
 
 
 @pytest.mark.parametrize("field,value", [
@@ -183,7 +185,7 @@ def test_run_calendar_rejects_duplicate_or_noncanonical_dates(tmp_path, field, v
 
 
 @pytest.mark.parametrize("payload", [b"\xff", b"not TOML [", b"\xef\xbb\xbfkey=1\n", b"key=1\r\n"])
-@pytest.mark.parametrize("name,parser", [("persona.toml", parse_persona_file), ("config.toml", parse_run_config_file)])
+@pytest.mark.parametrize("name,parser", [("persona_1.toml", parse_persona_file), ("config.toml", parse_run_config_file)])
 def test_input_files_reject_noncanonical_bytes(tmp_path, payload, name, parser):
     target = tmp_path / name
     target.write_bytes(payload)
@@ -196,7 +198,7 @@ def test_persona_references_resolve_actual_registered_locations(tmp_path, field,
     from worldmock.resource_engine.registration.errors import RegistrationError
 
     root = copy_environment(tmp_path / "input")
-    write_input(root, "persona.toml", {field: name})
+    write_input(root, "personas/persona_1.toml", {field: name})
     with pytest.raises(RegistrationError):
         load_environment(root, metadata_loader=fixture_metadata)
 
@@ -204,11 +206,11 @@ def test_persona_references_resolve_actual_registered_locations(tmp_path, field,
 def test_persona_story_is_required_text_without_a_minimum_length(tmp_path):
     """background_story 必填且非空，但一句话就够：零点计划原样读它，引擎不从中抽取任何字段。"""
     root = copy_environment(tmp_path / "input")
-    write_input(root, "persona.toml", {"background_story": "Too short"})
-    assert parse_persona_file(root / "persona.toml")[0].background_story == "Too short"
-    write_input(root, "persona.toml", {"background_story": ""})
+    write_input(root, "personas/persona_1.toml", {"background_story": "Too short"})
+    assert parse_persona_file(root / "personas" / "persona_1.toml")[0].background_story == "Too short"
+    write_input(root, "personas/persona_1.toml", {"background_story": ""})
     with pytest.raises(EnvironmentInputError, match="^background_story: String should have at least 1 character$"):
-        parse_persona_file(root / "persona.toml")
+        parse_persona_file(root / "personas" / "persona_1.toml")
 
 
 def test_model_metadata_rejects_output_budget_larger_than_actual_context_window():

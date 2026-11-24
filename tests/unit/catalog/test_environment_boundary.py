@@ -22,13 +22,17 @@ def environment_root(tmp_path):
     catalog.mkdir()
     for name in CATALOG_FILES:
         (catalog / name).write_bytes(b"")
-    (tmp_path / "persona.toml").write_bytes(b"")
+    personas = tmp_path / "personas"
+    personas.mkdir()
+    (personas / "persona_1.toml").write_bytes(b"")
     (tmp_path / "config.toml").write_bytes(b"")
     return tmp_path
 
 
 def test_environment_boundary_accepts_exact_entries_without_parsing_them(environment_root):
     """@brief 闭集检查独立于各输入严格模型，允许它们各自汇总诊断。"""
+    validate_environment_entries(environment_root)
+    (environment_root / "personas" / "persona_2.toml").write_bytes(b"")
     validate_environment_entries(environment_root)
 
 
@@ -46,7 +50,7 @@ def test_environment_boundary_accepts_any_subset_of_optional_catalog_files(envir
     "catalog/travel_method.jsonl", "catalog/travel-methods.jsonl", "catalog/callback.jsonl", "catalog/map.jsonl.bak",
     "catalog/location-type.jsonl", "catalog/item_callback.py", "catalog/persona.toml", "catalog/config.toml",
     "catalog/apps.json", "catalog/locations.json", "catalog/goods.json", "catalog/actions.json",
-    "catalog/contents.json",
+    "catalog/contents.json", "persona.toml", "personas/notes.txt", "personas/.toml",
 ])
 def test_environment_boundary_rejects_extra_entries_with_actual_path(environment_root, relative, caplog):
     """@brief 根目录与目录内退役输入均拒绝，错误详情指出真实额外路径。"""
@@ -60,9 +64,10 @@ def test_environment_boundary_rejects_extra_entries_with_actual_path(environment
     assert "ENVIRONMENT_STALE_FILE" in caplog.text
 
 
-def test_environment_boundary_reports_directory_itself_without_walking_it(environment_root, monkeypatch):
-    """@brief 包外目录以直接条目拒绝，不读取目录里的内容。"""
-    extra = environment_root / "sources"
+@pytest.mark.parametrize("relative", ["sources", "personas/nested"])
+def test_environment_boundary_reports_directory_itself_without_walking_it(environment_root, monkeypatch, relative):
+    """@brief 包外目录与 personas 下嵌套目录以直接条目拒绝，不读取目录里的内容。"""
+    extra = environment_root / relative
     extra.mkdir()
     original = Path.iterdir
 
@@ -77,10 +82,10 @@ def test_environment_boundary_reports_directory_itself_without_walking_it(enviro
     assert captured.value.detail == str(extra)
 
 
-@pytest.mark.parametrize("target", ["root", "catalog"])
+@pytest.mark.parametrize("target", ["root", "catalog", "personas", "personas/persona_1.toml"])
 def test_environment_boundary_rejects_linked_directories(environment_root, monkeypatch, target):
-    """@brief 环境根或目录是链接时不遍历，也不接受其内容。"""
-    linked = environment_root if target == "root" else environment_root / "catalog"
+    """@brief 环境根、子目录或人设文件是链接时不遍历，也不接受其内容。"""
+    linked = environment_root if target == "root" else environment_root / target
     original = Path.is_symlink
     monkeypatch.setattr(Path, "is_symlink", lambda path: path == linked or original(path))
     with pytest.raises(RegistrationError) as captured:
@@ -91,7 +96,8 @@ def test_environment_boundary_rejects_linked_directories(environment_root, monke
 
 def test_environment_boundary_leaves_missing_declared_files_to_input_loaders(environment_root):
     """@brief 缺少输入不伪装为包外条目，不提前掩盖其他可检查输入。"""
-    (environment_root / "persona.toml").unlink()
+    (environment_root / "personas" / "persona_1.toml").unlink()
+    (environment_root / "personas").rmdir()
     for name in CATALOG_FILES:
         (environment_root / "catalog" / name).unlink()
     (environment_root / "catalog").rmdir()

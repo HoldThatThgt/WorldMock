@@ -53,9 +53,9 @@ def dingtalk_environment(destination, *contents):
     places = catalog_rows(root, "location.jsonl")
     next(row for row in places if row["location_id"] == "office")["name"] = OFFICE
     write_catalog_rows(root, "location.jsonl", places)
-    persona = tomlkit.parse((root / "persona.toml").read_text(encoding="utf-8"))
+    persona = tomlkit.parse((root / "personas" / "persona_1.toml").read_text(encoding="utf-8"))
     persona["work_schedule"]["workplace"] = OFFICE
-    (root / "persona.toml").write_text(tomlkit.dumps(persona), encoding="utf-8", newline="\n")
+    (root / "personas" / "persona_1.toml").write_text(tomlkit.dumps(persona), encoding="utf-8", newline="\n")
     add_rows(root, "app-catalog.jsonl", "app_id", {"app_id": "dingtalk", "name": "钉钉", "role": "content"})
     add_rows(root, "content-catalog.jsonl", "content_id", *(contents or (CLOCK,)))
     return root

@@ -1,10 +1,9 @@
-"""@brief 发送模型请求前计量完整上下文，超过阈值时先结束本秒续接，再结构化浓缩 user 中的进度层（docs/design/06-agent.md）。
+"""@brief 发送模型请求前计量完整上下文，超过阈值时结构化浓缩 user 中的进度层（docs/design/06-agent.md）。
 
-计量覆盖原生 tools、系统层、六层 JSON、续接消息（含回传的 reasoning_content）、此后的原生消息与预留输出。达到上下文 85% 时依次：
-0. 提前结束本秒续接：链前缀换成新快照（系统层与此刻的六层），思考不再出现；
-1. 把最旧一段连续的未受保护记录（紧邻其前的 condensed 记录并入）折成一条 condensed 记录，重复到阈值以下或无可折叠；
-每步之后重新计数。受保护记录从不改变；人设层、记忆层、待办层、工具层与环境层不浓缩，记忆层的 14,000 字上限由构建器
-保证（simulation_engine/observation/memory/layout.py），这里不量它的字数。仍超限时按层记录 token 用量并以容量故障停止，
+计量覆盖原生 tools、系统层、六层 JSON、后续对话消息与预留输出。达到上下文 85% 时，把最旧一段连续的未受保护记录
+（紧邻其前的 condensed 记录并入）折成一条 condensed 记录，重复到阈值以下或无可折叠；每步之后重新计数。
+受保护记录从不改变；人设层、记忆层、待办层、工具层与环境层不浓缩，记忆层的 14,000 字上限由构建器保证
+（simulation_engine/observation/memory/layout.py），这里不量它的字数。仍超限时按层记录 token 用量并以容量故障停止，
 不静默删减。
 
 工具层的可调用索引 callable_index 在 user 消息里，照样计入整次请求的容量计数（阈值与浓缩步骤不变），也从不被浓缩或删减；
@@ -34,17 +33,11 @@ _INDEX_KEY = "callable_index"
 
 @dataclass(frozen=True, slots=True)
 class ProgressBudget:
-    """@brief 可浓缩的请求部分：user 消息中的层数组与进度层记录的私有元数据（受保护标记与 settled 句）。
-
-    续接的请求另带 fresh_messages（不带续接的新快照 system 与 user，layers 即其中的层）与 chain_length（请求开头属于
-    续接链的消息条数），供第 0 步把链前缀换成新快照；不续接时两者为 None 与 0。
-    """
+    """@brief 可浓缩的请求部分：user 消息中的层数组与进度层记录的私有元数据（受保护标记与 settled 句）。"""
 
     layers: tuple[dict, ...]
     meta: tuple[dict, ...]
     user_index: int = 1
-    fresh_messages: tuple[dict, ...] | None = None
-    chain_length: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,7 +71,7 @@ def request_token_count(request: dict[str, Any]) -> int:
 
 def fit_request(request: dict[str, Any], metadata: ModelMetadata | dict,
                 budget: ProgressBudget | None = None) -> FittedRequest:
-    """@brief 请求低于阈值时原样放进结果；否则先结束本秒续接，再按第四章步骤浓缩进度层，每步重计，仍超限即容量故障。
+    """@brief 请求低于阈值时原样放进结果；否则按第四章步骤浓缩进度层，每步重计，仍超限即容量故障。
     结果带实际发送的请求与它的输入 token 数（最后一次计量减去预留输出），用量日志直接复用。"""
     frozen = metadata if isinstance(metadata, ModelMetadata) else ModelMetadata.model_validate(metadata)
     reserve = request.get("max_tokens")
@@ -89,11 +82,6 @@ def fit_request(request: dict[str, Any], metadata: ModelMetadata | dict,
     measured = request_token_count(request)
     if measured < limit:
         return FittedRequest(request, measured - reserve)
-    if budget is not None and budget.fresh_messages is not None:
-        request = {**request, "messages": [*budget.fresh_messages, *request["messages"][budget.chain_length:]]}
-        measured = request_token_count(request)
-        if measured < limit:
-            return FittedRequest(request, measured - reserve)
     layers = list(budget.layers) if budget is not None else []
     index = next((i for i, layer in enumerate(layers) if layer.get("layer") == _PROGRESS_LAYER), None)
     if index is not None:
@@ -164,7 +152,7 @@ def _log_capacity_failure(request: dict[str, Any], layers: list[dict], measured:
         if isinstance(layer.get(_INDEX_KEY), dict):
             counts[f"{layer['layer']}.{_INDEX_KEY}"] = token_counter(model=request["model"],
                                                                      text=render_layer_json(layer[_INDEX_KEY]))
-    counts["continuation_messages"] = token_counter(model=request["model"], messages=request["messages"][2:])
+    counts["followup_messages"] = token_counter(model=request["model"], messages=request["messages"][2:])
     counts["reserved_output"] = request["max_tokens"]
     logging.error("Model request capacity exceeded: total=%s threshold=%s parts=%s", measured, limit, counts)
 

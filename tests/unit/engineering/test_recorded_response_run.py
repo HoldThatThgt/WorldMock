@@ -32,10 +32,12 @@ from scripts.recorded_response_run import (
 RUN1, RUN2, CHECKPOINT = "1" * 32, "2" * 32, "c" * 32
 BASE_URL, METADATA_URL = "https://api.example.invalid/beta", "https://api.example.invalid/models"
 T0 = 1767571200
-CONFIG = ('schema_version = 2\nseed = 7\n\n[model]\nprovider = "openai_compatible"\n'
+CONFIG = ('schema_version = 3\nseed = 7\n\n[models.reasoner]\nprovider = "openai_compatible"\n'
           f'base_url = "{BASE_URL}"\nrequested_model = "test-model"\napi_key_env = "TEST_MODEL_KEY"\n'
-          f'metadata_url = "{METADATA_URL}"\ncontext_window = 262144\n')
-PERSONA = 'schema_version = 1\nname = "林舟"\n'
+          f'metadata_url = "{METADATA_URL}"\ncontext_window = 262144\n'
+          'thinking = true\nmax_output_tokens = 16000\n\n'
+          '[model_routing]\naction = "reasoner"\nsearch = "reasoner"\nplan_day = "reasoner"\ndigest = "reasoner"\n')
+PERSONA = 'schema_version = 3\nagent_id = 1\nname = "林舟"\n'
 CHAT = "/beta/chat/completions"
 TOOL_NAMES = ("start_main_activity", "start_side_activity", "report_status", "conclude_activity")
 #: 已删除的项目根参数，由片段拼出。
@@ -73,18 +75,44 @@ def _asset(root: Path, content: bytes, kind: str, path: str | None) -> dict:
 
 
 def _manifest(run: Path, run_id: str, parent: str | None) -> dict:
-    """@brief 一段的运行清单（冻结配置、人设与地图素材，模型身份与元数据）。"""
+    """@brief 一段的运行清单（冻结配置、人设与地图素材，多模型档身份与元数据）。"""
     assets = {"config.toml": _asset(run, CONFIG.encode(), "environment_input", "config.toml"),
-              "persona.toml": _asset(run, PERSONA.encode(), "environment_input", "persona.toml"),
+              "personas/persona_1.toml": _asset(run, PERSONA.encode(), "environment_input", "personas/persona_1.toml"),
               "map.json": _asset(run, b'{"nodes":[]}', "environment_map", None)}
+    digest = hashlib.sha256(b"prompt").hexdigest()
     return {"run_id": run_id, "parent_run_id": parent, "parent_checkpoint_id": CHECKPOINT if parent else None,
             "source_group_id": RUN1, "agent_ids": [1], "window": {"start": T0, "end": T0 + 3600,
                                                                   "timezone": "Asia/Shanghai"},
             "environment_assets": assets,
-            "stage_model_identity": {"base_url": BASE_URL, "metadata_url": METADATA_URL,
-                                     "stages": {"action": {"same_second_continuation": True}}},
-            "model_metadata": {"requested_model": "test-model", "context_window": 1048576,
-                               "max_output_tokens": 393216, "metadata_url": METADATA_URL}}
+            "model_identity": {
+                "profiles": {
+                    "reasoner": {
+                        "provider": "openai_compatible",
+                        "base_url": BASE_URL,
+                        "requested_model": "test-model",
+                        "metadata_url": METADATA_URL,
+                        "context_window": 262144,
+                        "thinking": True,
+                        "max_output_tokens": 16000,
+                        "max_retries": 0,
+                        "transport_max_retries": 3,
+                        "max_react_turns": 8,
+                        "reflection_validation_max_retries": 1,
+                        "day_plan_validation_max_retries": 1,
+                        "effective_max_tokens": 16000,
+                        "model_metadata": {
+                            "requested_model": "test-model",
+                            "context_window": 1048576,
+                            "max_output_tokens": 393216,
+                            "metadata_url": METADATA_URL,
+                        },
+                    },
+                },
+                "routing": {"action": "reasoner", "search": "reasoner",
+                            "plan_day": "reasoner", "digest": "reasoner"},
+                "prompt_sha256s": {"action": digest, "search": digest},
+                "tool_schema_sha256s": {"action": digest, "search": digest},
+            }}
 
 
 def _event(seq: int, event_type: str, run_id: str, **fields) -> dict:
@@ -336,13 +364,13 @@ def test_a_credential_other_than_the_dummy_is_refused_and_not_logged(two_calls, 
 
 
 def test_models_endpoint_serves_the_frozen_metadata(two_calls):
-    from worldmock.configuration.inputs.models import ModelConfig
+    from worldmock.configuration.inputs.models import ModelProfileConfig
     from worldmock.configuration.model.model_metadata import parse_model_metadata
 
     cassette, _ = two_calls
     status, payload = cassette.answer("GET", "/models", _headers(), b"")
-    config = ModelConfig.model_validate(tomllib.loads(rewrite_model_urls(CONFIG, (BASE_URL, METADATA_URL),
-                                                                         5555))["model"])
+    config = ModelProfileConfig.model_validate(tomllib.loads(rewrite_model_urls(CONFIG, (BASE_URL, METADATA_URL),
+                                                                                5555))["models"]["reasoner"])
     metadata = parse_model_metadata(config, json.loads(payload))
     assert status == 200 and (metadata.context_window, metadata.max_output_tokens) == (1048576, 393216)
     assert cassette.models_requests[1] == 1 and cassette.divergences == []
@@ -357,36 +385,38 @@ def test_unexpected_path_is_refused(two_calls):
 def test_input_copy_rewrites_only_the_two_model_urls(two_calls, tmp_path):
     cassette, _ = two_calls
     write_input(cassette.plan, tmp_path / "input", 5555)
-    written = sorted(path.relative_to(tmp_path / "input").as_posix() for path in (tmp_path / "input").rglob("*"))
-    assert written == ["config.toml", "persona.toml"]
+    written = sorted(path.relative_to(tmp_path / "input").as_posix()
+                     for path in (tmp_path / "input").rglob("*") if path.is_file())
+    assert written == ["config.toml", "personas/persona_1.toml"]
     raw = (tmp_path / "input" / "config.toml").read_bytes()
-    assert b"\r" not in raw and (tmp_path / "input" / "persona.toml").read_bytes() == PERSONA.encode()
+    assert b"\r" not in raw and (tmp_path / "input" / "personas" / "persona_1.toml").read_bytes() == PERSONA.encode()
     changed = [pair for pair in zip(CONFIG.splitlines(), raw.decode().splitlines()) if pair[0] != pair[1]]
     assert [old.split(" = ")[0] for old, _ in changed] == ["base_url", "metadata_url"]
     expected = tomllib.loads(CONFIG)
-    expected["model"].update(base_url="http://127.0.0.1:5555/beta", metadata_url="http://127.0.0.1:5555/models")
+    expected["models"]["reasoner"].update(base_url="http://127.0.0.1:5555/beta",
+                                          metadata_url="http://127.0.0.1:5555/models")
     assert tomllib.loads(raw.decode()) == expected
 
 
-def test_url_rewrite_refuses_a_url_that_is_not_unique():
-    text = CONFIG + f'# base_url = "{BASE_URL}"\n'
-    with pytest.raises(RecordedResponseError, match="exactly once: base_url"):
+def test_url_rewrite_refuses_a_missing_url():
+    text = CONFIG.replace(f'base_url = "{BASE_URL}"', 'base_url = "https://other.invalid/beta"')
+    with pytest.raises(RecordedResponseError, match="at least once"):
         rewrite_model_urls(text, (BASE_URL, METADATA_URL), 5555)
 
 
 def test_url_rewrite_refuses_a_config_whose_url_is_written_differently():
     text = CONFIG.replace(f'metadata_url = "{METADATA_URL}"', f"metadata_url = '{METADATA_URL}'")
-    text += f'# previously "{METADATA_URL}"\n'
-    with pytest.raises(RecordedResponseError, match="beyond the two model URLs"):
+    text += f'other = "{METADATA_URL}"\n'
+    with pytest.raises(RecordedResponseError, match="beyond the model URLs"):
         rewrite_model_urls(text, (BASE_URL, METADATA_URL), 5555)
 
 
 def test_input_copy_refuses_a_changed_frozen_asset(two_calls, tmp_path):
     cassette, _ = two_calls
-    reference = cassette.plan.chain.manifests[-1]["environment_assets"]["persona.toml"]
+    reference = cassette.plan.chain.manifests[-1]["environment_assets"]["personas/persona_1.toml"]
     path = cassette.plan.chain.runs[-1] / "assets" / reference["sha256"]
     path.write_bytes(path.read_bytes().replace(b"1", b"2"))
-    with pytest.raises(RecordedResponseError, match="persona.toml does not match its recorded digest"):
+    with pytest.raises(RecordedResponseError, match="personas/persona_1.toml does not match its recorded digest"):
         write_input(cassette.plan, tmp_path / "input", 5555)
     assert not (tmp_path / "input").exists()
 
@@ -394,7 +424,7 @@ def test_input_copy_refuses_a_changed_frozen_asset(two_calls, tmp_path):
 def test_frozen_config_must_agree_with_the_manifest_model_identity(tmp_path):
     runs = _source(tmp_path / "source", [_request()])
     manifest = json.loads((runs[0] / "manifest.json").read_text(encoding="utf-8"))
-    manifest["stage_model_identity"]["base_url"] = "https://other.example.invalid/beta"
+    manifest["model_identity"]["profiles"]["reasoner"]["base_url"] = "https://other.example.invalid/beta"
     (runs[0] / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     with pytest.raises(RecordedResponseError, match="disagrees with the manifest model identity"):
         write_input(load_plan(runs), tmp_path / "input", 5555)
@@ -432,7 +462,7 @@ def test_a_project_without_the_removed_framework_source_is_accepted(tmp_path, mo
     code = tool.main(["run", "--project", str(project), "--source", *map(str, runs), "--work", str(work)])
     assert code == 0 and not (project / "vendor").exists()
     assert replayed == [(project.resolve(), work.resolve(), 1, 1)]
-    assert (work / "input" / "config.toml").is_file() and (work / "input" / "persona.toml").is_file()
+    assert (work / "input" / "config.toml").is_file() and (work / "input" / "personas" / "persona_1.toml").is_file()
     assert json.loads((work / "plan.json").read_text(encoding="utf-8"))["calls"] == 1
     assert "has no restored" not in caplog.text and "resolves outside the project" not in caplog.text
 
@@ -445,8 +475,8 @@ def test_child_command_lines_name_no_project_root(restarted, tmp_path, monkeypat
     shutil.copy2(plan.chain.runs[0] / "footprints.sqlite", work / "segments" / "01" / "footprints.sqlite")
     first = tool._segment_argv(tool.SegmentJob(plan, cassette, tmp_path, work, 1))
     second = tool._segment_argv(tool.SegmentJob(plan, cassette, tmp_path, work, 2))
-    assert first == ("run", ["run", "--environment", str(work / "input"), "--output", str(work / "segments" / "01"),
-                             "--same-second-continuation", "on"], None)
+    assert first == ("run", ["run", "--environment", str(work / "input"),
+                             "--output", str(work / "segments" / "01")], None)
     assert second == ("resume", ["resume", "--environment", str(work / "input"), "--parent",
                                  str(work / "segments" / "01"), "--checkpoint", CHECKPOINT, "--output",
                                  str(work / "segments" / "02")], CHECKPOINT)
@@ -504,7 +534,7 @@ def test_chain_plan_from_a_restarted_source(tmp_path):
     assert (boundary.segment, boundary.checkpoint_seq, boundary.first_call, boundary.next_run_id) == (1, 3, 2, RUN2)
     assert [call.segment for call in plan.calls] == [1, 2, 2]
     assert boundary.discarded_request == discarded and boundary.discarded_seq == 4
-    assert (plan.api_key_env, plan.continuation) == ("TEST_MODEL_KEY", True)
+    assert (plan.api_key_envs, plan.requested_model) == (("TEST_MODEL_KEY",), "test-model")
 
 
 def test_chain_plan_rejects_a_missing_segment_directory(tmp_path):

@@ -5,6 +5,8 @@ import logging
 from worldmock.exchange_engine.conditions.activity_rules import ACTIVITY_ACTIONS
 #: 两个开始工具，按此顺序进入 REQUEST_MODELS。
 START_TOOLS = ("start_main_activity", "start_side_activity")
+#: 独立搜索原生工具名。
+SEARCH_TOOL = "search_world"
 
 
 

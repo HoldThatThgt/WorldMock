@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from typing import get_args
 
 from tests.engine_fixture import engine_factory  # noqa: F401
-from tests.life.conftest import context  # noqa: F401
+from tests.life.environment_runtime import events
 from worldmock.recording_engine.events.models import (
     DECISION_OFFERED_FIELD,
     DECISION_STARTED_FIELDS,
@@ -96,43 +96,38 @@ def test_new_wake_reasons_are_accepted_by_validation():
                               WAKE_REASONS_FIELD: ["progress_report_due", "no_active_activity"]})
 
 
-def _with_pending_reasons(engine, reasons):
-    """把人物 1 的待处理唤醒原因改为给定列表，其余世界状态沿用引擎当前状态。"""
-    state = engine.context.state.model_copy(deep=True)
-    state.agents[1] = state.agents[1].model_copy(update={"pending_wake_reasons": reasons}, deep=True)
-    return state
-
-
 def test_unknown_wake_reason_is_rejected_on_decision_started_write(engine_factory):
     """decision_started 的唤醒原因在写入时经闭集校验：未知原因被拒，新成员照常写入。"""
-    from worldmock.simulation_engine.decisions.decision_start import defer_decision_starts
-
     engine = engine_factory()
-    contexts = [context(engine, "round-1")]
+    [wakeup] = engine.prepare_barrier((1,))
+    bad = wakeup.model_copy(
+        update={"observation": {**wakeup.observation, WAKE_REASONS_FIELD: ["bogus"]}}, deep=True)
     with pytest.raises(ValueError, match="frozen wake reasons"):
-        defer_decision_starts(contexts, "round-1", _with_pending_reasons(engine, ["bogus"]))
+        engine.open_sandbox(bad)
     for reasons in (["no_active_activity"], ["reminder_due"]):
-        starts = defer_decision_starts(contexts, "round-1", _with_pending_reasons(engine, reasons))
-        assert starts[1]["decision_id"] == contexts[0].decision_id
-        assert starts[1]["data"][WAKE_REASONS_FIELD] == reasons
+        fresh = engine_factory()
+        [item] = fresh.prepare_barrier((1,))
+        good = item.model_copy(
+            update={"observation": {**item.observation, WAKE_REASONS_FIELD: reasons}}, deep=True)
+        outcome = fresh.open_sandbox(good).finish_wakeup(None)
+        fresh.commit_barrier([outcome])
+        [started] = events(fresh, "decision_started")
+        assert started.wakeup_id == good.wakeup_id
+        assert started.data["wakeup_id"] == good.wakeup_id
+        assert started.data[WAKE_REASONS_FIELD] == reasons
 
 
+#: 一条合法的 decision_started.data（闭集三个字段）。
+_STARTED = {"wakeup_id": "wakeup-1", "world_state_version": 3, "wake_reasons": ["session_open"]}
 
 
-
-
-#: 一条合法的 decision_started.data（闭集四个字段）。
-_STARTED = {"round_id": "round", "round_order": 0, "world_state_version": 3, "wake_reasons": ["session_open"]}
-
-
-def test_decision_started_data_is_the_closed_four_field_set():
-    """decision_started.data 恰为 round_id、round_order、world_state_version、wake_reasons 四个字段。"""
+def test_decision_started_data_is_the_closed_three_field_set():
+    """decision_started.data 恰为 wakeup_id、world_state_version、wake_reasons 三个字段。"""
     assert DECISION_STARTED_FIELDS == frozenset(_STARTED)
     validate_decision_started(dict(_STARTED))
-    for broken in ({key: value for key, value in _STARTED.items() if key != "round_order"},
+    for broken in ({key: value for key, value in _STARTED.items() if key != "world_state_version"},
                    {**_STARTED, "note": "打算"}, {}):
-        with pytest.raises(ValueError, match="must be exactly round_id, round_order, world_state_version, "
-                                             "wake_reasons"):
+        with pytest.raises(ValueError, match="must be exactly wakeup_id, world_state_version, wake_reasons"):
             validate_decision_started(broken)
 
 
@@ -158,7 +153,7 @@ def test_persisted_decision_started_is_validated_when_reading_events():
     payload["data"] = {**_STARTED, "decision_statement": "我想先歇一会儿。"}
     with pytest.raises(ValueError, match="retired field decision_statement"):
         Event.model_validate(payload)
-    payload["data"] = {"round_id": "round"}
+    payload["data"] = {"wakeup_id": "wakeup-1"}
     with pytest.raises(ValueError, match="must be exactly"):
         Event.model_validate(payload)
 

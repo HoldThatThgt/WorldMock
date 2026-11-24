@@ -59,10 +59,11 @@ def test_frozen_persona_identity_reaches_the_native_agent_prompt_as_the_persona_
     from worldmock.configuration.persona.persona_text import render_card
 
     frozen = inputs()
-    card = persona_card(frozen.persona)
+    persona_cfg = frozen.persona_by_id[1]
+    card = persona_card(persona_cfg)
     specification = creation_inputs(frozen)[0][0]
     profile = specification["profile"]
-    person = frozen.persona
+    person = persona_cfg
     persona = persona_layer(profile["persona_card_struct"], person.name)
     layer_names = (("tool_layer", "工具层"), ("memory_layer", "记忆层"), ("todo_layer", "待办层"),
                    ("environment_layer", "环境层"), ("progress_layer", "进度层"))
@@ -97,7 +98,7 @@ def test_relationship_channels_reach_the_persona_layer_as_the_dataset_wrote_them
     edit_persona(root, mutate)
     loaded = _loaded(root)
     profile = creation_inputs(loaded)[0][0]["profile"]
-    persona = persona_layer(profile["persona_card_struct"], loaded.persona.name)
+    persona = persona_layer(profile["persona_card_struct"], loaded.persona_by_id[1].name)
     assert [(row["person"], row["channels"]) for row in persona["relationships"]] == [
         ("母亲", ["飞书", "邮件", "飞书"]), ("老周", ["写信"])]
     assert "母亲（家人，很亲近，飞书、邮件、飞书联系）" in profile["persona_card"]
@@ -108,7 +109,7 @@ def test_relationship_channels_reach_the_persona_layer_as_the_dataset_wrote_them
                                    'consumption_preference', 'risk_preference'))
 def test_deleted_template_fields_stay_out_of_documents(field):
     """docs/design/06-agent.md「人物身份与画像」：四个顶层模板字段删除；文档中再次出现即被封闭模型拒绝。"""
-    value = inputs().persona.model_dump(mode="json")
+    value = inputs().persona_by_id[1].model_dump(mode="json")
     value[field] = 'legacy'
     with pytest.raises(ValidationError):
         PersonaConfig.model_validate(value)
@@ -120,7 +121,7 @@ def test_initial_agent_state_and_profile_do_not_keep_numeric_tastes():
     from worldmock.simulation_engine.world.world_setup import _initial_agent
 
     frozen = inputs()
-    state = _initial_agent(frozen, int(frozen.config.start_time.timestamp()))
+    state = _initial_agent(frozen, frozen.persona_by_id[1], int(frozen.config.start_time.timestamp()))
     profile = current_profile()
     assert "taste_weights" not in state.model_dump(mode="json") and "taste_weights" not in profile
     assert "attention_prior" not in json.dumps(profile)
@@ -201,7 +202,7 @@ async def test_new_run_makes_no_model_request_for_the_persona_and_shows_the_tabl
     assert "world_dynamics" not in run["manifest"] and run["manifest"]["input_warnings"] == []
     requests = [event for event in run["events"] if event.event_type == "model_request"]
     assert requests and requests[0].data.get("purpose") == "plan_day"
-    assert all(event.data.get("purpose") == "plan_day" or event.decision_id for event in requests)
+    assert all(event.data.get("purpose") == "plan_day" or event.wakeup_id for event in requests)
     for window in ("11:45–12:45", "18:00–18:30", "18:15–18:45", "19:00–20:00", "23:30–00:30"):
         assert window in run["plan"]
     first = run["models"][0].requests[0]
@@ -238,14 +239,14 @@ def test_memory_view_identity_is_the_card_text_rendered_from_the_persona_table(t
     from worldmock.agents.memory.life_memory_store import WorldMockMemoryStore
     from worldmock.configuration.persona.persona_card import persona_card
     from worldmock.configuration.persona.persona_text import render_card
-    from worldmock.runtime.framework.setup import stage_model_identity
 
     declared = _declared_inputs(tmp_path, **DECLARED)
-    frozen = person_inputs(declared.persona, stage_model_identity(declared.config.model, declared.model_metadata))
+    declared_persona = declared.persona_by_id[1]
+    frozen = person_inputs(declared_persona)
     store = WorldMockMemoryStore(tmp_path / "memory", 1, ())
     moment = datetime(2026, 1, 5, 8, 0, tzinfo=timezone.utc)
     save_step(store, MemoryStep(frozen.persona_card.strip(), (), "observation-identity", (), moment))
-    card = render_card(persona_card(declared.persona))
+    card = render_card(persona_card(declared_persona))
     assert frozen.persona_card == card
     view = store.memory_md_path.read_text(encoding="utf-8")
     identity = view.split("## 身份\n", 1)[1].split("\n\n## 已核验经历", 1)[0]
@@ -290,7 +291,7 @@ def test_body_reads_meal_windows_sleep_rhythm_and_social_growth_from_the_persona
     assert [round(value, 9) for value in hungry.values()] == [0.0, 0.15, 0.15, 0.0, 0.0, 0.15, 0.15, 0.0]
     body = engine.context.state.agents[1].body
     assert (body.chronotype_midsleep, body.sleep_need_hours, body.social_need_growth_per_hour) == (4.1, 7.6, 0.09)
-    settled = settle_shared_body(body, (), 3600, assemble_body_config(engine.context.persona)).after
+    settled = settle_shared_body(body, (), 3600, engine.context.bodies[1]).after
     assert settled.social_need == pytest.approx(body.social_need + 0.09)
     assert settled.sleep_deficit_hours == pytest.approx(body.sleep_deficit_hours + 7.6 / (24 - 7.6))
 
@@ -343,7 +344,7 @@ def _persona_rhythm(loaded) -> dict:
     from worldmock.agents.prompt.life_persona import persona_layer
 
     profile = creation_inputs(loaded)[0][0]["profile"]
-    return persona_layer(profile["persona_card_struct"], loaded.persona.name)["rhythm"]
+    return persona_layer(profile["persona_card_struct"], loaded.persona_by_id[1].name)["rhythm"]
 
 
 @pytest.mark.asyncio
@@ -360,9 +361,10 @@ async def test_a_table_whose_card_text_exceeds_the_budget_is_refused_before_a_ru
     reason = "persona card render exceeds budget: 751 hanzi > 600 (input-side problem, not truncated)"
     with pytest.raises(EnvironmentInputError) as caught:
         _loaded(root)
-    assert (caught.value.path, caught.value.code, caught.value.reason) == ("persona.toml", "PERSONA_INVALID", reason)
+    assert (caught.value.path, caught.value.code, caught.value.reason) == (
+        "personas/persona_1.toml", "PERSONA_INVALID", reason)
     assert validate_environment(root, metadata_loader=fixture_metadata) == {
-        "valid": False, "errors": [{"path": "persona.toml", "code": "PERSONA_INVALID", "reason": reason}]}
+        "valid": False, "errors": [{"path": "personas/persona_1.toml", "code": "PERSONA_INVALID", "reason": reason}]}
     with pytest.raises(EnvironmentInputError) as refused:
         await run_world(RunRequest(root, tmp_path / "over-budget", "over-budget", "over-budget"))
     assert (refused.value.code, refused.value.reason) == ("PERSONA_INVALID", reason)
@@ -392,7 +394,7 @@ def test_formerly_rejected_windows_reach_the_persona_layer_and_the_plan_as_writt
     root = _declared_environment(tmp_path, **declared)
     loaded = _loaded(root)
     profile = creation_inputs(loaded)[0][0]["profile"]
-    rhythm = persona_layer(profile["persona_card_struct"], loaded.persona.name)["rhythm"]
+    rhythm = persona_layer(profile["persona_card_struct"], loaded.persona_by_id[1].name)["rhythm"]
     assert {name: rhythm[name] for name in layer} == layer
     assert all(text in profile["persona_card"] for text in layer.values())
     anchors = profile["persona_card_struct"]["time_anchors"]

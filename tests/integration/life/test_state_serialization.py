@@ -44,7 +44,7 @@ def _world_state() -> WorldState:
         planned_duration_seconds=9,
         resource_claims={"first"},
         origin_action_id="action-1",
-        origin_decision_id="decision-1",
+        origin_wakeup_id="wakeup-1",
         origin_request_event_id="request-1",
         data={"action": "interact"},
     )
@@ -55,7 +55,7 @@ def _world_state() -> WorldState:
         end_time=10,
         run_id="run-1",
         timezone="Asia/Shanghai",
-        persona_sha256="a" * 64,
+        persona_sha256s={1: "a" * 64},
         config_sha256="b" * 64,
         agents={1: agent},
         accounts={"agent:1": 0, "external:scenario": 0},
@@ -165,15 +165,15 @@ def test_readonly_commit_is_identical_across_python_hash_seeds(tmp_path: Path) -
     assert _set_arrays(json.loads(first_payload)) == _set_arrays(state)
 
 
-def test_world_state_schema_is_sixteen_and_the_previous_version_is_refused() -> None:
-    """世界状态结构版本是 16；结构号 15 的世界状态由严格字面量拒绝，不迁移、不读取。"""
+def test_world_state_schema_is_seventeen_and_the_previous_version_is_refused() -> None:
+    """世界状态结构版本是 17；结构号 16 的世界状态由严格字面量拒绝，不迁移、不读取。"""
     import pytest
     from pydantic import ValidationError
 
-    assert WORLD_SCHEMA_VERSION == 16
+    assert WORLD_SCHEMA_VERSION == 17
     payload = _world_state().model_dump(mode="json")
-    assert WorldState.model_validate(payload).schema_version == 16
-    for retired in (15, "16", None):
+    assert WorldState.model_validate(payload).schema_version == 17
+    for retired in (16, "17", None):
         with pytest.raises(ValidationError, match="schema_version"):
             WorldState.model_validate({**payload, "schema_version": retired})
     missing = {key: value for key, value in payload.items() if key != "schema_version"}
@@ -181,32 +181,40 @@ def test_world_state_schema_is_sixteen_and_the_previous_version_is_refused() -> 
         WorldState.model_validate(missing)
 
 
-def test_world_state_with_a_running_query_round_trips(engine_factory, tmp_path: Path) -> None:
-    """真实引擎开始一次查询后写共同检查点：恢复出的世界里查询活动逐值相等（种类、槽位、data.app_id 都在），世界状态能
-    写入能读回；重开的引擎把它做完时时长与 app 不重抽，答案与不中断的父运行逐值相同（docs/design/09-io-formats.md）。"""
+def test_world_state_with_a_running_search_round_trips(engine_factory, tmp_path: Path) -> None:
+    """真实引擎开始一次搜索后写共同检查点：恢复出的世界里搜索活动与挂起对话逐值相等，世界状态能写入能读回；重开的引擎把它
+    做完时时长与 app 不重抽，答案与不中断的父运行逐值相同（docs/design/09-io-formats.md）。"""
     from tests.integration.runtime_fixtures import branch_of
-    from tests.life.conftest import advance_next, query
+    from tests.life.conftest import advance_next, search_world
     from tests.life.environment_runtime import act
+    from worldmock.state.decisions.barrier import SearchSessionOutcome
 
     parent = engine_factory()
-    observed, result = act(parent, "query", query("零食", "柠檬茶"))
+    observed, result = act(parent, "search", search_world("柠檬茶", prefer="饿了么"))
     assert result.status == "in_progress", result.error_code
     running = parent.context.state.activities[result.activity_id]
-    assert (running.kind, running.resource_claims) == ("query", {"second"})
-    assert running.data["app_id"] in {"eleme", "meituan"}
+    assert (running.kind, running.resource_claims) == ("search", {"second"})
+    assert running.data["app_id"] == "eleme"
+    assert parent.context.state.agents[1].suspended_loop is not None
     payload = parent.context.state.model_dump(mode="json")
     assert WorldState.model_validate(payload).model_dump(mode="json") == payload
     child = branch_of(parent, tmp_path, "resume", observed["observation_event_id"])
     try:
         restored = child.context.state.activities[result.activity_id]
-        assert restored == running and "app_id" in restored.data
+        assert restored == running and restored.data["app_id"] == "eleme"
+        assert child.context.state.agents[1].suspended_loop == parent.context.state.agents[1].suspended_loop
         for engine in (parent, child):
-            while engine.context.state.activities[result.activity_id].status == "active":
+            while not engine.due_searches():
                 advance_next(engine)
+            [(task, _)] = engine.due_searches()
+            engine.complete_searches([SearchSessionOutcome(
+                action_id=task.action_id, agent_id=1, activity_id=task.activity_id,
+                goods_ids=("lemon-tea",), place_ids=(), summary="找到柠檬茶",
+            )])
         done, again = (engine.context.state.activities[result.activity_id] for engine in (parent, child))
         assert (again.planned_duration_seconds, again.data["app_id"]) == (
             running.planned_duration_seconds, running.data["app_id"])
-        assert again.data["answer"] == done.data["answer"] and done.data["answer"]["rows"]
+        assert again.data["answer"] == done.data["answer"] and done.data["answer"]["goods_rows"]
     finally:
         child.close()
 
@@ -297,7 +305,7 @@ def test_restored_world_keeps_the_live_activity_order(engine_factory, tmp_path: 
 def test_same_version_commit_after_an_activity_update_keeps_the_stored_order(engine_factory) -> None:
     """开始组之后用 report_status 播报主活动（这一步原位换掉主活动的条目），再取一次观察：观察之前与已提交世界的逐字节
     比较通过，世界行里活动的先后与引擎世界相同。"""
-    from tests.life.conftest import advance_until_ready, context, report_request
+    from tests.life.conftest import advance_until_ready, report_request
     from tests.life.environment_runtime import act, every_five_minutes
 
     engine = engine_factory(mutate=every_five_minutes)
@@ -307,5 +315,5 @@ def test_same_version_commit_after_an_activity_update_keeps_the_stored_order(eng
     _, reported = act(engine, "report", report_request(name), "report_status")
     assert reported.status == "completed", reported.error_code
     assert list(engine.context.state.activities) == [side, main]
-    engine.observe(context(engine, "look"))
+    engine.observations.build_wakeup_observation(engine.context.state.agents[1])
     assert _stored_activity_ids(engine.context.store.run_dir) == list(engine.context.state.activities)

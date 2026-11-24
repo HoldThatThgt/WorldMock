@@ -10,7 +10,7 @@ const ViewerContext = {};
   const UNVERIFIED = '未经核验';
   const rules = {
     system: {
-      label: '系统层', source: 'src/worldmock/agents/life_prompt.py · LIFE_SYSTEM_LAYER、system_message',
+      label: '系统层', source: 'src/worldmock/agents/prompt/life_prompt.py · LIFE_SYSTEM_LAYER、system_message',
       fill: '固定交互规则按紧凑 JSON 写入 system 消息；整次运行逐字节相同，不追加预算或阶段文字。',
       steps: [
         ['每次复用', '同一运行的每个行动请求使用同一份系统层。'],
@@ -19,7 +19,7 @@ const ViewerContext = {};
       ],
     },
     tool: {
-      label: '工具层', source: 'src/worldmock/life/tool_layer.py · tool_layer、availability',
+      label: '工具层', source: 'src/worldmock/simulation_engine/observation/targets/tool_layer.py · tool_layer、availability',
       fill: '环境按本次观察列出可操作目标，逐个动作与工具给出 available 与 reason。',
       steps: [
         ['单一来源', '可用性与环境受理使用同一组拒绝检查，列出即可提交。'],
@@ -28,7 +28,7 @@ const ViewerContext = {};
       ],
     },
     persona: {
-      label: '人设层', source: 'src/worldmock/agents/life_persona.py · persona_layer',
+      label: '人设层', source: 'src/worldmock/agents/prompt/life_persona.py · persona_layer',
       fill: '宿主从人物卡片的结构化字段与姓名构建身份、作息、习惯、口味与关系，整次运行逐字节相同。',
       steps: [
         ['卡片来源', '新建运行时保存卡片的结构化字段，不含当下处境；没有卡片的人物只有姓名，其余为 null 或空列表。'],
@@ -42,7 +42,7 @@ const ViewerContext = {};
         + 'src/worldmock/simulation_engine/observation/memory/',
       fill: '环境从已提交事件与回顾事件派生「可查」「近三天」「今天」三部分，整层合计不超过 14,000 字。',
       steps: [
-        ['今天', '今天的每次决策一条，提交后从下一次决策起可见，同一时刻接着的决策经 changes.memory.added 收到；'
+        ['今天', '今天的每次唤醒一条（同日 search_world 挂起与恢复按 wakeup_id 归并），提交后从下一次唤醒起可见；'
           + '每条「核验」与「自述」合计至多 120 字，全文用 search_memory 查「今天」。'],
         ['近三天', '过了零点，模型把前一天每类的条目整理成一段回顾；饮食和生活取最近三天，工作取最近三个有工作的日子；'
           + '整理不出时这一格写「未整理」，那天没有这类事时这一格省略。'],
@@ -53,7 +53,7 @@ const ViewerContext = {};
       ],
     },
     todo: {
-      label: '待办层', source: 'src/worldmock/life/todo_layer.py · todo_layer',
+      label: '待办层', source: 'src/worldmock/simulation_engine/observation/layers/todo_layer.py · todo_layer',
       fill: '暂停的活动按暂停时刻排列并带恢复与收尾工具；还没办完的个人事务按记下的时刻排列，写明要办成什么、已办到哪、'
         + '备注与尚未提醒的钟点；在途订单（orders）列出下单后还没送达或取走的订单；今日计划列出目标、是否推进与提醒时刻。',
       steps: [
@@ -66,7 +66,7 @@ const ViewerContext = {};
       ],
     },
     environment: {
-      label: '环境层', source: 'src/worldmock/life/environment_layer.py · environment_layer',
+      label: '环境层', source: 'src/worldmock/simulation_engine/observation/layers/environment_layer.py · environment_layer',
       fill: '观察时刻、身体感受文字、所在地点（停留或路程、地点类型、固定规则）、今天的上班安排（没有工作安排为 null）'
         + '与明天的日期、星期和上不上班。',
       steps: [
@@ -80,11 +80,11 @@ const ViewerContext = {};
     },
     progress: {
       label: '进度层', source: 'src/worldmock/simulation_engine/observation/layers/progress_layer.py · progress_view',
-      fill: '此刻还没了结的事：进行中或待收尾的本人活动带开始记录和最新结果，上次决策之后新到的结果、配送、app 推送与提醒，'
-        + '这段停留或路程里已经做完的查询及其答案，以及今天被拒绝的请求，按发生时刻排列。',
+      fill: '此刻还没了结的事：进行中或待收尾的本人活动带开始记录和最新结果，上次唤醒之后新到的结果、配送、app 推送与提醒，'
+        + '这段停留或路程里已经做完的搜索及其答案，以及今天被拒绝的请求，按发生时刻排列。',
       steps: [
-        ['已发布界', '下界是上一次决策的提交，且不早于本地零点；在它之前已经了结的事在记忆层「今天」里。'],
-        ['带入记录', '进行中或待收尾的本人活动和这段停留里做完的查询照样带入；出发后查询答案离开进度层，进条目全文的「当时查到」。'],
+        ['已发布界', '下界是上一次唤醒的提交，且不早于本地零点；在它之前已经了结的事在记忆层「今天」里。'],
+        ['带入记录', '进行中或待收尾的本人活动和这段停留里做完的搜索照样带入；出发后搜索答案离开进度层，进条目全文的「当时查到」。'],
         ['事务记录', '事务提醒到点（errand_reminder）与环境确认办成（errand_completed）两种记录只写事务名称，'
           + '由人物可见的事务事件派生；办成同时在记忆层「今天」的核验里写成「办成「事务名」」。'],
         ['容量折叠', '超过容量时把连续的未受保护记录折叠为 condensed；受保护记录不变。'],
@@ -92,43 +92,39 @@ const ViewerContext = {};
     },
     tools: {
       label: '工具定义', source: 'src/worldmock/agents/life_agent.py · 原生工具；src/worldmock/agents/prompt/life_prompt.py · TOOL_DESCRIPTIONS',
-      fill: '六个世界请求工具（两个开始工具、三个活动控制工具与计划修订）、一个回看工具（recall_task_summary）'
-        + '与一个记忆检索工具（search_memory），共八个，严格参数结构，整次运行字节相同。',
+      fill: '七个世界请求工具（两个开始工具、search_world、三个活动控制工具与计划修订）、一个回看工具（recall_task_summary）'
+        + '与一个记忆检索工具（search_memory），共九个，严格参数结构，整次运行字节相同。',
       steps: [
         ['稳定工具面', '不再按观察绑定枚举，名称在宿主本地按私有绑定校验。'],
         ['最后回合', '只剩最后一个回合时与输出截断后的那次重试时去掉全部只读工具（回看任务与 search_memory），只留世界请求工具。'],
-        ['检索上限', '一次决策至多查三次记忆，第四次返回 MEMORY_SEARCH_LIMIT。'],
+        ['检索上限', '一次唤醒至多查三次记忆，第四次返回 MEMORY_SEARCH_LIMIT。'],
         ['计量口径', '未提供 tools 与显式 tools: [] 分别保留；工具参数和描述均可查看。'],
       ],
     },
     message: {
-      label: '本轮追加消息', source: 'src/worldmock/agents/protocol/react_loop.py · ReactLoop._turn；src/worldmock/agents/life_agent.py · execute_decisions',
-      fill: '同一决策内的 assistant 调用、search_memory 与回看任务的结果和协议纠错消息按实际发送顺序保留。',
+      label: '本轮追加消息', source: 'src/worldmock/agents/protocol/agent_loop.py · AgentLoop.run；src/worldmock/agents/life_agent.py · decide_wakeup',
+      fill: '同一次唤醒沙盒内的 assistant 调用、控制工具回执、search_memory 与回看任务结果，以及搜索挂起恢复结果按实际顺序保留。',
       steps: [
-        ['查询结果', '查询结果作为一条紧凑 JSON 工具消息追加；search_memory 查到的往日是回顾段落，「当时查到」的价格和库存以当时为准。'],
-        ['世界请求', '登记世界请求即结束本次决策，不再追加工具消息。'],
-        ['多出消息', '首个请求多于两条消息时，多出的消息按完整消息显示。'],
+        ['检索结果', '检索与控制工具结果作为紧凑 JSON 工具消息追加；search_memory 查到的往日是回顾段落。'],
+        ['挂起与恢复', 'search_world 在沙盒挂起，待 LLM Search Session 完成后带着 Fact Guard 核验结果恢复同一上下文继续决策。'],
+        ['持续开始', '登记持续开始世界请求即结束本次唤醒沙盒。'],
         ['未知格式', '不符合七层合同的消息不做分段，完整正文仍可查看。'],
       ],
     },
-    continuation: {
-      label: '同秒续接',
-      source: 'src/worldmock/simulation_engine/decisions/continuation.py · same_second_chain；'
-        + 'src/worldmock/agents/protocol/life_continuation.py · continuation_messages',
-      fill: '同一秒的后续决策原样续接上一决策末次请求的全部消息，再追加上一决策的 assistant，并为它的每个世界请求各追加一条 tool 消息'
-        + ' {result, changes, events}：一个世界请求一条，开始组两条，changes 与 events 只写在最后一条上；'
-        + 'changes.memory.added 是上一决策的今天条目。',
+    search_session: {
+      label: '搜索子会话',
+      source: 'src/worldmock/agents/search/search_session.py · SearchSessionRunner；'
+        + 'src/worldmock/simulation_engine/activities/search/search_catalog.py',
+      fill: '由 search_world 触发并在到期时运行于隔离上下文，经 search_goods、inspect_goods_offers、search_places 与 submit_search_results 多轮检索真实目录。',
       steps: [
-        ['识别', '一次决策的首个请求多于两条消息即判为续接。'],
-        ['来源决策', '前序 assistant 按 tool_call 身份匹配到产生它的决策。'],
-        ['回传思考', '前序 assistant 的 reasoning_content 单列显示；时间推进后请求不再带它。'],
-        ['记忆追加', '链里记忆层只在「今天」末尾追加；兜底改写了早先的条目时这一次改用新快照。'],
+        ['隔离轨迹', '以 purpose=search_session 与 activity_id 归属到对应搜索活动，不进入主循环记忆与提示。'],
+        ['事实守卫', 'submit_search_results 只提交已核验商品与地点 ID 及 summary，价格、运费与评分由 Fact Guard 确定性注入。'],
       ],
     },
     digest: {
       label: '日、月、年回顾',
       source: 'src/worldmock/simulation_engine/evidence/memory_digest.py；'
-        + 'src/worldmock/runtime/lifecycle/runner.py · settle_pending_memory_digests',
+        + 'src/worldmock/runtime/lifecycle/midnight.py · settle_pending_memory_digests',
       fill: '零点由模型把前一天每类的今天条目写成一段日记式的日回顾（要紧的事和当时的感受，时间只说早上、中午、下午、晚上），'
         + '每类至多 250 字；每月第一个零点把上个月的日回顾写成月回顾，每类至多 800 字；'
         + '每年第一个零点把上一年的月回顾写成年回顾，每类至多 2000 字。',
@@ -151,11 +147,10 @@ const ViewerContext = {};
     },
     capacity: {
       label: '请求容量', source: 'src/worldmock/agents/prompt/prompt_capacity.py · fit_request',
-      fill: '计量系统层、工具、各用户层、续接消息（含回传思考）与最大输出预留；展示的字符数量不是 token 数。',
+      fill: '计量系统层、工具、各用户层、本轮沙盒消息与最大输出预留；展示的字符数量不是 token 数。',
       steps: [
         ['整体计量', '达到模型上下文容量的 85% 时开始处理，每步之后重新计量。'],
-        ['先结束续接', '第 0 步先提前结束本秒续接：请求改从新快照构造，前序消息与回传思考不再出现。'],
-        ['再浓缩进度层', '把最旧一段连续的未受保护记录折叠为 condensed，重复到阈值以下。'],
+        ['浓缩进度层', '把最旧一段连续的未受保护记录折叠为 condensed，重复到阈值以下。'],
         ['保留当前', '受保护记录，以及人设层、记忆层、待办层、工具层与环境层都不被压缩。'],
         ['明确失败', '仍超限则按层记录 token 数并报错，不静默截掉请求。'],
       ],
@@ -184,8 +179,9 @@ const ViewerContext = {};
     return isObject(layer) && layer.layer === '系统层' && layer.role === LIFE_ROLE;
   }
 
-  /** @brief 只按当前系统层 JSON 与工具数组识别行动请求，其余调用保留原始正文。 */
+  /** @brief 按 purpose 与当前系统层 JSON + 工具数组识别调用阶段（选择动作、搜索子会话、其他调用）。 */
   function classify(request, purpose) {
+    if (purpose === 'search_session') return {stage: 'search_session', label: '搜索子会话'};
     if (lifeSystem(request) && Array.isArray(request.tools)) return {stage: 'action', label: '选择动作'};
     return {stage: 'other', label: purpose ? `其他调用·${purpose}` : '其他调用·未解析'};
   }
@@ -255,48 +251,25 @@ const ViewerContext = {};
     return [makeBlock('message', messageText(message), index, message?.role, '未解析 · 完整消息')];
   }
 
-  /** @brief 首个 user 之外的消息整条展示；行动请求的首条 system 对应系统层规则。 */
+  /** @brief 首个 user 之外的消息整条展示；行动请求与搜索子会话的首条 system 对应各自规则。 */
   function wholeMessage(message, index, stage) {
     const role = message?.role;
     const key = role === 'system' ? 'system' : 'message';
     const label = role === 'system' ? LABELS.system : `${role || '未知角色'} · 完整消息`;
     const block = makeBlock(key, messageText(message), index, role, label);
-    if (stage !== 'action' || (role === 'system' && index !== 0)) block.rule = null;
+    if (stage === 'search_session') block.rule = index === 0 ? 'search_session' : 'message';
+    else if (stage !== 'action' || (role === 'system' && index !== 0)) block.rule = null;
     if (role === 'system' && block.rule === null) {
       block.label = '系统消息';
     }
     return block;
   }
 
-  /** @brief 续接前缀中的一条消息：整条保留，assistant 按 tool_call 身份标出来源决策并把非空回复正文标为未经核验，
-   * 回传的思考另列一块（不重复计量）。 */
-  function continuationMessage(message, index, sources) {
-    const role = message?.role;
-    const calls = Array.isArray(message?.tool_calls) ? message.tool_calls : [];
-    const origin = calls.map(call => sources[call?.id]).find(Boolean) ?? '未匹配';
-    const replied = role === 'assistant' && typeof message.content === 'string' && message.content.trim() !== '';
-    const label = role === 'assistant' ? `续接 · assistant · 来源决策 ${origin}` +
-      (replied ? ` · 回复正文（${UNVERIFIED}）` : '') : `续接 · ${role || '未知角色'} · 完整消息`;
-    const block = {...makeBlock('message', messageText(message), index, role, label), rule: 'continuation'};
-    const reasoning = role === 'assistant' && typeof message.reasoning_content === 'string' ? message.reasoning_content : '';
-    if (!reasoning) return [block];
-    return [block, {...makeBlock('reasoning', reasoning, index, role, `回传思考 · 来源决策 ${origin}`),
-      rule: 'continuation', interpretation: 'reasoning'}];
-  }
-
-  /** @brief 续接前缀中 assistant 的全部 tool_call 身份（首个 user 之后的消息），供查看器匹配来源决策。 */
-  function prefixCallIds(request) {
-    const messages = Array.isArray(request?.messages) ? request.messages : [];
-    const firstUser = messages.findIndex(message => message?.role === 'user');
-    return messages.slice(firstUser + 1).filter(message => message?.role === 'assistant')
-      .flatMap(message => (Array.isArray(message.tool_calls) ? message.tool_calls : []).map(call => call?.id))
-      .filter(id => typeof id === 'string');
-  }
-
-  /** @brief 行动请求的首个 user 按六层切片；其余输入完整保留，续接前缀按来源决策标注。 */
+  /** @brief 行动请求的首个 user 按六层切片；搜索子会话与其余轮次消息完整保留。 */
   function parseMessage(message, index, context) {
-    if (context.sources && index > context.firstUser) return continuationMessage(message, index, context.sources);
-    if (index !== context.firstUser) return [wholeMessage(message, index, context.stage)];
+    if (index !== context.firstUser || context.stage === 'search_session') {
+      return [wholeMessage(message, index, context.stage)];
+    }
     if (context.stage === 'other') {
       const blocks = unparsed(message, index, context.warnings, '不属于七层行动请求');
       blocks[0].rule = null;
@@ -313,25 +286,19 @@ const ViewerContext = {};
       interpretation: 'layer', value: layer.value}));
   }
 
-  /** @brief 解析一个原始 model_request 事件；缺少请求消息时保留可见归档载荷。
-   *
-   * continuation 为 {sources: {tool_call 身份: 来源决策}} 时表示它是一次决策的首个请求：行动请求多于两条消息即判为续接，
-   * 前序消息按来源决策标注、回传思考单列；回传思考块是 assistant 消息的一部分，不另计字符。 */
-  function parseRequest(event, continuation = null) {
+  /** @brief 解析一个原始 model_request 事件；缺少请求消息时保留可见归档载荷。 */
+  function parseRequest(event) {
     const request = event?.data?.request;
     const classification = classify(request, event?.data?.purpose);
     const warnings = [];
     const blocks = [];
-    let sources = null;
     if (!Array.isArray(request?.messages)) {
       warnings.push('请求没有有效的 messages 数组，归档载荷按原始 JSON 展示。');
       console.error('Context request messages are missing or invalid.');
       blocks.push(makeBlock('message', JSON.stringify(event), -1, 'request', '未解析 · 请求载荷'));
     } else {
       const firstUser = request.messages.findIndex(message => message?.role === 'user');
-      const continued = classification.stage === 'action' && continuation && request.messages.length > 2;
-      sources = continued ? continuation.sources : null;
-      const context = {firstUser, stage: classification.stage, warnings, sources};
+      const context = {firstUser, stage: classification.stage, warnings};
       request.messages.forEach((message, index) => blocks.push(...parseMessage(message, index, context)));
     }
     if (request && Object.prototype.hasOwnProperty.call(request, 'tools')) {
@@ -342,14 +309,13 @@ const ViewerContext = {};
     const messageChars = blocks.filter(block => block.key !== 'tools' && block.key !== 'reasoning')
       .reduce((sum, block) => sum + block.chars, 0);
     const toolChars = blocks.filter(block => block.key === 'tools').reduce((sum, block) => sum + block.chars, 0);
-    return {stage: classification.stage, stageLabel: classification.label, blocks, messageChars, toolChars, warnings,
-      continuation: sources !== null};
+    return {stage: classification.stage, stageLabel: classification.label, blocks, messageChars, toolChars, warnings};
   }
 
   /* 动作的中文名，查看器只有这一张：工具层下钻的标签和页面的动作请求行都用它。interact 按所在分组的类别取词，
-   * 用内容 app（类别 app）是「使用」，在地点做事（类别 location）是「做」。工具层没有查询的行，query 只用于动作请求行。 */
+   * 用内容 app（类别 app）是「使用」，在地点做事（类别 location）是「做」。工具层没有搜索的行，search 只用于搜索动作请求与活动渲染。 */
   const ACTION_WORDS = {interact: {app: '使用', location: '做'}, travel: '出行', sleep: '睡觉', purchase: '购买',
-    query: '查询'};
+    search: '搜索'};
 
   /** @brief 动作在某个目标类别下的中文名；表里没有的动作或类别照原值显示。 */
   function actionWord(action, kind) {
@@ -425,5 +391,5 @@ const ViewerContext = {};
     return changes;
   }
 
-  Object.assign(ViewerContext, {parseRequest, prefixCallIds, classify, compare, drillItems, actionWord, rules});
+  Object.assign(ViewerContext, {parseRequest, classify, compare, drillItems, actionWord, rules});
 }

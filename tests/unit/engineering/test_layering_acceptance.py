@@ -10,7 +10,8 @@ ROOT = Path(__file__).resolve().parents[3]
 
 NEW_PRODUCTION = (
     'src/worldmock/simulation_engine/world/counterfactual.py',
-    'src/worldmock/simulation_engine/decisions/decision_coordinator.py',
+    'src/worldmock/simulation_engine/decisions/sandbox.py',
+    'src/worldmock/simulation_engine/decisions/merger.py',
     'src/worldmock/simulation_engine/engine.py',
     'src/worldmock/simulation_engine/world/context.py',
     'src/worldmock/simulation_engine/evidence/model.py',
@@ -34,11 +35,11 @@ def test_facade_keeps_public_signatures_and_has_no_business_mixin():
     assignments = {node.attr for node in ast.walk(constructor)
         if isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Store)
         and isinstance(node.value, ast.Name) and node.value.id == "self"}
-    assert assignments == {"context", "observations", "actions", "decisions", "clock", "evidence",
-                           "counterfactual", "queries"}
+    assert assignments == {"context", "observations", "actions", "barriers", "clock", "counterfactual"}
     methods = {node.name: node for node in facade.body
                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
-    assert {"create", "open", "observe", "submit_action", "advance", "checkpoint"} <= set(methods)
+    assert {"create", "open", "prepare_barrier", "commit_barrier", "due_searches",
+            "complete_searches", "advance", "scheduling_state", "checkpoint"} <= set(methods)
     assert "environment" in {argument.arg for argument in methods["create"].args.args}
     assert {name for name in methods if name.startswith("_")} == {"__init__", "_life_snapshot"}
     assert len(path.read_text(encoding="utf-8").splitlines()) <= 600
@@ -53,7 +54,7 @@ def test_context_has_one_state_owner_and_no_facade_back_reference(engine_factory
     engine = engine_factory()
     assert engine.context.state.model_dump(mode="json") == engine.context.store.state
     assert engine.context.catalog is engine.context.inputs.catalog
-    assert engine.context.persona is engine.context.inputs.persona
+    assert engine.context.persona_by_id is engine.context.inputs.persona_by_id
     assert engine.context.config is engine.context.inputs.config
     for name in NEW_PRODUCTION:
         tree = ast.parse((ROOT / name).read_text("utf-8"))
