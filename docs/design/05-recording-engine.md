@@ -5,28 +5,27 @@
 运行的权威记录是按提交顺序保存的事件和共同世界状态。导出、查看器、记忆层与评估只消费这些事实，
 不能根据模型自述、资金变化或活动名称补造内容、收货和世界事件。
 进度层与记忆层「今天」不按 session 的事件序号区间投影，两层按来源事件序号不相交，只有两处写明的重叠；session 的事件序号下界
-（[session_bounds.py](../../src/worldmock/recording_engine/projections/activities/session_bounds.py)）只用来判定这段停留或路程里做完的查询
-与同秒续接里 session 换没换；已发布界、重叠与带入规则只在[人物](06-agent.md)「进度层的下界与带入的记录」定义。
+（[session_bounds.py](../../src/worldmock/recording_engine/projections/activities/session_bounds.py)）只用来判定这段停留或路程里做完的搜索（`ActivityKind.SEARCH`）；已发布界、重叠与带入规则只在[人物](06-agent.md)「进度层的下界与带入的记录」定义。
 
 ```mermaid
 flowchart LR
-    Commit[世界与事件同一事务] --> Events[事件前缀]
-    Inputs[原始环境与生成地图] --> Assets[不可变摘要素材]
-    Events --> Checkpoint[共同检查点]
+    Commit["世界与事件同一事务"] --> Events["事件前缀"]
+    Inputs["原始环境与生成地图"] --> Assets["不可变摘要素材"]
+    Events --> Checkpoint["共同检查点"]
     Assets --> Checkpoint
-    Checkpoint --> Export[认证导出]
-    Export --> View[查看器与日时间线]
-    Export --> Evaluation[行为评估]
+    Checkpoint --> Export["认证导出"]
+    Export --> View["运行查看器与日时间线"]
+    Export --> Evaluation["行为评估"]
 ```
 
-查看器打开导出目录：在页面里从 events.jsonl 建索引，读导出清单、运行清单和冻结的目录素材，见「显示写法与检查工具」。
+运行查看器打开导出目录：在页面里从 `events.jsonl` 建索引，读导出清单、运行清单和冻结的目录素材，见「显示写法与检查工具」。
 
-运行库只有一个写入者，就是运行进程里的生活引擎：引擎的方法同步执行，运行宿主逐个调用（见[运行装配与决策循环](10-runtime.md)「决策循环」）。写入分两种，每次都是一个 SQLite 事务。
+运行库只有一个写入者，就是运行进程里的生活引擎：引擎的全部公共方法同步执行；多人物并发推理期间仅在各自的私有内存沙盒（`AgentSandbox`）与 `EvidenceBuffer` 中收集草稿，退出并发段后由 `RunHost` 交还 `LifeEngine.commit_barrier`（`BarrierMerger`）在单次事务中按 `agent_id` 升序写库（见[运行装配与决策循环](10-runtime.md)「时钟屏障与并发唤醒循环」），不引入并发写锁或 WAL 假设。写入分两种，每次都是一个 SQLite 事务。
 
 - **一步世界推进**：版本恰好加一的新世界与至少一条因果事件。调用方同时交上这一步出发时的世界，存储先核对它与已提交
   世界的规范 JSON 逐字节相同，不同即以 `Engine world differs from the committed world` 拒绝；新世界在写入前已按加载口径
   复校。事件的 `state_version_before` 与 `state_version_after` 是推进前后的两个版本。
-- **证据追加**：只写事件，不接收、不改写世界。观察、模型请求与响应、记忆更新、`decision_started` 与
+- **证据追加**：只写事件，不接收、不改写世界。观察、模型请求与响应（含 `purpose = "search_session"` 且 `activity_id` 指向所属搜索活动的搜索子会话调用证据）、记忆更新、`decision_started` 与
   `action_requested`、`run_failed` 和零点计划与回顾失败时的模型证据都是证据追加，事件的前后版本都等于当前已提交版本。
   证据追加不能带资金变化；初始注资只属于创建世界的那一步推进。
 
@@ -40,9 +39,9 @@ SHA-256，存储的正文是它的 zlib 流（见「冻结输入、检查点与�
 
 ## 事件与来源
 
-事件信封携带运行、顺序、时间、人物、动作和活动身份，以及 `resource_changes`。
+事件信封携带运行、顺序、时间、人物、唤醒（`wakeup_id`，替换旧 `decision_id`）、动作和活动身份（`activity_id`，搜索子会话调用证据填所属搜索活动身份），以及 `resource_changes`。
 资金变化只允许信封字段，删除 data 内的重复账本。付款与收入支出必须引用真实两个账户并守恒。
-当前活动种类只有 sleep、travel、interact、purchase、query。拒绝旧等待、工作、社交、消息与旧 app 活动快照。
+当前活动种类只有 `sleep`、`travel`、`interact`、`purchase`、`search`（`ActivityKind.SEARCH`）。拒绝旧等待、工作、社交、消息、旧 `query` 与旧 app 活动快照。
 活动快照只出现在环境写下、人物可见的事件里：受理、拒绝、动作结果、活动进度和环境事件。
 人物有活动在进行时被业务拒绝，拒绝事件带着那一刻仍在进行的那项活动的快照；世界没有变，
 导出把它当作这项活动的一个真实来源，不因此增加执行区间、内容消费或推送转换。
@@ -56,7 +55,7 @@ callback_effect、callback_reminder、time_trigger、weather 使用闭合字段�
 独立时间事实不能伪装成上游事件的附加效果，天气条件与速度系数必须来自固定世界天气表。
 
 日、月、年回顾的登记事件 `memory_digest_generated` 同样使用闭合字段合同。信封是 `environment_event`，来源 `model`、可见性
-`system`、属于一个人物、没有资金变化，起因恰一项，是这一期最后一次模型响应；决策、动作与活动身份为 null。`data` 恰为
+`system`、属于一个人物、没有资金变化，起因恰一项，是这一期最后一次模型响应；唤醒、动作与活动身份为 null。`data` 恰为
 `{kind, tier, period, digests, fallback}`：`tier` 是 `day`、`month` 或 `year`，`period` 依次写成 `YYYY-MM-DD`、`YYYY-MM` 或
 `YYYY`；`digests` 恰有 `food`、`work`、`life` 三个键，每项为 null 或 `{text, source_event_ids, cited_event_ids}`。`text` 是模型
 写的原文，不修剪、不改写；`source_event_ids` 是这一类全部输入行背后的事件（日回顾是各行所属今天条目的来源事件，月回顾是那天
@@ -80,7 +79,7 @@ callback_effect、callback_reminder、time_trigger、weather 使用闭合字段�
 `consume_on_start` 的 `data` 恰为 `{kind, type, rule_id, state, content_id, before, after}`：`kind` 为 `callback_effect`，`type` 为 `consume_on_start`，
 `rule_id` 为 null，`state` 是状态名，`content_id` 是开始的那条内容，`before`、`after` 是减 1 前后的值，都不小于 0。
 信封与另外两种状态效果相同：`environment_event`，来源 `environment`，可见性 `system`，`resource_changes` 为空，`caused_by` 恰一项，
-是开始这件事的那次调用的受理 `action_result`。什么时候减见[模拟引擎](04-simulation-engine.md)「出行、内容与查询」。
+是开始这件事的那次调用的受理 `action_result`。什么时候减见[模拟引擎](04-simulation-engine.md)「出行、内容与搜索」。
 
 唤醒原因写在共同身体结算、`decision_started` 和观察里，取值是[模拟引擎](04-simulation-engine.md)唤醒表里的名称。
 每次睡醒的原因列表同时含 `planned_end` 与 `session_open`，质量报告和行为评估按原因名的计数各加一。
@@ -102,8 +101,8 @@ callback_effect、callback_reminder、time_trigger、weather 使用闭合字段�
 值为 null 或对象；为对象时键恰为三个成员、`data.content.completed` 为真、`data.content.app_id` 为 null；每个非空成员的键恰如上表、`tier` 在该成员的档位表内。
 
 `memory_updated` 登记人物工作区已落盘的记忆，所有登记用同一组键，恰为十一个：`operation`、`created_episode_ids`、`merged_episode_ids`、
-`episodes`、`memory_before_sha256`、`memory_sha256`、`episodes_sha256`、`observation_event_id`、`verified_event_ids`、`trigger` 与 `decision_id`。
-环境只接受步尾登记，要求如下：
+`episodes`、`memory_before_sha256`、`memory_sha256`、`episodes_sha256`、`observation_event_id`、`verified_event_ids`、`trigger` 与 `wakeup_id`（替换旧 `decision_id`）。
+记忆落盘由 `BarrierMerger.commit_barrier` 核验无冲突并在单次 SQLite 事务写入全部草稿后才调用 `save_step` 写入工作区 `MEMORY.md` 并持久化 `memory_updated`（挂起与冲突回滚分支不写入）：
 
 | 键 | 要求 |
 | --- | --- |
@@ -111,19 +110,19 @@ callback_effect、callback_reminder、time_trigger、weather 使用闭合字段�
 | `memory_before_sha256` | `null` 或六十四位小写十六进制摘要：人物在整条运行谱系里的第一条为 `null`，此后等于本人上一条的 `memory_sha256`（由步尾保存的写法保证，环境不另核） |
 | `memory_sha256`、`episodes_sha256` | 写入后 `MEMORY.md` 与 `memory/episodes.jsonl` 字节的六十四位小写十六进制摘要 |
 | `episodes` | 新建在前、合并在后，每条恰为 `{id, type, text, epistemic_status}` 四个键，与两组编号一一对应 |
-| `observation_event_id` | 非空字符串，是本决策的冻结观察 |
+| `observation_event_id` | 非空字符串，是本唤醒的冻结观察 |
 | `trigger` | 环境推导：`[]` 或 `["activity_conclusion"]`；写入点的闭集只有 `activity_conclusion` |
-| 其余 | 新建与合并的编号合起来不重复，已核验事件身份不重复；观察属于本决策，事实窗口与观察里的 `verified_experiences` 一致 |
+| 其余 | 新建与合并的编号合起来不重复，已核验事件身份不重复；观察属于本唤醒，事实窗口与观察里的 `verified_experiences` 一致 |
 
-任一条不满足先记英文错误日志，再以 `ProtocolError("Memory update evidence is invalid")` 作为运行故障拒绝。每一步至多一条 `memory_updated`。
+任一条不满足先记英文错误日志，再以 `ProtocolError("Memory update evidence is invalid")` 作为运行故障拒绝。每次提交唤醒至多一条 `memory_updated`。
 质量报告对每条记忆更新只凭事件独立核对：键集合不是上面十一个、`memory_before_sha256` 既不是 `null` 也不是摘要、或其余形状不符时记 `invalid_memory_update`；
-每条更新都核对观察与事实窗口；收尾写入点没有同一决策的 `conclude_activity`，或写入了条目却没有写入点时，记 `memory_update_without_source`。
+每条更新都核对观察与事实窗口；收尾写入点没有同一唤醒（`wakeup_id`）的 `conclude_activity`，或写入了条目却没有写入点时，记 `memory_update_without_source`。
 
 手机上的三类事由引擎写成四种环境事件：app 的开和关、进出地点、订单通知。
 它们都是 `environment_event`，来源是环境，可见性是 `system`，不带资金变化，事件类型的闭集不变。
 人物看不到它们：不进任何提示层、记忆、零点计划和回顾的输入，不能被回调规则订阅，不产生公开评估证据；
-它们也不是决策机会，不新增唤醒原因，不改人物的下一次决策时刻。
-人物从购买结果的 `channel` 读到实际的下单 app，从查询的答案读到是在哪个 app 里查的；来源是商品履约记录和查询活动，不是这四种事件。
+它们也不是唤醒机会，不新增唤醒原因，不改人物的下一次决策时刻。
+人物从购买结果的 `channel` 读到实际的下单 app，从搜索（`search_world`）的答案与归属应用读到相关途径；来源是商品履约记录和搜索活动，不是这四种事件。
 恢复和重放读已提交的事件，不重写、不重抽。
 
 | `data.kind` | `data` 恰为 | 何时写 | 起因 |
@@ -150,7 +149,8 @@ callback_effect、callback_reminder、time_trigger、weather 使用闭合字段�
 模型请求与观察里的大表各只存一次，读出的证据与写入前相同：
 
 - **模型证据**：模型调用逐次留证。
-  - 请求事件 `model_request` 的 `data.request` 是交给模型客户端的完整请求：人物回合、零点计划与回顾都恰为 `model`、`messages`、`tools`、`tool_choice`、`max_tokens`、`extra_body` 六个键，消息与工具原样；HTTP 正文由 litellm 从这六个键生成，`extra_body` 的键并入正文顶层。两类重试次数不在请求里，记在运行清单的 `stage_model_identity`。
+  - 请求事件 `model_request` 的 `data.request` 是交给模型客户端的完整请求：人物唤醒回合、搜索子会话、零点计划与回顾都恰为 `model`、`messages`、`tools`、`tool_choice`、`max_tokens`、`extra_body` 六个键，消息与工具原样；HTTP 正文由 litellm 从这六个键生成，`extra_body` 的键并入正文顶层。两类重试次数不在请求里，记在运行清单的 `model_identity`（按档案表逐档冻结）。存储层的 `last_agent_action_request_seq` 查询不依赖 `thinking` 开关，精确匹配 `data.purpose IS NULL`、`tool_choice = 'auto'` 且 `tools` 含 `start_main_activity` 的主循环请求；`read_wakeup_observations(agent_id, wakeup_id, observed_at)` 替代旧的 `read_decision_observations`。
+  - 搜索子会话 `LLM Search Session` 内部产生的所有 `model_request` 与 `model_response`，在事件信封上填写 `activity_id = search_activity_id`，`data.purpose` 写 `"search_session"`，`call_id` 写 `{action_id}:search:{turn:04d}:attempt:1`，自动纳入 `token_stats` 与 `by_call_class` 计量。
   - 同一调用的响应或失败事件 `model_response` 的 `data.request` 恒为 null（键照常出现），`caused_by` 恰一项，指向它的请求事件。请求只存一次；零点计划与回顾的证据本就如此。其余键照旧：`phase`、`call_id`、`attempt`、`response`、`error`，响应带 `protocol_feedback` 时也照旧。
   - 环境登记请求时记下请求规范 JSON 的 sha256；登记响应或失败时，核对它带来的请求与之相同。比较按规范内容，内容相同、只是重新构造（例如键的插入次序不同）的请求照常接受。
   - 不同说明请求在调用途中被改动：先写英文错误日志 `Model <phase> for call <call_id> carries a request that differs from its recorded request`，再抛 `ProtocolError("Model exchange request differs from its recorded request")`。这条响应不写入，运行按故障停下。
@@ -178,22 +178,22 @@ callback_effect、callback_reminder、time_trigger、weather 使用闭合字段�
 - **观察分件不是素材**：
   - 素材按 `AssetRef`（带模态与来源）引用，逐个文件落盘刷盘，在事务之外先发布，每次提交与恢复都重读复核，导出时逐个复制。
   - 观察分件是运行库里与观察同一事务的行，按裸 sha256 引用；导出时换回原表，不另成工件。
-  - 两者不共用名称。
+  - 观察分件与素材不共用名称。
 
 ```mermaid
 flowchart LR
-  O[observe] --> M[内存观察]
-  M --> H[宿主提示]
-  M --> S[拆分]
-  subgraph T[同一事务]
-    P[parts 表]
-    E[带引用的观察事件]
+  O["observe"] --> M["内存观察"]
+  M --> H["宿主提示"]
+  M --> S["拆分"]
+  subgraph T["同一事务"]
+    P["parts 表"]
+    E["带引用的观察事件"]
   end
   S --> P
   S --> E
-  R[读取] --> D[唯一解码]
-  D --> F[完整观察]
-  F --> X[冻结观察、导出与检查工具]
+  R["读取"] --> D["唯一解码"]
+  D --> F["完整观察"]
+  F --> X["冻结观察、导出与检查工具"]
 ```
 
 ## 数字足迹
@@ -202,7 +202,7 @@ flowchart LR
 
 | `fact_kind` | 另带字段 | 来源 |
 | --- | --- | --- |
-| `app_use` | `segments`、`status` | 自带 app 的活动（人物点名使用的内容 app，和查询所在的 app）；引擎代为打开的 app 的 `app_foreground` 事件 |
+| `app_use` | `segments`、`status` | 自带 app 的活动（人物点名使用的内容 app，和搜索最终锁定或归属的下单 app）；引擎代为打开的 app 的 `app_foreground` 事件 |
 | `content_consumed` | 内容身份、结算区间、位置、是否完成、推送身份 | 实际内容结算 |
 | `push_delivered`、`push_opened`、`push_released` | 推送身份、内容身份、会话身份、时刻 | 推送的送达与实际转换 |
 | `app_touch` | `occurred_at` | 回调规则 `footprint_chain` 的足迹；出行和付款不再写自动时间点 |
@@ -210,24 +210,24 @@ flowchart LR
 | `order_notification` | `occurred_at`、`order_ids`、`title`、`summary` | `order_notification` 事件；`activity_id` 为 null |
 
 `app_use` 是 app 真实在前台的区间，分两种来源。自带 app 的活动，活动数据里有 `app_id`：人物点名使用的内容 app，区间是这项 interact 活动的正秒结算；
-查询所在的 app，区间是这项 query 活动的执行区间，`app_id` 为空的查询没有 `app_use` 行，查询不写 `app_foreground`。
+搜索所在的 app（由开始时 `prefer` 锁定或完成结算按商品众数/随机流 `search-app:{action_id}` 归属），区间是这项 `search` 活动的执行区间，`data.app_id` 仍为空的搜索没有 `app_use` 行，搜索不写 `app_foreground`。
 引擎代为打开的 app（导航、购买时下单的内容 app、支付 app；下单的内容 app 可以是人物在 `prefer` 里写的那个）由 `app_foreground` 投影：同一活动、同一 app 一行，字段与人物点名使用的行完全相同；
 `segments` 是这一对活动与 app 的全部前台区间，按时间升序，首尾相接的并成一段；`status` 是所属活动在导出截止时的状态；
 `source_event_id` 是最后一条贡献区间的 `app_foreground` 事件。
-下游区分两种来源看 `activity_id` 在 `activities.jsonl` 里的 `activity_type`：`interact` 是人物点名使用，`query` 是查询所在的 app，`travel` 是导航，`purchase` 是下单或付款。
+下游区分两种来源看 `activity_id` 在 `activities.jsonl` 里的 `activity_type`：`interact` 是人物点名使用，`search` 是搜索所在的 app，`travel` 是导航，`purchase` 是下单或付款。
 `app_use` 行排在文件最前，按各行第一条来源事件的先后排列；其后是其余事实，按事件先后。
 app_touch、payment_notification 和 order_notification 是系统点事实，不拥有播放、停留或复看时长。
 「支付成功」由抽到的支付 app 发；抽到直付时由下单的内容 app 发，到店且直付不发。三种订单通知都由下单的内容 app 发。
 内容消费使用实际内容结算区间和当前内容身份，不能使用活动起止墙钟差计算，暂停时间不计入。
-人物点名使用的内容 app 一条放完自动接下一条（见[模拟引擎](04-simulation-engine.md)「出行、内容与查询」），条与条之间是结算边界，前后两段首尾相接，
+人物点名使用的内容 app 一条放完自动接下一条（见[模拟引擎](04-simulation-engine.md)「出行、内容与搜索」），条与条之间是结算边界，前后两段首尾相接，
 所以一次使用不论放了几条都只有一行 `app_use`，`segments` 只被暂停分开；每一条各有自己的进度事件、`content_consumed` 行和 `played` 经历，
-一条被别的结算边界切成几段时照旧是几行。人物收尾结束的一次使用 `status` 是 `cancelled`；人读文字的终局写「结束使用」（见[模拟引擎](04-simulation-engine.md)「出行、内容与查询」），不改这个机器字段。
+一条被别的结算边界切成几段时照旧是几行。人物收尾结束的一次使用 `status` 是 `cancelled`；人读文字的终局写「结束使用」（见[模拟引擎](04-simulation-engine.md)「出行、内容与搜索」），不改这个机器字段。
 
 `location-stays.jsonl` 每段停留一行，由 `location_entered` 与 `location_left` 按 `session_id` 配对投影，按进入事件的先后排列。
 
 | 字段 | 取值 | 含义 |
 | --- | --- | --- |
-| `agent_id` | 唯一人物 | 人物 |
+| `agent_id` | 人物编号 | 所属人物 |
 | `session_id` | 停留会话身份，文件内唯一 | 这段停留；与推送事实的 `session_id` 是同一套身份 |
 | `location_id` | 已登记地点 | 地点 |
 | `entry_kind` | `run_start`、`arrival`、`travel_ended_early` 之一 | 这段停留怎样开始 |
@@ -239,14 +239,14 @@ app_touch、payment_notification 和 order_notification 是系统点事实，不
 购买投影保存实际订单商品、门店、平台、付款 app、数量、价格与履约事实。人物写的 `prefer` 原文只在 `action_requested` 事件的请求里，购买工件不为它加字段。
 付款、到站与收货分开；收到的经历只能来自已提交的本人真实收货事件。地点内容的完成效果（含 `food` 补的能量）不是收货，不进购买投影，也不是「收到」这种已核验经历。
 到店与外卖每条 `goods_received` 事件在原有字段上记录实际卖出商铺 `store_id` 与该份商品的 `quality`（好、中、坏）。导出的购买事实中，每条 `receipt` 收货行与 `verified-experiences.jsonl` 中的 `received` 经历行沿用来源事件的这两个字段。快递取件沿用原有字段。核验按 `order_id` 对应已履约订单，检查商铺一致、品质合法、来源事件一致，每份只有一条收货。
-有延误的外卖在一趟配送的 `delivery_arrival` 事件顶层记录天气总延长 `weather_delay_seconds` 和实际比下单预计晚的 `late_by_seconds`。两者是已经发生的秒数。该趟「订单已送达」通知用同一到达事实解释延误一次。外卖的购买与在途订单事件快照只公开下单预计；快递到站沿用原有正文。
+有延误的外卖在一趟配送的 `delivery_arrival` 事件顶层记录天气总延长 `weather_delay_seconds` 和实际比下单预计晚的 `late_by_seconds`。这两项是已经发生的秒数。该趟「订单已送达」通知用同一到达事实解释延误一次。外卖的购买与在途订单事件快照只公开下单预计；快递到站沿用原有正文。
 对象的显示名一律取自这次运行冻结的环境目录，不从观察记录里取；日时间线的写法见「显示写法与检查工具」。
 
 ## 显示写法与检查工具
 
-查看器、导出的一天时间线、`scripts/inspect_run.py`、人物零点做计划时读到的「已核验经历」句，四处用同一套写法；
-质量报告 `timeline_labels` 检查的是一天时间线的各行，跟着一天时间线走。写法是说明一项活动或一条手机事件是什么的那几个字，
-不含时刻、状态和时长，这些由各处另写。Python 一侧的使用方都调用同一处实现，查看器是它的镜像。
+运行查看器、导出的一天时间线、`scripts/inspect_run.py`、人物零点做计划时读到的「已核验经历」句，四处用同一套写法；
+质量报告 `timeline_labels` 检查的一天时间线各行跟着一天时间线走。写法是说明一项活动或一条手机事件是什么的那几个字，
+不含时刻、状态和时长，这些由各处另写。Python 一侧的使用方都调用同一处实现，运行查看器是它的镜像。
 
 ### 写法总表
 
@@ -256,15 +256,15 @@ app_touch、payment_notification 和 order_notification 是系统点事实，不
 | 情形 | 格式 | 例子 | 样例环境的例子 |
 | --- | --- | --- | --- |
 | 用 app 看到一条内容 | 使用<app 名>《<标题>》 | 使用哔哩哔哩《散步装备准备》 | 使用哔哩哔哩《测试文章》 |
-| 一次使用里连着看了两三条 | 使用<app 名>《<标题一>》《<标题二>》…… | —（查看器活动日历把首尾相接的几次使用合成条块，不多于三条时也用这个格式，多于三条照下一行；见下文「查看器里的连续使用」） | 使用哔哩哔哩《测试剧集第一集》《测试剧集第二集》 |
+| 一次使用里连着看了两三条 | 使用<app 名>《<标题一>》《<标题二>》…… | —（运行查看器活动日历把首尾相接的几次使用合成条块，不多于三条时也用这个格式，多于三条照下一行；见下文「运行查看器里的连续使用」） | 使用哔哩哔哩《测试剧集第一集》《测试剧集第二集》 |
 | 一次使用里连着看了超过三条 | 使用<app 名>《<标题一>》《<标题二>》《<标题三>》等 <K> 条 | — | 使用抖音《测试短视频》《测试短视频二》《测试实况》等 4 条 |
 | 在地点做一件独立的事 | 在<地点显示名>：<单元名> | 在淀山湖大道东渡悦来城公寓：早上洗漱 | 在家：测试休息 |
 | 在地点做一个系列 | 在<地点显示名>：<系列名>《<集一>》《<集二>》…… | 在淀山湖大道东渡悦来城公寓：做晚饭《备菜做饭》《吃晚饭》《洗碗收拾厨房》 | 样例环境没有地点系列，测试在副本上加 |
 | 购买，一张经 app 下单的订单 | 购买<商品列表>（经<app 名>下单） | 购买冰美式咖啡（经瑞幸咖啡下单） | 购买牛肉面（经美团下单） |
 | 购买，到店 | 购买<商品列表>（到店） | 购买冰美式咖啡（到店） | 购买饭团、纸巾（到店） |
-| 购买，一次分成几张订单 | 购买<第一张的商品列表>（……）；<第二张的商品列表>（……） | 购买冰美式咖啡（经瑞幸咖啡下单）；薯片（到店）（示意） | 购买牛肉面（经美团下单）；纸巾（到店） |
-| 查询，有 app 在前台 | 查询<名称列表>（<app 名>） | 查询冰美式咖啡（瑞幸咖啡） | 查询食品（美团） |
-| 查询，没有 app | 查询<名称列表> | — | 查询纸巾 |
+| 购买，一次分成几张订单 | 购买<首张订单商品列表>（……）；<其余订单商品列表>（……） | 购买冰美式咖啡（经瑞幸咖啡下单）；薯片（到店）（示意） | 购买牛肉面（经美团下单）；纸巾（到店） |
+| 搜索，有 app 归属 | 搜索〈搜索意图〉（<app 名>） | 搜索热汤面（美团外卖） | 搜索食品（美团） |
+| 搜索，没有 app | 搜索〈搜索意图〉 | — | 搜索纸巾 |
 | app 前台区间 | app 前台 · <app 名> · <步骤> | app 前台 · 淘宝闪购 · 下单 | app 前台 · 高德地图 · 导航 |
 | 订单通知 | 订单通知 · <app 名> · <标题> | 订单通知 · 淘宝闪购 · 订单已送达 | 订单通知 · 美团 · 订单已下单 |
 | 消费通知 | 消费通知 · <app 名> · 支付成功 | 消费通知 · 支付宝 · 支付成功 | 消费通知 · 微信 · 支付成功 |
@@ -282,7 +282,7 @@ flowchart TD
     E -->|"没有"| F["在地点做独立的事"]
     E -->|"有"| G["在地点做一个系列"]
     B -->|"purchase"| H["按 data.order_ids 找订单记录，按订单分段"]
-    B -->|"query"| I["查询的写法"]
+    B -->|"search"| I["搜索的写法"]
     B -->|"travel"| J["出行"]
     B -->|"其余种类"| K{"在中文种类表里吗"}
     K -->|"在"| L["写表里的种类名：睡眠是「睡觉」"]
@@ -302,9 +302,9 @@ flowchart TD
 - 没看完、没做完的也照列，不标「未完」。一行覆盖哪些事件，四处各不相同，见「四处各自怎样写」。
 - 去掉相邻重复之后多于三条时只写前三条，后接「等 K 条」，K 是去重之后的总条数，数字两侧各一个半角空格，例如「《一》《二》《三》等 12 条」；
   恰好三条及以下照列。用 app 和在地点做系列都一样。上限是 `display_wording` 的常量 `TITLE_LIST_LIMIT`（3），四处的截断只由同一个公开函数 `title_list` 完成，
-  查看器的镜像与它一字不差，零点计划「动作结果」里的活动句（见[人物](06-agent.md)「零点计划」）也调用它。没写出来的各条仍逐条按身份取名，取不到照「取不到名称」处理。
+  运行查看器的镜像与它一字不差，零点计划「动作结果」里的活动句（见[人物](06-agent.md)「零点计划」）也调用它。没写出来的各条仍逐条按身份取名，取不到照「取不到名称」处理。
 - 同一个上限另有两处使用：今天条目结束行的标题段，写法只在[人物](06-agent.md)「今天条目」里定义（「等N条」，数字两侧不留空格）；
-  进度层结果的 `details.contents` 只列这么多行（见[模拟引擎](04-simulation-engine.md)「出行、内容与查询」）。
+  进度层结果的 `details.contents` 只列这么多行（见[模拟引擎](04-simulation-engine.md)「出行、内容与搜索」）。
 
 **在地点做的事。**
 
@@ -321,12 +321,11 @@ flowchart TD
 - 渠道：`app_id` 不为空写「（经<app 名>下单）」，为空写「（到店）」。只在 app 里卖的快递商品有下单 app，同样写「经<app 名>下单」。
 - 余额不足而失败、被提前结束的购买照写同一句，状态由各处另写。
 
-**查询。**
+**搜索。**
 
-- 名称列表取查询活动私有数据的 `targets`（见[状态与序列化](09-io-formats.md)「世界、人物与活动」），按所写次序、已去重：商品项按 `goods_id` 写商品名，
-  类别项写类别的中文名「零食」「食品」「饮料」「商品」，各项以「、」相连，不再排序。
-- 查询活动的 `data.app_id` 不为空时在后面加「（<app 名>）」，为空时不写括号。
-- 查询期间的 app 前台由这项查询活动自己带着，不是一条手机事件，没有「app 前台 · …… · 查询」这样的行，app 只出现在查询这一行里。
+- 搜索意图取搜索活动私有数据的 `query`（见[状态与序列化](09-io-formats.md)「世界、人物与活动」）。
+- 搜索活动的 `data.app_id`（开始时由 `prefer` 锁定，或完成时按 `goods_rows` 众数/`search-app:{action_id}` 归属）不为空时在后面加「（<app 名>）」，为空时不写括号。
+- 搜索期间的 app 前台由这项搜索活动自己带着，不是一条手机事件，没有「app 前台 · …… · 搜索」这样的行，app 只出现在搜索这一行里。
 
 **手机事件。**
 
@@ -348,7 +347,7 @@ app 名按事件的 `app_id` 取；功能 app 也在冻结的 app 目录里，�
 | 导出的一天时间线，以及质量报告 `timeline_labels` 检查的行 | 每行的「活动」一栏 | 同一活动首尾相接的结算段合成一行，覆盖这些段的进度事件。时间线不读受理事件。活动暂停后再恢复是两行，各列各的 | 起止、总时长、段数三栏 |
 | `scripts/inspect_run.py` 的 `events` | `activity_progress` 行、`action_accepted` 行里的活动；`environment_event` 里的三种手机事件 | 一条事件，只有它指向的那一条内容 | 见下文「检查工具」 |
 | 人物零点做计划时读到的「已核验经历」 | 内容经历句 | 一条内容推进经历，只有那一条内容（经历的 `content_id` 取自进度事件的 `data.content`） | 「<起>–<止> <写法>」，句子见[人物](06-agent.md)「进度、待办与记忆」 |
-| 查看器 | 活动表的「目标」列、活动日历的条块与完整名称；时间线的「已受理」「活动段」行；「世界事件」行里的三种手机事件；「结果」行的订单段 | 活动表和活动日历：一项活动的全部受理事件与进度事件，按事件序号；活动日历中的连续使用可选对象覆盖其全部成员各个执行段的进度事件。时间线的行：一条事件 | 见下文「查看器」 |
+| 运行查看器 | 活动表的「目标」列、活动日历的条块与完整名称；时间线的「已受理」「活动段」行；「世界事件」行里的三种手机事件；「结果」行的订单段 | 活动表和活动日历：一项活动的全部受理事件与进度事件，按事件序号；活动日历中的连续使用可选对象覆盖其全部成员各个执行段的进度事件。时间线的行：一条事件 | 见下文「运行查看器」 |
 
 一段不间断、不跨零点的活动，时间线的行和查看器的活动表写出的是同一句。暂停后恢复、或跨过零点的活动，时间线分成几行、各列各的，查看器的活动表按活动只有一行，把各段的内容列全；
 受理之后一秒都没有推进就结束的活动，时间线没有这一行，查看器的活动表仍写出受理时选中的那一条。
@@ -395,10 +394,11 @@ Python 一侧的使用方都是要出结论的工具或人物的输入，取不�
 | 活动种类没有专门的写法，也不在中文种类表里 | `Unsupported activity kind for display: <kind>` | 没有专门写法的种类在目标处一律显示「—」；类型列写种类标签，表里没有的写原值 |
 
 Python 一侧取不到名称时：`render_day.py` 的命令行不写出时间线文件；导出不发布；导出认证失败；`inspect_run.py` 以该错误退出；零点计划是运行故障，运行停下并保留已确认的部分。
+运行查看器遇到缺失或非法文件时写英文错误日志并按缺失展示。
 
-### 查看器
+### 运行查看器
 
-查看器不做认证，只打开导出目录。没有导出的运行（包括运行中和中途停下的）先用 `worldmock export` 导出，`--cutoff` 只导出到某个事件。
+运行查看器不做认证，只打开导出目录（`tools/run-viewer.html`、`run-viewer-index.js`、`run-viewer-context.js`、`run-viewer-context-view.js`）。没有导出的运行（包括运行中和中途停下的）先用 `worldmock export` 导出，`--cutoff` 只导出到某个事件。
 拖入导出目录，或拖入包含它的执行目录（运行目录一起读），也可在文件选择框里选中导出目录里的 `events.jsonl` 与 `manifest.json`
 （要名称再选中 assets 里的文件）。
 
@@ -416,12 +416,12 @@ Python 一侧取不到名称时：`render_day.py` 的命令行不写出时间线
   （或 `.sqlite3`、`.db`）而没有导出清单时，页面说明先导出。
 - **运行身份与时区。** 都取导出清单：顶层的 `run_id` 与 `window.timezone`，不读世界状态，没有缺省时区。总览与顶栏的 run_id 是这个值；
   恢复链的导出写的是最后一段的运行。
-- **页内索引。** 每次读 32 MiB（Perfetto 读大文件的分段），按换行分行，逐行严格按 UTF-8 解码并解析，写进页面里的 sql.js 内存库：
+- **页内索引与上下文筛选。** 每次读 32 MiB（Perfetto 读大文件的分段），按换行分行，逐行严格按 UTF-8 解码并解析，写进页面里的 sql.js 内存库：
   `events(event_seq, event_id, body)` 与运行数据库同形；`event_lines(event_seq, offset, length)` 记每行在文件里的字节起点与长度
   （不含换行）；`world_state(singleton, version, body)` 在导出清单带最终存档时写入 `checkpoint.state` 一行，不完整导出没有这一行。
   行数必须等于 `artifacts.events.rows`。写完建 `events_type` 索引（`json_extract(body,'$.event_type'), event_seq`），与各视图按类型
   读取的写法相同。建索引时每过约 0.1 秒经一次消息投递让出页面（隐藏的标签页里计时器每秒至多唤醒一次，消息投递不受限），拖放区每读过
-  一成写一行进度；同一时间只加载一份导出。
+  一成写一行进度；同一时间只加载一份导出。SQL 查询列提取 `wakeup_id` 并保留 `activity_id` 归属关联（删除已退役的 `continuation`、`continuationFor`、`round_order` 与 `same_moment` 展示与查询列）；上下文页 `classify(request, purpose)` 与阶段过滤 `stages` 为 `{all, action, search_session, other}`，依据 `data.purpose === 'search_session'` 识别并折叠展示 `LLM Search Session` 内部多轮检索轨迹，支持多数字人分轨查看。
 - **裁剪。** 三类大事件的 body 只留各视图批量读取的部分，其余事件写原行：
 
   | 事件 | 索引里的 body |
@@ -462,12 +462,12 @@ Python 一侧取不到名称时：`render_day.py` 的命令行不写出时间线
 
 ```mermaid
 flowchart LR
-    Date[选择运行当地日期] --> Rows[当天实际执行或受理的活动]
-    Rows --> Time[不重叠区间复用行的当天总览]
-    Time --> Zoom[全天或放大到六小时和一小时]
-    Zoom --> Pick[点击条块或搜索选择当天活动]
-    Pick --> Sources[受理与进度事件]
-    Sources --> Body[按字节区间读取原文]
+    Date["选择运行当地日期"] --> Rows["当天实际执行或受理的活动"]
+    Rows --> Time["不重叠区间复用行的当天总览"]
+    Time --> Zoom["全天或放大到六小时和一小时"]
+    Zoom --> Pick["点击条块或搜索选择当天活动"]
+    Pick --> Sources["受理与进度事件"]
+    Sources --> Body["按字节区间读取原文"]
 ```
 
 默认全天从当地零点到次日零点，横向适配可视区域；当地零点被夏令时跳过时（如贝鲁特、开罗的春季切换），当天与前一天以切换时刻为界；可以切换六小时或一小时，并向前、向后移动可视时段。
@@ -476,7 +476,7 @@ flowchart LR
 每段真实执行区间按开始时刻摆放，已经结束的行立即可复用；只有实际同时发生的区间分行，行数等于最大同时执行区间数。
 行不表示主次槽位或活动身份，标签宽度不参与分行；暂停拆成独立区间，空档不画条块。图高至多 320 像素，更多并发可滚动访问。
 条块宽度保留真实秒数比例，名称只在已有宽度内显示，不用最小宽度或拉长时长换取可读性。
-图外的当天活动选择器可搜索名称或人物；极短活动和当天受理但没有结算区间的活动也能选中，后者明确写「尚无结算区间」，不绘制时长。
+图外的当天活动选择器可搜索名称或人物；极短活动和当天受理但没有结算区间的活动也能选中，其中没有结算区间的活动明确写「尚无结算区间」，不绘制时长。
 选择器可定位当前可视时段之外的活动；选中条块时，同一活动或连续使用的其他可见执行段也高亮。
 选择器、完整名称、准确起止与详情均按可视区域换行，不随时间轴溢出。空日明确显示没有活动记录。
 同页的时间图、选择器、活动表、类型图例、活动数量和地点会话共用所选日期。活动表只列当天有执行或受理记录的活动，
@@ -503,7 +503,7 @@ flowchart LR
 | 文件被截断 | `events.jsonl does not end with a newline: the file is truncated` |
 | 行数不符 | `events.jsonl holds <n> events but the export manifest lists <m>` |
 
-种类标签「互动」「购买」「查询」「出行」「睡眠」留在活动表的「活动类型」列、图例和排序里；写法放在「目标」列、时间线和活动日历。
+种类标签「互动」「购买」「搜索」「出行」「睡眠」留在活动表的「活动类型」列、图例和排序里；写法放在「目标」列、时间线和活动日历。
 
 | 位置 | 写什么 |
 | --- | --- |
@@ -515,11 +515,11 @@ flowchart LR
 | 出行、睡眠的各行 | 照原格式，名称从目录取 |
 | 地点会话表的成员 | 活动名 |
 
-互动、购买、查询三种在时间线的受理行和活动段行里直接写写法，不再写「种类 · 目标」。
+互动、购买、搜索三种在时间线的受理行和活动段行里直接写写法，不再写「种类 · 目标」。
 
-开始副活动的动作请求行写「<动作> · <名称、名称>」，`prefer` 不为 null 时在后面加「 · 想用 <人物所写的原文>」；它显示的是人物写的原文，实际渠道看受理行和结果行。
-`interact` 在请求行里按工具取词：槽位 1 的开始工具写「做」，槽位 2 的开始工具写「使用」。「上下文」画面里工具层下钻的标签用同一张中文动作表：
-`interact` 在 `app` 分组下是「使用」、在 `location` 分组下是「做」，`travel` 是「出行」，`sleep` 是「睡觉」，`purchase` 是「购买」，`query` 是「查询」（工具层没有查询的行，只用于动作请求行）；
+开始副活动与搜索的动作请求行写「<动作> · <名称或查询意图>」，`prefer` 不为 null 时在后面加「 · 想用 <人物所写的原文>」；它显示的是人物写的原文，实际渠道看受理行和结果行。
+`interact` 在请求行里按工具取词：主槽位的开始工具写「做」，副槽位的开始工具写「使用」。「上下文」画面里工具层下钻的标签用同一张中文动作表（`ACTION_WORDS`）：
+`interact` 在 `app` 分组下是「使用」、在 `location` 分组下是「做」，`travel` 是「出行」，`sleep` 是「睡觉」，`purchase` 是「购买」，`search` 是「搜索」（工具层没有搜索的行，只用于动作请求行与活动渲染）；
 目标类别、下钻正文和「整层原文」保持原始 JSON。
 
 拖放区说明写「把 worldmock export 写出的导出目录拖到此处……对象名称取自导出目录 assets 里冻结的环境目录，没有 assets 时显示为
@@ -528,12 +528,12 @@ flowchart LR
 请把整个导出目录拖入：其中的 manifest.json 与 assets 目录都要在。」
 目录文件都读到时不显示这张卡片。
 
-### 查看器里的连续使用
+### 运行查看器里的连续使用
 
 一次 app 使用里一条接一条地放，本来就是一项活动；但一次使用停下（放完一条后没有能接的内容而停下，或被人物收尾结束）、
-人物同一秒又打开同一个 app 时，手机前台没有断过，库里却是几项活动。查看器把这样的几次使用连起来显示。
+人物同一秒又打开同一个 app 时，手机前台没有断过，库里却是几项活动。运行查看器把这样的几次使用连起来显示。
 
-- app 使用是种类为 `interact`、`data.app_id` 不为空的活动；在地点做的事、购买、查询、出行、睡眠和引擎代为打开的 app 前台都不参加。
+- app 使用是种类为 `interact`、`data.app_id` 不为空的活动；在地点做的事、购买、搜索、出行、睡眠和引擎代为打开的 app 前台都不参加。
 - 执行段是一项活动真正在执行的一段时间：区间为正的进度事件的结算区间，同一项活动里首尾相接的并成一段，暂停留下空档。
 - 连续使用是同一个人物、同一个 app 的 app 使用的若干执行段，一个接一个，后一段开始的那一秒正是前一段结束的那一秒，取尽可能长的一串；每个执行段恰好属于一条连续使用，不与别的段相接的执行段自成一条。
   两个整数秒原样比较，没有容差：隔一秒、两段重叠、换了 app 都不连；不同人物各算各的。
@@ -553,7 +553,7 @@ flowchart LR
 
 ### 检查工具
 
-`scripts/inspect_run.py <运行目录> <子命令>` 只读一次运行，有九个子命令：
+`scripts/inspect_run.py <运行目录> <子命令>` 只读一次运行，有八个子命令（已移除过时的 `continuation` 子命令及 `same_moment_rounds` 统计）：
 
 | 子命令 | 打印什么 |
 | --- | --- |
@@ -564,8 +564,7 @@ flowchart LR
 | `body [--agent]` | 观察里的身体轨迹：能量、睡眠不足、饥饿与困意分级 |
 | `flows [--tail]` | 事件正文 `resource_flows` 里的分录 |
 | `rerun` | 真实复验的八项指标，只报告，不作门禁 |
-| `continuation [--topic] [--baseline <运行目录>]` | 逐决策的续接指标与合计（JSON）；`--baseline` 先核对两份清单，不可比即拒绝比较 |
-| `workday --environment <环境目录>` | 工作量与作息偏离（JSON）；班次、住处、播报间隔与下班、到家时段取自完整环境输入，原文字节身份须等于运行清单 |
+| `workday --environment <环境目录>` | 全员工作量与作息偏离（JSON）；班次、住处、播报间隔与下班、到家时段取自完整环境输入（`personas/*.toml`），`persona_sha256s` 须等于运行清单 |
 
 `event` 与 `events`（含 `--full` 和一行摘要）读到的观察先把观察分件换回原表（见「事件与来源」），与存储层解码的结果相同，打印的与写入时的观察一致。
 分件缺失或摘要不符时以 `IntegrityError` 退出；观察里在分件键上带整表的旧运行库同样以 `Stored observation part reference is invalid` 退出，不为旧库留读取分支。
@@ -603,14 +602,14 @@ flowchart LR
 
 ## 冻结输入、检查点与分支
 
-运行素材按原字节冻结 persona.toml、config.toml、catalog/manifest.json 和目录清单文件表登记的每个目录 JSONL，另外冻结生成的 map.json。
-catalog/map.jsonl 是数据集声明的距离，按原字节冻结；map.json 是引擎生成的整张图，按规范 JSON 冻结，两者是不同的素材。
-导出自查先读冻结的目录清单，再要求冻结素材的名字集合恰为上述四个固定名字加文件表里的每个 catalog/ 路径；
+运行素材按原字节冻结 `personas/*.toml`（按文件名升序）、`config.toml`、`catalog/manifest.json` 和目录清单文件表登记的每个目录 JSONL，另外冻结生成的 `map.json`。
+`catalog/map.jsonl` 是数据集声明的距离，按原字节冻结；`map.json` 是引擎生成的整张图，按规范 JSON 冻结，这两项是不同的素材。
+导出自查先读冻结的目录清单，再要求冻结素材的名字集合恰为前述环境根文件、`personas/*.toml`、`map.json` 加文件表里的每个 `catalog/` 路径；
 冻结清单的文件表必须包含全部必需文件、且不含必需与可选文件名以外的路径，目录摘要按文件表里的全部文件重算。
-清单保存原始字节摘要、五项环境身份、实际模型元数据与非密模型参数。凭据正文不进入清单、事件或报告。
+清单保存原始字节摘要（含多人物 `persona_sha256s`）、五项环境身份、多模型档 `ModelIdentity` 元数据与非密模型参数。凭据正文不进入清单、事件或报告。
 
-检查点绑定准确事件前缀、共同世界和人物工作区素材。
-运行宿主的每一步之后写一个共同检查点，只推进不决策的步也写（见[运行装配与决策循环](10-runtime.md)「决策循环」）；检查点不更新、不删除，每一步都能恢复，恢复从失败的那一秒继续。
+检查点绑定准确事件前缀、共同世界（含 `AgentState.suspended_loop` 无栈挂起载荷）和全体人物工作区素材。
+运行宿主的每一步之后写一个共同检查点，只推进不唤醒的步也写（见[运行装配与决策循环](10-runtime.md)「时钟屏障与并发唤醒循环」）；检查点不更新、不删除，每一步都能恢复，恢复从失败的那一秒继续；反事实分支干预清空全部人物 `suspended_loop`。
 检查点表的一行是 `(checkpoint_id, body, record_sha256)`：`body` 是 zlib 流（RFC 1950，压缩级别 1，头两字节 `78 01`），
 解压后恰为检查点载荷的规范 JSON 字节；`record_sha256` 是这些未压缩字节的 SHA-256。检查点记录、恢复分支写出的
 `restored-checkpoint.json`、导出清单里的最终检查点和它的认证因此都与压缩无关。读取检查点先解压、再核对摘要：行不存在、
@@ -622,7 +621,7 @@ gzip 头部固定为 `1f 8b 08 00 00 00 00 00 00 ff`：修改时刻为 0、不�
 素材，不打开它。
 分支复制全部冻结环境素材和所需快照，
 恢复前认证归档成员，拒绝绝对路径、符号链接、别名与覆盖已有目标文件。
-人物工作区恢复只校验一次：每个人物的快照展开后，工作区里的普通文件恰为空集，或恰为 `MEMORY.md` 与 `memory/episodes.jsonl`，否则报 `Restored agent workspace members are invalid`；不为空时 `MEMORY.md` 去掉空白后不能为空，条目文件按[状态与序列化](09-io-formats.md)「人物工作区」逐行严格读回，任一不成立报 `Restored agent memory is invalid`；检查点缺某个人物的快照报 `Checkpoint is missing an agent workspace snapshot`。全部人物通过之后才发布子目录。人物卡片、名字与模型身份不在工作区里，恢复不另核它们：冻结的 persona.toml 与父运行的一致由运行清单的 `persona_sha256` 核对，模型身份与代码身份由运行清单核对。
+人物工作区恢复只校验一次：每个人物的快照展开后，工作区里的普通文件恰为空集，或恰为 `MEMORY.md` 与 `memory/episodes.jsonl`，否则报 `Restored agent workspace members are invalid`；不为空时 `MEMORY.md` 去掉空白后不能为空，条目文件按[状态与序列化](09-io-formats.md)「人物工作区」逐行严格读回，任一不成立报 `Restored agent memory is invalid`；检查点缺某个人物的快照报 `Checkpoint is missing an agent workspace snapshot`。全部人物通过之后才发布子目录。人物卡片、名字与模型身份不在工作区里，恢复不另核它们：冻结的 `personas/*.toml` 与父运行的一致由运行清单的 `persona_sha256s` 核对，模型身份与代码身份由运行清单（v8）核对。
 
 分支按存储字节复制父库截止前缀。先按事件序号分页经唯一的行解码器逐条校验父事件，核对每行的序号、身份与正文一致，逐个
 读取并核对每条事件引用的素材，同时记下前缀里出现的运行身份；`source_run_ids` 仍是这些运行身份加新运行身份的升序集合。
@@ -644,34 +643,34 @@ gzip 头部固定为 `1f 8b 08 00 00 00 00 00 00 ff`：修改时刻为 0、不�
 ## 完整导出认证
 
 导出固定事件截止、摘要素材、活动、app 使用、购买、已核验经历、地点停留、日时间线及质量报告。
-导出清单的结构号是 8。`artifacts` 的键恰为 `events`、`activities`、`verified_experiences`、`purchases`、`app_usage`、`location_stays`，
+导出清单的结构号 `EXPORT_SCHEMA_VERSION` 是 9（由于事件采用 `wakeup_id`、`activity_id` 与多人物冻结输入清单）。`artifacts` 的键恰为 `events`、`activities`、`verified_experiences`、`purchases`、`app_usage`、`location_stays`，
 每个值是 `{path, rows, sha256}`，`location_stays` 的 `path` 是 `location-stays.jsonl`；
 结构号不符报 `Export manifest is not a committed supported version`，键集不符报 `Export artifact set is invalid`。
 app 的开关、订单通知和地点停留只进事件与这些工件，不进质量报告。
-质量报告 `quality.json` 的结构号是 10。它的 `input_warnings.code_counts` 的键恰为运行输入警告码闭集的两个值
+质量报告 `quality.json` 的结构号是 11。它的 `input_warnings.code_counts` 的键恰为运行输入警告码闭集的两个值
 `CONTENT_EMPTY_WITH_MEDIA_TASTES` 与 `LOCATION_NAME_SUSPICIOUS`（见[配置](08-configuration.md)「校验与输入冻结」），
 闭集之外的码只计入 `unrecognized_code_counts`。
 质量报告的 `lineage` 节只读冻结清单：父运行各段 `parents`（身份、检查点、结束原因、错误、丢弃事件数、停机秒数 =
-分出时刻减父运行最后一条事件的落盘时刻）、按结束原因的计数、停机总秒数与段数 `segment_count`；这一节是结构号升到 9
-的原因，调用类 `memory_digest` 是结构号升到 10 的原因。冻结清单的 `lineage` 不是数组时报 `Quality report manifest has no lineage`。它不计入
-`transport_or_terminal_failures`，后者仍只数导出事件里失败阶段的模型证据。导出认证按已认证的事件重算整份质量报告并逐值比较，
+分出时刻减父运行最后一条事件的落盘时刻）、按结束原因的计数、停机总秒数与段数 `segment_count`；`decision_rhythm` 去除已退役的 `same_moment_round_counts` 字段并统计 `decision_started` 的 `wakeup_id` 计数；`errand_metrics.conclusion_memories` 从 `(agent_id, decision_id)` 切换为 `(agent_id, wakeup_id)`；`CALL_CLASSES` 纳入 `"search_session"`（在导出统计中单独分列而不污染主决策轮指标），这些变更是质量报告结构号升到 11 的原因。冻结清单的 `lineage` 不是数组时报 `Quality report manifest has no lineage`。它不计入
+`transport_or_terminal_failures`，该统计仍只数导出事件里失败阶段的模型证据。导出认证按已认证的事件重算整份质量报告并逐值比较，
 结构号或任何一个键与当前代码算出的不同，都报 `Export quality report disagrees with authoritative events`。
 
 质量报告的 `model_usage.by_call_class` 按调用类分列模型用量。一次调用的类只凭它的 `model_request` 事件判定，
-不读响应事件里的请求副本；读的是事件的 `purpose` 与 `call_id`，以及请求里的 `purpose`、`extra_body`、各工具的
+不读响应事件里的请求副本；读的是事件的 `purpose` 与 `call_id`，以及请求里的 `purpose`、`tool_choice`、`extra_body`、各工具的
 `function.name` 与各消息的 `role`：
 
 | 类 | 请求形状 |
 | --- | --- |
-| `fresh_decision_turn` | 没有 purpose 的行动请求（工具含 `start_main_activity`、思考开启），消息恰为 system、user 两条 |
-| `turn_with_history` | 同样的行动请求，消息角色序列不是恰好 system、user 两条；正常运行包括本次决策的后续回合及同一秒续接链 |
-| `truncation_retry` | 没有 purpose，工具含 `start_main_activity`，`extra_body` 恰为关闭思考 `{"thinking": {"type": "disabled"}}`：截断之后的那一次重试 |
-| `consolidation` | 没有 purpose，不带工具：记忆巩固；只出现在本规格交付之前的历史运行里，新运行恒为 0 |
+| `fresh_decision_turn` | 没有 `purpose` 的行动请求（`tool_choice == "auto"`、工具含 `start_main_activity`、不属于 `truncation_retry`），消息恰为 system、user 两条 |
+| `turn_with_history` | 同样的行动请求，消息角色序列不是恰好 system、user 两条；正常运行包括同一唤醒会话的后续沙盒回传与搜索恢复回合 |
+| `truncation_retry` | 没有 `purpose`，工具含 `start_main_activity`，`tool_choice == "required"` 且 `extra_body` 恰为关闭思考 `{"thinking": {"type": "disabled"}}`：截断之后的那一次重试 |
+| `search_session` | `purpose` 为 `"search_session"`：隔离上下文的 `LLM Search Session` 内部检索调用（不污染主唤醒统计） |
+| `consolidation` | 没有 purpose，不带工具：记忆巩固；只出现在历史运行里，新运行恒为 0 |
 | `reflection` | 没有 purpose，工具恰为 `submit_reflection`：就寝反思及其校验重试；只出现在历史运行里，新运行恒为 0 |
-| `plan_day` | purpose 为 `plan_day`：零点计划及其校验重试 |
-| `memory_digest` | purpose 为 `memory_digest`：日、月、年回顾及其校验重试 |
+| `plan_day` | `purpose` 为 `plan_day`：零点计划及其校验重试 |
+| `memory_digest` | `purpose` 为 `memory_digest`：日、月、年回顾及其校验重试 |
 
-七类按上表次序总是列出；请求形状不属于任何一类、或终态响应没有对应请求事件的调用归入 `unrecognized`，这一行只在出现时
+上述八类按上表次序总是列出；请求形状不属于任何一类、或终态响应没有对应请求事件的调用归入 `unrecognized`，这一行只在出现时
 列在最后。每行给出请求事件数、提供商响应数、已知 token（与 `model_usage.token_usage` 同一口径）、可计价响应数、
 可计价响应的缓存命中输入、未命中输入与输出 token 合计、峰时响应数、峰时占比（峰时响应数除以可计价响应数，保留六位小数）
 与估算成本；没有可计价响应时，按计价拆开的 token、峰时占比和估算成本为 null，峰时响应数为零。
@@ -725,9 +724,9 @@ app 的开关、订单通知和地点停留只进事件与这些工件，不进�
 | 前台事件与订单通知的来源 | 字段闭集、系统可见、恰一个起因；前台区间为正且结束于事件时刻；通知的标题、正文和记录集合合法 | `System app event fields are outside the current contract`、`App foreground step or interval is invalid`、`Order notification text or order set is invalid` |
 | 停留事件的来源 | 字段闭集、系统可见、起因个数与 `entry_kind` 相符 | `Location stay event fields or source are invalid` |
 | 自动 `app_use` | 所属活动是出行或购买；`segments` 等于该活动该 app 全部前台区间合并的结果，每段落在所属活动真实执行的区间之内；`status` 等于所属活动的状态 | `Automatic app use disagrees with its foreground events` |
-| 导航区间 | 所属活动是出行，步骤全为 `navigation`，一趟出行只有一个导航 app；不越出这趟出行，不与同一人物任何购买、查询或用 app 的活动的执行区间重叠 | `Navigation app use overlaps a side activity or leaves its trip` |
+| 导航区间 | 所属活动是出行，步骤全为 `navigation`，一趟出行只有一个导航 app；不越出这趟出行，不与同一人物任何购买、搜索或用 app 的活动的执行区间重叠 | `Navigation app use overlaps a side activity or leaves its trip` |
 | 下单与支付区间 | 所属活动是购买；下单区间的 app 是该购买某张订单的下单 app，且全部早于第一个付款段；每张付款时长大于 0 的订单，付款段 10 至 20 秒，按订单键的顺序排在购买末尾、互不重叠，订单上的付款起止与对应的支付前台区间一致，购买被截断时区间止于购买结束 | `Purchase app use disagrees with its order phases` |
-| 同一时刻只有一个 app 在前台 | 同一人物全部 `app_use` 区间互不重叠、长度为正，导航、下单、支付、查询所在的 app 与人物点名使用的 app 一起查 | `App use intervals overlap or have no positive duration` |
+| 同一时刻只有一个 app 在前台 | 同一人物全部 `app_use` 区间互不重叠、长度为正，导航、下单、支付、搜索所在的 app 与人物点名使用的 app 一起查 | `App use intervals overlap or have no positive duration` |
 | 「支付成功」 | 每张已付款订单，支付 app 与下单 app 不全为空时恰一条；发送的 app 是支付 app，直付时是下单 app；金额、记录集合、时刻与起因和这张订单的付款事件一致 | `Payment notification count disagrees with actual payment`、`Payment notification disagrees with its actual purchase payment` |
 | 订单已下单 | 每张带下单 app 的已付款订单恰一条，时刻等于付款时刻，app、记录集合与起因和这张订单一致；未付款的订单没有 | `Order notification count disagrees with actual payment, shipment or delivery`、`Order notification disagrees with its actual order event` |
 | 订单已发货 | 每趟已付款的配送至多一条；发货时刻不晚于导出里最后一条事件的时刻时恰一条；时刻等于付款时刻加「付款至公开预计的非负间隔」的十分之一，向上取整到秒 | 同上两句 |
@@ -741,7 +740,7 @@ app 的开关、订单通知和地点停留只进事件与这些工件，不进�
 
 `app_touch` 只剩回调足迹：`rule_id` 是冻结的 `catalog/callbacks.jsonl` 里登记的一条回调规则的身份，`step` 只取 `browse` 或 `payment`；
 没有冻结这份文件的运行不得有 `app_touch`。规则身份没有登记、或步骤不在这两个值之内，都报 `App touch step disagrees with its source`。
-坏素材或投影拒绝发布，已有正确导出不被半成品覆盖。评估同样先认证输入。查看器不做认证，它怎样读导出目录和冻结的目录素材见「显示写法与检查工具」。
+坏素材或投影拒绝发布，已有正确导出不被半成品覆盖。评估同样先认证输入。运行查看器不做认证，它怎样读导出目录和冻结的目录素材见「显示写法与检查工具」。
 
 ## 运行比对
 
@@ -752,7 +751,7 @@ app 的开关、订单通知和地点停留只进事件与这些工件，不进�
 这三组引用映射到事件序号后重新排序再比较；保留重复项，缺项和指向别的事件仍算不同，未知引用仍报错。
 其他引用列表保持原有顺序。
 
-- **身份**：事件的 `event_id`、`caused_by` 与工具里声明的引用字段，映射到所指事件的序号；检查点身份映射到它的 `checkpoint_created` 事件的序号；运行身份映射到段次序。映射是双射，引用指向别的事件仍然算不同。动作、活动、决策、订单等复合身份含运行身份，照原文比较：它们也是随机流的键，比对的两次运行必须使用同样的运行身份。人物工作区 `MEMORY.md` 已核验经历行里的「来源事件」身份同样映射到事件序号；`memory_updated` 记下的 `MEMORY.md` 摘要（`memory_sha256`、`memory_before_sha256`）随这些身份变化，按首次出现的次序成双射比较，文件内容在每个比较的工作区快照里逐行比较。
+- **身份**：事件的 `event_id`、`caused_by` 与工具里声明的引用字段，映射到所指事件的序号；检查点身份映射到它的 `checkpoint_created` 事件的序号；运行身份映射到段次序。映射是双射，引用指向别的事件仍然算不同。动作、活动、唤醒（`wakeup_id`）、订单等复合身份含运行身份，照原文比较：它们也是随机流的键，比对的两次运行必须使用同样的运行身份。人物工作区 `MEMORY.md` 已核验经历行里的「来源事件」身份同样映射到事件序号；`memory_updated` 记下的 `MEMORY.md` 摘要（`memory_sha256`、`memory_before_sha256`）随这些身份变化，按首次出现的次序成双射比较，文件内容在每个比较的工作区快照里逐行比较。
   世界状态中的 `agents.*.errands.*.origin_event_id` 与 `pending_events[].caused_by[]` 也是事件引用，
   在重启点、日终、全部检查点与终态比较中按所指事件的序号映射。未知事件身份报告 `REFERENCE_NOT_AN_ID`；
   自由文本中的身份与未声明路径上的同名字段照原文比较，不按字段名或 UUID 形状统一替换。
@@ -761,7 +760,7 @@ app 的开关、订单通知和地点停留只进事件与这些工件，不进�
 - **壁钟**：只有事件顶层的 `recorded_at` 与 `wall_elapsed_ms`、运行清单 `lineage` 各项的 `last_recorded_at` 与 `branched_at`、质量报告 `acceleration` 下的实测墙钟项、按记录时刻定峰谷的估价项与峰时计数、`lineage` 节的停机秒数。data 里的模拟时刻是事实，照常比较，例如记忆层「今天」各条的「时刻」。
 - **传输记录**：`model_response` 信封里的 `transport_attempts`（失败发送的壁钟毫秒数与传输错误），不进任何提示。
 - **丢弃尾段**：`lineage` 各项描述父运行越过重启点走了多远、为何停下（`last_event_seq`、`last_event_time`、`discarded_events`、`end_reason`、`end_error`）及质量报告 `lineage` 节里对应的项。重放以拒绝重启点之后的第一次调用重现重启，来源那一段可能是被杀或传输失败，所以这几项在来源与重放之间本来就不同；丢弃尾段本身不比较。
-- **运行位置与代码身份**：运行清单里的模型服务地址（`base_url`、`metadata_url`），以及 `code_sha256`、`git_commit`、`git_dirty`。`config_sha256` 不屏蔽：去掉两项地址后按 config.toml 原文重算摘要，再比较。
+- **运行位置与代码身份**：运行清单里的模型服务地址（`base_url`、`metadata_url`，含对历史基线清单 `stage_model_identity` 等旧对比键的只读屏蔽，用于将历史基线与当前头版比对），以及 `code_sha256`、`git_commit`、`git_dirty`。`config_sha256` 不屏蔽：去掉各 `[models.*]` 中的服务地址后按 `config.toml` 原文重算摘要，再比较。
 - **其余一律是事实**，逐值比较。
 - **记录形式**的变化只能用声明的重建规则对齐。规则只用于没有任何提示、决策、准入或导出路径读取的记录形式，每条写明所依据的读取者检索；观察、绑定、动作事件、结算事件、记忆写入、模型请求与世界事实不能重建、投影或过滤，也没有按事件种类过滤的规则。
   唯一的例外是去掉 AgentSociety2 那次变更声明的四条规则，只用于那次变更的基线与新代码两次运行的对比，只改写基一侧：`workspace-members` 把基一侧的人物工作区快照改写成两个保留文件的形式（不列新格式没有的成员、首次写入的英文模板与空的条目文件，条目去掉恒定的 `tick`、`tick_duration_sec`、`refs` 与 `step_index`、`step_count`，编号改成连续序号，行尾改成 LF）；`memory-updated-form` 对齐 `memory_updated` 删去的三个键、条目编号的写法与人物首条 `memory_before_sha256` 的模板摘要，两侧 `episodes_sha256` 按首次出现的次序成双射比较；`model-request-parameters` 只去掉基一侧 `model_request` 的 `data.request` 里从未发出的 `stream`、`max_retries`、`transport_max_retries`；`prompt-fingerprint` 是数值规则，两侧运行清单的提示指纹恰为声明的两个值时对齐。

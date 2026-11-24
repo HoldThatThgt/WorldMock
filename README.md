@@ -1,18 +1,17 @@
 <a name="readme-worldmock"></a>
 # WorldMock
 
-WorldMock 自有的决策循环借助配置的 OpenAI 兼容模型服务驱动数字人的日常生活，把观察、决策、行动、状态变化和结果写成
-连续、可追溯的数字足迹。WorldMock 负责模拟、记录、完整足迹导出和行为统计。
+WorldMock 自有的并发唤醒与时钟屏障内核借助配置的 OpenAI 兼容模型服务驱动一名或多名数字人的日常生活，把观察、唤醒决策、行动、状态变化和结果写成连续、可追溯的数字足迹。WorldMock 负责模拟、记录、完整足迹导出和行为统计。
 WorldMock-Dataset 提供环境素材与制作工具；LabelKit-DataSet 负责足迹整理、LabelKit 模型任务、训练数据加载和规则测试数据。
 
 ```mermaid
 flowchart LR
-    D[WorldMock-Dataset<br/>环境素材与冻结发布] --> W[WorldMock<br/>模拟与记录]
-    W --> E[完整认证足迹导出]
-    E --> P[LabelKit-DataSet / persona<br/>数据加工与数据集发布]
-    P --> L[LabelKit<br/>模型任务执行]
+    D["WorldMock-Dataset：环境素材与冻结发布"] --> W["WorldMock：模拟与记录"]
+    W --> E["完整认证足迹导出"]
+    E --> P["LabelKit-DataSet / persona：数据加工与数据集发布"]
+    P --> L["LabelKit：模型任务执行"]
     L --> P
-    E --> V[WorldMock<br/>行为统计]
+    E --> V["WorldMock：行为统计"]
 ```
 
 <a name="readme-文档导航"></a>
@@ -31,12 +30,12 @@ WorldMock/
 ├── src/worldmock/
 │   ├── resource_engine/        目录登记、只读对象与地图
 │   ├── exchange_engine/        固定规则、分录与纯计算
-│   ├── simulation_engine/      世界、动作、活动、调度与观察
+│   ├── simulation_engine/      世界、沙盒、屏障提交、活动、调度与观察
 │   ├── recording_engine/       事件、素材、认证质量报告与完整导出
-│   ├── state/                  共享状态、请求、结果与字段判定
-│   ├── agents/                 人物提示、记忆与模型协议
-│   ├── configuration/          完整输入与模型元数据
-│   ├── runtime/                运行装配、决策循环与运行生命周期
+│   ├── state/                  共享状态、请求、结果、挂起载荷与字段判定
+│   ├── agents/                 人物提示、通用循环、搜索子会话与记忆
+│   ├── configuration/          多人物输入、模型档案路由与模型元数据
+│   ├── runtime/                运行装配、时钟屏障宿主与运行生命周期
 │   └── foundation/             基础模型、文件、时间与序列化
 ├── tests/                      测试与人工最小环境；共享配置在 tests/conftest.py
 ├── scripts/                    环境引导、工程门禁与文档构建
@@ -68,9 +67,10 @@ Windows 可用 `py -3.12`，其他系统可用 `python3.12`。`--wheelhouse` 指
 <a name="readme-实验与数据"></a>
 ## 实验与数据
 
-环境根只含 catalog/、persona.toml 与 config.toml，描述一个世界、一个人物和一次运行。
-目录使用清单、四份必需 JSONL 和按需放置的可选 JSONL（回调声明 callbacks.jsonl、两地距离声明 map.jsonl、出行方式 travel-method.jsonl）；
-地图由声明的距离和唯一运行种子在内存生成，发布包不包含生成的 map.json。
+环境根只含 `catalog/`、`personas/`（存放按文件名排列的一个或多个 `*.toml` 人物声明文件）与 `config.toml`，描述一个世界、一名或多名数字人和一次运行。
+`config.toml` 通过 `[models.*]` 与 `[model_routing]` 声明阶段及人物维度的异构模型路由（见[运行配置](docs/manual/runtime.md#runtime-编写-config-toml)）。
+目录使用清单、四份必需 JSONL 和按需放置的可选 JSONL（回调声明 `callbacks.jsonl`、两地距离声明 `map.jsonl`、出行方式 `travel-method.jsonl`）；
+地图由声明的距离和唯一运行种子在内存生成，发布包不包含生成的 `map.json`。
 完整格式和实际模型服务要求见[用户手册](docs/manual/README.md)。
 
 运行输出位于 `runs/`。事件数据库、素材、模型证据和共同检查点保留实际来源，恢复使用新的目录并保留父运行。
@@ -91,7 +91,7 @@ worldmock export --run-dir runs/white-collar --output runs/white-collar/exports/
 `resume` 显式提供父运行、检查点和新的输出目录；`replay` 还需提供严格的干预文件，实际执行新分支。
 完整导出随后交给 LabelKit-DataSet，加工任务、训练格式和规则测试数据由该仓库定义与验收。
 
-行为分析与工作检查使用仓库工具，原有认证导出和 quality.json 保持不变。详见[分析手册](docs/manual/evaluation.md)。
+行为分析与工作检查使用仓库工具，认证导出与 `quality.json` 统计遵循当前版本契约。详见[分析手册](docs/manual/evaluation.md)。
 引擎端到端测试使用实际存在的合成环境 `tests/fixtures/dataset-environment/`，其中模型地址仅供测试。
 完整验证运行：
 

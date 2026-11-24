@@ -2,57 +2,80 @@
 
 ## 单一状态归属
 
-完整环境由不可变输入对象承载，世界由唯一已提交 WorldState 承载。运行状态结构版本为 16，运行清单结构版本为 7；
-`persona.toml` 与 `config.toml` 各自的 `schema_version` 写在[配置](08-configuration.md)「人物声明」与「运行配置」的字段表里。
+完整环境由不可变输入对象承载，世界由唯一已提交 `WorldState` 承载。运行状态结构版本 `WORLD_SCHEMA_VERSION` 为 `17`，运行清单结构版本 `RUN_MANIFEST_SCHEMA_VERSION` 为 `8`；
+`personas/*.toml` 与 `config.toml` 各自的 `schema_version` 写在[配置](08-configuration.md)「人物声明」与「运行配置」的字段表里。
 不接受旧结构、兼容字段、迁移和 fallback；所有当前模型拒绝未知字段，原始 JSONL/TOML 输入规则归
 [配置](08-configuration.md)与[资源引擎](03-resource-engine.md)。
 一个结构号只守一种结构：字段集合、取值闭集或可接受的取值域变了才升号，只有取值变了不升号。
-运行清单结构版本不是 7 的运行不能打开、恢复或重放，报 `Runtime environment identity mismatch`；
-导出里冻结的运行清单不是 7 时，导出认证报 `Export frozen run manifest or environment identity is invalid`。
+运行清单结构版本不是 `8` 的运行不能打开、恢复或重放，报 `Runtime environment identity mismatch`；
+导出里冻结的运行清单不是 `8` 时，导出认证报 `Export frozen run manifest or environment identity is invalid`。
 
 ```mermaid
 flowchart LR
-    Input[不可变完整环境输入] --> Context[EngineContext]
-    State[唯一已提交 WorldState] --> Context
-    Context --> View[只读观察]
-    Context --> Transaction[候选世界与事件]
-    Transaction --> State
+    Input["不可变完整环境输入"] --> Context["EngineContext（全员人设与身体）"]
+    State["唯一已提交 WorldState"] --> Context
+    Context --> Barrier["prepare_barrier 生成只读唤醒快照"]
+    Barrier --> Sandbox["AgentSandbox 沙盒分支与草稿"]
+    Sandbox --> Merge["BarrierMerger 核验并发冲突"]
+    Merge --> State
 ```
 
 ## 世界、人物与活动
 
-世界保存完整环境身份、persona_sha256、config_sha256、唯一种子与随机根、天气日期事实、
-共同时钟、人物、两个资金账户、活动、订单、调度边界、已处理动作和已提交呈现留痕。
-人物保存实际地点、身体、当前槽位活动、内容共享进度、个人事务、日计划、回调状态与每日幂等标记。
-人物状态的 `navigation_foreground` 记录导航 app 此刻是否在前台：null 表示不在前台；非空时是
+世界保存完整环境身份、`persona_sha256s`（全员人物原字节摘要映射）、`config_sha256`、唯一种子与随机根、天气日期事实、
+共同时钟、全员人物集合（`len(agents) >= 1`）、N+1 个资金账户（`external:scenario` 加每位注册人物的 `agent:{agent_id}`）、活动、订单、调度边界、`processed_actions`（`StoredAction` 已移除 `receipt` 字段）、待呈递状态、跨模块屏障状态与调度视图 `SchedulingState`（`state/decisions/round.py`）。跨模块边界传输对象统一在 `state/decisions/barrier.py` 定义（`SuspendedLoopState`、`AgentWakeupInput`、`ToolDispatchResult`、`SandboxOutcome`、`SearchTaskSpec`、`SearchSessionOutcome`、`SearchCommitReceipt`、`BarrierCommitReceipt`）。
+人物保存实际地点、身体、当前槽位活动、内容共享进度、个人事务、日计划、回调状态、每日幂等标记与可选的无栈挂起载荷 `suspended_loop: SuspendedLoopState | None`。
+已删除 `same_moment_rounds`、`same_moment_stage` 与 `same_second_continuation`。
+
+`SuspendedLoopState`（随 `AgentState.suspended_loop` 序列化到世界状态与检查点）显式持有十五个字段：
+
+| 字段 | 类型 | 语义 |
+| --- | --- | --- |
+| `wakeup_id` | `str` | 触发本次唤醒的确定性身份 |
+| `action_id` | `str` | 发起挂起搜索的动作身份 |
+| `activity_id` | `str` | 对应的 `ActivityKind.SEARCH` 活动身份 |
+| `pending_tool_call_id` | `str` | 挂起模型回合里等待回填的 `search_world` `tool_call_id` |
+| `messages` | `tuple[dict[str, Any], ...]` | 截至 `search_world` 调用的完整模型对话历史（含 `assistant` 调用消息） |
+| `turn_used` | `int` | 挂起前已消耗的主循环回合数 |
+| `memory_search_count` | `int` | 挂起前已触发的记忆检索次数 |
+| `accepted_action_ids` | `tuple[str, ...]` | 挂起前沙盒内已受理的零耗时动作身份集合 |
+| `pending_memories` | `tuple[dict[str, Any], ...]` | 挂起前累积、待最终屏障提交后再写工作区的记忆草稿 |
+| `verified_experiences` | `tuple[dict[str, Any], ...]` | 挂起前累积的已核验经历记录 |
+| `local_rejection_counts` | `dict[str, int]` | 沙盒内本地拒绝计数 |
+| `observation_event_id` | `str` | 初始唤醒观察事件身份 |
+| `observation_parts` | `dict[str, str]` | 观察分件摘要索引 |
+| `suspended_at` | `int` | 发起挂起时的世界时钟 UTC 秒 |
+| `base_layers` | `tuple[dict[str, Any], ...]` | 初始观察各层视图（供恢复后容量与差量计算参考） |
+
+人物状态的 `navigation_foreground` 记录导航 app 此刻是否在前台：`null` 表示不在前台；非空时是
 `{activity_id, app_id, opened_at}`，分别是所属的出行活动、这趟出行选定的导航 app 和这一段回到前台的时刻。
-非空而所指出行不是该人物进行中的出行、`opened_at` 早于出行开始或晚于当前时刻，或者同时存在进行中的槽位 2 活动，
+非空而所指出行不是该人物进行中的出行、`opened_at` 早于出行开始或晚于当前时刻，或者同时存在进行中的副槽位活动，
 世界状态在写入和加载检查点时以 `navigation foreground disagrees with active activities` 拒绝。
 不保存消息、邮件、闹钟、聊天对象、燃油、自然语言目标自动进展和已删除的情绪参数。
 
-活动种类为 sleep、travel、interact、purchase、query。活动保存原请求身份、当前状态、真实结算区间、
-计划时长、暂停和终局，以及相应路径、内容或订单数据；详细生命周期归[模拟引擎](04-simulation-engine.md)。
-活动的 `resource_claims` 保存它占的槽位，取值保持 `first`（槽位 1）与 `second`（槽位 2）：
-出行、睡眠和地点 interact 占 `first`，购买、查询和内容 app 的 interact 占 `second`，占用与此不符的活动由世界状态拒绝。
+活动种类为 `sleep`、`travel`、`interact`、`purchase`、`search`（由 `ActivityKind.SEARCH` 取代 `query`）。活动保存原请求身份、`origin_wakeup_id`（取代 `origin_decision_id`）、当前状态、真实结算区间、
+计划时长、暂停和终局，以及相应路径、内容、搜索或订单数据；详细生命周期归[模拟引擎](04-simulation-engine.md)。
+活动的 `resource_claims` 保存它占的槽位，取值保持 `first`（主槽位）与 `second`（副槽位）：
+出行、睡眠和地点 `interact` 占 `first`，购买、搜索和内容 app 的 `interact` 占 `second`，占用与此不符的活动由世界状态拒绝。
 睡眠活动的私有数据记录 `declared_duration_seconds`（人物写的时长，600 到 43200 秒）和 `oversleep_seconds`
-（多睡的时长，0，或 1200 到 3600 之间 60 的整数倍）；计划时长是两者之和，受理时定下，恢复后不重新抽取。
+（多睡的时长，0，或 1200 到 3600 之间 60 的整数倍）；计划时长是两项之和，受理时定下，恢复后不重新抽取。
 出行活动保存所用出行方式的 `travel_method_id`（自带的步行是 `walking`，其余是数据集的身份），其他活动为空；出行活动的动作是 `travel`，私有数据的 `exertion` 记录受理时取的代谢当量键。
-查询活动的私有数据恰为 `action`（恒为 `query`）、`targets`（认出的各项，按所写次序去重；商品是 `{kind: goods, goods_id}`，类别是 `{kind: category, category}`）、`app_id`（这几分钟所在的 app，可空）、`scoped`（答案是否只列经 `app_id` 能买的）和 `accepted_event_id`；做完的查询另有 `answer`，提前结束和被截断的没有。`answer` 是 `{rows, omitted}`，只有身份、分和纪元秒：`rows` 每行恰为 `{goods_id, route, store_id, app_ids, price_fen, delivery_fee_fen, expected_at, available, reason}`，`route` 取 `pickup`、`delivery`、`station_pickup` 或 null，`reason` 取 `location_closed`、`present_at_seller`、`store_without_app`、`no_open_store`、`no_open_store_on_app`、`not_sold_on_app` 之一或 null；`omitted` 是没列出的商品件数。不存人物所写的 `prefer` 原文。interact 活动的私有数据恒带非空的 `content_id`。
-商品履约记录的 pending 状态允许尚未付款，只有实际付款才有 paid_at；已取消的记录永不收货。
+搜索活动（`ActivityKind.SEARCH`）由 `SearchWorldRequest`（`query`、`prefer` 与 `self_note`）发起：开始受理阶段私有数据记下 `action`（`"search"`）、`query`、`prefer`、`accepted_event_id`，且 `app_id` **仅当 `prefer` 非空并解析匹配到开放下单 app 时才填入对应 `app_id`（`scoped = True`），否则为 `None`（`scoped = False`）**；搜索子会话内部工具（`search_goods`、`inspect_goods_offers`、`search_places`、`submit_search_results`）模型定义在 `state/interaction/search_requests.py`（全部遵守 `deepseek_strict_schema`）。做完的搜索在 `complete_searches` 阶段完成 `app_use` 归属（原 `data.app_id` 为 `None` 时按返回 `goods_rows` 中可下单商品 `selling_app_id` 众数或 `search-app:{action_id}` 随机流写回 `data.app_id`，保持原 `data.scoped`），并由 `Fact Guard` 写入确定性回答 `data.answer`（含 `query`、`prefer`、`scoped`、`goods_rows`、`place_rows`、`summary`：其中 `goods_rows` 保持 `{goods_id, name, category, category_label, price_fen, price_yuan, selling_app_ids, selling_apps, available, reason, fulfillment, total_price_fen, delivery_fee_fen?, selling_app_id, selling_app, store_id, store, rating, expected_at}`，地点行 `place_rows` 含 `{location_id, name, kind, open_now, today_hours, rating, sleepable, accepts_parcels, units, travel_options}`）；提前取消或被截断的搜索没有回答字段。`interact` 活动的私有数据恒带非空的 `content_id`。
+商品履约记录的 `pending` 状态允许尚未付款，只有实际付款才有 `paid_at`；已取消的记录永不收货。
 商品履约记录的付款字段按订单取值：同一次购买里 `app_id` 相同的记录是一张订单，`payment_app_id`、`payment_duration_seconds`、
-`payment_started_at`、`payment_ended_at` 在同一张订单的记录上相同。`payment_app_id` 为 null 表示直付；
-`payment_duration_seconds` 是 0 或 10 至 20，只有 `app_id` 与 `payment_app_id` 都为 null 的到店直付为 0，
-这时两个付款时刻恒为 null；其余订单在付款段真实开始、真实走完时各写一次。
+`payment_started_at`、`payment_ended_at` 在同一张订单的记录上相同。`payment_app_id` 为 `null` 表示直付；
+`payment_duration_seconds` 是 0 或 10 至 20，只有 `app_id` 与 `payment_app_id` 都为 `null` 的到店直付为 0，
+这时两个付款时刻恒为 `null`；其余订单在付款段真实开始、真实走完时各写一次。
 订单由购买活动的 `data.order_ids` 和记录上的 `app_id` 得出：购买活动列出了世界里没有的记录，
 或者同一张订单的记录在这四个付款字段上取值不同，世界状态在写入和恢复时都被拒绝。
 `paid_at` 在一次购买的全部记录上同时写入，等于购买完成的时刻；到店记录的 `expected_at` 是购买开始时刻加实际购买时长。
 外卖的 `expected_at` 是人物看到的预计送达，私有字段 `weather_delay_seconds` 是受理时冻结的天气总延长，单位为秒，取非负整数。
 到店与快递在世界状态上该字段为空。动作结果、活动进度和到达事件里的订单快照都省去该字段。
 排程与收货按同一个规则从订单推出实际应送达时刻，见[模拟引擎](04-simulation-engine.md)「购买、付款与收货」。
-`arrived_at` 只在实际发生时写入。商品品质保存在收货事件，查询和购买结果里的商铺评分从冻结目录取。
-内容共享进度以人物与内容身份保存，报告不新增进度。位置归零、轮数加一有两个来源：内容做到末尾，和在地点做的事被人物结束，规则见[模拟引擎](04-simulation-engine.md)「出行、内容与查询」。
+`arrived_at` 只在实际发生时写入。商品品质保存在收货事件，搜索和购买结果里的商铺评分从冻结目录取。
+内容共享进度以人物与内容身份保存，报告不新增进度。位置归零、轮数加一有两种来源：内容做到末尾，和在地点做的事被人物结束，规则见[模拟引擎](04-simulation-engine.md)「出行、内容与搜索」。
 
-`activities` 与 `processed_actions` 的条目是不可变值：活动或已处理动作的任何变化（包括 `data`、`result`、`receipt`、
+`activities` 与 `processed_actions` 的条目是不可变值：活动或已处理动作的任何变化（包括 `data`、`result`、
 `session_ids`、`note_history`、`resource_claims` 等嵌套字段）都换成一个新条目，不原地修改已有条目；同一个条目对象可以
 同时属于已提交世界和候选世界。同一个对象不同时挂在条目与世界的其他字段下。
 
@@ -64,25 +87,32 @@ flowchart LR
 遇到 `activities` 不是数组的运行目录（由更早的引擎写下）报
 `Run directory was written by an older engine: world activities are not an array`。
 世界状态里其余以身份为键的集合仍是 JSON 对象。
-`processed_actions` 以动作身份为键，保留哪些条目见[模拟引擎](04-simulation-engine.md)「原子性与恢复」。
+`processed_actions` 以动作身份为键（`StoredAction` 不含 `receipt`），保留哪些条目见[模拟引擎](04-simulation-engine.md)「原子性与恢复」。
 
 ## 输入与模型身份
 
-五项环境身份是 environment_id、environment_version、rules_version、catalog_content_sha256、map_sha256。
-原始两份 TOML 分别保存摘要，生成地图按规范 JSON 加 LF 冻结。
-新建运行的清单顶层字段是 `schema_version`、`run_id`、`source_group_id`、`environment_identity`、`environment_assets`、
-`persona_sha256`、`config_sha256`、`agent_ids`、`code_sha256`、`git_commit`、`git_dirty`、`model_identity`、
-`stage_model_identity`、`model_metadata`、`input_warnings`、`persona_habit_responses`、`window` 与 `lineage`。新建运行的
+五项环境身份是 `environment_id`、`environment_version`、`rules_version`、`catalog_content_sha256`、`map_sha256`。
+全部人物 `personas/*.toml` 按 `agent_id` 映射各自原字节摘要进 `persona_sha256s: dict[int, str]`，`config.toml` 保存 `config_sha256`，生成地图按规范 JSON 加 LF 冻结。
+新建运行的清单顶层字段包含 `schema_version`（`8`）、`run_id`、`source_group_id`、`environment_identity`、`environment_assets`、
+`persona_sha256s`、`config_sha256`、`agent_ids`、`code_sha256`、`git_commit`、`git_dirty`、`model_identity`、`input_warnings`、`persona_habit_responses`、`window` 与 `lineage`。新建运行的
 `lineage` 为空数组；恢复与重放分支另带分支来源字段，`lineage` 是父运行的 `lineage` 加一项父运行这一段，见
 [记录引擎](05-recording-engine.md)「冻结输入、检查点与分支」。
-清单不保存由人物卡片换算出的数值：社交需要每小时增长在冻结的 `persona.toml` 里，世界创建时直接读它。
+清单不再包含退场的 `persona_sha256`、`stage_model_identity` 或顶层零散 `model_metadata`：其中 `model_identity` 为 `ModelIdentity` 模型（[identity.py](../../src/worldmock/state/identity.py)），包含四个字段：
+
+| `ModelIdentity` 字段 | 形状与内容 |
+| --- | --- |
+| `profiles` | `dict[str, StageProfileIdentity]`，仅冻结被 `model_routing`（含 `agent_overrides`）实际引用的配置段；每个档含 `provider`、`base_url`、`requested_model`、`metadata_url`、`context_window`、`thinking`、`max_output_tokens`、`max_retries`、`transport_max_retries`、`max_react_turns`、`reflection_validation_max_retries`、`day_plan_validation_max_retries`、`model_metadata` 与 `effective_max_tokens`（严禁包含 `api_key_env` 凭据值） |
+| `routing` | `dict[str, Any]`，冻结 `action`、`search`、`plan_day`、`digest` 与 `agent_overrides` |
+| `prompt_sha256s` | `dict[str, str]`，`{"action": life_prompt_sha256(), "search": search_prompt_sha256()}` |
+| `tool_schema_sha256s` | `dict[str, str]`，`{"action": life_tool_schema_sha256(), "search": search_tool_schema_sha256()}` |
+
+清单不保存由人物卡片换算出的数值：社交需要每小时增长在冻结的对应 `personas/*.toml` 里，世界创建时直接读它。
 `code_sha256` 覆盖 `src/` 下的全部 Python 源码与根目录的 `pyproject.toml`、`uv.lock`；项目根由已导入的 `worldmock` 包位置推出（包目录 `src/worldmock` 往上两级）。
 引擎包里没有 Python 源码以外的规则文件，`src/` 下其他类型的文件不进代码身份。
-人物卡片的两份派生物（结构化卡片与卡片文本）在每次运行开始时由 `persona.toml` 直接构造，不写进人物工作区，也不另存副本；
+每位人物卡片的两份派生物（结构化卡片与卡片文本）在每次运行开始时由各自 `personas/*.toml` 直接构造，不写进人物工作区，也不另存副本；
 没有单独的编译产物文件和结构号，见[人物](06-agent.md)。
-发布目录可以含声明距离的 map.jsonl，但不含生成的地图；冻结的目录素材跟随目录清单的文件表。
-模型身份保存实际服务、请求模型、实际元数据与来源、上下文声明、两种重试预算、回顾与日计划两项校验预算、
-阶段生成参数与回合上限。api_key_env 只是输入中的凭据变量名称；凭据正文绝不序列化。
+发布目录可以含声明距离的 `map.jsonl`，但不含生成的地图；冻结的目录素材跟随目录清单的文件表。
+`api_key_env` 只是输入中的凭据环境变量名称；凭据正文绝不序列化。
 
 ## 提示层的机器形状
 
@@ -97,9 +127,9 @@ flowchart LR
 | `可查` | 对象，唯一的键 `最早日期`（`YYYY-MM-DD`）；还没有可查的日期时是空对象 |
 | `近三天` | 对象，键是饮食、工作、生活的子集并按此次序，值是格子数组 |
 | `今天` | 数组，每项是一条今天条目或一行计数行 |
-| 今天条目 | 封闭对象：键 `时刻`（`HH:MM`）、`类别`（类别串），可选 `核验`、`自述`，二者至少有一，各是至少一项的非空字符串数组；渲染时键序为时刻、类别、核验、自述；条目全文另有 `当时查到`，不进提示 |
+| 今天条目 | 封闭对象（由 `WakeupCommit` 按 `(wakeup_id, local_date)` 归并产生）：键 `时刻`（`HH:MM`）、`类别`（类别串），可选 `核验`、`自述`（至少有一），各是至少一项的非空字符串数组；渲染时键序为时刻、类别、核验、自述；条目全文另有 `当时查到`（出自已终结搜索活动权威载荷），不进提示 |
 | 计数行 | 恰为 `{"时刻":"HH:00–HH′:00","类别":<类别串>,"条数":<正整数>}`，HH′ 是 HH+1，23 时写「23:00–24:00」，「–」是 U+2013 |
-| 近三天格子 | `近三天` 的键是启用的类别、按饮食、工作、生活的次序，值是至多三格、按日期升序的数组；饮食格、生活格是封闭对象，键依次为 `日期`（YYYY-MM-DD）、`星期`（`WEEKDAY_NAMES` 之一）、`回顾`（1–250 字）；工作格在 `星期` 与 `回顾` 之间另有必有的 `安排`（工作日或休息日）；未整理的格 `回顾` 为 null，末尾带 `未整理: true`；那天这一类没有记录时不写这一格；Schema 是 `_RECENT_CELLS` |
+| 近三天格子 | `近三天` 的键是启用的类别、按饮食、工作、生活的次序，值是至多三格、按日期升序的数组；饮食格、生活格是封闭对象，键依次为 `日期`（YYYY-MM-DD）、`星期`（`WEEKDAY_NAMES` 之一）、`回顾`（1–250 字）；工作格在 `星期` 与 `回顾` 之间另有必有的 `安排`（工作日或休息日）；未整理的格 `回顾` 为 `null`，末尾带 `未整理: true`；那天这一类没有记录时不写这一格；Schema 是 `_RECENT_CELLS` |
 
 类别串是饮食、工作、生活里互不相同的一到三项，以「、」相连。记忆层经 `render_layer_json` 渲染：键序即构建顺序，中文不转义，`null`、空列表与空对象原样保留；
 Schema 是 [prompt_schemas.py](../../src/worldmock/agents/prompt/prompt_schemas.py) 的 `MEMORY_LAYER_SCHEMA`。
@@ -120,7 +150,8 @@ Schema 是 [prompt_schemas.py](../../src/worldmock/agents/prompt/prompt_schemas.
 
 ## 事件与检查点
 
-事件编码为确定性 UTF-8 JSON，资金只在信封 resource_changes 中记录。运行目录里的 `manifest.json`、`status.json`、`heartbeat.json`、`result.json` 和反事实干预文件一律按 UTF-8 读写，不依赖系统默认编码。
+事件编码为确定性 UTF-8 JSON，资金只在信封 `resource_changes` 中记录。事件信封与派生结构使用 `wakeup_id`（取代 `decision_id`/`round_id`/`round_order`）；`DECISION_STARTED_FIELDS = frozenset({"wakeup_id", "world_state_version", "wake_reasons"})`，`MEMORY_UPDATE_KEYS` 与 `ModelCallEvidence`/`MemoryUpdateEvidence` 同理使用 `wakeup_id`。搜索子会话的内部模型交互草稿在信封设置 `activity_id = search_activity_id` 且 `data.purpose = "search_session"`。
+运行目录里的 `manifest.json`、`status.json`、`heartbeat.json`、`result.json` 和反事实干预文件一律按 UTF-8 读写，不依赖系统默认编码。
 `status.json` 与 `heartbeat.json` 是规范 JSON，字段见[运行装配与决策循环](10-runtime.md)「运行与恢复」；其中的时刻都是 UTC 的 ISO 8601 文本。
 运行库的观察分件表 `parts` 与观察的存储形式归[记录引擎](05-recording-engine.md)「事件与来源」，编码同样是确定性 UTF-8 JSON。
 回调、时间、天气、提醒、两种停留事件和回顾事件 `memory_digest_generated` 使用当前闭合模型，写入和读取时都校验，旧事件种类立即拒绝；字段见[记录引擎](05-recording-engine.md)「事件与来源」。
@@ -129,10 +160,10 @@ Schema 是 [prompt_schemas.py](../../src/worldmock/agents/prompt/prompt_schemas.
 
 ## 人物工作区
 
-人物 N 的工作区是运行目录下的 `agents/agent_NNNN/`，NNNN 是补足四位的人物编号，例如 `agents/agent_0001/`。新建运行在建引擎之前建出这个空目录，目录已存在时以 `FileExistsError("Agent workspace already exists: <路径>")` 停止。
-人物第一次决策的步尾保存之前工作区为空；此后恰有两个普通文件：`MEMORY.md` 与 `memory/episodes.jsonl`，没有别的文件。
+每位数字人（编号 N）的工作区是运行目录下的 `agents/agent_NNNN/`，NNNN 是补足四位的人物编号，例如 `agents/agent_0001/`、`agents/agent_0002/`。新建运行在建引擎之前按全员 `personas/*.toml` 为每人建出空工作区，目录已存在时以 `FileExistsError("Agent workspace already exists: <路径>")` 停止。
+某位人物第一次唤醒提交步尾保存之前，其对应工作区为空；提交成功后恰有两个普通文件：`MEMORY.md` 与 `memory/episodes.jsonl`，没有别的文件。在 `AgentLoop` 内部回合、`search_world` 挂起或跨人物资源冲突回滚时，绝不提前写入这两个文件。
 两个文件都按 UTF-8 编码、LF 换行直接写字节；新内容的字节与现有文件相同时不写。人物第一次步尾保存时还没有条目，条目文件写成空文件。
-工作区随每个共同检查点快照，快照格式与恢复时的校验见[记录引擎](05-recording-engine.md)「冻结输入、检查点与分支」。
+全员人物工作区随每个共同检查点快照，快照格式与恢复时的校验见[记录引擎](05-recording-engine.md)「冻结输入、检查点与分支」。
 
 `MEMORY.md` 是给人看的已核验视图，恰为下面的模板，不写任何英文模板：
 
@@ -157,7 +188,7 @@ Schema 是 [prompt_schemas.py](../../src/worldmock/agents/prompt/prompt_schemas.
 | --- | --- |
 | `id` | 第 n 行恰为 `m_` 加六位的 n，从 `m_000001` 起连续；新条目的编号是当前条目数加一，合并不占编号 |
 | `agent_id` | 人物编号，整数 |
-| `time` | 新建或最近一次合并时那次决策的观察时刻，带偏移的 ISO 8601 文本 |
+| `time` | 新建或最近一次合并时那次唤醒的观察时刻，带偏移的 ISO 8601 文本 |
 | `type` | 主观记忆类型，属于 `SUBJECTIVE_TYPES` |
 | `importance` | 0 到 1 的数 |
 | `keywords` | 字符串列表：每项去掉首尾空白，去掉空串，按首次出现去重 |

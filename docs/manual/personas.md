@@ -1,17 +1,18 @@
 <a name="personas-编写-persona-toml"></a>
-# 编写 persona.toml
+# 编写 `personas/*.toml`
 
-环境根的 persona.toml 是一张表，声明唯一的人物。表里的每个字段都由你直接填，引擎照写的样子使用：
+环境根的 `personas/` 目录按文件名存放一位或多位数字人声明（`personas/*.toml`，至少一份）；引擎不再接受根目录旧式 `persona.toml`。每个文件由你直接填，引擎照写的样子使用：
 它不读 `background_story` 来猜年龄、作息或口味，不调用模型，也不替你补缺省值或改数字。
-标了必填的字段缺一个，`worldmock validate` 就以 `PERSONA_INVALID` 拒绝，并指出是哪个字段。
+所有人物文件的 `agent_id` 以及去除首尾空白后的 `name.strip()` 必须全局唯一；
+标了必填的字段缺一个或重复，`worldmock validate` 就以 `PERSONA_INVALID` 拒绝，并指出具体文件（如 `personas/persona_1.toml`）与字段。
 数组字段条数不对或写成了别的类型时，原因里的英文说明是 `Tuple should have …` 或 `Input should be a valid tuple`；
-persona.toml 和 config.toml 里照旧写 TOML 数组。
+`personas/*.toml` 和 `config.toml` 里照旧写 TOML 数组。
 字段的完整规则见[配置](../design/08-configuration.md#configuration-人物声明)。
 
 ## 一份完整的例子
 
 ```toml
-schema_version = 2
+schema_version = 3
 agent_id = 1
 name = "林悦"
 background_story = "林悦在一家互联网公司做产品经理，和伴侣合租在公司附近。工作日朝九晚六，周末喜欢去公园慢跑。"
@@ -86,8 +87,8 @@ TOML 要求顶层的键写在所有表之前，所以 `coping` 和各个时段�
 
 | 栏 | 必填 | 怎么填 | 谁在用 |
 | --- | --- | --- | --- |
-| `schema_version` | 是 | 写 `2` | 加载 |
-| `agent_id`、`name` | 是 | 正整数、姓名 | 全程 |
+| `schema_version` | 是 | 写 `3` | 加载 |
+| `agent_id`、`name` | 是 | 全局唯一正整数、全局唯一非空白姓名 | 全程 |
 | `background_story` | 是 | 人物的来历和日常，长短不限 | 每天零点的计划原样读它 |
 | `health_habits`、`social_style` | 否 | 一两句话 | 每天零点的计划 |
 | `home_location`、`initial_location` | 是 | 环境里地点的完整显示名；住处要标了能住、能睡 | 世界初始化 |
@@ -96,7 +97,7 @@ TOML 要求顶层的键写在所有表之前，所以 `coping` 和各个时段�
 | `social_need_growth_per_hour` | 是 | 0.02 到 0.10；越大越容易想找人说话，0.06 是不内向也不外向 | 身体 |
 | `chronotype_midsleep` | 是 | 不上班的日子里一觉的正中是几点，0 到 24 之间 | 困意 |
 | `sleep_need_hours` | 是 | 7 到 9；写人物实际每晚睡多久 | 欠的觉 |
-| `wake_window`、`leave_home_window` | 是 | 时段 | 人物每次决策看到的作息 |
+| `wake_window`、`leave_home_window` | 是 | 时段 | 人物每次唤醒看到的作息 |
 | `lunch_window`、`dinner_window` | 是 | 时段 | 人物看到的作息、零点计划、饭点时更容易饿 |
 | `bedtime_window` | 是 | 开始就寝的时段，不是整夜 | 人物看到的作息、零点计划 |
 | `leave_work_window`、`arrive_home_window` | 否 | 时段；不写就是没有固定时刻 | 人物看到的作息、零点计划、评估里的下班与到家偏离 |
@@ -110,12 +111,12 @@ TOML 要求顶层的键写在所有表之前，所以 `coping` 和各个时段�
 | `work_schedule` | 否 | 工作地点与每周班次 | 上班安排 |
 
 住处与初始地点分别解析实际地点显示名，初始地点可以不同于住处。
-不要添加旧的顶层 occupation、routine_preference、consumption_preference、risk_preference 或多人 agents 数组。
+不要添加旧的顶层 `occupation`、`routine_preference`、`consumption_preference`、`risk_preference` 或多人 `agents` 数组；多人环境请在 `personas/` 下为每位人物各建一个 `.toml` 文件。
 
 ## 作息时间照实填
 
 时段写成 `[起点, 终点]`，单位是自午夜起的小时，18.25 就是 18:15。照实填，不必对齐半小时或一刻钟。
-每个时段只有一条要求：两个数，起点小于终点。人物每次决策看到的、零点计划里的、身体和评估用的都是你写的这个数，显示写到分钟。
+每个时段只有一条要求：两个数，起点小于终点。人物每次唤醒看到的、零点计划里的、身体和评估用的都是你写的这个数，显示写到分钟。
 
 越过午夜的时刻写成大于 24 的小时数：23:30 到次日 00:30 的就寝写 `[23.5, 24.5]`，人物看到「23点半到0点半」；
 夜班人物凌晨一点半下班可以写 `leave_work_window = [25.5, 26.0]`，评估也按钟面读它：凌晨 01:40 离开工作地点算准时。
@@ -132,9 +133,9 @@ TOML 要求顶层的键写在所有表之前，所以 `coping` 和各个时段�
 例如「电话」「微信」「见面」，也可以写「飞书」「邮件」；人物看到的就是你写的词，引擎不替你改写或去重。
 每条习惯写什么情境下（`trigger`）做什么（`response`），以及大致在哪个时段。
 
-习惯里提到用哪个 app 下单或查询时，app 名要与环境 app-catalog.jsonl 里的 name 一字不差：只有全角半角、括号写法和空白的差别会被抹平，大小写不同或写简称都对不上。人物会照着把它写进 prefer；写得不对不会被纠正，订单会落到别的 app 上。目录里叫「美团外卖」，习惯里就不要写「美团」。
+习惯里提到用哪个 app 下单或搜索时，app 名要与环境 `app-catalog.jsonl` 里的 `name` 一字不差：只有全角半角、括号写法和空白的差别会被抹平，大小写不同或写简称都对不上。人物会照着把它写进 `prefer`；写得不对不会被纠正，订单会落到别的 app 上。目录里叫「美团外卖」，习惯里就不要写「美团」。
 
-不要写「打开某购物 app 看看」这类习惯：没有内容的购物 app 不能单独打开。想让人物买东西，就写买什么、想用哪个 app；想让人物先看看再买，就写先查一查。这两条背后的规则见[设计环境数据集](resources.md#resources-固定规则怎样落到手机时间线)。
+不要写「打开某购物 app 看看」这类习惯：没有内容的购物 app 不能单独打开。想让人物买东西，就写买什么、想用哪个 app；想让人物先看看再买，就写先通过 `search_world` 搜一搜。这两条背后的规则见[设计环境数据集](resources.md#resources-固定规则怎样落到手机时间线)。
 
 口味的三个数组分别是爱看的内容题材、喜欢吃的东西和常用的媒介；写了媒介而环境里没有任何 app 绑定内容时，
 运行清单会记一条 `CONTENT_EMPTY_WITH_MEDIA_TASTES` 警告，运行照常进行。

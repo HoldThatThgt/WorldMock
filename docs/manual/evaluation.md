@@ -5,9 +5,9 @@ WorldMock 保留原有质量报告与工作、行为统计。独立候选比较�
 
 ## 查看原有质量报告
 
-按原有方式执行 `worldmock export`。输出目录仍包含 `quality.json`，导出认证仍核对其字节与完整重算结果。
-导出清单版本不变；`quality.json` 的结构版本是 10，比 9 多出日、月、年回顾的 `memory_digest` 调用类，原有调用类不变。
-格式 5 的环境包被拒收，先按[设计环境数据集](resources.md)改成格式 6；旧代码写出的导出认证不过，要用当前代码重新运行再导出。
+按原有方式执行 `worldmock export`（导出格式版本 `EXPORT_SCHEMA_VERSION = 9`）。输出目录仍包含 `quality.json`，导出认证仍核对其字节与完整重算结果。
+导出清单同步冻结为运行清单 v8（`model_identity`、`persona_sha256s`）与 `EXPORT_SCHEMA_VERSION = 9`；`quality.json` 的结构版本是 `11`，在既有调用类之外单列 `search_session`（`LLM Search Session` 搜索子会话调用，与 `action` 决策轮分列），并采用 `wakeup_id` 计数口径（删除退役的 `same_moment_round_counts` 字段）。
+旧格式环境包与旧代码写出的导出都通不过当前严格准入与导出认证，请使用当前格式的环境包重新运行并导出。
 
 ## 检查一次运行的工作和作息
 
@@ -17,7 +17,7 @@ WorldMock 保留原有质量报告与工作、行为统计。独立候选比较�
 python scripts/inspect_run.py <运行目录> workday --environment <完整环境目录>
 ```
 
-命令继续返回 `{run_id, workload, routine_deviation, notes}`；输入不匹配时拒绝，不用人物工作区代替输入。
+命令支持多人物环境（按 `personas/*.toml` 与 `persona_sha256s` 核对身份），继续按人物返回 `{run_id, workload, routine_deviation, notes}`；输入不匹配时拒绝，不用人物工作区代替输入。
 运行中的统计只说明当前已记录事实，不表示完整自然日或运行已经结束。
 
 ## 在仓库中调用行为统计
@@ -38,8 +38,8 @@ Python 调用方使用 `tools.analysis.behavior.metrics.behavior_metrics_report`
 uv run python -m tools.analysis.memory_pilot --export <导出目录> [--output <文件>]
 ```
 
-命令先认证导出，再计算；认证不过、导出不是单人运行或冻结目录文件不全时写错误日志并返回 1，不产生报告。
-只接收当前代码认证得过的单人导出，旧代码写出的导出认证不过，要用当前代码重新运行再导出。
+命令先按运行清单 v8（`ModelIdentity`）、导出 v9 与质量报告 v11 认证导出，再以 `wakeup_id` 替代退役 `decision_id` 计算指标；认证不过、导出不是单人运行或冻结目录文件不全时写错误日志并返回 1，不产生报告。
+只接收当前代码认证得过的单人导出（`agent_ids` 恰含一名人物），旧代码写出的导出认证不过，要用当前代码重新运行再导出。
 不给 `--output` 时报告写到标准输出；给了时文件必须还不存在，已存在时拒绝且不覆盖。
 
 报告的 `metrics` 是 M1–M12，口径见[行为分析设计](../design/07-evaluation.md)「分层记忆试点指标」。

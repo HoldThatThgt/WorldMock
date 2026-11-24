@@ -4,37 +4,38 @@
 <a name="configuration-职责与边界"></a>
 ## 职责与边界
 
-一份环境包描述一个世界、一个人物和一次运行。根级 `persona.toml` 是唯一人物来源，
+一份环境包描述一个世界、至少一名数字人与一次运行。`personas/*.toml` 目录承担全员人物声明来源，
 `config.toml` 是唯一运行配置来源。目录格式归[资源引擎](03-resource-engine.md)，
 运行行为归[模拟引擎](04-simulation-engine.md)，输入身份与恢复归[I/O 格式](09-io-formats.md)。
 
 ```mermaid
 flowchart LR
-    Persona[persona.toml] --> Load[严格纯加载]
-    Config[config.toml] --> Load
-    Catalog[catalog/] --> Load
-    Load --> Metadata[实际服务元数据核验]
-    Metadata --> World[内存地图与唯一人物]
-    World --> Run[构造人物卡片并创建运行]
+    Personas["personas/*.toml"] --> Load["严格纯加载"]
+    Config["config.toml"] --> Load
+    Catalog["catalog/"] --> Load
+    Load --> Metadata["实际服务元数据核验"]
+    Metadata --> World["内存地图与多人初始状态"]
+    World --> Run["构造全员人物卡片并创建运行"]
 ```
 
-`persona.toml` 与 `config.toml` 各有自己的 `schema_version`，取值分别写在「人物声明」和「运行配置」的字段表里；
-写其他值的文件直接拒绝，没有读取旧格式的分支。两份文件都是 UTF-8 无 BOM、只用 LF。
+环境包根目录下允许的条目为严格闭集 `{"catalog", "personas", "config.toml"}`：根目录下存在旧式 `persona.toml` 或未知文件、或 `personas/` 下包含非 `.toml` 文件及子目录时均以 `ENVIRONMENT_STALE_FILE` 拒绝；出现符号链接时以 `ENVIRONMENT_IDENTITY_MISMATCH` 拒绝。
+`personas/*.toml` 与 `config.toml` 各有自己的 `schema_version`，取值均为严格整数 `3`，分别写在「人物声明」和「运行配置」的字段表里；
+写其他值的文件直接拒绝，没有读取旧格式的分支。所有声明文件都须采用 UTF-8 无 BOM、只用 LF。
 文件、编码、解析、类型、未知字段、范围与卡片文本超长的失败在创建世界和运行资产前拒绝。
-输入按原字节冻结 SHA-256，不规范化后计算。纯加载不请求生成模型、不创建资产。
+输入按原字节冻结 SHA-256（全员人物各自登记于 `persona_sha256s`），不规范化后计算。纯加载不请求生成模型、不创建资产。
 所有输入失败以英文记录，人物输入使用 `PERSONA_INVALID`，运行配置使用 `RUN_CONFIG_INVALID`。
 地点引用使用资源引擎规定的登记码。
 
 <a name="configuration-人物声明"></a>
 ## 人物声明
 
-`persona.toml` 是一张由数据集作者直接填写的表：除了人物的初值和工作安排，它还带着完整的人物卡片。
-引擎不从 `background_story` 推出任何字段，没有缺省值；标「必填」的键缺一个就拒绝加载。
+`personas/` 目录按 ASCII 文件名升序存放 `*.toml` 人物文件（至少一个文件，缺目录或无 `.toml` 文件均以 `PERSONA_INVALID` 拒绝）。每个 `.toml` 是一张由数据集作者直接填写的表：除了人物的初值和工作安排，它还带着完整的人物卡片。
+引擎不从 `background_story` 推出任何字段，没有缺省值；标「必填」的键缺一个就拒绝加载。全员的 `agent_id` 以及去除首尾空白后的 `name.strip()` 必须全局唯一，出现重复则在重复声明所在文件报 `PERSONA_INVALID`。
 
 | 字段 | 必填 | 规则 |
 | --- | --- | --- |
-| `schema_version` | 必填 | 严格整数 `2` |
-| `agent_id`、`name` | 必填 | 唯一人物，正严格整数身份与非空白姓名 |
+| `schema_version` | 必填 | 严格整数 `3` |
+| `agent_id`、`name` | 必填 | 全局唯一正严格整数身份与去除首尾空白后全局唯一的非空白姓名 |
 | `background_story` | 必填 | 非空文字；零点计划原样读它，引擎不从中抽取任何字段，不限最短长度 |
 | `health_habits`、`social_style` | 可省略 | 生活习惯与社交风格散文，零点计划原样读 |
 | `home_location`、`initial_location` | 必填 | 目录中实际地点的完整显示名；住处必须标为住宿地点，起点可与住处不同 |
@@ -70,16 +71,16 @@ flowchart LR
 文本怎样组成见[人物](06-agent.md)「人物身份与画像」。饭点加成按钟面读时段，对任何合格的时段都有定义，
 所以不为它另加范围检查，见[交换引擎](02-exchange-engine.md)「身体共同结算」。
 
-未知字段、类型不符、缺少必填字段、取值越界和卡片文本超长在加载时以 `PERSONA_INVALID` 拒绝，`path` 为 `persona.toml`，
+未知字段、类型不符、缺少必填字段、取值越界和卡片文本超长在加载时以 `PERSONA_INVALID` 拒绝，`path` 指向对应文件 `personas/<filename>.toml`，
 `reason` 先写出错字段的点分路径，没有改法字段。路径只由字段名、表的键和数组下标组成，
 例如 `work_schedule.exceptions.2026-01-05`：
 
 | 情形 | `reason` |
 | --- | --- |
 | 缺少必填字段 | `<字段> is required`，例如 `identity.age is required` |
-| 未知字段 | `<字段> is not a persona.toml field` |
+| 未知字段 | `<字段> is not a persona field` |
 | 时段不合格 | `<字段>: must be two finite hours with start < end`，习惯的时段写成 `habits.0.time_window` |
-| 其余类型或取值错误 | `<字段>: <英文说明>`；`schema_version = 1` 得到 `schema_version: Input should be 2` |
+| 其余类型或取值错误 | `<字段>: <英文说明>`；`schema_version = 2` 得到 `schema_version: Input should be 3` |
 | 初始能量超过系统上限 | `initial energy exceeds maximum energy` |
 | 卡片文本超过 600 汉字 | `persona card render exceeds budget: <汉字数> hanzi > 600 (input-side problem, not truncated)`，不带字段路径 |
 
@@ -102,7 +103,7 @@ flowchart LR
 
 | 字段 | 规则 |
 | --- | --- |
-| `schema_version` | 必填，严格整数 `2`；写其他值以 `RUN_CONFIG_INVALID` 拒绝，原因是 `schema_version: Input should be 2`，没有写时原因是 `schema_version is required` |
+| `schema_version` | 必填，严格整数 `3`；写其他值以 `RUN_CONFIG_INVALID` 拒绝，原因是 `schema_version: Input should be 3`，没有写时原因是 `schema_version is required` |
 | `seed` | 唯一严格整数种子，不限整数范围；所有随机流由它派生 |
 | `timezone` | 有效 IANA 时区 |
 | `start_time`、`stop_time` | TOML 原生带偏移日期时间；按自身偏移整点，偏移与时区一致，停止晚于开始 |
@@ -111,73 +112,77 @@ flowchart LR
 | `progress_report_interval_seconds` | 活动进展播报间隔 |
 | 候选呈现与轮转 | 只保留实际消费者使用的参数；删除 `candidate_pool_limit` |
 | `calendar` | 现行特殊日期声明；不保留场景副本 |
-| `model` | 唯一模型表，见下节 |
+| `models` | 具名模型档非空字典 `[models.<profile_id>]`，见下节 |
+| `model_routing` | 四维阶段路由器 `[model_routing]` 与人物级覆盖表 `[model_routing.agent_overrides."<agent_id>"]`，见下节 |
 
-删除场景、环境钉、第二份目录路径、评估种子及 `max_same_moment_decisions`。
-同刻决策固定三轮普通轮加三轮受限轮，耗尽即失败；规则只在模拟引擎维护。
+删除场景、环境钉、第二份目录路径、评估种子、`max_same_moment_decisions` 与单一顶层 `model` 表。
 
-<a name="configuration-模型凭证"></a>
 <a name="configuration-模型配置"></a>
 ## 模型配置与凭据
 
-模型身份、重试预算与回合上限集中于 `[model]`；每次调用的输出上限是引擎固定值，不在 `[model]` 里，见[人物](06-agent.md)「宿主模型协议」。
+模型身份、思考开关、输出预留、重试预算与回合预算按具名模型档集中定义在 `[models.<profile_id>]`（`ModelProfileConfig`），并通过 `[model_routing]`（`ModelRoutingConfig`）按 `action`、`search`、`plan_day`、`digest` 四个阶段与可选 `[model_routing.agent_overrides."<agent_id>"]`（`ModelStageOverride`）完成绑定。
 
-| 字段 | 必填或默认、范围 |
-| --- | --- |
-| `provider` | 必填，实际协议身份 `openai_compatible` |
-| `base_url`、`requested_model` | 必填，实际服务端点与精确模型身份 |
-| `api_key_env` | 必填，进程环境变量名称；缺失或空值失败，不寻找凭据文件 |
-| `metadata_url` | 必填，同一模型服务的显式元数据接口 |
-| `context_window` | 必填严格整数，至少 `262144`，声明最低上下文要求 |
-| `max_retries` | 默认 `0`，严格整数 `0–10`，可重试非传输服务拒绝；限流 429 用尽后停放重发 |
-| `transport_max_retries` | 默认 `3`，严格整数 `0–10`，连接、超时（含单次发送整次期限）与服务暂不可用；用尽后停放重发 |
-| `max_react_turns` | 默认 `16`，严格整数 `1–64`，宿主模型回合预算 |
-| `reflection_validation_max_retries` | 默认 `3`，严格整数 `0–5`，日、月、年回顾输出校验重试；用完时没通过的类记为 null 并列入 `fallback`，运行继续，不是运行故障 |
-| `day_plan_validation_max_retries` | 默认 `3`，严格整数 `0–5`，日计划输出校验重试 |
+| 模型类与位置 | 字段 | 必填或默认、范围 |
+| --- | --- | --- |
+| `ModelProfileConfig` | `provider` | 必填，实际协议身份 `openai_compatible` |
+| `ModelProfileConfig` | `base_url`、`requested_model` | 必填，实际服务端点与精确模型身份（`requested_model` 含非空白字符） |
+| `ModelProfileConfig` | `api_key_env` | 必填，匹配 `^[A-Za-z_][A-Za-z0-9_]*$` 的进程环境变量名称；缺失或空值失败，不寻找凭据文件 |
+| `ModelProfileConfig` | `metadata_url` | 必填，同一模型服务的显式元数据接口 |
+| `ModelProfileConfig` | `context_window` | 必填严格整数，至少 `262144`，声明最低上下文要求 |
+| `ModelProfileConfig` | `thinking` | 必填严格布尔值，控制请求 `extra_body.thinking` 开关与思考内容校验 |
+| `ModelProfileConfig` | `max_output_tokens` | 必填正严格整数，模型档单次请求输出预留上限；实际有效值 `effective_max_tokens = min(max_output_tokens, metadata.max_output_tokens)` |
+| `ModelProfileConfig` | `max_retries` | 默认 `0`，严格整数 `0–10`，可重试非传输服务拒绝；限流 429 用尽后停放重发 |
+| `ModelProfileConfig` | `transport_max_retries` | 默认 `3`，严格整数 `0–10`，连接、超时（含单次发送整次期限）与服务暂不可用；用尽后停放重发 |
+| `ModelProfileConfig` | `max_react_turns` | 默认 `16`，严格整数 `1–64`，单次主活动唤醒或单次搜索子会话最大模型回合预算 |
+| `ModelProfileConfig` | `reflection_validation_max_retries` | 默认 `3`，严格整数 `0–5`，日、月、年回顾输出校验重试；用完时没通过的类记为 `null` 并列入 `fallback`，运行继续，不是运行故障 |
+| `ModelProfileConfig` | `day_plan_validation_max_retries` | 默认 `3`，严格整数 `0–5`，日计划输出校验重试 |
+| `ModelRoutingConfig` | `action`、`search`、`plan_day`、`digest` | 必填非空白字符串，各自指向 `[models.*]` 中的一个模型档键 |
+| `ModelRoutingConfig` | `agent_overrides` | 可选字典，键必须为规范正整数字符串（如 `"2"`，满足 `key.isascii() and key.isdigit() and int(key) > 0 and str(int(key)) == key`）且对应存在的 `agent_id` |
+| `ModelStageOverride` | `action`、`search`、`plan_day`、`digest` | 各为 `str \| None = None`，至少提供一个非空配置段名称，覆写对应人物在该阶段的模型档 |
 
-`[model]` 的键只有上表这些：人物卡片不经模型，没有给它用的校验预算，写 `persona_validation_max_retries` 就是未知字段，
-与其他未知字段一样以 `RUN_CONFIG_INVALID` 拒绝。
+`ModelProfileConfig` 与 `ModelRoutingConfig` 的键只有上表这些：人物卡片不经模型，没有给它用的校验预算，写 `persona_validation_max_retries` 就是未知字段；`model_routing` 与 `agent_overrides` 引用不存在的模型档或未登记人物时，均以 `RUN_CONFIG_INVALID` 拒绝。
 凭据值不进入文件、清单、提示或日志。两类服务重试由模型客户端的同一个发送循环计数，每次失败只消耗一类预算，计数内的
-退避：传输失败第 n 次（从 0 起）等 2·2ⁿ 秒；限流 429 只按 litellm 的 `RateLimitError` 类型判定，等 2ⁿ 秒、至多 60 秒，不短于服务给出的 `Retry-After`；其他普通失败计数内立即重发；错误文字不参与判定。
+退避：传输失败第 n 次（从 0 起）等 `2·2ⁿ` 秒；限流 429 只按 litellm 的 `RateLimitError` 类型判定，等 `2ⁿ` 秒、至多 60 秒，不短于服务给出的 `Retry-After`；其他普通失败计数内立即重发；错误文字不参与判定。
 
 计数用尽后，传输失败与限流 429（按类型判定）不使运行失败而是停放：同一请求原样重发，两次发送之间按同一指数退避、
 至多 120 秒（429 不短于 `Retry-After`），从停放开始至多十二小时；无论计数内还是停放中，任何一次等待长于十二小时都立即
-失败。十二小时、120 秒与整次期限都是引擎常量，随代码身份冻结，不在 `[model]` 里，也不是命令行参数。
+失败。十二小时、120 秒与整次期限都是引擎常量，随代码身份冻结，不在配置档里，也不是命令行参数。
 停放期间模拟时间不前进，发送的字节与第一次相同，所以停放过的运行与一次没断网、拿到同样回答的运行结算相同。
 十二小时内仍未成功才失败，错误写明发送次数、耗时、最后的错误类型和根因异常链（只有类型名，不含服务返回的正文）；
 不合成成功或跳过模拟时间。
 
-其他普通失败（含 HTTP 502 `BadGatewayError`）在 `max_retries` 用尽后失败；鉴权与参数错误立即失败；底层隐式重试关闭：每次发送显式传 SDK 重试 0 次与请求超时 300 秒，两者是引擎常量（不传时 litellm 会分别用 2 次与 600 秒）。
-每次发送受整次期限约束：120 秒加请求 `max_tokens` 每个 7.5 毫秒（16,000 时 240 秒，零点计划和回顾的 8,000 时 180 秒）。到期按
+其他普通失败（含 HTTP 502 `BadGatewayError`）在 `max_retries` 用尽后失败；鉴权与参数错误立即失败；底层隐式重试关闭：每次发送显式传 SDK 重试 0 次与请求超时 300 秒，两项均为引擎常量（不传时 litellm 会分别用 2 次与 600 秒）。
+每次发送受整次期限约束：120 秒加请求 `effective_max_tokens` 每个 7.5 毫秒。到期按
 传输超时计，重发同一请求；这是同一请求会得到新回答的唯一情形，只在服务卡住时发生。
 输出纠正是新的逻辑请求，各自受同一规则约束。
 
 <a name="configuration-模型客户端"></a>
-### 模型客户端
+### 模型客户端与模型注册表
 
-整次运行只有一个模型客户端，即 `src/worldmock/configuration/model/model_client.py` 的 `ModelClient`，人物回合、零点计划与日、月、年回顾共用；它的构造与关闭时机见[运行装配与决策循环](10-runtime.md)「决策循环」。
-它直接调用 `litellm.acompletion`，不经 Router，也不用 litellm 的客户端缓存：构造时建一个 OpenAI SDK 异步网络客户端（SDK 重试 0 次、超时 300 秒），每次发送作为 `client=` 传入，关闭时关掉它。
-两类重试次数取自运行清单冻结的 `stage_model_identity`，构造时校验一次，不是 `0–10` 的严格整数时以 `Model retry budgets must be integers in [0, 10]` 拒绝；请求里不带重试次数。
+模型通道由 [model_registry.py](../../src/worldmock/configuration/model) 提供的 `ModelRegistry` 与 `src/worldmock/configuration/model/model_client.py` 中的 `ModelClient` 共同承载，人物主唤醒、搜索子会话、零点计划与日/月/年回顾统一通过 `ModelRegistry.resolve(stage, agent_id)` 获取冻结 `ResolvedModelBinding(profile_id, profile, metadata, client, effective_max_tokens)`；构造与关闭时机见[运行装配与决策循环](10-runtime.md)「时钟屏障与并发唤醒循环」。
+`ModelRegistry` 内部按 `(profile.base_url, profile.api_key_env, profile.max_retries, profile.transport_max_retries)` 键复用共享 `ModelClient` 连接池，并在运行结束或异常清理时通过 `async def close()` 统一关闭全部连接。
+`ModelClient` 直接调用 `litellm.acompletion`，不经 Router，也不用 litellm 的客户端缓存：构造时建一个 OpenAI SDK 异步网络客户端（SDK 重试 0 次、超时 300 秒），每次发送作为 `client=` 传入，关闭时关掉它。
+两类重试次数从对应的冻结 `StageProfileIdentity`（存于运行清单 `model_identity.profiles`）读取并在构造时校验，不是 `0–10` 的严格整数时以 `Model retry budgets must be integers in [0, 10]` 拒绝；请求里不带重试次数。
 它只接受键集合恰为 `model`、`messages`、`tools`、`tool_choice`、`max_tokens`、`extra_body` 的请求，不合时以 `Model request keys must be exactly model, messages, tools, tool_choice, max_tokens, extra_body` 拒绝、不发送；同一请求的每次重发参数逐值相同。
 最终失败抛 `LLMDispatchError`，文字为 `Failed to get valid response after {N} attempts in {s:.1f} s. Last error type: {T}. Error chain: {chain}`，错误链只有类型名。
-`src` 里只有这个模块导入 litellm；它在导入 litellm 之前把 `LITELLM_LOCAL_MODEL_COST_MAP` 设为 `True`，不联网拉取价目表；token 计数用的 `token_counter` 也经这个模块取得。
+`src` 里只有 `model_client.py` 导入 litellm；它在导入 litellm 之前把 `LITELLM_LOCAL_MODEL_COST_MAP` 设为 `True`，不联网拉取价目表；token 计数用的 `token_counter` 也经这个模块取得。`model_metadata.py` 与 `model_registry.py` 严格保持不反向导入 `litellm`。
 
 <a name="configuration-上下文核验"></a>
 ## 权威上下文核验
 
-只读取实际服务元数据，按 `requested_model` 精确匹配唯一 `data[].id`，要求严格正整数
-`context_window` 与 `max_output_tokens`。总容量不得低于声明，输出上限不得超过总容量。
-元数据缺失、身份不存在或能力不足直接失败，不使用社区表、静态模型表或估算。
+只读取实际服务元数据，针对被 `model_routing`（含 `agent_overrides`）实际引用的每个模型档分别按 `requested_model` 精确匹配唯一 `data[].id`，要求严格正整数
+`context_window` 与 `max_output_tokens`。总容量不得低于模型档声明的 `context_window`，输出上限不得超过总容量。
+元数据缺失、身份不存在或能力不足直接失败（`_config_reason` 对 `("models", profile_id, ...)` 等路径生成精确字段错误并报 `RUN_CONFIG_INVALID`），不使用社区表、静态模型表或估算。
 接口位于 `model_endpoint`，token 计数用 litellm 的 `token_counter`，经模型客户端模块取得。
 
 纯环境校验允许只读元数据 HTTP，不发生成请求。连接（含 TLS 与代理）、超时、响应体中断与 429/5xx 整次重试（GET、核对
 状态与解析 JSON 一起重来），至多五次，间隔 2、4、8、16 秒；鉴权失败、内容不合法与容量不足不重试。五次都失败时仍报
 `model context metadata is unavailable`。
-新运行只在运行进程准入时读一次，冻结核验值与来源。
-恢复与重放不访问模型服务：运行进程读父运行清单冻结的 `model_metadata`，与每个提示侧读者本来就读的那一份相同；
+新运行只在运行进程准入时对实际引用的配置档读一次，按 `profile_id` 冻结核验后的 `model_metadata` 映射与来源。
+恢复与重放不访问模型服务：运行进程读父运行清单 `model_identity.profiles` 冻结的 `model_metadata`；
 清单里的值缺失或不合法时报 `Frozen model metadata is missing or invalid`。
-服务容量在一条链的中途变小时，恢复不会提前发现，第一次模型调用以参数错误失败。
-发送容量与浓缩阈值取已核验实际总容量，预留输出满足服务输出上限。
+服务容量在运行途中变小时，恢复不会提前发现，第一次模型调用以参数错误失败。
+发送容量与浓缩阈值取对应绑定档已核验的实际总容量，预留输出取 `effective_max_tokens = min(profile.max_output_tokens, metadata.max_output_tokens)`。
 
 <a name="configuration-配置验证"></a>
 ## 校验与输入冻结
@@ -186,13 +191,13 @@ flowchart LR
 登记失败的 `reason` 是固定英文原因后接一个空格和详情，没有详情时只有固定原因；
 行号、实际路径、地点对和更短路线等详情都经这一处到达作者。
 成功只返回 `valid`、`environment_id`、`environment_version`。
-新建运行在纯加载成功后由 `persona.toml` 直接构造人物卡片，不调用模型；恢复和重放在每次运行开始时同样由冻结的 `persona.toml` 构造卡片，不比对人物工作区，
-`persona.toml` 与父运行的一致由运行清单的 `persona_sha256` 核对，见[人物](06-agent.md)「人物身份与画像」。命令行没有单独的人物卡片命令。
-运行输入警告有两种，新建运行时算出、冻结进运行清单的 `input_warnings`、计入质量报告并各写一条运维日志，不使运行失败：
+新建运行在纯加载成功后按 `agent_id` 升序为 `personas/*.toml` 构造全员人物卡片，不调用模型；恢复和重放在每次运行开始时同样由冻结的 `personas/*.toml` 构造卡片，不比对人物工作区，
+全部人物文件与父运行的一致由运行清单的 `persona_sha256s`（映射每个 `agent_id` 到对应文件原字节 SHA-256）核对，见[人物](06-agent.md)「人物身份与画像」。命令行没有单独的人物卡片命令。
+运行输入警告在全员加载后统一检查，新建运行时算出、冻结进运行清单的 `input_warnings`、计入质量报告并各写一条运维日志，不使运行失败：
 没有任何 app 绑定内容而人物写了媒体口味或带「看、刷、听」的习惯（`CONTENT_EMPTY_WITH_MEDIA_TASTES`），
 以及地点显示名带坐标或标识形态（`LOCATION_NAME_SUSPICIOUS`）。警告条目的形状是 `{code, agent_id, message, details}`，
 警告码是这两个值的闭集，闭集之外的码在写入清单时拒绝。
-两份 TOML 不进入目录清单和目录摘要，各自身份在运行清单冻结。
+所有人物文件 `personas/*.toml` 与 `config.toml` 不进入目录清单和目录摘要，各自身份（`persona_sha256s`、`config_sha256`、`model_identity`）在运行清单冻结。
 改变任何原字节后使用新运行目录；恢复、重放与跨臂比较核对这些身份。
 
 <a name="configuration-随机键"></a>
@@ -211,13 +216,13 @@ flowchart LR
 | 支付段时长 | `payment-duration:{action_id}:{payment_order_key}`，每张订单十至二十整数秒，在内容 app 里直付也抽；只有到店订单抽到直付时为零，不抽取 |
 | 购买功能 app | `function-app:{action_id}:{payment_order_key}`，每张订单抽一次，排序候选与唯一 null 等概率选择 |
 | 出行功能 app | `function-app:{activity_id}`，候选是绑定了这次出行方式的功能 app 按身份升序，等概率选择，不增加 null；没有候选就没有导航记录 |
-| 导航回到前台 | `navigation-return:{travel_activity_id}:{side_activity_id}`，路上一项槽位 2 活动停止执行时抽一位，抽到 1 导航回到前台；每项槽位 2 活动一个键，没有导航候选的出行不抽 |
+| 导航回到前台 | `navigation-return:{travel_activity_id}:{side_activity_id}`，路上一项副槽位活动停止执行时抽一位，抽到 1 导航回到前台；每项副槽位活动一个键，没有导航候选的出行不抽 |
 | 下单 app | 只在人物的意向用不上时取。店铺商品选中的店没有登记意向 app 时用 `order-app:{store_id}:{local_date}`，同一家店同一本地日抽到同一个 app；绑定在 app 上的商品在意向 app 不在商品登记的 app 之内时用 `order-app:{goods_id}:courier:{local_date}`。意向用得上时下单 app 就是意向 app，不抽取 |
 | 快递天数 | `courier-days:{goods_id}:{app_id}:{local_date}`，二、三、四、五天等概率；`app_id` 是最终的下单 app，意向用得上时就是意向 app |
 | 快递费 | `courier-fee:{goods_id}:{app_id}`，零或五百分等概率，跨日期稳定；`app_id` 是最终的下单 app，意向用得上时就是意向 app |
 | 到手商品的品质 | `goods-quality:{order_id}`，每份到店或外卖商品在首次真实收货时取一次流，用标准库的 `Random.gauss` 抽样。分档见[交换引擎](02-exchange-engine.md)「收货与费用」 |
-| 查询时长 | `query-duration:{action_id}`，`action_id` 是开始这次查询的那条动作；三百至六百整数秒，两端都能取到，受理时抽一次，恢复和重放读活动上的值 |
-| 查询所在的 app | `query-app:{action_id}`；只在 `prefer` 用不上、且有下单 app 卖所查商品至少一件时取流，候选按 `app_id` 升序，等概率取一个；`prefer` 用得上或没有候选时不抽 |
+| 搜索时长 | `search-duration:{action_id}`，`action_id` 是开始这次 `search_world` 搜索的那条动作；一百八十至四百二十整数秒（`180` 至 `420`，两端都能取到），受理时抽一次，恢复和重放读活动上的值 |
+| 搜索默认下单 app 归属 | `search-app:{action_id}`；仅当开始时 `prefer` 为空或未匹配到开放下单 app（`data.app_id` 为 `None`）、且完成结算 `complete_searches` 返回的 `goods_rows` 中也不存在可下单 `selling_app_id` 众数时，从当前范围可用下单应用按 `app_id` 升序确定性抽取用于 `app_use` 归属；命中 `prefer` 或存在众数时不抽 |
 | 内容选择 | `{activity_id}:{draw_index}`，只用于内容 app：打开时 `draw_index` 为 0；一次 app 使用每自动接续一条加一，接下一集或另一部系列不抽，接一条没看过的独立内容时用加一后的键抽一次；在地点点名内容单元不抽随机数 |
 | 回调链 | `callback:{rule_id}:{anchor}:{step_index}`，步骤下标从零开始 |
 
@@ -238,8 +243,7 @@ flowchart LR
 每趟配送另有一条发货通知排程，身份是 `shipped-{order_id}`，取同一条记录；排程序号先分给各趟的发货排程，再分给各趟的到达排程。
 
 回调受理锚点为 `{action_id}:0`，一条动作只开始一项活动；凭状态的地点内容开始时减 1 用 `{action_id}:consume`，与受理锚点区分；按日动作效果用 `{origin_action_id}:{local_date}`；
-预排事件使用其 `scheduled_id`；推进唤醒类别用 `wake:{agent_id}:{current_time}`；
-同刻唤醒类别用 `wake:{action_id}`，开始组取第一条动作的身份。阈值触发沿用造成越阈的锚点，不触发级联。
+预排事件使用其 `scheduled_id`；周期重估推进唤醒类别用 `wake:{agent_id}:{current_time}`，单次唤醒统一赋予确定性 `wakeup_id = f"{run_id}:wake:{current_time}:v{state.version}:a{agent_id}"`。阈值触发沿用造成越阈的锚点，不触发级联。
 回调效果与资金账本原因均为 `callback:{rule_id}:{anchor}`，`caused_by` 必须指向真实触发事件。
 
 评估从已认证 WorldMock 检查点读取非空字符串 `random_state`，缺失时抛出

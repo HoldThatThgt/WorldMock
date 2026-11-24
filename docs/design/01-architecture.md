@@ -30,29 +30,30 @@ WorldMock 是数字人生活模拟与数字足迹系统。数字人作选择，�
 
 ```mermaid
 flowchart TB
-    R[资源引擎<br/>资源、对象、内容及其定义] --> S
-    X[交换引擎<br/>投入、产出、条件与转换规则] --> S
-    A[数字人选择行动] --> S
-    subgraph S[模拟引擎]
-        T[推进时间与处理动作] --> B[计算实际区间的身体变化与活动效率]
-        B --> C[调用交换规则计算条件、投入产出与结算结果]
-        C --> W[更新数字人、活动和世界状态]
+    R["资源引擎：资源、对象、内容及其定义"] --> S
+    X["交换引擎：投入、产出、条件与转换规则"] --> S
+    A["数字人经沙盒 AgentLoop 选择行动"] --> S
+    subgraph S["模拟引擎"]
+        T["推进时间与处理动作"] --> B["计算实际区间的身体变化与活动效率"]
+        B --> C["调用交换规则计算条件、投入产出与结算结果"]
+        C --> W["更新数字人、活动和世界状态"]
     end
-    W --> F[记录引擎<br/>保存状态、足迹与共同检查点]
-    F -->|认证导出| D[LabelKit-DataSet<br/>数据加工与发布]
-    F -->|已保存事实与客观统计| E[行为评估]
-    F -.->|分支存储与恢复材料| S
-    D --> O[模型训练数据与规则引擎测试数据]
+    W --> F["记录引擎：保存状态、足迹与共同检查点"]
+    F -->|"认证导出"| D["LabelKit-DataSet：数据加工与发布"]
+    F -->|"已保存事实与客观统计"| E["行为评估"]
+    F -.->|"分支存储与恢复材料"| S
+    D --> O["模型训练数据与规则引擎测试数据"]
 ```
 
-图中的引擎表示职责边界。WorldMock 自有的决策循环由运行宿主 `RunHost` 承担：它驱动决策轮、推进与共同检查点；
-LifeAgent 承载数字人，`LifeEngine` 是模拟引擎的门面：运行宿主经它编排决策轮，人物只经五个方法接触世界。
-源码按 resource_engine、exchange_engine、simulation_engine、recording_engine 四个引擎组织，
-引擎内部按登记、计算、活动、调度、观察和记录等职责分子目录。
-跨模块共用的状态、请求与纯字段判定在 state 中维护，通用模型、文件和序列化函数在 foundation 中维护。
-人物提示与主观记忆、配置和运行装配分别独立；目录调整不改变工具输入输出、生活规则、运行时序和环境格式。
-认证导出仍包含原有 quality.json，统计字段与严格重算要求保持不变。
-独立候选比较、真人参照、盲评和 evaluate 命令退役；保留的独立行为分析在 tools/analysis 中运行。
+图中的引擎表示职责边界。WorldMock 自有的并发唤醒与时钟屏障内核由运行宿主 `RunHost` 承担：它调度离散事件时钟推进、到期搜索子会话、同刻就绪人物并发沙盒及共同检查点；
+`LifeAgent` 与通用 `AgentLoop` 承载数字人在个人内存沙盒 `AgentSandbox` 内的多回合推理，搜索请求则挂起并在到期时刻交由隔离上下文的 `LLM Search Session` 执行。
+`LifeEngine` 是模拟引擎的唯一同步门面：源码中只有 `RunHost` 导入 `LifeEngine` 并经 `prepare_barrier`、`commit_barrier`、`due_searches`、`complete_searches`、`advance` 与 `checkpoint` 等同步接口编排世界；人物模块只通过抽象协议 `SandboxHandle` 与 `state/` 边界数据传输对象交互，绝不反向导入模拟引擎或运行宿主。
+源码按 `resource_engine`、`exchange_engine`、`simulation_engine`、`recording_engine` 四个引擎组织，
+引擎内部按登记、计算、活动、调度、沙盒屏障和记录等职责分子目录。
+跨模块共用的状态、请求、挂起恢复载荷与纯字段判定在 `state` 中维护，通用模型、文件和序列化函数在 `foundation` 中维护。
+人物提示与主观记忆、多人物与模型档案路由配置、运行装配分别独立；目录调整与职责切分保持规则一致性。
+认证导出包含跟随当前版本的 `quality.json`（结构版本 `11`），统计字段与严格重算要求按当前合同校验。
+独立候选比较、真人参照、盲评和 `evaluate` 命令退役；保留的独立行为分析在 `tools/analysis` 中运行。
 导出认证实际依赖的约束、事务和质量统计仍由记录引擎提供，工具复用它们，不复制实现。
 
 <a name="architecture-职责与交接"></a>
@@ -60,29 +61,29 @@ LifeAgent 承载数字人，`LifeEngine` 是模拟引擎的门面：运行宿主
 
 | 负责方 | 负责什么 | 向协作方交付什么 |
 | --- | --- | --- |
-| [数字人](06-agent.md) | 画像、七层提示组装、行动选择与收尾记忆 | 向模拟引擎提交动作请求（播报、暂停与收尾请求可携带个人事务的新增、更新与取消），提供决策和记忆证据 |
+| [数字人](06-agent.md) | 画像、七层提示组装、通用 `AgentLoop`、隔离上下文搜索子会话与收尾记忆 | 向沙盒提交工具调用与行动请求，退出或挂起后产出 `SandboxOutcome` 与 `SearchSessionOutcome` 决策和记忆证据 |
 | [资源引擎](03-resource-engine.md) | 资源与对象定义、动作与内容绑定、版本与来源、查询与提供 | 返回指定版本的定义、属性、匹配条目、内容片段与素材引用 |
 | [交换引擎](02-exchange-engine.md) | 维护与查询交换规则，校验条件，计算投入产出，校验资源分录 | 返回条件判定、资源变化明细、履约条件或拒绝原因 |
-| [模拟引擎](04-simulation-engine.md) | 初始化、时间调度、动作受理、世界结算与恢复编排 | 人物观察与反馈、实际事件、状态和共同快照 |
-| [记录引擎](05-recording-engine.md) | 保存与关联足迹、素材和状态，校验记录一致性，保存检查点，构建分支存储，认证导出与诊断 | 返回保存确认、已核验的恢复材料、认证导出和客观统计 |
+| [模拟引擎](04-simulation-engine.md) | 初始化、离散时钟调度、沙盒受理、搜索 `Fact Guard` 投影、`BarrierMerger` 冲突核验与单事务提交及恢复编排 | `AgentWakeupInput`、沙盒内观察差量、`SearchCatalogView`、实际事件、世界状态和共同快照 |
+| [记录引擎](05-recording-engine.md) | 保存与关联足迹、素材和状态，校验记录一致性，保存检查点，构建分支存储，认证导出、质量报告与诊断 | 返回保存确认、已核验的恢复材料、认证导出和客观统计 |
 | LabelKit-DataSet 数据加工 | 证据窗口、离线经历回顾与假设推演、LabelKit 加工、样本校验与发布 | 交付可追溯的训练数据与规则测试数据 |
 | [行为评估](07-evaluation.md) | 依据已记录事实计算行为与工作统计 | 带来源与缺失说明的统计 |
 
-LifeEngine 与活动属于模拟引擎的执行职责；数字足迹、检查点和分支存储属于记录引擎。
+`LifeEngine`、沙盒与活动属于模拟引擎的执行职责；数字足迹、检查点和分支存储属于记录引擎。
 离线数据加工由 LabelKit-DataSet 消费认证导出，
-默认不写回仍在运行的数字人；数字人运行中的收尾记忆由人物模块维护，今天条目与日、月、年回顾由模拟引擎从已提交事件和零点的模型调用生成。
-反事实分支中的实际执行由模拟引擎编排，分支保存和来源关系由记录引擎维护。
+默认不写回仍在运行的数字人；数字人运行中的收尾记忆由人物模块构造并在 `BarrierMerger` 事务提交成功后由 `save_step` 写入工作区，今天条目（按 `wakeup_id` 归并）与日、月、年回顾由模拟引擎从已提交事件和零点的模型调用生成。
+反事实分支中的实际执行由模拟引擎编排（强制清空挂起状态 `suspended_loop`），分支保存和来源关系由记录引擎维护。
 
 <a name="architecture-状态归属与写入边界"></a>
 ### 状态归属与写入边界
 
 | 状态 | 唯一写入方 | 协作边界 |
 | --- | --- | --- |
-| 世界时钟、人物客观状态、活动、订单与计划 | 模拟引擎 | 人物提交意图；模拟引擎校验、结算并产生事件 |
+| 世界时钟、人物客观状态、活动、订单与计划 | 模拟引擎 | 模型推理并发运行在 `AgentSandbox` 深拷贝沙盒与只读 `SearchCatalogView` 上；只有 `LifeEngine` 主线程在屏障提交与推进事务中更新已提交 `WorldState` |
 | 登记对象、内容与发布图 | 资源引擎 | 启动时读取发布版本，运行中只读 |
 | 交换常数与计算规则 | 交换引擎 | 返回纯计算结果，不直接修改世界或存储 |
-| 主观记忆、画像与模型会话 | 人物模块 | 引用真实事件形成主观记录，不能改变客观结果 |
-| 持久事件、素材、状态版本与检查点 | 记录引擎 | 在一次提交内保存并校验，向恢复与评估提供已记录事实 |
+| 主观记忆、画像与模型会话 | 人物模块 | 引用真实事件形成主观记录，工作区 `MEMORY.md` 仅在屏障提交成功后落盘 |
+| 持久事件、素材、状态版本与检查点 | 记录引擎 | 在单次 SQLite 事务内保存并校验，向恢复与评估提供已记录事实 |
 
 运行宿主（`src/worldmock/runtime/lifecycle/run_host.py` 的 `RunHost`）组织调用，不另建世界状态副本，也不持有第二份时钟。字段面见[状态与序列化](09-io-formats.md)，
 变化规则见[模拟引擎](04-simulation-engine.md)，事务边界见[记录引擎](05-recording-engine.md)。
@@ -95,13 +96,13 @@ LifeEngine 与活动属于模拟引擎的执行职责；数字足迹、检查点
 
 ```mermaid
 flowchart LR
-    D[数据仓发布目录与场景] --> R[资源引擎登记冻结对象]
-    P[WorldMock 包固定规则] --> X[交换引擎]
-    R --> S[配置校验与模拟装配]
+    D["数据仓发布目录与场景"] --> R["资源引擎登记冻结对象"]
+    P["WorldMock 包固定规则"] --> X["交换引擎"]
+    R --> S["配置校验与模拟装配"]
     X --> S
-    A[人物画像与初值] --> S
-    S --> W[初始化世界]
-    W --> F[记录运行身份与初始状态]
+    A["人物画像与初值"] --> S
+    S --> W["初始化世界"]
+    W --> F["记录运行身份与初始状态"]
 ```
 
 数据仓负责素材和发布字节，资源引擎核对对象与引用，交换引擎提供包内规则，模拟引擎完成装配。
@@ -111,39 +112,39 @@ flowchart LR
 ### 地图与门店供给的交接
 
 发布图与供给属于资源输入，路线与履约条件由交换规则计算，出行、付款和收货由模拟引擎执行。
-记录引擎保存实际路径、结算与来源；报价与预览不修改世界。人物查商品是一项占槽位、花时间的活动，见[模拟引擎](04-simulation-engine.md)「出行、内容与查询」。
+记录引擎保存实际路径、结算与来源；报价与预览不修改世界。人物通过 `search_world` 发起的搜索是一项占副槽位、花时间并在到期时由隔离上下文 `LLM Search Session` 与 `Fact Guard` 投影求值的活动，见[模拟引擎](04-simulation-engine.md)「出行、内容与搜索」。
 图准入与对象绑定见[资源引擎](03-resource-engine.md)，算法见[交换引擎](02-exchange-engine.md)，
 交易时序见[模拟引擎](04-simulation-engine.md)。
 
 <a name="architecture-观察-行动与执行"></a>
 ### 观察、行动与执行
 
-模拟引擎先冻结人物观察，人物模块据此组织请求并作选择。
-宿主绑定调用身份；只读查询（检索记忆与回看任务）返回冻结事实，世界请求在收齐本轮请求后确定性结算。
-模型的叙述只作为主观文字保存，不能代替实际进度、支付或收货。
+模拟引擎在同刻屏障通过 `prepare_barrier` 为每位就绪人物生成只读 `AgentWakeupInput`，人物模块经 `ModelRegistry` 按阶段与人物解析模型档案并在个人沙盒 `AgentLoop` 内执行多回合推理。
+只读查询（`search_memory` 与 `recall_task_summary`）以及零耗时世界控制工具、业务规则拒绝均在沙盒内存即时结算，随状态差量 `layer_changes` 直接写回当前 `messages` 的 `tool` 消息；发起 `search_world` 时保存无栈挂起载荷 `SuspendedLoopState`；持续开始动作或开始组受理后退出循环，由 `BarrierMerger` 按 `agent_id` 升序核验并原子提交。
+模型的叙述只作为主观文字保存，不能代替实际进度、支付或收货；搜索子会话亦受 `Fact Guard` 严格约束，禁止编造数值或虚构标识。
 
-请求和受理规则见[人物工具与管理接口](04-simulation-engine.md)，
-提示与模型协议见[人物](06-agent.md)，决策循环与运行装配见[运行装配与决策循环](10-runtime.md)。
+请求和受理规则见[模拟引擎](04-simulation-engine.md)，
+提示、通用循环与搜索子会话见[人物](06-agent.md)，时钟屏障与并发调度见[运行装配与决策循环](10-runtime.md)。
 
 <a name="architecture-事件驱动的时间推进"></a>
 ### 事件驱动的时间推进
 
-共享时钟不按固定步长走，直接推进到下一个真实边界，例如活动的计划结束、身体体感分级变化、商品送达、提醒、班次起止、整点推送、进度播报和重估间隔。每个边界都结算并提交；只有命中唤醒原因的边界才请人物决策，结算边界和决策机会分别判断。在地点做的系列一集做完自动接下一集，一次 app 使用放完一条自动接下一条，都不增加决策；在地点做的非系列内容或系列最后一集做完、一次 app 使用没有可接的内容时活动结束，接哪一条见[模拟引擎](04-simulation-engine.md)「出行、内容与查询」。查询做完时自己结束，不经人物收尾，做完的那一秒照样请人物决策。长时间活动的固定决策机会是进度播报：这个机会一提出，不论人物用哪个工具、请求被受理还是被拒绝，当时到期的播报锚点都移到当前秒。睡眠只在自己的计划结束时结束，提醒、推送、送达和班次起止都不叫醒睡着的人。唤醒原因有哪些、各属哪一类、能否叫醒睡着的人，只写在[模拟引擎](04-simulation-engine.md#simulation-engine-唤醒-日计划与个人事务)的唤醒表里，本节不重复名称和个数。
+共享时钟不按固定步长走，直接推进到下一个真实边界，例如活动的计划结束、搜索到期边界、身体体感分级变化、商品送达、提醒、班次起止、整点推送、进度播报和重估间隔。每个边界都结算并提交；只有命中唤醒原因的边界才请对应人物唤醒决策，结算边界和唤醒机会分别判断。在地点做的系列一集做完自动接下一集，一次 app 使用放完一条自动接下一条，都不增加唤醒；在地点做的非系列内容或系列最后一集做完、一次 app 使用没有可接的内容时活动结束，接哪一条见[模拟引擎](04-simulation-engine.md)「出行、内容与搜索」。`search_world` 搜索活动在计划结束时刻自动执行 `LLM Search Session` 并完成 `Fact Guard` 投影与副槽位释放，不经人物收尾即在原挂起上下文中恢复人物唤醒。长时间活动的固定唤醒机会是进度播报：这个机会一提出，不论人物用哪个工具、请求被受理还是被拒绝，当时到期的播报锚点都移到当前秒。睡眠只在自己的计划结束时结束，提醒、推送、送达和班次起止都不叫醒睡着的人。唤醒原因有哪些、各属哪一类、能否叫醒睡着的人，只写在[模拟引擎](04-simulation-engine.md#simulation-engine-唤醒-日计划与个人事务)的唤醒表里，本节不重复名称和个数。
 
 <a name="architecture-检查点-恢复与反事实分支"></a>
 ### 检查点、恢复与反事实分支
 
 ```mermaid
 flowchart LR
-    S[模拟引擎收齐世界状态与数字人工作区] --> C[记录引擎核验并保存共同检查点]
-    C --> P[保留父运行与原记录]
-    C --> B[记录引擎构建分支存储<br/>关联父检查点与干预来源]
-    B --> R[模拟引擎绑定恢复材料<br/>执行恢复或反事实运行]
-    R --> F[记录引擎保存新分支的实际足迹]
+    S["模拟引擎收齐世界状态与全体数字人工作区"] --> C["记录引擎核验并保存共同检查点"]
+    C --> P["保留父运行与原记录"]
+    C --> B["记录引擎构建分支存储（关联父检查点与干预来源）"]
+    B --> R["模拟引擎绑定恢复材料（执行恢复或反事实运行）"]
+    R --> F["记录引擎保存新分支的实际足迹"]
 ```
 
-检查点包含共同边界上的世界状态、数字人工作区及恢复所需材料。
-记录引擎负责核验和提供这些材料，模拟引擎负责恢复外部运行实例、施加已声明的干预并继续执行。
+检查点包含共同边界上的世界状态（含无栈挂起载荷 `AgentState.suspended_loop`）、全体数字人工作区及恢复所需材料。
+记录引擎负责核验和提供这些材料，模拟引擎负责恢复外部运行实例、施加已声明的干预（反事实干预会清空全员 `suspended_loop`）并继续执行。
 假设文本和实际重新模拟得到的结果分别标明来源，新分支结果不改写原分支经历。
 完整规则见[记录引擎](05-recording-engine.md)与[模拟引擎](04-simulation-engine.md)。
 
@@ -152,29 +153,32 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    F[记录引擎<br/>固定截止的认证导出] --> L[LabelKit-DataSet<br/>数据加工、模型任务与独立校验]
-    L --> O[训练数据与规则测试数据]
-    F --> E[行为评估<br/>指标、实验对比与真实性报告]
+    F["记录引擎：固定截止的认证导出"] --> L["LabelKit-DataSet：数据加工、模型任务与独立校验"]
+    L --> O["训练数据与规则测试数据"]
+    F --> E["行为评估：指标、实验对比与真实性报告"]
 ```
 
 离线 Dreaming 基于已有足迹归纳经历或提出假设，默认不写回运行中的数字人。
 实际反事实运行由明确的运行请求触发，并按新的分支身份保存；不能将生成的假设文本冒充执行结果。
-交付和评估的输入范围、校验与发布条件见LabelKit-DataSet 数据加工和[验收门禁](01-architecture.md)。
+交付和评估的输入范围、校验与发布条件见 LabelKit-DataSet 数据加工和[工程验证](01-architecture.md#architecture-工程验证)。
 
 <a name="architecture-现有代码与职责的对应关系"></a>
 ## 现有代码与职责的对应关系
 
-下表对应实际源码包。共用的状态、请求、结果与纯字段判定在 state 下按世界、交互和模型数据分组。
-LifeEngine 保留创建、打开、观察、动作、推进与检查点接口；启动身份核验仍按原调用时机在运行装配边界执行。
+下表对应实际源码包的职责分工。共用的状态、请求、结果、挂起恢复 DTO 与纯字段判定在 `state` 下按世界、决策边界、交互、规划和模型数据分组；基础模型、时间与序列化在 `foundation` 中维护；多人物输入解析、模型档案路由注册表（`ModelRegistry`）与模型客户端（`ModelClient`）在 `configuration` 中维护。
+`LifeEngine` 保留 `create`、`open`、`prepare_barrier`、`open_sandbox`、`commit_barrier`、`due_searches`、`complete_searches`、`advance`、`scheduling_state`、`checkpoint` 等同步门面接口；内部属性收口为 `context`、`observations`、`actions`、`barriers`、`clock`、`counterfactual`；启动身份核验在运行装配边界执行。
 
-| 职责 | 现有承载位置 | 详细设计 |
+| 职责包 | 现有承载位置 | 详细设计 |
 | --- | --- | --- |
-| 数字人 | [LifeAgent](../../src/worldmock/agents/life_agent.py)、[回合循环](../../src/worldmock/agents/protocol/react_loop.py)、[人物工作区与记忆存储](../../src/worldmock/agents/memory)、[日、月、年回顾](../../src/worldmock/simulation_engine/evidence/memory_digest.py)、[人物画像](../../src/worldmock/configuration/persona) | [人物](06-agent.md) |
+| 数字人 | [LifeAgent](../../src/worldmock/agents/life_agent.py)、[通用循环与协议](../../src/worldmock/agents/protocol)（`agent_loop.py`、`engine_handle.py`）、`agents/search/` 搜索子会话、`agents/prompt/` 七层提示、[人物工作区与记忆存储](../../src/worldmock/agents/memory) | [人物](06-agent.md) |
+| 配置与模型 | `configuration/inputs/`（`personas/*.toml` 与 `config.toml`）、[人物画像](../../src/worldmock/configuration/persona)、[模型客户端与元数据](../../src/worldmock/configuration/model)（含 `ModelRegistry`） | [配置](08-configuration.md) |
+| 共享状态与基础 | `state/`（含 `state/decisions/barrier.py` 与 `state/interaction/search_requests.py`）、`foundation/` | [状态与序列化](09-io-formats.md) |
 | 资源引擎 | [目录登记、加载与图查询](../../src/worldmock/resource_engine)及只读反向索引；内容选择与进度由模拟引擎负责 | [资源引擎](03-resource-engine.md) |
 | 交换引擎 | [固定类型、常数与算子](../../src/worldmock/exchange_engine)、[具体动作声明](../../src/worldmock/exchange_engine/conditions/activity_rules.py)、[资源分录计算与校验](../../src/worldmock/exchange_engine/ledger)及生活模型中的条件、费用和报酬规则 | [交换引擎](02-exchange-engine.md) |
-| 模拟引擎 | [模拟职责](../../src/worldmock/simulation_engine)、[LifeEngine](../../src/worldmock/simulation_engine/engine.py)、[运行装配](../../src/worldmock/runtime)（[运行宿主](../../src/worldmock/runtime/lifecycle/run_host.py)、[零点任务](../../src/worldmock/runtime/lifecycle/midnight.py)） | [模拟引擎](04-simulation-engine.md) |
-| 记录引擎 | [足迹存储](../../src/worldmock/recording_engine)、[素材存储](../../src/worldmock/recording_engine/storage/assets.py) | [记录引擎](05-recording-engine.md) |
-| 完整导出与分析 | [导出模块](../../src/worldmock/recording_engine/export/export.py)、[分析工具](../../tools/analysis) | [记录引擎](05-recording-engine.md)、[行为评估](07-evaluation.md) |
+| 模拟引擎 | [模拟职责](../../src/worldmock/simulation_engine)、[LifeEngine](../../src/worldmock/simulation_engine/engine.py)、[沙盒与屏障提交](../../src/worldmock/simulation_engine/decisions)（`sandbox.py`、`merger.py`）、`activities/search/` 搜索投影、[日、月、年回顾](../../src/worldmock/simulation_engine/evidence/memory_digest.py) | [模拟引擎](04-simulation-engine.md) |
+| 运行装配 | [运行宿主与零点任务](../../src/worldmock/runtime)（[运行宿主](../../src/worldmock/runtime/lifecycle/run_host.py)、[零点任务](../../src/worldmock/runtime/lifecycle/midnight.py)） | [运行装配与决策循环](10-runtime.md) |
+| 记录引擎 | [足迹存储](../../src/worldmock/recording_engine)、[素材存储](../../src/worldmock/recording_engine/storage/assets.py)、[导出模块](../../src/worldmock/recording_engine/export/export.py) | [记录引擎](05-recording-engine.md) |
+| 行为分析 | [分析工具](../../tools/analysis) | [行为评估](07-evaluation.md) |
 
 LifeEngine 是现有内部代码载体，不作为四个引擎之外的另一项顶层职责。
 身体相关资源、体感与活动效率在模拟引擎中计算，资源定义来自资源引擎，
@@ -202,12 +206,12 @@ LifeEngine 是现有内部代码载体，不作为四个引擎之外的另一项
 
 ```mermaid
 flowchart LR
-    R[资源与规则] --> W[世界状态]
-    W --> E[实际事件与状态变化]
-    E --> F[记录事务]
-    P[人物工作区与记忆] --> C[共同检查点]
+    R["资源与规则"] --> W["世界状态"]
+    W --> E["实际事件与状态变化"]
+    E --> F["记录事务"]
+    P["人物工作区与记忆"] --> C["共同检查点"]
     F --> C
-    C --> B[新的恢复或反事实分支]
+    C --> B["新的恢复或反事实分支"]
 ```
 
 世界状态与事件同批提交，人物工作区在共同检查点与世界时钟对齐。
@@ -217,24 +221,27 @@ flowchart LR
 <a name="architecture-实际生产依赖与状态归属"></a>
 ## 实际生产依赖与状态归属
 
-生产依赖沿职责单向组织：运行宿主装配人物与模拟引擎，模拟引擎调用资源和交换规则，并通过记录引擎提交事实。
-资源与交换模块不反向依赖模拟运行时；查看器、导出与评估读取已保存事实，不参与世界结算。
-结构检查直接验证模块依赖，行为测试验证状态只有一个写入入口。
-资源、交换、记录和共享状态不依赖模拟执行、人物执行或运行宿主；生产包不导入 tools 或 scripts。
+生产依赖沿职责单向组织：运行宿主装配 `ModelRegistry`、人物与模拟引擎，模拟引擎调用资源和交换规则，并通过记录引擎在主线程单事务提交事实。
+导入图边界受到静态结构检查守卫：
+- `worldmock.simulation_engine` 绝不导入 `worldmock.agents` 或 `worldmock.runtime`；
+- `worldmock.agents` 绝不导入 `worldmock.runtime` 或 `worldmock.simulation_engine`（通过 `SandboxHandle` 与 `state/decisions/barrier.py` 边界 DTO 解耦）；
+- `src/worldmock` 内只有 `runtime/lifecycle/run_host.py` 直接导入 `simulation_engine/engine.py`；
+- `src/worldmock` 内只有 `configuration/model/model_client.py` 直接导入 `litellm`，`ModelRegistry` 统一管理各阶段连接池复用。
+资源、交换、记录和共享状态不依赖模拟执行、人物执行或运行宿主；生产包不导入 `tools` 或 `scripts`。
 时间线的共用投影由记录引擎提供，工程查看命令调用它，记录引擎不按路径加载工程脚本。
-认证质量报告所需的统计保留在记录引擎，独立行为与工作分析放在 tools/analysis；风格、覆盖与变异检查的生产根恰为 src/worldmock 与 tools/analysis。
+认证质量报告所需的统计保留在记录引擎，独立行为与工作分析放在 `tools/analysis`；风格、覆盖与变异检查的生产根恰为 `src/worldmock` 与 `tools/analysis`。
 
 <a name="architecture-核心决策"></a>
 ## 核心决策
 
 | 设计决定 | 原因 |
 | --- | --- |
-| 复用 litellm、Pydantic、JSON Schema 与 SQLite | 使用现有的模型调用、校验、结构与事务能力；决策轮由 WorldMock 自己的运行宿主承担，WorldMock 集中实现生活规则 |
-| 模型负责选择，环境负责事实 | 主观计划和叙述不能直接更改余额、身体、活动进度或完成状态 |
-| 统一模拟时钟与确定性结算 | 唯一人物使用同一个已提交时间和世界，不依赖程序运行速度 |
-| 只提供实际可见内容 | 观察、查询与记忆可追溯到明确的世界版本和事件 |
-| 结构化事件与原始素材分离保存 | 支持查询和对账，同时保留模型请求与内容原貌 |
-| 从共同检查点建立新分支 | 恢复和反事实运行保存父子关系，保留原运行事实 |
+| 复用 litellm、Pydantic、JSON Schema 与 SQLite | 使用现有的模型调用、校验、结构与事务能力；时钟屏障与唤醒调度由 WorldMock 自己的运行宿主承担，WorldMock 集中实现生活规则 |
+| 模型负责选择与语义检索，环境负责事实 | 主观计划、叙述与搜索子会话均不能直接更改余额、身体、价格、活动进度或完成状态（`Fact Guard`） |
+| 全局确定性时钟屏障与并发沙盒有序提交 | 多人物在同一共享时钟下经 `asyncio.gather` 并发运行只读输入与私有沙盒，`BarrierMerger` 按 `agent_id` 升序单事务合入，事件序号与随机流完全可复现 |
+| 只提供实际可见与信息隔离的内容 | 主循环观察与记忆可追溯到明确的世界版本和事件；`LLM Search Session` 与人物隐私记忆和余额隔离 |
+| 结构化事件与原始素材分离保存 | 支持查询和对账，同时按阶段用途分别留存主循环与 `search_session` 的模型请求和响应原貌 |
+| 从共同检查点建立新分支 | 恢复保存父子关系与无栈挂起恢复状态 `suspended_loop`，反事实分支清空挂起状态并保留原运行事实 |
 | 现行设计按模块维护 | 规则只有一个归属，历史开发记录不参与当前行为判定 |
 
 <a name="architecture-工程验证"></a>
@@ -265,7 +272,7 @@ python -m pytest tests
 交给 `scripts/freeze_rrs_baseline.py`；两份候选逐项相等且身份合法才写入，否则目标文件保留原字节，
 先查明不确定性的来源，不重试到相等为止。`tests/` 不计入代码身份，提交基线不会让它再次失效。
 `scripts/render_day.py` 不计入代码身份，但导出的一天时间线由它生成并进基线摘要，改它同样要重冻。
-查看器录制样例 `tests/fixtures/viewer-context.json` 逐字记着系统层、工具定义、用户层的层序和续接 `changes` 的键，
+查看器录制样例 `tests/fixtures/viewer-context.json` 逐字记着系统层、工具定义、用户层的层序与沙盒工具消息 `changes` 的键，
 改了其中任何一样都要用真实宿主重录。
 模型提供商、平台能力和长期人物行为必须由对应真实运行证明，离线测试不能替代。
 
@@ -274,7 +281,7 @@ python -m pytest tests
 | 证明 | 做什么 | 证明不了什么 |
 | --- | --- | --- |
 | 掩码完整日比较 `scripts/compare_complete_days.py` | 在基与头两个检出里各录活动日与回调日两份完整日：每一侧用自己根目录引导出来的虚拟环境录制，子进程只从这一侧的 `src` 与根目录导入，两侧依赖锁可以不同；比较行为签名：与绑定代码身份的签名相同，只把运行清单与导出清单的 `code_sha256`、`git_commit`、`git_dirty` 换成占位、检查点里的 `manifest_sha256` 按屏蔽后的清单重算、质量报告里以代码摘要为键的那一项改用占位键 | 引擎被直接驱动，不经 LifeAgent：看不见动态提示渲染，系统文本、层结构和工具定义只经清单里的两个指纹看到；只有一天、人工环境，没有模型证据和重启 |
-| 录音应答运行 `scripts/recorded_response_run.py` | 用一次真实运行自己录下的模型应答，在 127.0.0.1 上重跑新代码：每次请求的模型可见字段必须与录音逐值相等，任何偏差以 HTTP 400 拒绝并写偏差报告；在录音的检查点位置重现重启；各段沿用来源的运行身份，因为动作随机流以带运行身份的动作身份为键（[配置](08-configuration.md)「唯一种子与随机键」）；子进程用运行工具的解释器，只从被测检出的 `src` 与根目录导入，同一份工具可重放任一检出，重放基线时用基线工作树自己的解释器运行它 | 只覆盖有录音的提示谱系与操作系统；录音没走过的路径（传输失败、停驻、整次截止）不被检验；工具定义的键序只在两次重放之间比较 |
+| 录音应答运行 `scripts/recorded_response_run.py` | 用一次真实运行自己录下的模型应答，在 127.0.0.1 上重跑新代码：每次请求的模型可见字段（含主决策循环与 `search_session` 子会话请求）必须与录音逐值相等，任何偏差以 HTTP 400 拒绝并写偏差报告；在录音的检查点位置重现重启；各段沿用来源的运行身份，因为动作随机流以带运行身份的动作身份为键（[配置](08-configuration.md)「唯一种子与随机键」）；子进程用运行工具的解释器，只从被测检出的 `src` 与根目录导入，同一份工具可重放任一检出，重放基线时用基线工作树自己的解释器运行它 | 只覆盖有录音的提示谱系与操作系统；录音没走过的路径（传输失败、停驻、整次截止）不被检验；工具定义的键序只在两次重放之间比较 |
 | 运行比对 `scripts/compare_runs.py` | 按[记录引擎](05-recording-engine.md)「运行比对」的字段分类比较两次运行的事件、清单、重启点与日终世界、检查点和每个导出工件 | 比的是存下的值，键序看不见 |
 
 掩码完整日比较在本地运行，不进 CI：声明不改变人物经历的变更不带规则比较，结论须为「相等」；改了记录形式的变更带声明的重建规则运行，结论为「在规则下相等」；报告附在 PR 里。
