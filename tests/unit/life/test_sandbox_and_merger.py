@@ -55,6 +55,7 @@ def test_sandbox_queries_exchanges_suspend_and_counterfactual(engine_factory, tm
     committed_before = engine.context.state.model_dump_json()
     [wakeup] = engine.prepare_barrier((1,))
     sandbox = engine.open_sandbox(wakeup)
+    assert not sandbox.can_finish_idle()
     sandbox.record_model_exchange(ModelCallEvidence(
         agent_id=1, wakeup_id=wakeup.wakeup_id, call_id="c1", phase="request", attempt=1,
         request={"messages": []}, response=None, error=None, purpose="agent",
@@ -133,6 +134,7 @@ def test_barrier_merger_two_agents_conflict_rollback_and_engine_controls(engine_
     w1, w2 = engine.prepare_barrier((1, 2))
     s1, s2 = engine.open_sandbox(w1), engine.open_sandbox(w2)
     assert s1.dispatch_world_tool("start_main_activity", do_at("家", "测试休息"), action_identity("b1", 1, 1)).accepted
+    assert s1.can_finish_idle() and not s2.can_finish_idle()
     first = engine.commit_barrier([s1.finish_wakeup(None), s2.finish_wakeup(None)])
     assert first.committed_agent_ids == (1, 2) and first.conflict_requeued_agent_ids == ()
     act_name = next(iter(engine.context.state.activities.values())).name

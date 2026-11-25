@@ -35,6 +35,9 @@ class SandboxHandle(Protocol):
     def finish_wakeup(self, suspended: SuspendedLoopState | None) -> SandboxOutcome:
         """@brief 封口本次唤醒沙盒并返回不可变的唤醒产出对象。"""
 
+    def can_finish_idle(self) -> bool:
+        """@brief 判断当前沙盒是否已有进行中活动且无待收尾或未解拒绝，允许无工具调用结束唤醒。"""
+
 
 class SearchCatalogHandle(Protocol):
     """@brief SimulationEngine 为异步搜索子会话绑定的只读目录检索与 Fact Guard 句柄。"""

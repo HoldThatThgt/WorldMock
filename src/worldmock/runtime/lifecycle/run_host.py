@@ -308,7 +308,7 @@ class RunHost:
         if set(step_outcome.verified_event_ids) != visible_ids:
             logger.error("Memory update source window differs from observation for agent %s", outcome.agent_id)
             raise ProtocolError("Memory update evidence is invalid")
-        requests = engine_store.read_agent_events("action_requested", outcome.agent_id, observation.event_seq)
+        requests = engine_store.read_wakeup_events("action_requested", outcome.agent_id, outcome.wakeup_id)
         trigger = memory_write_points(requests, outcome.wakeup_id, bool(created or merged))
         episodes_sha256 = hashlib.sha256(self._memories[outcome.agent_id].episodes_path.read_bytes()).hexdigest()
         data = {

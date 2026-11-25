@@ -100,15 +100,15 @@ UNSETTLED = {"日期": "2026-09-30", "星期": "星期三", "安排": "工作日
     ({"饮食": [FOOD], "工作": [WORK, UNSETTLED], "生活": [{**FOOD, "回顾": None, "未整理": True}]}, True),
     ({"饮食": [{**FOOD, "安排": "工作日"}]}, False),
     ({"工作": [{key: value for key, value in WORK.items() if key != "安排"}]}, False),
-    ({"饮食": [{**FOOD, "回顾": "饭" * 250}]}, True),
-    ({"饮食": [{**FOOD, "回顾": "饭" * 251}]}, False),
+    ({"饮食": [{**FOOD, "回顾": "饭" * 1000}]}, True),
+    ({"饮食": [{**FOOD, "回顾": "饭" * 1001}]}, False),
     ({"饮食": [{**FOOD, "回顾": None}]}, False),
     ({"工作": [{**UNSETTLED, "未整理": False}]}, False),
     ({"饮食": [FOOD] * 4}, False),
-], ids=["two-shapes", "food-with-arrangement", "work-without-arrangement", "250-characters", "251-characters",
+], ids=["two-shapes", "food-with-arrangement", "work-without-arrangement", "1000-characters", "1001-characters",
         "null-without-flag", "flag-false", "four-cells"])
 def test_recent_cell_schema_accepts_only_the_two_cell_shapes(recent, valid):
-    """整个记忆层经 validate_layer 校验：有回顾（至多 250 字）与未整理两种格子通过，其余形状（含 251 字的回顾）都不合格。"""
+    """整个记忆层经 validate_layer 校验：有回顾（至多 1000 字）与未整理两种格子通过，其余形状（含 1001 字的回顾）都不合格。"""
     layer = assemble_layer("2026-10-01", recent, [])
     if valid:
         validate_layer(layer)
@@ -118,8 +118,8 @@ def test_recent_cell_schema_accepts_only_the_two_cell_shapes(recent, valid):
 
 
 def test_recent_cell_text_limit_is_the_day_digest_limit():
-    """三类格子「回顾」的 maxLength 都取日回顾的字数上限常量，与第 04 章同值，现在是 250。"""
+    """三类格子「回顾」的 maxLength 都取日回顾的字数上限常量，与第 04 章同值，现在是 1000。"""
     recent = MEMORY_LAYER_SCHEMA["properties"]["近三天"]["properties"]
     limits = {name: recent[name]["items"]["oneOf"][0]["properties"]["回顾"]["maxLength"] for name in MEMORY_CATEGORIES}
     assert limits == {name: MEMORY_DIGEST_TEXT_LIMITS["day"] for name in MEMORY_CATEGORIES}
-    assert MEMORY_DIGEST_TEXT_LIMITS["day"] == 250
+    assert MEMORY_DIGEST_TEXT_LIMITS["day"] == 1000

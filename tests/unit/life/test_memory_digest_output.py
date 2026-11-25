@@ -40,7 +40,7 @@ from worldmock.state.interaction.schema import deepseek_strict_schema
 #: 本章「提示原文」的日回顾模板（日记式，逐字写死）。
 _DAY_PROMPT = (
     "你替模拟世界里的一个人物写他昨天的日记。输入按饮食、工作、生活三类给出他昨天的记录：「核验」是环境确认的经过，「当时查到」是他当时查询看到的结果，「自述」是他当时写下的话（「名称：」是收尾或暂停的总结，「进展·」是中途写的进展，"
-    "「看法·」是看法，「记住：」是想记住的事，「正文：」是回复正文），每条带编号。每类写一段日记，150 到 220 字为宜，连标点在内不能超过 250 字，用他的第一人称，像人回想昨天那样只记要紧的事和当时的感受，不记流水账："
+    "「看法·」是看法，「记住：」是想记住的事，「正文：」是回复正文），每条带编号。每类写一段日记，连标点在内不能超过 1000 字，用他的第一人称，像人回想昨天那样只记要紧的事和当时的感受，不记流水账："
     "经过以核验为准，挑要紧的写，吃了什么、做了什么、去了哪里、和谁打了交道，这些东西写出名字；时间只说早上、中午、下午、晚上，不写钟点，「八点十一」「九点一刻」这样的说法也不写；价钱、数量和花了多久只在对他要紧时顺口带一句，"
     "比如「有点贵」「等了挺久」，不逐项列出；感受和看法以自述为准，写他喜不喜欢、累不累、还想不想再来、打算保持还是改掉，不替他编没写过的感受；字数紧时先省经过的细节，感受和看法留着。只凭昨天的记录写，不补造没发生的事或别人说的话，"
     "不拿别的日子作比较，不写编号、订单号或其他内部标识。在 refs 里写所依据的记录编号，至少一个。某一类没有记录时写 null。只调用一次 submit_memory_digest。"
@@ -234,11 +234,11 @@ def test_null_rules_follow_category_input():
 
 @pytest.mark.parametrize("tier,text,message", [
     ("day", "我" * 201, None),
-    ("day", "我" * 250, None),
-    ("day", "我" * 251, "digests.life.text has 251 characters counting punctuation; the day digest limit is 250; "
-                       "shorten it by at least 1"),
-    ("day", "我" * 230 + "，。" * 13, "digests.life.text has 256 characters counting punctuation; the day digest limit "
-                                     "is 250; shorten it by at least 6"),
+    ("day", "我" * 1000, None),
+    ("day", "我" * 1001, "digests.life.text has 1001 characters counting punctuation; the day digest limit is 1000; "
+                         "shorten it by at least 1"),
+    ("day", "我" * 980 + "，。" * 13, "digests.life.text has 1006 characters counting punctuation; the day digest limit "
+                                     "is 1000; shorten it by at least 6"),
     ("month", "我" * 800, None),
     ("month", "我" * 801, "digests.life.text has 801 characters counting punctuation; the month digest limit is 800; "
                          "shorten it by at least 1"),
@@ -247,11 +247,11 @@ def test_null_rules_follow_category_input():
                           "shorten it by at least 1"),
     ("day", "", "digests.life.text must not be empty"),
     ("day", " \n ", "digests.life.text must not be empty"),
-], ids=["day-201", "day-250", "day-251", "day-punctuation", "month-800", "month-801", "year-2000", "year-2001", "empty",
+], ids=["day-201", "day-1000", "day-1001", "day-punctuation", "month-800", "month-801", "year-2000", "year-2001", "empty",
         "blank"])
 def test_text_guards(tier, text, message):
-    """正文非空、正文 len（标点也算）不超过这一级的上限（日 250、月 800、年 2000）：日回顾 201 字与恰在上限时通过，多一字时
-    报正文长度，问题文字写明连标点的字数、上限和至少要删去的字数；230 个汉字加 26 个标点共 256 字也报；空串与全空白只报
+    """正文非空、正文 len（标点也算）不超过这一级的上限（日 1000、月 800、年 2000）：日回顾 201 字与恰在上限时通过，多一字时
+    报正文长度，问题文字写明连标点的字数、上限和至少要删去的字数；980 个汉字加 26 个标点共 1006 字也报；空串与全空白只报
     正文非空。"""
     number = {"day": "n1", "month": "d1", "year": "m1"}[tier]
     row = _row(number, 时刻="20:00", 核验=["开始睡觉"]) if tier == "day" else _row(number, 日期="2026-01-05", 回顾="睡觉。")
@@ -312,9 +312,9 @@ def test_problems_are_joined_in_category_and_guard_order():
     inputs = _inputs(food=[_row("n1", 核验=["送达柠檬茶"])], work=[_row("n2", 核验=["到公司"])],
                      life=[_row("n3", 核验=["开始睡觉"])])
     food = "早上8:09买了牛肉面，35元。"
-    food += "我" * (251 - len(food))
+    food += "我" * (1001 - len(food))
     assert _problems(inputs, food=(food, ["n1", "n2"]), work=(" \n ", [])) == "; ".join((
-        "digests.food.text has 251 characters counting punctuation; the day digest limit is 250; "
+        "digests.food.text has 1001 characters counting punctuation; the day digest limit is 1000; "
         "shorten it by at least 1",
         "digests.food.refs: n2 is not a food record number",
         "digests.work.text must not be empty",

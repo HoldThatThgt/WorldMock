@@ -383,7 +383,7 @@ conclude_activity 一行不受影响；做完这一集还会接下一集时 `rea
 上限：经 `render_layer_json` 渲染后的整个记忆层（含全部键名、引号、冒号、逗号和括号）按 Python `len` 至多 14,000 字，
 约 8.9k token（按 0.638 token/字）；上限按字执行，不用 litellm 或任何 token 计数器。构建器在交出记忆层之前核对一次，超出时写英文错误日志
 `Memory layer has <字数> characters, above its 14000-character budget`，再以 `RuntimeError("Memory layer exceeds 14000 characters")` 停止。
-各部分自己的上限由生成它的一侧保证：「可查」恒为 21 字，「近三天」每格回顾至多 250 字、每类至多三格，「今天」每条核验加自述至多 120 字；
+各部分自己的上限由生成它的一侧保证：「可查」恒为 21 字，「近三天」每格回顾至多 1000 字、每类至多三格，「今天」每条核验加自述至多 120 字；
 「今天」不单设上限，受合计约束。
 
 兜底：为第 k 次唤醒把第 `k-1` 次唤醒的条目接到「今天」末尾以后，渲染出的记忆层严格大于 14,000 字时触发，恰好 14,000 字不触发。
@@ -722,7 +722,7 @@ interact 活动的开始内容是放完的第一条，没放完任何一条时�
 
 省略与未整理是两回事：省略表示那天这一类没有事，未整理表示有事但回顾没整理出来。键序即上表的书写次序：日期、星期、（安排、）回顾、（未整理）；
 「日期」是 YYYY-MM-DD，「星期」是那天的中文星期名，与零点计划和环境层同一张名称表；工作格的「安排」是那天按工作安排当班时写「工作日」、否则写「休息日」，
-人物没有工作安排（只因覆盖启用了工作类）时写「休息日」，与环境层 `duty` 的 `day` 同一判定。回顾正文原样放入，不裁剪（至多 250 字由生成时的校验保证）。
+人物没有工作安排（只因覆盖启用了工作类）时写「休息日」，与环境层 `duty` 的 `day` 同一判定。回顾正文原样放入，不裁剪（至多 1000 字由生成时的校验保证）。
 
 整块是一个对象：键是启用的类别，按饮食、工作、生活的次序，值是这一类按日期从早到晚的格子列表，没有格子时是空列表；工作类不启用时没有「工作」键。
 「近三天」只依赖 T 和日期早于 T 的日回顾，前一天的日回顾在新一天第一次决策之前就已登记，所以同一天里每次观察的「近三天」逐字节相同，只在零点变化；
@@ -764,7 +764,7 @@ interact 活动的开始内容是放完的第一条，没放完任何一条时�
 统计行只让模型知道哪些事常有，正文不照抄它，校验也不看它。
 
 **请求。** 系统消息是这一级的中文固定模板，逐字原文只在代码里（与系统层一样）：它要人物用第一人称把这一期写成日记式的回忆，每类一段
-（日回顾以 150 到 220 字为宜、连标点在内不超过 250 字，月回顾不超过 800 字、年回顾不超过 2000 字，标点也算），像人回想时那样
+（日回顾连标点在内不超过 1000 字，月回顾不超过 800 字、年回顾不超过 2000 字，标点也算），像人回想时那样
 只记要紧的事和当时的感受，不记流水账。日回顾的经过以核验为准，吃了什么、做了什么、去了哪里、和谁打了交道写出名字；时间只说早上、中午、
 下午、晚上，不写钟点，「八点十一」「九点一刻」这样的说法也不写；价钱、数量和花了多久只在对人物要紧时顺口带一句，不逐项列出；感受和看法
 以自述为准，不替人物编没写过的感受，字数紧时先省经过的细节、留下感受和看法，也不拿别的日子作比较。月回顾写这类事的规律、习惯和变化，以及对
@@ -782,7 +782,7 @@ interact 活动的开始内容是放完的第一条，没放完任何一条时�
 | 守卫 | 规则 |
 | --- | --- |
 | 正文非空 | 去掉首尾空白后非空 |
-| 正文长度 | 字数（`len`，标点也算）不超过这一级的上限：日回顾 250、月回顾 800、年回顾 2000 |
+| 正文长度 | 字数（`len`，标点也算）不超过这一级的上限：日回顾 1000、月回顾 800、年回顾 2000 |
 | 依据非空 | `refs` 非空 |
 | 依据归属 | 每个编号都是这一类某一行的编号；不合的编号按 `refs` 的次序各报一次，同一编号只报一次 |
 
@@ -921,7 +921,7 @@ flowchart TD
 对于 `mode == "resume_search"` 的恢复唤醒：引擎把经过这段搜索的权威投影结果、差量事件写入 `suspended_loop.pending_tool_call_id` 对应的 `tool` 消息续入原历史，并按 `effective_turn_limit = max(max_react_turns, suspended_loop.turn_used + 1)` 授予至少一次非挂起恢复机会；若当时是在最后一回合挂起，则剩余预算恰为 1。
 
 每次常规唤醒（或恢复延续）期间，所有模型回合均使用同一个确定性 `wakeup_id = f"{run_id}:wake:{current_time}:v{state.version}:a{agent_id}"`。第 t 回合的模型调用身份 `call_id` 为 `{wakeup_id}:model:{t:04d}:attempt:1`：每次调用加一，截断重试与纠错回合也不例外，三份证据的 `attempt` 恒为 1。
-某一回合的回复受理了一项持续开始活动或有效开始组，或者受理了 `search_world` 进入挂起退出时，回合循环在该回合结束；若直到 `effective_turn_limit` 耗尽仍未结束或挂起，则抛出 `ProtocolError`（`LifeAgent` 外层按运行故障上报并在写回失败前模型草稿后中止）。
+某一回合的回复受理了一项持续开始活动或有效开始组、受理了 `search_world` 进入挂起退出，或者当前沙盒已有进行中活动且无待收尾与未解拒绝（`SandboxHandle.can_finish_idle` 为真）并以非截断重试的无工具调用回复收束时，回合循环在该回合结束；若直到 `effective_turn_limit` 耗尽仍未结束或挂起，则抛出 `ProtocolError`（`LifeAgent` 外层按运行故障上报并在写回失败前模型草稿后中止）。
 上一回合是截断回合（`finish_reason` 为 `length`、正文为空且没有工具调用）、并且那一回合的请求开启了思考（`profile.thinking` 为真）时，本回合是关闭思考并收窄工具面的截断重试。
 
 每个回合依次执行：
@@ -934,7 +934,7 @@ flowchart TD
 | 4 | 将 `model_request` 证据写入沙盒证据草稿列表后经模型客户端发送；客户端收到的与请求证据完全一致 |
 | 5 | 发送失败时将失败证据写入沙盒证据草稿列表：`error` 是 `MODEL_SERVICE_FAILED: The model service failed before a response was available.`，`response` 只带 `protocol_feedback` 与 `transport_attempts`，再把原异常上抛，原异常的 `repr` 不进证据；主线程在中止前调用 `LifeEngine.record_failed_evidence` 补写尚未落盘的模型草稿。发送被取消时不写失败证据 |
 | 6 | 发送成功时先解析、校验回复，再写 `model_response` 证据进沙盒证据草稿列表；带协议纠错时证据的 `response` 末尾追加 `protocol_feedback`，`error` 是纠错文字 |
-| 7 | 回复通过校验时，历史接上一条 `assistant` 消息，按回复中的先后执行每个调用：只读工具（`recall_task_summary`、`search_memory`）写回紧凑 JSON `tool` 消息；控制工具与被拒世界请求由 `AgentSandbox` 算出 `{"result": ..., "changes": ..., "events": ...}` 写回 `tool` 消息；受理持续开始动作或开始组则返回 `terminal_exit=True` 正常结束；受理 `search_world` 则保存 `SuspendedLoopState`（含 `pending_tool_call_id`）挂起退出 |
+| 7 | 回复通过校验时，历史接上一条 `assistant` 消息，按回复中的先后执行每个调用：只读工具（`recall_task_summary`、`search_memory`）写回紧凑 JSON `tool` 消息；控制工具与被拒世界请求由 `AgentSandbox` 算出 `{"result": ..., "changes": ..., "events": ...}` 写回 `tool` 消息；受理持续开始动作或开始组则返回 `terminal_exit=True` 正常结束；受理 `search_world` 则保存 `SuspendedLoopState`（含 `pending_tool_call_id`）挂起退出；若回复无工具调用且满足 `can_finish_idle`，则接上 `assistant` 消息后直接正常结束本次唤醒 |
 | 8 | 回复带协议纠错时，按下文配对规则或单条 `user` 消息把纠错接进历史继续下一回合 |
 
 `assistant` 消息的键依次是 `role`（`"assistant"`）、`content`（回复原值，`null` 或空串不改写）、`tool_calls`、`reasoning_content`（回复带非空推理时才有，放在最后）；每个工具调用的键依次是 `id`、`type`（`"function"`）、`function`（`name` 与 `arguments`，`arguments` 缺省为 `"{}"`）。`tool` 消息的键依次是 `role`、`tool_call_id`、`content`。
@@ -970,6 +970,6 @@ sequenceDiagram
 | 契约维度 | 精确约束 |
 | --- | --- |
 | 最小隔离上下文 | 仅注入 `SearchTaskSpec` 携带的 `query`、`prefer`、`scoped_app_id`、当前停留地点与所属城市 `city_id`、当地时刻、当前城市天气标签、可用应用与目录品类计数；数字人 `personas/*.toml` 人设、个人记忆、`MEMORY.md` 与资金余额绝不进入搜索子会话 |
-| 严格工具集 | 全部定义于 [search_requests.py](../../src/worldmock/state/interaction/search_requests.py) 并遵循 `deepseek_strict_schema`（无默认值、无 JSON Schema 关键字 `minLength`/`maxLength`/`minItems`/`maxItems`/`oneOf`）：`search_goods`（限定当前城市门店及全图线上商品，含 `instant: true` 即时到账商品）、`inspect_goods_offers`、`search_places`（限定当前城市地点及从当前地点直达的异地枢纽，附带受 `city_wide`/`MapEdge` 约束的出行选项）与 `submit_search_results` |
+| 严格工具集 | 全部定义于 [search_requests.py](../../src/worldmock/state/interaction/search_requests.py) 并遵循 `deepseek_strict_schema`（无默认值、无 JSON Schema 关键字 `minLength`/`maxLength`/`minItems`/`maxItems`/`oneOf`）：`search_goods`（限定当前城市门店及全图线上商品，含 `instant: true` 即时到账商品，`category` 同时接受内部品类键与中文品类展示名）、`inspect_goods_offers`、`search_places`（限定当前城市地点及从当前地点直达的异地枢纽，附带受 `city_wide`/`MapEdge` 约束的出行选项）与 `submit_search_results` |
 | 交卷与 `Fact Guard` | 子会话严禁输出商品价格、运费、商铺评分、配送时长或可下单状态；仅通过 `submit_search_results` 提交至多 20 个合法 `goods_id` 与 10 个地点 `location_id`（`place_ids` 元素）及自然语言 `summary`；允许双列表均为空的零命中提交，此时 `summary` 必须明确说明未找到原因；提交时由 `SearchCatalogView.validate_submission` 校验（门店商品限当前城市、地点限当前城市及直达异地枢纽、且受 `scoped_app_id` 约束），交回后由 `LifeEngine.complete_searches` 执行二次 `Fact Guard` 白名单核对与实时报价/营业投影（线上 `instant: true` 商品按 `prompt_schemas.py` `_SEARCH_ROW` 输出 `"即时到账"` 途径、`store=null` 与 `delivery_fee="0 元"`） |
 | 回合预算与证据归属 | 回合上限读取搜索模型档 `max_react_turns`；耗尽仍未交卷则抛出 `ProtocolError("Search session turn budget exhausted")`；每次模型请求与响应草稿均在信封标明 `EventDraft.activity_id = search_activity_id` 且 `data.purpose = "search_session"` |

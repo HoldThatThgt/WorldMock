@@ -25,9 +25,9 @@ from worldmock.state.identity import ModelIdentity
 
 #: 仓库里的生产源码根。
 _SOURCE = Path(__file__).resolve().parents[3] / "src" / "worldmock"
-#: 觉醒沙盒句柄声明的五个同步方法。
+#: 觉醒沙盒句柄声明的六个同步方法。
 _SANDBOX_METHODS = {"search_memory", "recall_task_summary", "dispatch_world_tool", "record_model_exchange",
-                    "finish_wakeup"}
+                    "finish_wakeup", "can_finish_idle"}
 #: 搜索目录句柄声明的四个同步方法。
 _SEARCH_METHODS = {"search_goods", "inspect_goods_offers", "search_places", "validate_submission"}
 

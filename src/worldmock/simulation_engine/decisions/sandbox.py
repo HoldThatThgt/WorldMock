@@ -203,6 +203,11 @@ class AgentSandbox:
         final_state = _put_agent(snapped, refreshed.model_copy(update={"next_decision_at": next_at}))
         return self._build_outcome("completed", final_state, dict(self._wakeup.pending_presentation))
 
+    def can_finish_idle(self) -> bool:
+        """@brief 当前存在进行中活动且无待收尾与未解拒绝时，允许无工具调用回复直接结束唤醒。"""
+        return bool(active_activities(self._state, self._agent_id)) and not _keep_agent_ready(
+            self._state, self._operations, self._drafts, self._agent_id)
+
     def drain_evidence(self) -> tuple[EventDraft, ...]:
         """@brief 返回异常退出时允许落库的纯模型与唤醒证据草稿。"""
         return tuple(draft for draft in self._drafts if draft.event_type in FAILED_EVIDENCE_TYPES)

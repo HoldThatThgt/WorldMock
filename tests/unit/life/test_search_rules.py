@@ -68,6 +68,15 @@ def test_search_catalog_view_enforces_prefer_scope_offers_places_and_fact_guard(
         max_price_yuan=100.0, open_only=False, limit=20, offset=0,
     ))
     assert goods["total"] >= 1
+    drink_by_label = catalog.search_goods(SearchGoodsRequest(
+        keywords=["柠檬"], category="饮料", app=None, store=None,
+        max_price_yuan=None, open_only=False, limit=20, offset=0,
+    ))
+    drink_by_key = catalog.search_goods(SearchGoodsRequest(
+        keywords=["柠檬"], category="drink", app=None, store=None,
+        max_price_yuan=None, open_only=False, limit=20, offset=0,
+    ))
+    assert drink_by_label["total"] >= 1 and drink_by_label == drink_by_key
     offers = catalog.inspect_goods_offers(InspectGoodsOffersRequest(goods_ids=["beef-noodles", "no-such-goods"]))
     assert offers["items"][0]["found"] is True and offers["items"][1]["found"] is False
     places = catalog.search_places(SearchPlacesRequest(
@@ -214,7 +223,7 @@ def test_search_catalog_view_isolates_city_preserves_instant_and_hides_locked_un
     [(spec, catalog)] = engine.due_searches()
 
     inst = catalog.search_goods(SearchGoodsRequest(
-        keywords=["在线月卡"], category=None, app=None, store=None,
+        keywords=["在线月卡"], category="商品", app=None, store=None,
         max_price_yuan=None, open_only=False, limit=20, offset=0,
     ))
     assert [row["goods_id"] for row in inst["items"]] == ["instant-pass"]

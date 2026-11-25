@@ -182,7 +182,7 @@ def _matching_goods_rows(inputs: EnvironmentInputs, state: WorldState,
             continue
         if store_filter is not None and goods_id not in catalog.goods_by_store.get(store_filter, ()):
             continue
-        if req.category is not None and goods.category != req.category:
+        if not _matches_goods_category(goods, req.category):
             continue
         if req.max_price_yuan is not None and goods.price_fen > round(req.max_price_yuan * 100):
             continue
@@ -193,6 +193,13 @@ def _matching_goods_rows(inputs: EnvironmentInputs, state: WorldState,
             continue
         rows.append(((not row["available"], row["price_fen"], goods_id), row))
     return [row for _, row in sorted(rows, key=lambda item: item[0])]
+
+
+def _matches_goods_category(goods, category: str | None) -> bool:
+    """@brief 品类筛选为空时通过，否则同时支持内部品类键与中文展示品类标签。"""
+    if category is None:
+        return True
+    return category in (goods.category, GOODS_CATEGORY_LABELS.get(goods.category))
 
 
 def _matches_goods_keywords(catalog, goods, keywords: tuple[str, ...] | list[str], current_city: str) -> bool:

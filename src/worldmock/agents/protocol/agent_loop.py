@@ -105,6 +105,7 @@ class LoopCallbacks:
     validate_batch: Callable[[Sequence[LoopToolCall], Mapping[str, type[BaseModel]]], ProtocolFeedback | None]
     execute_calls: Callable[[list[LoopToolCall], str | None], LoopStepOutcome]
     record_exchange: Callable[[ModelCallEvidence], None]
+    can_finish_without_calls: Callable[[], bool] = lambda: False
 
 
 def model_call_id(scope_id: str, kind: str, turn: int, attempt: int = 1) -> str:
@@ -272,6 +273,8 @@ class AgentLoop:
                 history = _append_correction(history, fitted.request, raw, feedback, self.config.protected_prefix)
                 continue
             history.append(_response_assistant_message(raw))
+            if not decisions:
+                return LoopOutcome("completed", turn, tuple(history), None)
             step = self.callbacks.execute_calls(decisions, response_self_note(payload))
             if step.status in ("completed", "suspended"):
                 return LoopOutcome(step.status, turn, tuple(history), step.payload)
@@ -331,6 +334,8 @@ class AgentLoop:
             return [], truncation_feedback(), payload
         _, models = self.callbacks.turn_tools(remaining, retry)
         calls = _raw_tool_calls(raw)
+        if not calls and not retry and self.callbacks.can_finish_without_calls():
+            return [], None, payload
         indexed, parse_reports = parse_tool_calls(calls, models)
         reports: list[ErrorReport] = []
         if calls:

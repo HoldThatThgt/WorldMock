@@ -173,7 +173,7 @@ _COUNT_LINE = _object({"时刻": {"enum": _HOUR_SPANS}, "类别": _CATEGORY_TEXT
 
 def _recent_cells(work: bool) -> dict[str, Any]:
     """@brief 一类「近三天」的格子数组 Schema：至多三格；每格有日期、星期，工作格另有安排；回顾是 1 到日回顾上限
-    （MEMORY_DIGEST_TEXT_LIMITS["day"]，250）字的段落，没整理出来时回顾为 null 并带「未整理」。"""
+    （MEMORY_DIGEST_TEXT_LIMITS["day"]，1000）字的段落，没整理出来时回顾为 null 并带「未整理」。"""
     head = {"日期": _DATE, "星期": {"enum": list(WEEKDAY_NAMES)}, **({"安排": {"enum": list(DUTY_DAYS)}} if work else {})}
     text = {"type": "string", "minLength": 1, "maxLength": MEMORY_DIGEST_TEXT_LIMITS["day"]}
     return {"type": "array", "maxItems": 3, "items": {"oneOf": [

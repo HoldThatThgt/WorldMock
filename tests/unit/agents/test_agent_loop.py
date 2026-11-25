@@ -165,6 +165,9 @@ class _FakeSandbox:
             observation_event_id="obs-evt-1",
         )
 
+    def can_finish_idle(self) -> bool:
+        return False
+
 
 def _persona() -> PersonaConfig:
     """@brief 从夹具解析真实单人 PersonaConfig。"""

@@ -94,7 +94,7 @@ def _start_at(place_name: str, *, hours: int = 8, seed: int = 7, reconsideration
 def test_instant_tool_preview_query_route_and_city_commerce_isolation(engine_factory, tmp_path):
     """@brief instant 在工具层写运费0元、付款即收货，搜索写即时到账并过 Schema，且店铺商品与搜索按当前城市隔离。"""
     root = _instant_and_gain_environment(copy_environment(tmp_path / "env"))
-    assert life_prompt_sha256() == "bcf0fdf97fb01ef864e92f2a42d66e9dbe412c0d3d1d389d68ca885a79c5a154"
+    assert life_prompt_sha256() == "445922b5d51c8e18a0c1e967211d0701da21e1195b9b9412988bec0620fc250e"
     assert ROUTE_NAMES["instant"] == "即时到账"
 
     engine = engine_factory(environment_root=root, mutate=_start_at("家", seed=4))

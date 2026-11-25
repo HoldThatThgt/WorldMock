@@ -410,6 +410,15 @@ class FootprintStore:
         """, (agent_id, event_type, after))
         return [self._decode(row[0]) for row in rows]
 
+    def read_wakeup_events(self, event_type: EventType, agent_id: int, wakeup_id: str) -> list[Event]:
+        """@brief 按人物与事件类型索引读取同一唤醒（含搜索挂起前片段）的全部已提交事件。"""
+        rows = self.connection.execute("""
+            SELECT body FROM events WHERE json_extract(body,'$.agent_id')=?
+            AND json_extract(body,'$.event_type')=? AND json_extract(body,'$.wakeup_id')=?
+            ORDER BY event_seq
+        """, (agent_id, event_type, wakeup_id))
+        return [self._decode(row[0]) for row in rows]
+
     def iter_events(self, cutoff: int, after: int = 0) -> Iterator[Event]:
         """@brief 按事件序号读 (after, cutoff] 的事件：调用时先核对区间；之后每页一个短读语句，逐条解码并核对行与正文一致。
 

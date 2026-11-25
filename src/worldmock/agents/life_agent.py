@@ -155,6 +155,7 @@ class _WakeupRunner:
             turn_tools=_life_turn_tools, validate_call=self._validate_call,
             validate_batch=self._validate_batch, execute_calls=self._execute_calls,
             record_exchange=self.sandbox.record_model_exchange,
+            can_finish_without_calls=self.sandbox.can_finish_idle,
         )
         outcome = await AgentLoop(config, callbacks, self._budget).run(self._messages)
         if outcome.status == "completed":

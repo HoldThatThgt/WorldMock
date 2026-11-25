@@ -398,6 +398,9 @@ class _SandboxStub:
             observation_payload=self._obs, memory_evidence=None,
         )
 
+    def can_finish_idle(self) -> bool:
+        return False
+
 
 def test_life_agent_schema_is_closed_and_host_fields_are_hidden() -> None:
     """常规回合开放全量九个原生工具，末回合与重试只留六个核心世界请求；宿主身份不入 Schema。"""

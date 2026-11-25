@@ -106,10 +106,10 @@ def test_valid_digest_events_are_accepted(tmp_path, tier, period):
                 _digest(_digest_data(other, period))
 
 
-@pytest.mark.parametrize("tier,period,limit", [("day", "2026-10-09", 250), ("month", "2026-10", 800),
+@pytest.mark.parametrize("tier,period,limit", [("day", "2026-10-09", 1000), ("month", "2026-10", 800),
                                                ("year", "2026", 2000)], ids=["day", "month", "year"])
 def test_digest_event_text_may_reach_the_tier_limit(tier, period, limit):
-    """正文连标点恰为这一级的上限（日 250、月 800、年 2000）时草稿合法，多一个标点就报回顾不合格。"""
+    """正文连标点恰为这一级的上限（日 1000、月 800、年 2000）时草稿合法，多一个标点就报回顾不合格。"""
     text = "我" * (limit - 1) + "。"
     data = _digest_data(tier, period, digests={"food": {**_ITEM, "text": text}, "work": None, "life": None})
     assert _digest(data).data["digests"]["food"]["text"] == text
@@ -142,7 +142,7 @@ _ITEM = {"text": "收到了柠檬茶。", "source_event_ids": ["e1", "e2"], "cit
     (_digest_data(digests={"food": _ITEM, "work": None}), {}, _DIGESTS),
     (_digest_data(digests={"food": {**_ITEM, "extra": 1}, "work": None, "life": None}), {}, _DIGESTS),
     (_digest_data(digests={"food": {**_ITEM, "text": "  "}, "work": None, "life": None}), {}, _DIGESTS),
-    (_digest_data(digests={"food": {**_ITEM, "text": "我" * 251}, "work": None, "life": None}), {}, _DIGESTS),
+    (_digest_data(digests={"food": {**_ITEM, "text": "我" * 1001}, "work": None, "life": None}), {}, _DIGESTS),
     (_digest_data(digests={"food": {**_ITEM, "source_event_ids": [], "cited_event_ids": []}, "work": None,
                            "life": None}), {}, _DIGESTS),
     (_digest_data(digests={"food": {**_ITEM, "cited_event_ids": ["e3"]}, "work": None, "life": None}), {}, _DIGESTS),
@@ -152,7 +152,7 @@ _ITEM = {"text": "收到了柠檬茶。", "source_event_ids": ["e1", "e2"], "cit
     (_digest_data(fallback=["food"]), {}, _FALLBACK),
 ], ids=["extra-key", "missing-key", "environment-source", "agent-visibility", "resource-changes", "two-causes",
         "week-tier", "non-canonical-date", "month-13", "two-digit-year", "month-trailing-newline", "full-width-year",
-        "period-not-string", "missing-category", "item-extra-key", "blank-text", "day-text-251", "empty-identities",
+        "period-not-string", "missing-category", "item-extra-key", "blank-text", "day-text-1001", "empty-identities",
         "cited-not-source", "all-null-without-fallback", "repeated-fallback", "fallback-out-of-order",
         "fallback-names-a-written-category"])
 def test_digest_event_rejects_invalid_shapes(caplog, data, changes, message):
