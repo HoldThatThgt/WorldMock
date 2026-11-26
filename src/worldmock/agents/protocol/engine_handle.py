@@ -7,6 +7,7 @@ from typing import Any, Mapping, Protocol
 from pydantic import BaseModel
 
 from worldmock.state.decisions.barrier import SandboxOutcome, ToolDispatchResult
+from worldmock.state.decisions.day_session import DaySessionState
 from worldmock.state.decisions.suspended import SuspendedLoopState
 from worldmock.state.model.exchange import ModelCallEvidence
 
@@ -20,6 +21,9 @@ class SandboxHandle(Protocol):
     def recall_task_summary(self, request: BaseModel) -> dict[str, Any]:
         """@brief 读取当前同一活动最近一次阶段摘要。"""
 
+    def lookup_targets(self, request: BaseModel | Mapping[str, Any]) -> dict[str, Any]:
+        """@brief 零耗时只读检索工具层未常驻展开的地点、内容应用与商品条目。"""
+
     def dispatch_world_tool(
         self,
         tool_name: str,
@@ -32,11 +36,16 @@ class SandboxHandle(Protocol):
     def record_model_exchange(self, exchange: ModelCallEvidence) -> None:
         """@brief 在当前沙盒证据缓冲中登记一次模型请求、响应或失败。"""
 
-    def finish_wakeup(self, suspended: SuspendedLoopState | None) -> SandboxOutcome:
-        """@brief 封口本次唤醒沙盒并返回不可变的唤醒产出对象。"""
+    def compact_snapshot(self) -> dict[str, Any]:
+        """@brief 清空沙盒已载入目标键集并返回最新五层与进度元数据用于日内 Compaction。"""
 
-    def can_finish_idle(self) -> bool:
-        """@brief 判断当前沙盒是否已有进行中活动且无待收尾或未解拒绝，允许无工具调用结束唤醒。"""
+    def finish_wakeup(
+        self,
+        suspended: SuspendedLoopState | None,
+        day_session: DaySessionState,
+        compaction_records: tuple[dict[str, Any], ...] = (),
+    ) -> SandboxOutcome:
+        """@brief 封口本次唤醒沙盒、补全日会话状态并返回不可变的唤醒产出对象。"""
 
 
 class SearchCatalogHandle(Protocol):

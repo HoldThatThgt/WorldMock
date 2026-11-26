@@ -213,15 +213,13 @@ test('context navigation, stage filter and all rule paths are available through 
       ['environment', 'tomorrow 写下一个本地日的日期、星期和那天是工作日还是休息日'],
       ['progress', '事务提醒到点（errand_reminder）与环境确认办成（errand_completed）两种记录只写事务名称，' +
         '由人物可见的事务事件派生；办成同时在记忆层「今天」的核验里写成「办成「事务名」」。'],
-      ['tools', '只剩最后一个回合时与输出截断后的那次重试时去掉全部只读工具（回看任务与 search_memory），' +
-        '只留世界请求工具。']]) {
+      ['tools', '所有决策回合与截断重试保持全部十一个工具定义与恒定思考开关，不删减只读工具以保护前缀缓存。']]) {
       await app.get('#ctx-rule').onchange({target: {value: rule}});
       assert.ok(app.get('#ctx-body').innerHTML.includes(sentence), sentence);
     }
-    // 分层记忆的三步说明逐字可查看：记忆层的「兜底」、进度层的「已发布界」与回顾的「校验重试」。
+    // 分层记忆的三步说明逐字可查看：记忆层的「折叠摘要」、进度层的「已发布界」与回顾的「校验重试」。
     for (const [rule, label, sentence] of [
-      ['memory', '兜底', '追加一条后超过 14,000 字时一次回落到 12,000 字以内：先把只交了播报的条目的自述换成「…」，' +
-        '再让其余条目只留核验，最后按小时合成计数行。'],
+      ['memory', '折叠摘要', '触发日内 Compaction 时依据已提交事件与被折叠的今天条目确定性生成可选「折叠摘要」键，零额外模型调用。'],
       ['progress', '已发布界', '下界是上一次唤醒的提交，且不早于本地零点；在它之前已经了结的事在记忆层「今天」里。'],
       ['digest', '校验重试', '输出被截断、参数不合格式，或正文为空、超过字数上限、依据为空或不属于这一类时附英文错误重试，' +
         '至多 reflection_validation_max_retries 次；用尽时没通过的类记为 null 并写进 fallback，运行不失败。']]) {
@@ -276,15 +274,16 @@ test('context drills into current tools and progress records', async () => {
     records.value = '0';
     records.onchange();
     assert.equal(app.get('#ctx-raw').textContent, JSON.stringify(values[5].events[0], null, 2));
-    // 工具定义块的说明按现行工具面计数：七个世界请求（含 search_world）、一个回看工具、一个记忆检索工具，共九个。
-    assert.equal(request.tools.length, 9);
+    // 工具定义块的说明按现行工具面计数：八个世界请求（含 search_world、continue_activity）、参数检索、回看与记忆检索，共十一个。
+    assert.equal(request.tools.length, 11);
     assert.deepEqual(request.tools.map(tool => tool.function.name), ['start_main_activity', 'start_side_activity',
-      'report_status', 'pause_activity', 'conclude_activity', 'revise_day_plan', 'search_world',
-      'recall_task_summary', 'search_memory']);
+      'search_world', 'continue_activity', 'recall_task_summary', 'report_status', 'pause_activity',
+      'conclude_activity', 'revise_day_plan', 'search_memory', 'lookup_targets']);
     await app.get('button:tools').onclick();
     const filled = app.get('#ctx-body').innerHTML;
-    assert.ok(filled.includes('<dt>填入</dt><dd>七个世界请求工具（两个开始工具、search_world、三个活动控制工具与计划修订）、' +
-      '一个回看工具（recall_task_summary）与一个记忆检索工具（search_memory），共九个，严格参数结构，整次运行字节相同。</dd>'),
+    assert.ok(filled.includes('<dt>填入</dt><dd>八个世界请求工具（两个开始工具、continue_activity、search_world、' +
+      '三个活动控制工具与计划修订）、一个只读参数检索工具（lookup_targets）、一个回看工具（recall_task_summary）' +
+      '与一个记忆检索工具（search_memory），共十一个，严格参数结构，整次运行字节相同。</dd>'),
     filled);
     assert.doesNotMatch(filled, /query_world|memory_recent|memory_time_range|三个记忆查询|共十个/);
   } finally { app.close(); }
@@ -330,11 +329,12 @@ test('context drills into an inline current tool layer and lists travel methods 
     select.onchange();
     assert.deepEqual(JSON.parse(app.get('#ctx-raw').textContent), {action: 'travel', state: '全天营业', available: true,
       name: '公司', detail: '公共交通', price: '2 元', duration: '约 8 分钟', note: '轻松', kind: 'location'});
-    // 工具定义块的「填入」说明是现行工具面的定稿，不读录制样例：一个回看工具与一个记忆检索工具，共九个，没有世界查询工具。
+    // 工具定义块的「填入」说明是现行工具面的定稿，不读录制样例：含 continue_activity 与 lookup_targets，共十一个。
     await app.get('button:tools').onclick();
     const filled = app.get('#ctx-body').innerHTML;
-    assert.ok(filled.includes('<dt>填入</dt><dd>七个世界请求工具（两个开始工具、search_world、三个活动控制工具与计划修订）、' +
-      '一个回看工具（recall_task_summary）与一个记忆检索工具（search_memory），共九个，严格参数结构，整次运行字节相同。</dd>'),
+    assert.ok(filled.includes('<dt>填入</dt><dd>八个世界请求工具（两个开始工具、continue_activity、search_world、' +
+      '三个活动控制工具与计划修订）、一个只读参数检索工具（lookup_targets）、一个回看工具（recall_task_summary）' +
+      '与一个记忆检索工具（search_memory），共十一个，严格参数结构，整次运行字节相同。</dd>'),
     filled);
     assert.doesNotMatch(filled, /query_world|世界查询|三个记忆查询|共十个/);
     assert.deepEqual(app.errors, []);
@@ -643,6 +643,28 @@ test('plan_day is no longer a person tool while day plan revisions keep their la
   assert.equal(view.summary(1), '请求 plan_day · ');
   assert.doesNotMatch(view.summary(1), /当日目标|项目标/);
   assert.equal(view.summary(2), '请求 调整当日目标 · 2 项目标');
+});
+
+test('day session tools, compaction event and overview cache metrics render clearly', async t => {
+  const view = await viewer([
+    event('action_requested', {tool_name: 'continue_activity', request: {summary: '继续专心整理周报。'}}),
+    event('action_requested', {tool_name: 'lookup_targets', request: {kind: 'location', query: '咖啡', page: 2}}),
+    event('environment_event', {kind: 'day_session_compacted', compaction_count: 1}),
+    event('model_response', {phase: 'response', response: {model: 'm', usage: {
+      prompt_tokens: 200, completion_tokens: 20, total_tokens: 220,
+      prompt_tokens_details: {cached_tokens: 150}}}}),
+  ]);
+  t.after(() => view.close());
+  assert.equal(view.run('TOOL_LABELS.continue_activity'), '继续当前活动');
+  assert.equal(view.run('TOOL_LABELS.lookup_targets'), '检索目标');
+  assert.equal(view.run('ENVK_LABELS.day_session_compacted'), '日内上下文压缩');
+  assert.equal(view.summary(1), '请求 继续当前活动 · 继续专心整理周报。');
+  assert.equal(view.summary(2), '请求 检索目标 · location · 咖啡 · 第 2 页');
+  assert.equal(view.summary(3), '世界事件 · 日内上下文压缩');
+  const overview = view.overview();
+  assert.ok(overview.includes('<span class="k">缓存命中令牌</span><span class="v">150</span>'));
+  assert.ok(overview.includes('<span class="k">未命中令牌</span><span class="v">50</span>'));
+  assert.ok(overview.includes('<span class="k">缓存命中率</span><span class="v">75.0%</span>'));
 });
 
 test('registered app names and content titles are read from the frozen catalog', async t => {

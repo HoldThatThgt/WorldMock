@@ -13,6 +13,7 @@ from tests.life.conftest import (
     pause_request,
     report_request,
     stage_day_plan,
+    stub_day_session,
     use_app,
 )
 from tests.life.environment_runtime import act, events, observe_only
@@ -47,7 +48,7 @@ def test_commit_barrier_rejects_empty_duplicate_or_unready_outcomes(engine_facto
     engine = engine_factory()
     [wakeup] = engine.prepare_barrier((1,))
     sandbox = engine.open_sandbox(wakeup)
-    outcome = sandbox.finish_wakeup(None)
+    outcome = sandbox.finish_wakeup(None, stub_day_session(wakeup))
     for bad in ([], [outcome, outcome], [outcome.model_copy(update={"agent_id": 999})]):
         with pytest.raises(ProtocolError):
             engine.commit_barrier(bad)
@@ -69,7 +70,7 @@ def test_sandbox_model_exchange_enforces_request_pairing_and_ownership(engine_fa
         sandbox.record_model_exchange(replace(req, agent_id=999))
     sandbox.record_model_exchange(req)
     sandbox.record_model_exchange(resp)
-    outcome = sandbox.finish_wakeup(None)
+    outcome = sandbox.finish_wakeup(None, stub_day_session(wakeup))
     engine.commit_barrier([outcome])
     [stored_request] = events(engine, "model_request")
     [stored_response] = events(engine, "model_response")
@@ -78,7 +79,7 @@ def test_sandbox_model_exchange_enforces_request_pairing_and_ownership(engine_fa
     assert stored_request.data["request"] == {"messages": []}
     assert stored_response.data["request"] is None
     with pytest.raises(ProtocolError):
-        sandbox.finish_wakeup(None)
+        sandbox.finish_wakeup(None, stub_day_session(wakeup))
 
 
 def test_record_failed_evidence_flushes_model_drafts_without_advancing_world(engine_factory):
@@ -189,12 +190,11 @@ def test_unavailable_activity_and_missing_day_plan_are_business_refusals(engine_
 
 
 def test_uncovered_search_recorder_failed_evidence_dispatcher_and_presentation_branches(engine_factory):
-    """覆盖 SearchSessionEvidenceRecorder 传输重试、失败追记归属/空草稿/未知人物、dispatch 控制分支及空合并。"""
+    """覆盖 SearchSessionEvidenceRecorder 传输重试、失败追记归属/空草稿/未知人物与 dispatch 控制分支。"""
     from tests.life.conftest import advance_next
     from worldmock.agents.search.search_session import _SearchEvidenceCollector
     from worldmock.simulation_engine.actions.start_group import ToolInvocation
     from worldmock.simulation_engine.evidence.model import validate_failed_evidence
-    from worldmock.simulation_engine.observation.targets.presentation import merge_presentation
     from worldmock.state.decisions.barrier import SearchTaskSpec
 
     spec = SearchTaskSpec(
@@ -215,7 +215,6 @@ def test_uncovered_search_recorder_failed_evidence_dispatcher_and_presentation_b
     engine = engine_factory()
     [wakeup] = engine.prepare_barrier((1,))
     state = engine.context.state
-    assert merge_presentation(state, {}) is state
 
     engine.record_failed_evidence(1, wakeup.wakeup_id, ())
     wrong_owner = EventDraft(event_type="model_request", occurred_at=wakeup.observed_at,

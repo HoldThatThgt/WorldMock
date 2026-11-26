@@ -92,11 +92,10 @@ class TestFieldBlacklist:
             enforce_field_blacklist({"body": {body_key: 0.6}})
 
     def test_activity_names_in_outcomes_and_chinese_memory_keys_pass(self) -> None:
-        """结果 outcome 的字段 activity 是可读活动名，不是完整活动快照；新形状记忆层的中文键（可查、最早日期、近三天、
-        今天、时刻、类别、条数）都不在禁键之列；禁键 activities 照旧被拒。"""
+        """结果 outcome 的字段 activity 是可读活动名，不是完整活动快照；现行记忆层的中文键（可查、最早日期、近三天、
+        今天、时刻、类别、折叠摘要）都不在禁键之列；禁键 activities 照旧被拒。"""
         enforce_field_blacklist({"layer": "记忆层", "可查": {"最早日期": "2026-09-18"}, "近三天": {"饮食": []}, "今天": [
-            {"时刻": "09:00", "类别": "工作", "核验": ["写周报 08:30–09:00"], "自述": ["写周报：写完一半。"]},
-            {"时刻": "10:00–11:00", "类别": "工作", "条数": 3}]})
+            {"时刻": "09:00", "类别": "工作", "核验": ["写周报 08:30–09:00"], "自述": ["写周报：写完一半。"]}]})
         enforce_field_blacklist({"result": {"details": {"outcome": [
             {"activity": "写周报（9月18日 08:30 起）", "outcome": "提前结束"}]}}})
         with pytest.raises(ForbiddenObservationFieldError, match="activities"):
@@ -117,11 +116,14 @@ class TestRenderLayerJson:
 
     def test_layer_arrays_render_in_the_given_order(self) -> None:
         """user 的层数组按给定层序渲染，同一输入逐字节相同。"""
-        layers = [{"layer": "工具层", "targets": [], "callable_index": {
+        gate = {"main_slot_busy": False, "side_slot_busy": False, "sleeping": False,
+                "in_transit": False, "pending_conclusions": []}
+        layers = [{"layer": "工具层", "gate": gate, "targets": [], "callable_index": {
             "goods": [], "navigation_apps": [], "payment_apps": []}},
                   {"layer": "人设层", "habits": []}]
         assert render_layer_json(layers) == (
-            '[{"layer":"工具层","groups":[],"callable_index":'
+            '[{"layer":"工具层","gate":{"main_slot_busy":false,"side_slot_busy":false,"sleeping":false,'
+            '"in_transit":false,"pending_conclusions":[]},"groups":[],"callable_index":'
             '{"goods":[],"navigation_apps":[],"payment_apps":[]}},{"layer":"人设层","habits":[]}]')
         assert render_layer_json(layers) == render_layer_json(json.loads(render_layer_json(layers)))
 

@@ -249,7 +249,7 @@ def request_category(book: CategoryBook, store: FootprintStore, request: Event, 
     tool = request.data["tool_name"]
     if tool in START_TOOLS or tool == SEARCH_TOOL:
         identity = None if result.data.get("status") == "rejected" else result.activity_id
-    elif tool in CONTROL_TOOLS:
+    elif tool in CONTROL_TOOLS or tool == "continue_activity":
         identity = result.data["data"]["activity_ids"][0] if result.data["status"] == "completed" else None
     else:
         return _LIFE

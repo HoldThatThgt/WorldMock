@@ -24,7 +24,7 @@ from tests.life.conftest import (
     use_app,
 )
 from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
-from tests.life.environment_runtime import act, events, finish_activity
+from tests.life.environment_runtime import act, act_group, events, finish_activity, observe_only
 from worldmock.simulation_engine.activities.lifecycle import activity_control
 
 #: 夹具里绑定到家的「测试休息」时长 900 秒。
@@ -108,9 +108,12 @@ def test_pause_with_exactly_180_seconds_left_succeeds(engine_factory):
     activity = engine.context.state.activities[activity_id]
     assert activity.status == "paused" and activity.planned_duration_seconds - activity.elapsed_seconds == 180
     assert [row.activity_id for row in _paused_events(engine)] == [activity_id]
-    after, other = act(engine, "other", do_at("家", "测试闲聊"))
+    after, [other, app] = act_group(engine, "other", do_at("家", "测试闲聊"), use_app("Keep"))
     assert [row["name"] for row in after["todo_layer"]["paused_activities"]] == [name]
-    assert other.status == "in_progress", other.error_code
+    assert other.status == "in_progress" and app.status == "in_progress", (other.error_code, app.error_code)
+    blocked_obs = observe_only(engine, "paused-blocked")
+    assert target_tools(blocked_obs, name)["report_status"]["available"] is False
+    assert target_tools(blocked_obs, name)["report_status"]["reason"].startswith("Both activity slots are occupied by ")
 
 
 @pytest.mark.parametrize("left,step", [(179, "Conclude"), (180, "Conclude or pause")])
@@ -122,7 +125,7 @@ def test_slot_conflict_offers_pausing_only_while_the_running_activity_can_be_pau
     observed, other = act(engine, "other", do_at("家", "测试闲聊"))
     assert other.status == "rejected" and other.error_code == "RESOURCE_CONFLICT" and other.message == reason
     assert other.data["next_step"] == f"{step} {name} first."
-    assert target_actions(observed, "家")["interact"]["reason"] == reason
+    assert observed["tool_layer"]["gate"]["main_slot_busy"] is True
     assert target_tools(observed, name)["pause_activity"]["available"] is (left >= 180)
     for label, request in (("leave", travel("公司", "步行")), ("nap", sleep(30))):
         _, blocked = act(engine, label, request)
@@ -225,7 +228,13 @@ def test_a_sixty_second_content_is_never_pausable(engine_factory, tmp_path):
 async def test_host_submits_the_pause_and_gets_the_reason_the_tool_layer_already_showed(engine_factory):
     """经真实宿主：模型在提示里看到 pause_activity 不可用的那句原因；它照样提交时宿主不拦，环境以同一句原因拒绝，
     世界不变；同一刻下一次决策的提示带着这次拒绝，模型改用 conclude_activity 结束成立。"""
-    engine, activity_id, name = _resting(engine_factory, 179)
+    engine = engine_factory(mutate=_decides_after(_REST_SECONDS - 179))
+    stage_day_plan(engine, submitted=True)
+    _, _, _, [rest] = await decide(engine, "rest", [ToolResponse(MAIN_TOOL, main_arguments("interact", "家", "测试休息"))])
+    assert rest.status == "in_progress", rest.error_code
+    assert advance_until_ready(engine)
+    activity_id = rest.activity_id
+    name = engine.context.state.activities[activity_id].name
     pause = {"items": [{"activity_name": name, "summary": "先停一下。"}], "errands": []}
     conclude = {"items": [{"activity_name": name, "summary": "就到这里。", "memories": [], "views": []}],
                 "errands": []}

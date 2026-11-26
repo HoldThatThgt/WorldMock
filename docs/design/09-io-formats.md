@@ -2,13 +2,13 @@
 
 ## 单一状态归属
 
-完整环境由不可变输入对象承载，世界由唯一已提交 `WorldState` 承载。运行状态结构版本 `WORLD_SCHEMA_VERSION` 为 `17`，运行清单结构版本 `RUN_MANIFEST_SCHEMA_VERSION` 为 `8`；
+完整环境由不可变输入对象承载，世界由唯一已提交 `WorldState` 承载。运行状态结构版本 `WORLD_SCHEMA_VERSION` 为 `18`，运行清单结构版本 `RUN_MANIFEST_SCHEMA_VERSION` 为 `9`；
 `personas/*.toml` 与 `config.toml` 各自的 `schema_version` 写在[配置](08-configuration.md)「人物声明」与「运行配置」的字段表里。
 不接受旧结构、兼容字段、迁移和 fallback；所有当前模型拒绝未知字段，原始 JSONL/TOML 输入规则归
 [配置](08-configuration.md)与[资源引擎](03-resource-engine.md)。
 一个结构号只守一种结构：字段集合、取值闭集或可接受的取值域变了才升号，只有取值变了不升号。
-运行清单结构版本不是 `8` 的运行不能打开、恢复或重放，报 `Runtime environment identity mismatch`；
-导出里冻结的运行清单不是 `8` 时，导出认证报 `Export frozen run manifest or environment identity is invalid`。
+运行清单结构版本不是 `9` 的运行不能打开、恢复或重放，报 `Runtime environment identity mismatch`；
+导出里冻结的运行清单不是 `9` 时，导出认证报 `Export frozen run manifest or environment identity is invalid`。
 
 ```mermaid
 flowchart LR
@@ -23,11 +23,26 @@ flowchart LR
 ## 世界、人物与活动
 
 世界保存完整环境身份、`persona_sha256s`（全员人物原字节摘要映射）、`config_sha256`、唯一种子与随机根、分城每日天气事实（`WorldState.weather_by_date` 为 `dict[str, dict[str, str]]`，按 `local_date -> {city_id: condition}` 索引）、
-共同时钟、全员人物集合（`len(agents) >= 1`）、N+1 个资金账户（`external:scenario` 加每位注册人物的 `agent:{agent_id}`）、活动、订单、调度边界、`processed_actions`（`StoredAction` 已移除 `receipt` 字段）、待呈递状态、跨模块屏障状态与调度视图 `SchedulingState`（`state/decisions/round.py`）。跨模块边界传输对象统一在 `state/decisions/barrier.py` 定义（`SuspendedLoopState`、`AgentWakeupInput`、`ToolDispatchResult`、`SandboxOutcome`、`SearchTaskSpec`、`SearchSessionOutcome`、`SearchCommitReceipt`、`BarrierCommitReceipt`）。
-人物保存实际地点、身体、当前槽位活动、内容共享进度、个人事务、日计划、回调状态、每日幂等标记、已激活商业住宿有效期（`AgentState.lodging_stays` 为 `dict[str, int]`，映射 `location_id -> checkout_epoch`）与可选的无栈挂起载荷 `suspended_loop: SuspendedLoopState | None`。
+共同时钟、全员人物集合（`len(agents) >= 1`）、N+1 个资金账户（`external:scenario` 加每位注册人物的 `agent:{agent_id}`）、活动、订单、调度边界、`processed_actions`（`StoredAction` 已移除 `receipt` 字段）、跨模块屏障状态与调度视图 `SchedulingState`（`state/decisions/round.py`；已彻底删除 `WorldState.presentation_state` 与商品呈递状态）。跨模块边界传输对象统一在 `state/decisions/barrier.py` 与新建的 `state/decisions/day_session.py`（归属 `FOUNDATION`，同时导出 `FIVE_LAYER_KEYS` 供 `observe.py` 复用）定义：包括 `DaySessionState`、`SuspendedLoopState`、`AgentWakeupInput`（删除 `pending_presentation`，新增 `run_id`、`local_date`、`day_session`、`boundary_delta_payload`、`settled_day_events`）、`ToolDispatchResult`（新增 `activity_id: str | None = None`）、`SandboxOutcome`（删除 `pending_presentation`，新增 `day_session: DaySessionState` 与 `compaction_records: tuple[dict[str, Any], ...] = ()`）、`SearchTaskSpec`、`SearchSessionOutcome`、`SearchCommitReceipt`、`BarrierCommitReceipt`。
+人物保存实际地点、身体、当前槽位活动、内容共享进度、个人事务、日计划、回调状态、每日幂等标记、已激活商业住宿有效期（`AgentState.lodging_stays` 为 `dict[str, int]`，映射 `location_id -> checkout_epoch`）、可选的无栈挂起载荷 `suspended_loop: SuspendedLoopState | None` 以及日会话连续状态 `day_session: DaySessionState | None = None`（初建为 `None`，日内首次唤醒提交后赋值，午夜零点重置与反事实干预时置为 `None`）。
 已删除 `same_moment_rounds`、`same_moment_stage` 与 `same_second_continuation`。
 
-`SuspendedLoopState`（随 `AgentState.suspended_loop` 序列化到世界状态与检查点）显式持有十五个字段：
+`DaySessionState`（定义于 `state/decisions/day_session.py`，继承 `StateModel` 的 `FrozenModel` 配置，确保 `model_dump(mode="json")` 与 `canonical_json` 往返无损）显式持有十个字段：
+
+| 字段 | 类型与默认 | 约束与语义 |
+| --- | --- | --- |
+| `local_date` | `str`（`^\d{4}-\d{2}-\d{2}$`） | 绑定当前日会话对应的规范 ISO 本地日期；跨午夜重置时销毁旧对象 |
+| `system_prompt` | `str`（`min_length=1`） | 日会话建立时固化的 `系统层` 紧凑 JSON；日内恒定不变，供 Compaction 原样复用 |
+| `tools_digest` | `str`（`^[a-f0-9]{64}$`） | 等于当前 `life_tool_schema_sha256()`，恢复或复用会话时核验工具定义一致性 |
+| `messages` | `tuple[dict[str, Any], ...]` | 长度至少为 `2`；`messages[0]["role"] == "system"` 且 `messages[1]["role"] == "user"`；索引 `>= 2` 严禁出现 `role == "user"` |
+| `pending_boundary_calls` | `tuple[str, ...] = ()` | 非空白去重字符串；若非空则 `messages[-1]["role"] == "assistant"` 且包含对应的 `tool_calls` ID（开始组退出时含两个 ID） |
+| `last_observed_layers` | `dict[str, Any]` | 仅允许包含 `FIVE_LAYER_KEYS = {"tool_layer", "todo_layer", "environment_layer", "memory_layer", "progress_layer"}` 的纯字典快照；由 `AgentSandbox` 维护已交付模型基准 |
+| `loaded_target_keys` | `tuple[tuple[str, str], ...] = ()` | 每项为 `(kind, object_id)`（`kind in {"location", "app", "product"}`），经 `lookup_targets` 懒加载进入 `工具层` 的目标键集合；Compaction 或跨日重置清零 |
+| `compaction_count` | `int = 0`（`ge=0`） | 本本地日内已触发日内 Compaction 的次数 |
+| `compacted_through_seq` | `int = 0`（`ge=0`） | 最近一次 Compaction 折叠覆盖的最大已提交 `event_seq` |
+| `last_prompt_tokens` | `int \| None = None`（`ge=0`） | 上一次模型调用观测到的输入令牌数（估算与诊断参考） |
+
+`SuspendedLoopState`（随 `AgentState.suspended_loop` 序列化到世界状态与检查点；已删除冗余的 `messages` 与 `base_layers` 字段）显式持有十三个字段：
 
 | 字段 | 类型 | 语义 |
 | --- | --- | --- |
@@ -35,7 +50,6 @@ flowchart LR
 | `action_id` | `str` | 发起挂起搜索的动作身份 |
 | `activity_id` | `str` | 对应的 `ActivityKind.SEARCH` 活动身份 |
 | `pending_tool_call_id` | `str` | 挂起模型回合里等待回填的 `search_world` `tool_call_id` |
-| `messages` | `tuple[dict[str, Any], ...]` | 截至 `search_world` 调用的完整模型对话历史（含 `assistant` 调用消息） |
 | `turn_used` | `int` | 挂起前已消耗的主循环回合数 |
 | `memory_search_count` | `int` | 挂起前已触发的记忆检索次数 |
 | `accepted_action_ids` | `tuple[str, ...]` | 挂起前沙盒内已受理的零耗时动作身份集合 |
@@ -45,7 +59,6 @@ flowchart LR
 | `observation_event_id` | `str` | 初始唤醒观察事件身份 |
 | `observation_parts` | `dict[str, str]` | 观察分件摘要索引 |
 | `suspended_at` | `int` | 发起挂起时的世界时钟 UTC 秒 |
-| `base_layers` | `tuple[dict[str, Any], ...]` | 初始观察各层视图（供恢复后容量与差量计算参考） |
 
 人物状态的 `navigation_foreground` 记录导航 app 此刻是否在前台：`null` 表示不在前台；非空时是
 `{activity_id, app_id, opened_at}`，分别是所属的出行活动、这趟出行选定的导航 app 和这一段回到前台的时刻。
@@ -93,7 +106,7 @@ flowchart LR
 
 五项环境身份是 `environment_id`、`environment_version`、`rules_version`、`catalog_content_sha256`、`map_sha256`。
 全部人物 `personas/*.toml` 按 `agent_id` 映射各自原字节摘要进 `persona_sha256s: dict[int, str]`，`config.toml` 保存 `config_sha256`，生成地图按规范 JSON 加 LF 冻结。
-新建运行的清单顶层字段包含 `schema_version`（`8`）、`run_id`、`source_group_id`、`environment_identity`、`environment_assets`、
+新建运行的清单顶层字段包含 `schema_version`（`9`）、`run_id`、`source_group_id`、`environment_identity`、`environment_assets`、
 `persona_sha256s`、`config_sha256`、`agent_ids`、`code_sha256`、`git_commit`、`git_dirty`、`model_identity`、`input_warnings`、`persona_habit_responses`、`window` 与 `lineage`。新建运行的
 `lineage` 为空数组；恢复与重放分支另带分支来源字段，`lineage` 是父运行的 `lineage` 加一项父运行这一段，见
 [记录引擎](05-recording-engine.md)「冻结输入、检查点与分支」。
@@ -101,10 +114,27 @@ flowchart LR
 
 | `ModelIdentity` 字段 | 形状与内容 |
 | --- | --- |
-| `profiles` | `dict[str, StageProfileIdentity]`，仅冻结被 `model_routing`（含 `agent_overrides`）实际引用的配置段；每个档含 `provider`、`base_url`、`requested_model`、`metadata_url`、`context_window`、`thinking`、`max_output_tokens`、`max_retries`、`transport_max_retries`、`max_react_turns`、`reflection_validation_max_retries`、`day_plan_validation_max_retries`、`model_metadata` 与 `effective_max_tokens`（严禁包含 `api_key_env` 凭据值） |
+| `profiles` | `dict[str, StageProfileIdentity]`，仅冻结被 `model_routing`（含 `agent_overrides`）实际引用的配置段 |
 | `routing` | `dict[str, Any]`，冻结 `action`、`search`、`plan_day`、`digest` 与 `agent_overrides` |
 | `prompt_sha256s` | `dict[str, str]`，`{"action": life_prompt_sha256(), "search": search_prompt_sha256()}` |
 | `tool_schema_sha256s` | `dict[str, str]`，`{"action": life_tool_schema_sha256(), "search": search_tool_schema_sha256()}` |
+
+其中每个 `StageProfileIdentity` 冻结该模型档的全部身份与运行时参数（严禁包含 `api_key_env` 凭据值）：
+
+| `StageProfileIdentity` 字段 | 精确类型与约束 | 语义 |
+| --- | --- | --- |
+| `provider` | `str` | 协议身份（`openai_compatible`） |
+| `base_url`、`requested_model`、`metadata_url` | `str` | 服务端点、模型名与元数据接口 |
+| `context_window` | `int`（`>= 262144`） | 模型档声明总上下文容量 |
+| `thinking` | `bool` | 是否启用深度思考与思考内容校验 |
+| `max_output_tokens` | `int`（`> 0`） | 配置档单次输出预留上限 |
+| `compact_trigger_tokens` | `int`（`strict=True, ge=16384`，且 `< int(context_window * 0.85)`） | 日内 Compaction 触发阈值，与 `ModelProfileConfig` 同步冻结 |
+| `prompt_cache_key` | `StrictBool = False` | 是否为主循环 `action` 请求注入 `extra_body.prompt_cache_key` |
+| `max_retries`、`transport_max_retries` | `int`（`0..10`） | 非传输与传输服务重试预算 |
+| `max_react_turns` | `int`（`1..64`） | 单次唤醒或搜索子会话最大回合预算 |
+| `reflection_validation_max_retries`、`day_plan_validation_max_retries` | `int`（`0..5`） | 回顾与日计划输出校验重试预算 |
+| `model_metadata` | `dict[str, Any]` | 从服务元数据接口冻结的真实 `context_window` 与 `max_output_tokens` |
+| `effective_max_tokens` | `int` | `min(max_output_tokens, model_metadata.max_output_tokens)` |
 
 清单不保存由人物卡片换算出的数值：社交需要每小时增长在冻结的对应 `personas/*.toml` 里，世界创建时直接读它。
 `code_sha256` 覆盖 `src/` 下的全部 Python 源码与根目录的 `pyproject.toml`、`uv.lock`；项目根由已导入的 `worldmock` 包位置推出（包目录 `src/worldmock` 往上两级）。
@@ -118,21 +148,25 @@ flowchart LR
 
 ### 记忆层
 
-记忆层的顶层恰为下表四个键，次序固定。
-行为与上限见[人物](06-agent.md)「记忆层的形状、上限与兜底」。
+记忆层的顶层按顺序包含下表四个必选键与日内 Compaction 时可选的 `折叠摘要` 键。
+行为与上限见[人物](06-agent.md)「记忆层的形状与上限」。
 
 | 键 | 形状 |
 | --- | --- |
 | `layer` | 常量「记忆层」 |
 | `可查` | 对象，唯一的键 `最早日期`（`YYYY-MM-DD`）；还没有可查的日期时是空对象 |
 | `近三天` | 对象，键是饮食、工作、生活的子集并按此次序，值是格子数组 |
-| `今天` | 数组，每项是一条今天条目或一行计数行 |
-| 今天条目 | 封闭对象（由 `WakeupCommit` 按 `(wakeup_id, local_date)` 归并产生）：键 `时刻`（`HH:MM`）、`类别`（类别串），可选 `核验`、`自述`（至少有一），各是至少一项的非空字符串数组；渲染时键序为时刻、类别、核验、自述；条目全文另有 `当时查到`（出自已终结搜索活动权威载荷），不进提示 |
-| 计数行 | 恰为 `{"时刻":"HH:00–HH′:00","类别":<类别串>,"条数":<正整数>}`，HH′ 是 HH+1，23 时写「23:00–24:00」，「–」是 U+2013 |
+| `今天` | 数组，每项是一条今天条目（已彻底废除按小时合成的 `计数行`） |
+| `折叠摘要`（可选） | 仅日内 Compaction 重建 `messages[1]` 时附带，含 `folded_through_seq`、`folded_until_clock`、`completed_activities`、`places_visited`、`purchases`、`body_and_balance_notes`、`open_commitments` |
+| 今天条目 | 封闭对象（由 `WakeupCommit` 按 `(wakeup_id, local_date)` 归并产生，静默 `continue_activity` 返回 `None` 不写入）：键 `时刻`（`HH:MM`）、`类别`（类别串），可选 `核验`、`自述`（至少有一），各是至少一项的非空字符串数组；渲染时键序为时刻、类别、核验、自述；条目全文另有 `当时查到`（出自已终结搜索活动权威载荷），不进提示 |
 | 近三天格子 | `近三天` 的键是启用的类别、按饮食、工作、生活的次序，值是至多三格、按日期升序的数组；饮食格、生活格是封闭对象，键依次为 `日期`（YYYY-MM-DD）、`星期`（`WEEKDAY_NAMES` 之一）、`回顾`（1–1000 字）；工作格在 `星期` 与 `回顾` 之间另有必有的 `安排`（工作日或休息日）；未整理的格 `回顾` 为 `null`，末尾带 `未整理: true`；那天这一类没有记录时不写这一格；Schema 是 `_RECENT_CELLS` |
 
 类别串是饮食、工作、生活里互不相同的一到三项，以「、」相连。记忆层经 `render_layer_json` 渲染：键序即构建顺序，中文不转义，`null`、空列表与空对象原样保留；
 Schema 是 [prompt_schemas.py](../../src/worldmock/agents/prompt/prompt_schemas.py) 的 `MEMORY_LAYER_SCHEMA`。
+
+### 工具层
+
+工具层的顶层按顺序为 `layer`（常量「工具层」）、`gate`（顶层全局门禁闭集对象，含 `main_slot_busy`、`side_slot_busy`、`sleeping`、`in_transit`、`pending_conclusions` 五键）、`targets`（紧凑形式为 `groups`）与 `callable_index`（`goods` 与 `prefer_apps`）。Schema 见 [prompt_schemas.py](../../src/worldmock/agents/prompt/prompt_schemas.py) 的 `TOOL_LAYER_SCHEMA` 与 `COMPACT_TOOL_LAYER_SCHEMA`；行为见[人物](06-agent.md)「提示与工具」。
 
 ### 待办层
 
@@ -154,7 +188,7 @@ Schema 是 [prompt_schemas.py](../../src/worldmock/agents/prompt/prompt_schemas.
 运行目录里的 `manifest.json`、`status.json`、`heartbeat.json`、`result.json` 和反事实干预文件一律按 UTF-8 读写，不依赖系统默认编码。
 `status.json` 与 `heartbeat.json` 是规范 JSON，字段见[运行装配与决策循环](10-runtime.md)「运行与恢复」；其中的时刻都是 UTC 的 ISO 8601 文本。
 运行库的观察分件表 `parts` 与观察的存储形式归[记录引擎](05-recording-engine.md)「事件与来源」，编码同样是确定性 UTF-8 JSON。
-回调、时间、天气、提醒、两种停留事件和回顾事件 `memory_digest_generated` 使用当前闭合模型，写入和读取时都校验，旧事件种类立即拒绝；字段见[记录引擎](05-recording-engine.md)「事件与来源」。
+回调、时间、天气、提醒、两种停留事件、回顾事件 `memory_digest_generated` 与日内 Compaction 证据 `day_session_compacted` 使用当前闭合模型，写入和读取时都校验，旧事件种类立即拒绝；字段见[记录引擎](05-recording-engine.md)「事件与来源」。
 预排事件的种类闭集含发货通知排程 `order_shipped`，它与到达排程一样保存在世界状态的调度边界里。
 检查点与导出字段及认证规则统一归[记录引擎](05-recording-engine.md)，不在状态层维护第二份事件合同。
 

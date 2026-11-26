@@ -94,7 +94,7 @@ def _freeze_environment(inputs: EnvironmentInputs, assets: AssetStore) -> dict[s
 
 def _run_manifest(inputs: EnvironmentInputs, identity: RunIdentity,
                   options: dict[str, Any], assets: dict[str, dict]) -> dict[str, Any]:
-    """@brief 构造 v8 运行清单：多数字人摘要、双维模型身份与冻结环境资产。"""
+    """@brief 构造 v9 运行清单：多数字人摘要、双维模型身份与冻结环境资产。"""
     return {
         "schema_version": RUN_MANIFEST_SCHEMA_VERSION, "run_id": identity.run_id,
         "source_group_id": identity.source_group_id,
@@ -133,13 +133,19 @@ def _expected_profile_identity(inputs: EnvironmentInputs, profile_id: str) -> St
 
 
 def _validate_routing_and_profiles(inputs: EnvironmentInputs, checked: ModelIdentity) -> None:
-    """@brief 核对模型身份的路由映射和激活档集合与冻结环境配置及元数据一致。"""
+    """@brief 核对模型身份的路由映射、触发阈值与缓存开关等激活档集合与冻结环境配置及元数据一致。"""
     expected_routing = inputs.config.model_routing.model_dump(mode="json")
     expected_profiles = {pid: _expected_profile_identity(inputs, pid)
                          for pid in referenced_profile_ids(inputs.config.model_routing)}
     if checked.routing != expected_routing or dict(checked.profiles) != expected_profiles:
         _LOGGER.error("Run model identity disagrees with environment inputs")
         raise IntegrityError("Run model identity disagrees with environment inputs")
+    for pid, expected in expected_profiles.items():
+        actual = checked.profiles[pid]
+        if (actual.compact_trigger_tokens != expected.compact_trigger_tokens
+                or actual.prompt_cache_key is not expected.prompt_cache_key):
+            _LOGGER.error("Stage profile %s compaction or cache settings disagree with config", pid)
+            raise IntegrityError("Run model identity disagrees with environment inputs")
 
 
 def _validate_model_identity(inputs: EnvironmentInputs, identity: RunIdentity,

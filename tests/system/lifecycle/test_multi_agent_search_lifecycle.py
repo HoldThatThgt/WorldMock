@@ -85,6 +85,31 @@ def _tool_response(name: str, arguments: dict, call_id: str, *, model: str = "te
     }
 
 
+def _latest_observation_tail(request: dict) -> tuple[dict[str, str], list[dict]]:
+    """@brief 按日会话顺序折算当前活动阶段映射，并返回最后一次边界结算（或用户观察）之后的消息尾巴。"""
+    messages = request["messages"]
+    last_idx = max(i for i, m in enumerate(messages) if m.get("role") == "user")
+    targets = expand_tool_layer(user_layer(json.loads(messages[last_idx]["content"]), "工具层"))["targets"]
+    phases = {row["name"]: row["phase"] for row in targets if row.get("kind") == "activity"}
+    boundary_idx = last_idx
+    for idx in range(last_idx + 1, len(messages)):
+        msg = messages[idx]
+        if msg.get("role") != "tool":
+            continue
+        payload = json.loads(msg["content"])
+        deltas = payload.get("changes", {}).get("工具层", {}).get("group_deltas", {})
+        for row in deltas.get("removed", ()):
+            if row.get("kind") == "activity":
+                phases.pop(row["name"], None)
+        for key in ("added", "updated"):
+            for row in deltas.get(key, ()):
+                if row.get("kind") == "activity":
+                    phases[row["name"]] = row["phase"]
+        if payload.get("result", {}).get("status") == "settled":
+            boundary_idx = idx
+    return phases, messages[boundary_idx + 1:]
+
+
 def _agent_id_from_request(request: dict) -> int:
     """@brief 从首个 user 消息的人设层姓名识别 林舟(1) 与 陈默(2)。"""
     user_content = next(m["content"] for m in request["messages"] if m["role"] == "user")
@@ -92,10 +117,9 @@ def _agent_id_from_request(request: dict) -> int:
 
 
 def _activity_names_in_request(request: dict, phase: str) -> list[str]:
-    """@brief 从首个 user 消息工具层提取处于指定阶段的活动名。"""
-    user_content = next(m["content"] for m in request["messages"] if m["role"] == "user")
-    targets = expand_tool_layer(user_layer(json.loads(user_content), "工具层"))["targets"]
-    return [row["name"] for row in targets if row.get("kind") == "activity" and row.get("phase") == phase]
+    """@brief 从本轮最新活动阶段映射中提取处于指定阶段的活动名。"""
+    phases, _ = _latest_observation_tail(request)
+    return [name for name, item_phase in phases.items() if item_phase == phase]
 
 
 def _as_model_response(payload: dict) -> SimpleNamespace:
@@ -204,9 +228,10 @@ async def _run_inverted_case(tmp_path: Path, name: str, delays: dict[int, float]
             return _tool_response("submit_search_results", {
                 "goods_ids": ["lemon-tea"], "place_ids": [], "summary": "找到柠檬茶",
             }, "sc-2", model="test-search-model")
+        _, tail = _latest_observation_tail(request)
         pending = _activity_names_in_request(request, PHASE_PENDING)
         active = _activity_names_in_request(request, PHASE_ACTIVE)
-        has_tool = any(m.get("role") == "tool" for m in request["messages"])
+        has_tool = any(m.get("role") == "tool" for m in tail)
         if agent_id == 1:
             assert request["model"] == "test-model"
             turn = len(agent_records["a1"])
@@ -393,10 +418,11 @@ class _SearchLifecycleHttpModel:
                     "goods_ids": ["lemon-tea"], "place_ids": [], "summary": "柠檬茶有售",
                 }, "search-step-2", model=body["model"])
             agent_id = _agent_id_from_request(body)
+            _, tail = _latest_observation_tail(body)
             pending = _activity_names_in_request(body, PHASE_PENDING)
             active = _activity_names_in_request(body, PHASE_ACTIVE)
             last_msg = body["messages"][-1]
-            called = {tc["function"]["name"] for m in body["messages"] if m.get("role") == "assistant"
+            called = {tc["function"]["name"] for m in tail if m.get("role") == "assistant"
                       for tc in m.get("tool_calls", ())}
             if agent_id == 1:
                 self.resumed_action_requests.append(copy.deepcopy(body))

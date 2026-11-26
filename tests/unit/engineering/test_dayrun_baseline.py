@@ -39,7 +39,7 @@ def _case(root: Path, code: str = CODE, commit: str = "f" * 40, model: dict | No
     assets = _freeze_environment(frozen, AssetStore(root / "run/assets"))
     identity = model or {"prompt_sha256s": {"action": PROMPT, "search": PROMPT},
                          "tool_schema_sha256s": {"action": TOOLS, "search": TOOLS}}
-    manifest = _bytes({"schema_version": 8, "persona_sha256s": {str(k): v for k, v in frozen.persona_sha256s.items()},
+    manifest = _bytes({"schema_version": 9, "persona_sha256s": {str(k): v for k, v in frozen.persona_sha256s.items()},
                        "config_sha256": frozen.config_sha256, "environment_identity": environment_identity(frozen),
                        "environment_assets": assets, "run_id": "day-test", "code_sha256": code,
                        "git_commit": commit, "git_dirty": False, "model_identity": identity})
@@ -50,7 +50,7 @@ def _case(root: Path, code: str = CODE, commit: str = "f" * 40, model: dict | No
         connection.execute("INSERT INTO checkpoints VALUES (?,?)", (zlib.compress(body), _digest(body)))
     events = _bytes({"event_id": "fact", "caused_by": [], "amount": amount}) + b"\n"
     (root / "export/events.jsonl").write_bytes(events)
-    quality = _bytes({"schema_version": 11, "day_plan_metrics": {code: {"block_count": 0}}})
+    quality = _bytes({"schema_version": 12, "day_plan_metrics": {code: {"block_count": 0}}})
     (root / "export/quality.json").write_bytes(quality)
     (root / "export/manifest.json").write_bytes(_bytes({"frozen_run_manifest": json.loads(manifest),
         "artifacts": {"events": {"path": "events.jsonl", "sha256": _digest(events)}},

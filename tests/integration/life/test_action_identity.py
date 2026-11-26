@@ -16,6 +16,7 @@ from tests.life.conftest import (
     report_request,
     sleep,
     stage_day_plan,
+    stub_day_session,
     use_app,
 )
 from tests.life.environment_runtime import act, act_group, events, every_five_minutes
@@ -76,7 +77,7 @@ def test_stale_wakeup_snapshot_and_mismatched_agent_commit_are_protocol_faults(e
     with pytest.raises(ProtocolError, match="Barrier agent_ids must match scheduled ready agents"):
         engine.prepare_barrier((2,))
     [fresh] = engine.prepare_barrier((1,))
-    outcome = engine.open_sandbox(fresh).finish_wakeup(None)
+    outcome = engine.open_sandbox(fresh).finish_wakeup(None, stub_day_session(fresh))
     with pytest.raises(ProtocolError, match="not scheduled in barrier"):
         engine.commit_barrier([outcome.model_copy(update={"agent_id": 99})])
     assert engine.context.store.last_event_seq == seq_before

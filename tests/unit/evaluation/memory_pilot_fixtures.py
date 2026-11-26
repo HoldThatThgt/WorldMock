@@ -436,7 +436,7 @@ class PilotExportBuilder:
                                             "model_identity": {"profiles": {"default": {"max_react_turns":
                                                                                         self.max_react_turns}},
                                                                "routing": {"action": "default"}}}}
-        quality = {"schema_version": 11, "model_usage": {
+        quality = {"schema_version": 12, "model_usage": {
             "by_call_class": list(self.call_classes.values()), "pricing_snapshot": PRICING,
             "estimated_cost": {"complete": self.complete}}}
         (self.root / "manifest.json").write_text(compact(manifest), encoding="utf-8")

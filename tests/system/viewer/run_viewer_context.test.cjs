@@ -63,30 +63,30 @@ function layers(kind = 'action') {
   return JSON.parse(fixture[kind].messages[1].content);
 }
 
-test('genuine current requests have seven layers and nine offered tools', () => {
+test('genuine current requests have seven layers and eleven offered tools', () => {
   const {api, errors} = parser();
   const parsed = api.parseRequest(event());
   assert.equal(parsed.stage, 'action');
   assert.deepEqual(plain(messageBlocks(parsed).map(block => block.key)), LAYER_KEYS);
   assert.equal(messageBlocks(parsed).map(block => block.text).join(''), request().messages[1].content);
   assert.deepEqual(layers().map(layer => layer.layer), LAYER_NAMES);
-  // 现行工具面按请求次序：七个世界请求（含 search_world）、回看任务与唯一的记忆检索工具 search_memory，共九个；
+  // 现行工具面按请求次序：八个世界请求（含 search_world、continue_activity）、回看、记忆检索与只读参数检索，共十一个；
   // 没有已删除的 start_activity、query_world 与三个 memory_* 工具。
   assert.deepEqual(fixture.action.tools.map(tool => tool.function.name), [
-    'start_main_activity', 'start_side_activity', 'report_status', 'pause_activity', 'conclude_activity',
-    'revise_day_plan', 'search_world', 'recall_task_summary', 'search_memory']);
-  assert.equal(fixture.action.tools.length, 9);
+    'start_main_activity', 'start_side_activity', 'search_world', 'continue_activity', 'recall_task_summary',
+    'report_status', 'pause_activity', 'conclude_activity', 'revise_day_plan', 'search_memory', 'lookup_targets']);
+  assert.equal(fixture.action.tools.length, 11);
   assert.equal(parsed.warnings.length, 0);
   assert.equal(errors.length, 0);
 });
 
-test('the current tool layer contains only the four actual actions with lossless target drills', () => {
+test('the current tool layer contains initial callable actions with lossless target drills', () => {
   const {api} = parser();
   const parsed = api.parseRequest(event());
   const tool = parsed.blocks.find(block => block.key === 'tool');
   const groups = tool.value.groups;
   assert.deepEqual([...new Set(groups.map(group => group.action).filter(Boolean))].sort(),
-    ['interact', 'purchase', 'sleep', 'travel']);
+    ['interact', 'sleep', 'travel']);
   // 出行只有 travel 一个动作：同一目的地每种出行方式一行，靠 detail 区分，每个目的地的方式集合相同。
   const methods = new Map();
   for (const group of groups.filter(group => group.action === 'travel')) for (const entry of group.targets) {
@@ -317,16 +317,31 @@ test('Unicode character accounting includes each whole message and the tools onc
   assert.equal(parsed.toolChars, Array.from(JSON.stringify(original.tools)).length);
 });
 
-test('rule texts describe the layered memory, digests, search_session and nine tools', () => {
+test('rule texts describe the day session, layered memory, digests, search_session and eleven tools', () => {
   const {api} = parser();
   const {rules} = api;
-  assert.ok(rules.memory.fill.includes('14,000 字'), rules.memory.fill);
+  assert.ok(rules.memory.fill.includes('折叠摘要'), rules.memory.fill);
+  assert.ok(!rules.memory.fill.includes('14,000 字'));
   assert.ok(Object.hasOwn(rules, 'digest'));
   assert.ok(Object.hasOwn(rules, 'search_session'));
   assert.equal(Object.hasOwn(rules, 'reflection'), false);
-  assert.ok(rules.tools.fill.includes('共九个'), rules.tools.fill);
+  assert.ok(rules.tools.fill.includes('共十一个'), rules.tools.fill);
+  assert.ok(rules.tool.fill.includes('工具层.gate'), rules.tool.fill);
   assert.ok(!rules.persona.steps.some(step => step.join('').includes('看法偏好')));
   assert.ok(!rules.progress.steps.some(step => step.join('').includes('self_note')));
+});
+
+test('toolItems renders top-level gate when present without breaking legacy layers', () => {
+  const {api} = parser();
+  const layerWithGate = {
+    layer: '工具层',
+    gate: {main_slot_busy: false, side_slot_busy: false, sleeping: false, in_transit: false, pending_conclusions: []},
+    groups: [],
+  };
+  const items = plain(api.drillItems({interpretation: 'layer', key: 'tool', value: layerWithGate}));
+  assert.equal(items.length, 1);
+  assert.equal(items[0].label, '工具层门禁 · gate');
+  assert.deepEqual(JSON.parse(items[0].text), layerWithGate.gate);
 });
 
 test('context descriptions name the current modules', () => {

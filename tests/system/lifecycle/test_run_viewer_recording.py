@@ -1,4 +1,4 @@
-"""@brief 用真实宿主流程录制查看器请求，验证当前九个工具与循环内多回合沙盒消息。"""
+"""@brief 用真实宿主流程录制查看器请求，验证当前 11 个工具与循环内多回合沙盒消息。"""
 
 from pathlib import Path
 import json
@@ -39,7 +39,7 @@ def _last_changes(request: dict) -> dict:
 
 @pytest.mark.asyncio
 async def test_viewer_fixture_is_recorded_from_the_current_host(_engine_factory):
-    """@brief 冻结请求逐字保留当前真实宿主的系统层、九个工具、用户层层序与循环内消息及 changes。"""
+    """@brief 冻结请求逐字保留当前真实宿主的系统层、11 个工具、用户层层序与循环内消息及 changes。"""
     requests, engine = await _recorded_viewer_requests(_engine_factory)
     try:
         fixture = Path(__file__).resolve().parents[3] / "tests" / "fixtures" / "viewer-context.json"
@@ -56,15 +56,15 @@ async def test_viewer_fixture_is_recorded_from_the_current_host(_engine_factory)
         # 用户层的层序与循环内 changes（待办层变化）都与宿主此刻的请求相同。
         assert _layer_names(recorded["action"]) == _layer_names(requests["action"])
         recorded_changes, host_changes = _last_changes(recorded["in_loop"]), _last_changes(requests["in_loop"])
-        assert list(recorded_changes) == list(host_changes) == ["todo_layer"]
-        assert recorded_changes["todo_layer"] == host_changes["todo_layer"]
-        # 录制样例里的工具清单：九个工具各出现一次，含 search_world 与唯一的记忆检索工具 search_memory，
-        # 不含已删除的 start_activity、query_world 与三个 memory_* 工具。
+        assert list(recorded_changes) == list(host_changes) == ["待办层"]
+        assert recorded_changes["待办层"] == host_changes["待办层"]
+        # 录制样例里的工具清单：11 个工具各出现一次，含 continue_activity、lookup_targets、search_world 与 search_memory。
         listed = [tool["function"]["name"] for tool in recorded["action"]["tools"]]
         names = set(listed)
-        assert len(listed) == len(names) == 9
-        assert {"start_main_activity", "start_side_activity", "search_world", "report_status", "pause_activity",
-                "conclude_activity", "revise_day_plan", "recall_task_summary", "search_memory"} == names
+        assert len(listed) == len(names) == 11
+        assert {"start_main_activity", "start_side_activity", "continue_activity", "search_world", "report_status",
+                "pause_activity", "conclude_activity", "revise_day_plan", "recall_task_summary", "search_memory",
+                "lookup_targets"} == names
         assert names.isdisjoint({"query_world", "start_activity", "set_alarm", "send_message", "submit_work",
                                  "memory_recent", "memory_search", "memory_time_range"})
         events = list(engine.context.store.iter_events(engine.context.store.last_event_seq))

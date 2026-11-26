@@ -21,6 +21,7 @@ from tests.life.conftest import (
     report_request,
     side_arguments,
     stage_day_plan,
+    stub_day_session,
     travel,
     use_app,
 )
@@ -326,7 +327,7 @@ def _record_stored_observe(engine) -> dict:
     """发起一次无世界工具动作的唤醒并提交，确保 observation 事件已写入存储。"""
     [wakeup] = engine.prepare_barrier((1,))
     sandbox = engine.open_sandbox(wakeup)
-    engine.commit_barrier([sandbox.finish_wakeup(None)])
+    engine.commit_barrier([sandbox.finish_wakeup(None, stub_day_session(wakeup))])
     return wakeup.observation
 
 

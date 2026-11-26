@@ -139,8 +139,10 @@ async def test_search_session_completes_with_fact_guard_feedback_and_evidence_dr
     assert outcome.goods_ids == ("g-latte",) and outcome.place_ids == ("loc-cafe-1",)
     assert outcome.action_id == "run:wake:100:v1:a1:action:0001" and outcome.activity_id == "act-search-42"
     assert all(req["extra_body"] == {"thinking": {"type": "disabled"}} for req in client.requests)
-    assert len(client.requests[3]["tools"]) == 1
-    assert client.requests[3]["tools"][0]["function"]["name"] == "submit_search_results"
+    assert len(client.requests[3]["tools"]) == 4
+    assert [t["function"]["name"] for t in client.requests[3]["tools"]] == [
+        t["function"]["name"] for t in client.requests[0]["tools"]
+    ]
     assert len(outcome.evidence_drafts) == 8
     reqs = [d for d in outcome.evidence_drafts if d.event_type == "model_request"]
     resps = [d for d in outcome.evidence_drafts if d.event_type == "model_response"]

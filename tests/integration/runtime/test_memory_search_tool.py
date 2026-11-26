@@ -25,10 +25,11 @@ from worldmock.foundation.errors import ProtocolError  # noqa: E402
 from worldmock.state.interaction.errors import HOST_ERROR_CODES  # noqa: E402
 from worldmock.state.interaction.requests import SearchMemoryRequest  # noqa: E402
 
-#: 生活唤醒全量九个原生工具名及工具列表顺序（与 life_agent._FULL_MODELS 一致）。
+#: 生活唤醒全量十一个原生工具名及工具列表顺序（与 life_agent._FULL_MODELS 一致）。
 _REQUEST_ORDER = [
-    "start_main_activity", "start_side_activity", "report_status", "pause_activity",
-    "conclude_activity", "revise_day_plan", "search_world", "recall_task_summary", "search_memory",
+    "start_main_activity", "start_side_activity", "search_world", "continue_activity",
+    "recall_task_summary", "report_status", "pause_activity", "conclude_activity",
+    "revise_day_plan", "search_memory", "lookup_targets",
 ]
 _TODAY = {"category": "全部", "time": "今天", "keyword": None}
 _LIMIT = {
@@ -120,8 +121,8 @@ async def test_life_tool_surface_has_nine_tools_in_order(engine_factory):
     run = await _decide(engine, env, [_rest()])
     assert list(life_agent._FULL_MODELS) == _REQUEST_ORDER
     assert [_tools(req) for req in run.requests] == [_REQUEST_ORDER]
-    assert life_agent.life_query_tool_names() == {"recall_task_summary", "search_memory"}
-    assert life_agent.life_action_tool_names() == set(_REQUEST_ORDER) - {"search_memory"}
+    assert life_agent.life_query_tool_names() == {"recall_task_summary", "search_memory", "lookup_targets"}
+    assert life_agent.life_action_tool_names() == set(_REQUEST_ORDER) - {"search_memory", "lookup_targets"}
 
 
 async def test_search_memory_goes_through_sandbox_and_leaves_only_model_events(engine_factory):

@@ -27,7 +27,7 @@ async def test_native_request_uses_current_location_availability_and_stable_tool
         ("travel", method) for method in ("步行", "公共交通", "驾车", "打车")] for target in elsewhere)
     assert all(list(row) == ["action", "detail", "available", "reason", "price", "duration", "quantity", "note"]
                for target in tools["targets"] for row in target["actions"])
-    assert len(request["tools"]) == 9
+    assert len(request["tools"]) == 11
     assert [tool["function"]["name"] for tool in request["tools"][:2]] == [MAIN_TOOL, SIDE_TOOL]
     assert set(request["tools"][0]["function"]["parameters"]["properties"]) == {"action", "target", "detail"}
     assert set(request["tools"][1]["function"]["parameters"]["properties"]) == {"action", "target", "prefer"}

@@ -31,3 +31,10 @@ def test_report_content_carries_the_five_error_fields_and_the_instruction():
     assert content["error_code"] == "OUTPUT_TRUNCATED"
     assert content["instruction"] == FEEDBACK_INSTRUCTION
     assert content["items"][0]["why"] == "probe"
+
+
+def test_retired_truncation_user_feedback_helpers_are_absent():
+    """已退场的 retry_due、thinking_enabled 与 with_feedback 不再存在于截断模块。"""
+    for retired in ("retry_due", "thinking_enabled", "with_feedback"):
+        assert not hasattr(life_truncation, retired)
+    assert life_truncation.FEEDBACK_INSTRUCTION == FEEDBACK_INSTRUCTION

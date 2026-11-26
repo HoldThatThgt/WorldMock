@@ -114,7 +114,8 @@ def test_observed_usage_rows_are_ordered_by_model_and_both_keys_are_reported(tmp
     rows = observed_model_usage(run)
     assert [row['model'] for row in rows] == [None, 'a', 'b']
     assert rows[2] == {'model': 'b', 'responses': 2, 'responses_with_usage': 2,
-                       'input_tokens': 6, 'output_tokens': 4, 'total_tokens': 10}
+                       'input_tokens': 6, 'output_tokens': 4, 'total_tokens': 10,
+                       'cached_input_tokens': None, 'uncached_input_tokens': None, 'cache_hit_ratio': None}
     result = read_status(run)
     assert result['observed_model_usage'] == rows and result['token_stats'] is None
 
@@ -196,17 +197,60 @@ def test_status_issues_no_explicit_transaction(tmp_path, monkeypatch):
 
 
 #: 第四章之前的用量合计语句（逐条读正文判断类型），用来核对经类型索引的同一行集。
-_OBSERVED_USAGE_BY_BODY = """
+_CACHED_BY_BODY = (
+    "COALESCE(json_extract(body,'$.data.response.usage.prompt_cache_hit_tokens'),"
+    " json_extract(body,'$.data.response.usage.prompt_tokens_details.cached_tokens'))"
+)
+_OBSERVED_USAGE_BY_BODY = f"""
     SELECT json_extract(body,'$.data.response.model'), count(*),
     count(json_extract(body,'$.data.response.usage.prompt_tokens')),
     sum(json_extract(body,'$.data.response.usage.prompt_tokens')),
     sum(json_extract(body,'$.data.response.usage.completion_tokens')),
-    sum(json_extract(body,'$.data.response.usage.total_tokens'))
+    sum(json_extract(body,'$.data.response.usage.total_tokens')),
+    sum({_CACHED_BY_BODY}),
+    sum(COALESCE(json_extract(body,'$.data.response.usage.prompt_cache_miss_tokens'),
+                 json_extract(body,'$.data.response.usage.prompt_tokens') - {_CACHED_BY_BODY}))
     FROM events WHERE json_extract(body,'$.event_type')='model_response'
     AND json_extract(body,'$.data.phase')='response'
     GROUP BY json_extract(body,'$.data.response.model')
     ORDER BY json_extract(body,'$.data.response.model')
 """
+
+
+def test_observed_usage_coalesces_cache_breakdown_and_computes_ratio(tmp_path):
+    """缓存明细同时兼容 DeepSeek hit/miss 键与 OpenAI prompt_tokens_details.cached_tokens，缺省返回 None。"""
+    from worldmock.recording_engine.events.models import EventDraft
+
+    run = tmp_path / 'run'
+    store = FootprintStore.create(run, {'run_id': 'run', 'agent_ids': [1], 'window': {'timezone': 'UTC'}},
+                                  {'version': 0, 'current_time': 100, 'end_time': 200, 'activities': [],
+                                   'agents': {}})
+    drafts = [
+        EventDraft(event_type='model_response', occurred_at=100, source_kind='model', visibility='system',
+                   data={'phase': 'response', 'response': {
+                       'model': 'm-cache',
+                       'usage': {'prompt_tokens': 100, 'completion_tokens': 10, 'total_tokens': 110,
+                                 'prompt_cache_hit_tokens': 60, 'prompt_cache_miss_tokens': 40}}}),
+        EventDraft(event_type='model_response', occurred_at=100, source_kind='model', visibility='system',
+                   data={'phase': 'response', 'response': {
+                       'model': 'm-cache',
+                       'usage': {'prompt_tokens': 50, 'completion_tokens': 5, 'total_tokens': 55,
+                                 'prompt_tokens_details': {'cached_tokens': 30}}}}),
+        EventDraft(event_type='model_response', occurred_at=100, source_kind='model', visibility='system',
+                   data={'phase': 'response', 'response': {
+                       'model': 'm-zero',
+                       'usage': {'prompt_tokens': 0, 'completion_tokens': 0, 'total_tokens': 0,
+                                 'prompt_cache_hit_tokens': 0, 'prompt_cache_miss_tokens': 0}}}),
+    ]
+    store.append_evidence(drafts)
+    store.close()
+    rows = {row['model']: row for row in observed_model_usage(run)}
+    assert rows['m-cache']['cached_input_tokens'] == 90
+    assert rows['m-cache']['uncached_input_tokens'] == 60
+    assert rows['m-cache']['cache_hit_ratio'] == 0.6
+    assert rows['m-zero']['cached_input_tokens'] == 0
+    assert rows['m-zero']['uncached_input_tokens'] == 0
+    assert rows['m-zero']['cache_hit_ratio'] is None
 
 
 def test_observed_usage_reads_responses_through_the_type_index(tmp_path):

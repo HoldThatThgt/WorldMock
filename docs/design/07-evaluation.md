@@ -41,7 +41,7 @@ flowchart LR
 外部约束、班次出勤与作息偏离。经过时间使用实际区间并集，跨槽并行不重复计算。
 内容接触只取实际正向播放；搜索、推送和系统应用足迹不算消费。
 食品样本只取本人实际 `snack`、`meal` 收货；付款和待领取订单不算收货。地点内容做完时的完成效果不算用餐收货，不计入食品样本。
-`metrics.py` 计算模型与观察门控指标时：`_decision_model_requests` 明确排除 `data.purpose == "search_session"` 的搜索子会话调用，避免子会话回合混入数字人决策轮统计；`_observation_gate` 按 `(agent_id, wakeup_id)` 键控而非仅按时间戳去重，确保同一模拟秒内因搜索完成恢复或跨人物共享资源冲突重算而产生的多次唤醒互不混淆。
+`metrics.py` 计算模型与观察门控指标时：`_decision_model_requests` 明确排除 `data.purpose == "search_session"` 的搜索子会话调用，避免子会话回合混入数字人决策轮统计；`_observation_gate` 按 `(agent_id, wakeup_id)` 取每次唤醒的第一条 `model_request`，若消息以 `role == "user"` 结尾（日初首轮或短测试样本）取 `("user", user_text)` 作为观察签名，若消息以 `role == "tool"` 结尾（同日续行唤醒）取末尾连续配对 `role: "tool"` 差量消息正文元组 `("tool", tuple(trailing_tool_contents))` 作为观察签名，同时严格校验任何一条 `_decision_model_requests` 中的 `role == "user"` 消息总数不得超过 `1`（出现多条 `user` 消息直接判门禁失败），并在报告中补充缓存命中率与日内 Compaction 摘要字段。
 
 作息偏离 `routine_deviation` 之后是两项回顾报告，只读 `memory_digest_generated` 事件，只报告、不进门禁，
 `behavior-metrics-4` 标识不变：
@@ -112,7 +112,7 @@ flowchart LR
   都由认证核对（[记录引擎](05-recording-engine.md)「完整导出认证」）；认证失败时它抛出的 `IntegrityError` 原样上抛，工具不重复这些
   核对。认证之后只读 `manifest.json`、`events.jsonl`、`purchases.jsonl`、`quality.json` 与 `assets/<sha256>`；不读运行目录和人物
   工作区，除 `--output` 指定的报告外不写任何文件。
-- 只接收当前代码写出的导出：认证用当前代码重算质量报告（`quality.json` `schema_version = 11`）并与 `quality.json` 逐字节比较，旧代码写出的导出通不过认证，
+- 只接收当前代码写出的导出：认证用当前代码重算质量报告（`quality.json` `schema_version = 12`，对应 `RUN_MANIFEST_SCHEMA_VERSION = 9` 与 `EXPORT_SCHEMA_VERSION = 10`）并与 `quality.json` 逐字节比较，旧代码写出的导出通不过认证，
   工具不另查版本号。分层记忆提案的两次基线运行 V、B（质量版本 9、目录格式 5）因此不能作为输入。试点报告与 V、B 并列时只取提案
   第四章「试点指标」表与 P0 一条里写出数字的项：M2 0% 与 2 次，M3 21/134，M4 3/4，M5 0.4 次/天与 100% 为空，M6 取提案第二章
   写出的各层大小，M7 0.336，M8 $0.338，M12 5/18 与 B 0/17，措辞回声 V 60/406。提案表里 M1 写作「P0 测」，不在旧运行上计算：
@@ -144,7 +144,7 @@ flowchart LR
 | --- | --- |
 | 唤醒 `d` | 一条 `decision_started`：`wakeup_id`、时刻 `t_d`、日期 `D_d = local(t_d)`（同名按 `(agent_id, wakeup_id)` 门控） |
 | 唤醒回合请求 | `wakeup_id == d` 且 `data.purpose` 缺失或为 `null` 的 `model_request`（明确排除 `data.purpose == "search_session"` 等非主唤醒调用），按 `event_seq` 排列；对应的 `model_response` 按 `caused_by` 找到 |
-| 首个请求 | 回合请求里 `event_seq` 最小的一条；`mode == "regular"` 时它的 `messages` 为两条快照 |
+| 首个请求 | 回合请求里 `event_seq` 最小的一条；日初首次唤醒（`day_session is None`）的 `messages` 为 `[system, user]` 两条快照，同日后续唤醒与搜索恢复沿用日会话前缀并在末尾追加配对 `role: "tool"` 差量消息 |
 | 回合数 | 回合请求 `call_id` 里 `:model:NNNN:` 的不同 `NNNN` 的个数（每次模型调用都分配新的 `NNNN`，截断重试与纠错回合也不例外） |
 | 唤醒的观察 `O_d` | `wakeup_id == d` 的 `observation` 事件 |
 | 世界请求、受理与结果 | `wakeup_id == d` 的 `action_requested`；它的受理是 `caused_by` 含它的 `action_accepted`（活动快照为 `data.activity`）；它的结果是 `caused_by` 含它的 `action_result` 中 `event_seq` 最小的一条，凡说「结果为 `completed`」都只看这一条的 `data.status`；被拒是 `caused_by` 含它的 `action_rejected` |
@@ -242,8 +242,7 @@ flowchart LR
   长度，键名为「记忆层·可查」「记忆层·近三天」「记忆层·今天」；另计 `system`（system 消息内容）、`user`（user 消息内容）、
   `tools`（`tools` 的紧凑序列化）的长度。`layers` 是这些键（按首次出现的次序）到统计量。
 - `memory_layer_by_observation`：每条观察 `data.memory_layer` 的紧凑序列化长度的统计量。
-- `fallback_rewrites`：一条观察的「今天」列表不以同一本地日上一条观察的「今天」列表开头（按条目紧凑序列化逐条比较）的观察数，
-  即记忆层兜底的触发次数；当天第一条观察不比较。
+- `fallback_rewrites`：因记忆层 `14,000` 字硬回填 `_backstop` 已彻底退场，`memory_pilot.py` 移除对 `_backstop` 改写的检查并将该计数归零（或仅保留为 `0`）。
 - `persona_layer_identical`：常规唤醒首个请求里人设层与第一条常规唤醒的人设层逐字节相同的比例。
 - `token_ratio`：相邻两条常规唤醒首个请求（按 `event_seq`）之差做无截距最小二乘，`Δprompt_tokens ≈ Σ w_k·Δc_k`。`prompt_tokens` 取该
   请求对应响应的 `data.response.usage.prompt_tokens`，相邻两条有一条没有整数 `prompt_tokens` 时这一对不计（不把隔开的两条接成
@@ -271,10 +270,9 @@ null 的类命中率为 null（`fresh_decision_turn` 的两个 token 数同为 n
 - 每天唤醒数：按唤醒日期计数，`decisions_per_day` 是每个运行日（升序）到唤醒数；带宽 `decision_band` 为 `[81×0.85, 81×1.15]`
   （两位小数）；不在带宽内的日子列入 `days_outside_band`。
 - 拒绝：`rejections` 是 `action_rejected` 事件数；上限 `rejection_limit = 2 × 6 × 运行日数 / 5`（四位小数；基线 6 次出自 5 天的运行）。
-- 回合：每次唤醒的回合数；`exhausted` 是回合数达到 `frozen_run_manifest.model_identity`（v8 中对应人物绑定档的 `max_react_turns`）的唤醒数；`p99`
+- 回合：每次唤醒的回合数；`exhausted` 是回合数达到 `frozen_run_manifest.model_identity`（v9 中对应人物绑定档的 `max_react_turns`）的唤醒数；`p99`
   （一位小数）、`max` 只报告；回合数不少于 6 的唤醒逐个列出 `{wakeup_id, time, turns}`。
-- `run_failures` 是 `run_failed` 事件数。`capacity_compressions` 是首个 user 消息的进度层里带 `"type": "condensed"` 记录的回合请求数
-  （容量处理的折叠一步）。
+- `run_failures` 是 `run_failed` 事件数。`capacity_compressions` 统计导出事件中 `event_type == "environment_event"` 且 `data.kind == "day_session_compacted"` 的日内 Compaction 事件次数（与 `quality.json` 的 `compaction_count` 对齐）。
 - 刚了结又重新开始：一项活动的结束事件（「做饭活动」一行的口径，含收尾取消与截断）落在上一次唤醒的观察事件与本唤醒的观察事件
   之间（两端都不含），本唤醒受理的某项活动与它目标相同，即在 `restarted` 里列出 `{wakeup_id, time, target}`。目标按受理快照
   （结束的一方按结束事件里的终态快照）的事件身份取，不解析活动名：用内容 app 为 `["app", app_id]`；在地点做的事为 `["content", 系列标题或 content_id]`；购买为 `["purchase", 商品身份升序]`；搜索为
@@ -380,7 +378,6 @@ null 的类命中率为 null（`fresh_decision_turn` 的两个 token 数同为 n
 | `search_validation_errors` | `M5.validation_errors.value` | `<=` | 0.05 | P1 试点 |
 | `search_non_empty` | `M5.non_empty.value` | `>=` | 0.70 | P1 试点 |
 | `search_is_read_only` | `M5.non_model_events_between` | `==` | 0 | P1 验收「检索与下一次请求之间除了模型事件没有别的事件」 |
-| `memory_layer_budget` | `M6.memory_layer_by_observation.max` | `<=` | 14000 | P1 验收 |
 | `progress_layer_median` | `M6.layers.进度层.median` | `<=` | 3000 | P1 验收 |
 | `progress_layer_p90` | `M6.layers.进度层.p90` | `<=` | 7000 | P1 验收 |
 | `user_message_median` | `M6.layers.user.median` | `<=` | 22000 | P2 验收 |

@@ -127,7 +127,9 @@ def test_run_starts_from_any_directory_without_preset_variables(published_enviro
     receipt = _assert_started_cleanly(result, output)
     # 回执用量由已落盘响应累计，含初始检查点之后补的那一次零点计划（替身桩的固定用量）。
     assert receipt["token_stats"] == [{"model": "test-model", "responses": 1, "responses_with_usage": 1,
-                                       "input_tokens": 30, "output_tokens": 9, "total_tokens": 39}]
+                                       "input_tokens": 30, "output_tokens": 9, "total_tokens": 39,
+                                       "cached_input_tokens": None, "uncached_input_tokens": None,
+                                       "cache_hit_ratio": None}]
 
 
 @pytest.mark.asyncio

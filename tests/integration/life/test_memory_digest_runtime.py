@@ -38,6 +38,7 @@ from tests.life.conftest import (
     settle_midnight_tasks_async,
     sleep,
     stage_day_plan,
+    stub_day_session,
     travel,
 )
 from tests.integration.life.test_grocery_cooking import cook, grocery_engine, receive
@@ -146,8 +147,8 @@ def _rich_day(engine) -> None:
     ask_id = action_identity("pair", 2, w1.agent_id)
     r_chat = sb1.dispatch_world_tool("start_main_activity", do_at("家", "测试闲聊"), chat_id)
     r_ask = sb1.dispatch_world_tool("search_world", search_world("柠檬茶", prefer="饿了么"), ask_id)
-    engine.commit_barrier([sb1.finish_wakeup(_suspended_for(w1, ask_id, r_ask.tool_message_payload))])
-    chat_aid = r_chat.tool_message_payload["activity_id"]
+    engine.commit_barrier([sb1.finish_wakeup(_suspended_for(w1, ask_id, r_ask.activity_id), stub_day_session(w1))])
+    chat_aid = r_chat.activity_id
     advance_next(engine)
     [(task, _)] = engine.due_searches()
     engine.complete_searches([SearchSessionOutcome(

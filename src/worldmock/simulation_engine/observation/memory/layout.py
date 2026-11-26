@@ -1,26 +1,18 @@
-"""@brief 记忆层的组装：四个键的形状与次序、按渲染后字数执行的上限，以及「今天」接上一条后超出上限时的兜底回落。
+"""@brief 记忆层的组装：四个键的形状与次序、字数测量以及「今天」条目的无截断递推追加。
 
-规则见 docs/design/06-agent.md「记忆层的形状、上限与兜底」与 docs/design/09-io-formats.md「提示层的机器形状」：
-记忆层是 {"layer":"记忆层","可查":…,"近三天":…,"今天":[…]}，经 render_layer_json 渲染后（含键名）合计至多
-MEMORY_LAYER_CHARS 字；「今天」按决策次序只追加，接上一条后超出上限时一次回落到 MEMORY_BACKSTOP_CHARS 字以内。
-本模块是纯函数库；按人物缓存递推状态的是 observation/layers/memory_layer.py。
+规则见 docs/design/06-agent.md 与 docs/design/09-io-formats.md「提示层的机器形状」：
+记忆层是 {"layer":"记忆层","可查":…,"近三天":…,"今天":[…]}；「今天」按决策次序只追加，
+上下文预算由日内阈值 Compaction 与跨日重置共同控制，不再在记忆层执行硬回填或条数改写。
 """
 
 from __future__ import annotations
 
 import copy
-import logging
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 
 from worldmock.agents.prompt.narration import render_layer_json
 from worldmock.foundation.time.readable import local_date
-
-#: 渲染后的整个记忆层的字数上限（len，含键名；约 8.9k token，按 0.638 token/字）。
-MEMORY_LAYER_CHARS = 14000
-#: 兜底一次回落到的字数。
-MEMORY_BACKSTOP_CHARS = 12000
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,20 +31,14 @@ class PublishedEntry:
 
 @dataclass(slots=True)
 class _Slot:
-    """@brief 「今天」的一项：条目或计数行，连同兜底要读的本地小时、类别串、条数与播报事实。"""
+    """@brief 「今天」的一项条目包装。"""
 
     item: dict
-    hour: int
-    category: str
-    count: int
-    report_only: bool
-    reported: frozenset[str]
-    line: bool
 
 
 @dataclass(slots=True)
 class TodayFold:
-    """@brief 一个人物一天里「今天」的递推状态：当前各项（兜底改过的保持改后的样子）与已折入条目收尾的活动身份。"""
+    """@brief 一个人物一天里「今天」的递推状态：当前各项与已折入条目收尾的活动身份。"""
 
     slots: list[_Slot] = field(default_factory=list)
     concluded: set[str] = field(default_factory=set)
@@ -74,81 +60,13 @@ def layer_chars(layer: dict) -> int:
     return len(render_layer_json(layer))
 
 
-def require_budget(layer: dict) -> None:
-    """@brief 记忆层超过 MEMORY_LAYER_CHARS 字时写英文错误日志并以 RuntimeError 停止；容量浓缩从不改记忆层。"""
-    chars = layer_chars(layer)
-    if chars > MEMORY_LAYER_CHARS:
-        logging.error("Memory layer has %d characters, above its %d-character budget", chars, MEMORY_LAYER_CHARS)
-        raise RuntimeError(f"Memory layer exceeds {MEMORY_LAYER_CHARS} characters")
-
-
-def fold_entry(fold: TodayFold, entry: PublishedEntry, earliest: str | None, recent: dict) -> None:
-    """@brief 把一条已发布的条目接到「今天」末尾；接上后记忆层超过 MEMORY_LAYER_CHARS 字时兜底回落。
-
-    :param fold: 当天的递推状态，原地更新。
-    :param entry: 第 k−1 次决策的条目。
-    :param earliest: 这次观察「可查」的最早日期。
-    :param recent: 这次观察的「近三天」。
-    """
-    item = copy.deepcopy(entry.item)
-    fold.slots.append(_Slot(item, int(item["时刻"][:2]), item["类别"], 1, entry.report_only, entry.reported, False))
+def fold_entry(fold: TodayFold, entry: PublishedEntry, earliest: str | None = None, recent: dict | None = None) -> None:
+    """@brief 把一条已发布的条目原样接到「今天」末尾；不再触发 14k 硬回填改写。"""
+    del earliest, recent
+    fold.slots.append(_Slot(copy.deepcopy(entry.item)))
     fold.concluded |= entry.concluded
-    before = _chars(fold, earliest, recent)
-    if before > MEMORY_LAYER_CHARS:
-        _backstop(fold, lambda: _chars(fold, earliest, recent) <= MEMORY_BACKSTOP_CHARS)
-        logging.warning("Memory layer backstop rewrote today from %d to %d characters (target %d)",
-                        before, _chars(fold, earliest, recent), MEMORY_BACKSTOP_CHARS)
 
 
 def fold_items(fold: TodayFold) -> list[dict]:
     """@brief 「今天」此刻的各项（深拷贝，调用方改动不影响递推状态）。"""
     return [copy.deepcopy(slot.item) for slot in fold.slots]
-
-
-def _chars(fold: TodayFold, earliest: str | None, recent: dict) -> int:
-    """@brief 以当前各项组装的记忆层字数。"""
-    return layer_chars(assemble_layer(earliest, recent, [slot.item for slot in fold.slots]))
-
-
-def _backstop(fold: TodayFold, fits: Callable[[], bool]) -> None:
-    """@brief 兜底：换掉已收尾活动的播报自述、换掉其余播报自述、其余只留核验、按小时合成计数行；每改一项重量一次，
-    fits 为真即停。"""
-    concluded = [slot for slot in fold.slots
-                 if slot.report_only and slot.reported and slot.reported <= fold.concluded]
-    if _blank(concluded, fits) or _blank([slot for slot in fold.slots if slot.report_only], fits):
-        return
-    if _blank([slot for slot in fold.slots if not slot.line], fits):
-        return
-    _merge_hours(fold, fits)
-
-
-def _blank(slots: list[_Slot], fits: Callable[[], bool]) -> bool:
-    """@brief 依次把各项的「自述」换成 ["…"]（没有自述或已是 ["…"] 的跳过）；fits 为真即返回真。"""
-    for slot in slots:
-        if slot.item.get("自述", ["…"]) == ["…"]:
-            continue
-        slot.item = {**slot.item, "自述": ["…"]}
-        if fits():
-            return True
-    return False
-
-
-def _merge_hours(fold: TodayFold, fits: Callable[[], bool]) -> None:
-    """@brief 按组首项的先后，把本地小时与类别串相同的各项合成一行计数行，放在组首项的位置；fits 为真即停。"""
-    for key in list(dict.fromkeys((slot.hour, slot.category) for slot in fold.slots)):
-        members = [slot for slot in fold.slots if (slot.hour, slot.category) == key]
-        if len(members) == 1 and members[0].line:
-            continue
-        first = next(index for index, slot in enumerate(fold.slots) if (slot.hour, slot.category) == key)
-        kept = [slot for slot in fold.slots if (slot.hour, slot.category) != key]
-        kept.insert(first, _line(key, sum(slot.count for slot in members)))
-        fold.slots = kept
-        if fits():
-            return
-
-
-def _line(key: tuple[int, str], count: int) -> _Slot:
-    """@brief 一行计数行：{"时刻":"HH:00–HH′:00","类别":类别串,"条数":N}，23 时写 23:00–24:00。"""
-    hour, category = key
-    item = {"时刻": f"{hour:02d}:00–{hour + 1:02d}:00", "类别": category, "条数": count}
-    return _Slot(item, hour, category, count, False, frozenset(), True)

@@ -35,6 +35,7 @@ def stage_profile_identity(profile: ModelProfileConfig, metadata: ModelMetadata)
         transport_max_retries=profile.transport_max_retries, max_react_turns=profile.max_react_turns,
         reflection_validation_max_retries=profile.reflection_validation_max_retries,
         day_plan_validation_max_retries=profile.day_plan_validation_max_retries,
+        compact_trigger_tokens=profile.compact_trigger_tokens, prompt_cache_key=profile.prompt_cache_key,
         model_metadata=metadata, effective_max_tokens=effective,
     )
 

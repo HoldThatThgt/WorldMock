@@ -35,10 +35,32 @@ def _summary_lines(run_dir, rows):
     manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
     status = json.loads((run_dir / "status.json").read_text(encoding="utf-8"))
     counts: dict[str, int] = {}
+    prompt = cached = uncached = None
+    compactions = 0
     for row in rows:
         counts[row["event_type"]] = counts.get(row["event_type"], 0) + 1
+        data = row.get("data") or {}
+        if row["event_type"] == "model_response" and data.get("phase") == "response":
+            usage = (data.get("response") or {}).get("usage") or {}
+            if isinstance(usage.get("prompt_tokens"), int):
+                prompt = (prompt or 0) + usage["prompt_tokens"]
+                hit = usage.get("prompt_cache_hit_tokens")
+                if hit is None:
+                    hit = (usage.get("prompt_tokens_details") or {}).get("cached_tokens")
+                miss = usage.get("prompt_cache_miss_tokens")
+                if miss is None and isinstance(hit, int):
+                    miss = usage["prompt_tokens"] - hit
+                if isinstance(hit, int):
+                    cached = (cached or 0) + hit
+                if isinstance(miss, int):
+                    uncached = (uncached or 0) + miss
+        if row["event_type"] == "environment_event" and data.get("kind") == "day_session_compacted":
+            compactions += 1
+    ratio = f"{cached / prompt:.1%}" if prompt and cached is not None else "—"
+    cache_line = (f"缓存令牌   : 命中 {cached if cached is not None else '—'} / "
+                  f"未命中 {uncached if uncached is not None else '—'} / 命中率 {ratio}")
     return [f"run_id     : {manifest.get('run_id')}", f"状态       : {status.get('status')} ({status.get('phase')})",
-            f"事件总数   : {len(rows)}",
+            f"事件总数   : {len(rows)}", cache_line, f"日内压缩   : {compactions} 次",
             *(f"  {name:24s} {count}" for name, count in sorted(counts.items(), key=lambda item: -item[1]))]
 
 
@@ -60,7 +82,8 @@ def test_summary_orders_equal_counts_by_first_occurrence(tmp_path, capsys):
     store.close()
     write_status(run_dir, "running", "deciding")
     lines = _printed(run_dir, inspect_run.cmd_summary, capsys)
-    assert lines[2:] == ["事件总数   : 4", f"  {'observation':24s} 2", f"  {'decision_started':24s} 2"]
+    assert lines[2:] == ["事件总数   : 4", "缓存令牌   : 命中 — / 未命中 — / 命中率 —", "日内压缩   : 0 次",
+                         f"  {'observation':24s} 2", f"  {'decision_started':24s} 2"]
     assert lines == _summary_lines(run_dir, _whole_history(run_dir))
 
 

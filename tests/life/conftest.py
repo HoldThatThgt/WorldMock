@@ -126,23 +126,21 @@ def errand_cancel(name: str, reason: str) -> dict:
             "remind_time": None, "reason": reason}
 
 
-def bring_to_window(engine: LifeEngine, object_ids, agent_id: int = 1) -> None:
-    """让给定商品进入下一次观察的呈现窗口：其余门店商品都记为此刻刚呈现过，
-    给定对象从未呈现——轮转按每个对象的上次呈现时刻把换新名额留给该分区最久未呈现的对象
-    （docs/design/04-simulation-engine.md ），每个分区至多三个。经存储落盘并保持版本连续。"""
-    from worldmock.recording_engine.events.models import EventDraft
+def stub_day_session(wakeup: AgentWakeupInput):
+    """@brief 为直接调用沙盒 finish_wakeup 的测试构造最小合法 DaySessionState。"""
+    from worldmock.agents.life_agent import life_tool_schema_sha256
+    from worldmock.agents.prompt.life_prompt import system_message
+    from worldmock.state.decisions.day_session import DaySessionState
 
-    wanted = set(object_ids)
-    catalog = engine.context.catalog
-    everything = set(catalog.goods)
-    staged = engine.context.state.model_copy(deep=True)
-    staged.presentation_state = {**staged.presentation_state,
-                                 agent_id: {item: staged.current_time for item in sorted(everything - wanted)}}
-    staged.version += 1
-    engine.context.store.commit(engine.context.state.model_dump(mode="json"), staged.model_dump(mode="json"), [EventDraft(
-        event_type="environment_event", occurred_at=staged.current_time, visibility="system",
-        data={"kind": "test_brought_to_window"})])
-    engine.context.state = staged
+    if wakeup.day_session is not None:
+        return wakeup.day_session
+    sys_msg = system_message()
+    return DaySessionState(
+        local_date=wakeup.local_date,
+        system_prompt=sys_msg["content"],
+        tools_digest=life_tool_schema_sha256(),
+        messages=(sys_msg, {"role": "user", "content": "[]"}),
+    )
 
 
 def plan_day_response(goals: list[dict] | None = None, arguments: str | None = None, model="test-model") -> dict:
@@ -319,14 +317,13 @@ def submit_barrier(engine: LifeEngine, requests: dict[int, tuple[str, object]], 
         if res.suspended:
             suspended = SuspendedLoopState(
                 wakeup_id=wakeup.wakeup_id, action_id=action_id,
-                activity_id=res.tool_message_payload["activity_id"], pending_tool_call_id="call-1",
-                messages=(), turn_used=1, memory_search_count=0, accepted_action_ids=(action_id,),
+                activity_id=res.activity_id, pending_tool_call_id="call-1",
+                turn_used=1, memory_search_count=0, accepted_action_ids=(action_id,),
                 pending_memories=(), verified_experiences=(), local_rejection_counts={},
                 observation_event_id=wakeup.observation["observation_event_id"],
                 observation_parts=dict(wakeup.observation_parts), suspended_at=wakeup.observed_at,
-                base_layers=(),
             )
-        outcomes.append(sandbox.finish_wakeup(suspended))
+        outcomes.append(sandbox.finish_wakeup(suspended, stub_day_session(wakeup)))
     receipt = engine.commit_barrier(outcomes)
     return receipt, action_ids
 
@@ -427,6 +424,13 @@ def search_world(query_text: str, prefer: str | None = None):
     return SearchWorldRequest(query=query_text, prefer=prefer)
 
 
+def continue_request(reason: str | None = None):
+    """@brief 维持当前进行中活动的边界退出请求；reason 可为 null 或 1..200 字符的说明。"""
+    from worldmock.state.interaction.requests import ContinueActivityRequest
+
+    return ContinueActivityRequest(reason=reason)
+
+
 def tool_of(request) -> str:
     """@brief 请求模型对应的世界请求工具名。"""
     from worldmock.state.interaction.requests import REQUEST_MODELS
@@ -494,7 +498,7 @@ def conclude_pending(engine: LifeEngine, label: str = "conclude", agent_id: int 
     assert names, "no activity is awaiting conclusion"
     action_id = f"{wakeup.wakeup_id}:action:0001"
     sandbox.dispatch_world_tool("conclude_activity", conclude_request(*names), action_id)
-    outcome = sandbox.finish_wakeup(None)
+    outcome = sandbox.finish_wakeup(None, stub_day_session(wakeup))
     engine.commit_barrier([outcome])
     row = next(event for event in engine.context.store.iter_events(engine.context.store.last_event_seq)
                if event.event_type == "action_result" and event.action_id == action_id)

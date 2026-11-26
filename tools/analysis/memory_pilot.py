@@ -121,7 +121,6 @@ _CHECKS = (
     ("search_validation_errors", "M5.validation_errors.value", "<=", 0.05),
     ("search_non_empty", "M5.non_empty.value", ">=", 0.70),
     ("search_is_read_only", "M5.non_model_events_between", "==", 0),
-    ("memory_layer_budget", "M6.memory_layer_by_observation.max", "<=", 14000),
     ("progress_layer_median", "M6.layers.进度层.median", "<=", 3000),
     ("progress_layer_p90", "M6.layers.进度层.p90", "<=", 7000),
     ("user_message_median", "M6.layers.user.median", "<=", 22000),
@@ -1103,7 +1102,7 @@ def m6_volume(export: PilotExport, rows: list[Decision]) -> dict:
         "layers": _layer_sizes(fresh),
         "memory_layer_by_observation": _stats(len(_compact(event["data"].get("memory_layer")))
                                               for event in _observations(export)),
-        "fallback_rewrites": _fallback_rewrites(export),
+        "fallback_rewrites": 0,
         "persona_layer_identical": _ratio(sum(layer == personas[0] for layer in personas), len(personas)),
         "token_ratio": _token_ratio(rows, fresh),
     }
@@ -1124,19 +1123,6 @@ def _layer_sizes(fresh: Sequence[dict]) -> dict:
                            ("tools", _compact(body.get("tools", [])))):
             sizes.setdefault(name, []).append(len(text))
     return {name: _stats(values) for name, values in sizes.items()}
-
-
-def _fallback_rewrites(export: PilotExport) -> int:
-    """@brief 兜底触发次数：「今天」不以同一本地日上一条观察的「今天」开头的观察数（当天第一条不比较）。"""
-    previous: dict[date, list[str]] = {}
-    count = 0
-    for event in _observations(export):
-        day = _day(export, event["occurred_at"])
-        today = [_compact(entry) for entry in _today(event)]
-        if day in previous and today[:len(previous[day])] != previous[day]:
-            count += 1
-        previous[day] = today
-    return count
 
 
 def _character_counts(text: str) -> list[int]:
@@ -1270,7 +1256,7 @@ def m9_guardrails(export: PilotExport, rows: list[Decision]) -> dict:
         "rejections": sum(event["event_type"] == "action_rejected" for event in export.events),
         "rejection_limit": round(limit, 4), "turns": _turn_report(export, rows),
         "run_failures": sum(event["event_type"] == "run_failed" for event in export.events),
-        "capacity_compressions": sum(_condensed(request) for row in rows for request in row.requests),
+        "capacity_compressions": _compaction_events(export),
         "restarted": _restarts(export, rows),
     }
 
@@ -1281,7 +1267,7 @@ def _turns(row: Decision) -> int:
 
 
 def _max_react_turns(export: PilotExport) -> int:
-    """@brief 从冻结运行清单 v8 多模型身份解析本人物行动阶段绑定档的回合上限。"""
+    """@brief 从冻结运行清单 v9 多模型身份解析本人物行动阶段绑定档的回合上限。"""
     identity = export.manifest["frozen_run_manifest"]["model_identity"]
     routing = identity["routing"]
     override = (routing.get("agent_overrides") or {}).get(str(export.agent_id)) or {}
@@ -1300,12 +1286,12 @@ def _turn_report(export: PilotExport, rows: Sequence[Decision]) -> dict:
                              "turns": turns[row.wakeup_id]} for row in rows if turns[row.wakeup_id] >= SIX_TURNS]}
 
 
-def _condensed(request: dict) -> bool:
-    """@brief 首个 user 消息的进度层里有没有 type 为 condensed 的记录。"""
-    layer = _named_layer(request, "进度层")
-    records = layer.get("events") if layer is not None else None
-    return isinstance(records, list) and any(isinstance(item, Mapping) and item.get("type") == "condensed"
-                                             for item in records)
+def _compaction_events(export: PilotExport) -> int:
+    """@brief 统计导出事件中 kind == day_session_compacted 的日内上下文压缩事件次数。"""
+    return sum(
+        event["event_type"] == "environment_event" and event["data"].get("kind") == "day_session_compacted"
+        for event in export.events
+    )
 
 
 def _restarts(export: PilotExport, rows: Sequence[Decision]) -> list[dict]:

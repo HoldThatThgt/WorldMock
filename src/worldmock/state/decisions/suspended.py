@@ -22,7 +22,6 @@ class SuspendedLoopState(StateModel):
     action_id: str = Field(min_length=1)
     activity_id: str = Field(min_length=1)
     pending_tool_call_id: str = Field(min_length=1)
-    messages: tuple[dict[str, Any], ...]
     turn_used: int = Field(ge=0)
     memory_search_count: int = Field(default=0, ge=0)
     accepted_action_ids: tuple[str, ...] = ()
@@ -32,4 +31,3 @@ class SuspendedLoopState(StateModel):
     observation_event_id: str = Field(min_length=1)
     observation_parts: dict[str, str] = Field(default_factory=dict)
     suspended_at: int = Field(ge=0)
-    base_layers: tuple[dict[str, Any], ...] = ()

@@ -2,20 +2,19 @@
 
 from datetime import timedelta
 
-from tests.life.conftest import action_identity, advance_next, advance_next_async, conclude_request, report_request, sleep, tool_of, travel
+from tests.life.conftest import action_identity, advance_next, advance_next_async, conclude_request, report_request, sleep, stub_day_session, tool_of, travel
 from worldmock.state.decisions.barrier import SearchSessionOutcome
 from worldmock.state.decisions.suspended import SuspendedLoopState
 
 
-def _suspended_for(wakeup, action_id: str, payload: dict) -> SuspendedLoopState:
+def _suspended_for(wakeup, action_id: str, activity_id: str) -> SuspendedLoopState:
     """@brief 为测试挂起分支构造确定性 SuspendedLoopState。"""
     return SuspendedLoopState(
-        wakeup_id=wakeup.wakeup_id, action_id=action_id, activity_id=payload["activity_id"],
-        pending_tool_call_id="call-1", messages=(), turn_used=1, memory_search_count=0,
+        wakeup_id=wakeup.wakeup_id, action_id=action_id, activity_id=activity_id,
+        pending_tool_call_id="call-1", turn_used=1, memory_search_count=0,
         accepted_action_ids=(action_id,), pending_memories=(), verified_experiences=(),
         local_rejection_counts={}, observation_event_id=wakeup.observation["observation_event_id"],
         observation_parts=dict(wakeup.observation_parts), suspended_at=wakeup.observed_at,
-        base_layers=(),
     )
 
 
@@ -25,8 +24,8 @@ def act(engine, label, request, tool=None, action_id=None):
     sandbox = engine.open_sandbox(wakeup)
     identity = action_id or action_identity(label, 1, wakeup.agent_id)
     res = sandbox.dispatch_world_tool(tool or tool_of(request), request, identity)
-    suspended = _suspended_for(wakeup, identity, res.tool_message_payload) if res.suspended else None
-    outcome = sandbox.finish_wakeup(suspended)
+    suspended = _suspended_for(wakeup, identity, res.activity_id) if res.suspended else None
+    outcome = sandbox.finish_wakeup(suspended, stub_day_session(wakeup))
     engine.commit_barrier([outcome])
     return wakeup.observation, action_result(engine, identity)
 
@@ -46,7 +45,7 @@ def act_group(engine, label, *requests):
     else:
         for identity, request in zip(identities, requests, strict=True):
             sandbox.dispatch_world_tool(tool_of(request), request, identity)
-    outcome = sandbox.finish_wakeup(None)
+    outcome = sandbox.finish_wakeup(None, stub_day_session(wakeup))
     engine.commit_barrier([outcome])
     return wakeup.observation, [action_result(engine, identity) for identity in identities]
 
@@ -198,9 +197,16 @@ def conclude_app_use(engine, activity_id, label, items=1):
     return act(engine, f"{label}-conclude", conclude_request(activity.name, *others), "conclude_activity")[1]
 
 
-def observe_only(engine, label=None):
+def observe_only(engine, label=None, loaded_target_keys=()):
     """人物此刻的一次只读观察（不写任何事件）。"""
-    obs = engine.observations.build_wakeup_observation(engine.context.state.agents[1])[0]
+    from worldmock.foundation.time.readable import local_date
+
+    agent = engine.context.state.agents[1]
+    today = local_date(engine.context.state.current_time, engine.context.config.timezone)
+    session = agent.day_session
+    base_loaded = session.loaded_target_keys if session is not None and session.local_date == today else ()
+    loaded = tuple(dict.fromkeys((*base_loaded, *loaded_target_keys)))
+    obs = engine.observations.build_wakeup_observation(agent, loaded)[0]
     obs.setdefault("observation_event_id", f"readonly-{label or 'obs'}")
     return obs
 

@@ -211,7 +211,8 @@ def test_clock_in_refusal_repeats_the_tool_layer_reason_and_changes_nothing(
     engine = dingtalk_engine(engine_factory, tmp_path, start_day=when[0])
     stage_moment(engine, moment(*when), location)
     before = engine.context.state.model_copy(deep=True)
-    observed, result = act(engine, "clock", use_app("钉钉"))
+    observed = engine.observations._observation_data(engine.context.state.agents[1], (("app", "dingtalk"),))
+    _, result = act(engine, "clock", use_app("钉钉"))
     assert dingtalk_row(observed) == app_row(reason)
     assert result.status == "rejected" and result.error_code == "CONTENT_PREREQUISITE_UNMET"
     assert result.message == result.data["reason"] == reason
@@ -281,7 +282,8 @@ def test_paused_prerequisite_content_resumes_outside_its_window(engine_factory, 
     position = engine.context.state.agents[1].content_progress["dingtalk-report"].position_seconds
     assert 0 < position < 1800
     stage_moment(engine, moment(12, 10, 30), "office")
-    observed, resumed = act(engine, "resume", report_request(name), "report_status")
+    observed = engine.observations._observation_data(engine.context.state.agents[1], (("app", "dingtalk"),))
+    _, resumed = act(engine, "resume", report_request(name), "report_status")
     # 此刻新开一次会被拒绝，恢复不判定前提
     assert dingtalk_row(observed)["available"] is False
     assert resumed.status == "completed", resumed.error_code

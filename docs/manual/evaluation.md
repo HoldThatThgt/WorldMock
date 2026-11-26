@@ -5,8 +5,8 @@ WorldMock 保留原有质量报告与工作、行为统计。独立候选比较�
 
 ## 查看原有质量报告
 
-按原有方式执行 `worldmock export`（导出格式版本 `EXPORT_SCHEMA_VERSION = 9`）。输出目录仍包含 `quality.json`，导出认证仍核对其字节与完整重算结果。
-导出清单同步冻结为运行清单 v8（`model_identity`、`persona_sha256s`）与 `EXPORT_SCHEMA_VERSION = 9`；`quality.json` 的结构版本是 `11`，在既有调用类之外单列 `search_session`（`LLM Search Session` 搜索子会话调用，与 `action` 决策轮分列），并采用 `wakeup_id` 计数口径（删除退役的 `same_moment_round_counts` 字段）。
+按原有方式执行 `worldmock export`（导出格式版本 `EXPORT_SCHEMA_VERSION = 10`）。输出目录仍包含 `quality.json`，导出认证仍核对其字节与完整重算结果。
+导出清单同步冻结为运行清单 v9（`model_identity`、`persona_sha256s`）与 `EXPORT_SCHEMA_VERSION = 10`；`quality.json` 的结构版本是 `12`，在既有调用类之外单列 `search_session`（`LLM Search Session` 搜索子会话调用，与 `action` 决策轮分列），并采用日会话调用分类（`fresh_decision_turn`、`turn_with_history`、`truncation_retry`）、`cached_input_tokens` / `uncached_input_tokens` / `cache_hit_ratio` 缓存统计与 `day_session_compacted` Compaction 计数口径（以及 `wakeup_id` 计数）。
 旧格式环境包与旧代码写出的导出都通不过当前严格准入与导出认证，请使用当前格式的环境包重新运行并导出。
 
 ## 检查一次运行的工作和作息
@@ -24,7 +24,7 @@ python scripts/inspect_run.py <运行目录> workday --environment <完整环境
 
 Python 调用方使用 `tools.analysis.behavior.metrics.behavior_metrics_report`；
 工作输入和工作报告使用 `tools.analysis.behavior.workday.workday_inputs`、`workday_reports`。
-`behavior_metrics_report` 的参数是事件与关键字参数 `timezone`、`locations`、`workday`，不接受 `MEMORY.md` 文本；返回字段与缺失说明保持原样，只是 `gates` 里没有 `memory_md_identity_residue`；`behavior-metrics-4` 标识不变。
+`behavior_metrics_report` 的参数是事件与关键字参数 `timezone`、`locations`、`workday`，不接受 `MEMORY.md` 文本；门控适配日会话连续前缀（按 `(agent_id, wakeup_id)` 与末尾 `role: "tool"` 差量签名去重，严格校验单 `user` 消息不变量），报告同步输出缓存命中率与日内 Compaction 摘要；`behavior-metrics-4` 标识不变。
 事件必须先经过记录引擎认证；按代码身份分组时，身份来自对应冻结运行清单。
 
 缺少地点或工作输入时，相关指标仍按原合同返回未知值和说明，不能据此宣称行为真实或检查通过。
@@ -38,7 +38,7 @@ Python 调用方使用 `tools.analysis.behavior.metrics.behavior_metrics_report`
 uv run python -m tools.analysis.memory_pilot --export <导出目录> [--output <文件>]
 ```
 
-命令先按运行清单 v8（`ModelIdentity`）、导出 v9 与质量报告 v11 认证导出，再以 `wakeup_id` 替代退役 `decision_id` 计算指标；认证不过、导出不是单人运行或冻结目录文件不全时写错误日志并返回 1，不产生报告。
+命令先按运行清单 v9（`ModelIdentity`）、导出 v10 与质量报告 v12 认证导出，再按日会话口径计算指标（`M9.capacity_compressions` 对齐 `day_session_compacted` 事件，移除 `M6.memory_layer_budget` 与 `_backstop` 改写检查）；认证不过、导出不是单人运行或冻结目录文件不全时写错误日志并返回 1，不产生报告。
 只接收当前代码认证得过的单人导出（`agent_ids` 恰含一名人物），旧代码写出的导出认证不过，要用当前代码重新运行再导出。
 不给 `--output` 时报告写到标准输出；给了时文件必须还不存在，已存在时拒绝且不覆盖。
 

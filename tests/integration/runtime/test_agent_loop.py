@@ -43,7 +43,6 @@ from worldmock.agents.protocol.agent_loop import (  # noqa: E402
     TURNS_EXHAUSTED,
     build_tool_schema,
 )
-from worldmock.agents.protocol.life_truncation import RETRY_TOOL_CHOICE, TRUNCATION_CONTENT  # noqa: E402
 from worldmock.foundation.errors import ProtocolError  # noqa: E402
 from worldmock.state.interaction.actions import SEARCH_TOOL  # noqa: E402
 from worldmock.state.interaction.requests import RecallTaskSummaryRequest  # noqa: E402
@@ -72,7 +71,7 @@ def test_generic_agent_loop_decouples_from_life_and_runs_multi_turn() -> None:
         binding = resolved_binding(model, max_turns=4)
         config = LoopConfig(
             scope_id="scope-1", wakeup_id="wakeup-1", agent_id=1, call_kind="generic",
-            binding=binding, start_turn=1, max_turns=4, allow_thinking=False, protected_prefix=2,
+            binding=binding, start_turn=1, max_turns=4, allow_thinking=False,
         )
 
         def turn_tools(_remaining: int, _retry: bool) -> tuple[list[dict], dict[str, type[BaseModel]]]:
@@ -146,10 +145,11 @@ async def test_multi_turn_zero_second_control_tools_feed_layer_changes_without_a
     assert answer == ["revise_day_plan", "pause_activity", "report_status", "conclude_activity", MAIN_TOOL]
     assert [r.status for r in results] == ["completed", "completed", "completed", "completed", "in_progress"]
     assert engine.context.state.current_time == t_wakeup
-    # 每次控制工具都通过 tool 消息把 {result, changes, events} 喂入下一回合
+    # 每次控制工具都通过 tool 消息把 {ok, result, changes} 喂入下一回合
     for idx in range(1, 5):
         payload = json.loads(requests[idx]["messages"][-1]["content"])
-        assert set(payload) == {"result", "changes", "events"}
+        assert {"ok", "result", "changes"} <= set(payload) and payload["ok"] is True
+        assert set(payload) <= {"ok", "result", "changes", "events"}
 
 
 @pytest.mark.asyncio
@@ -186,7 +186,7 @@ async def test_read_queries_share_turn_and_cannot_mix_with_world_tools(engine_fa
 
 @pytest.mark.asyncio
 async def test_output_truncation_and_max_turns_exhaustion_preserve_prefix_and_drain_evidence(engine_factory) -> None:
-    """截断重试关闭思考并收窄至 6 核心工具；回合预算耗尽抛出 ProtocolError 且可回收未提交的纯证据草稿。"""
+    """截断重试保持恒定思考、恒定 11 工具与未改前缀；回合预算耗尽抛出 ProtocolError 且可回收未提交的纯证据草稿。"""
     engine = engine_factory(mutate=every_five_minutes)
     stage_day_plan(engine)
     [wakeup] = engine.prepare_barrier((1,))
@@ -196,15 +196,18 @@ async def test_output_truncation_and_max_turns_exhaustion_preserve_prefix_and_dr
     with pytest.raises(ProtocolError, match=f"^{TURNS_EXHAUSTED}$"):
         await LifeAgent(person_inputs(engine.context.inputs.persona_by_id[1])).decide_wakeup(wakeup, sb, binding)
     retry_req = model.requests[1]
-    assert retry_req["tool_choice"] == RETRY_TOOL_CHOICE
-    assert retry_req["extra_body"] == {"thinking": {"type": "disabled"}}
-    assert len(retry_req["tools"]) == 6
-    assert json.loads(retry_req["messages"][-1]["content"]) == json.loads(TRUNCATION_CONTENT)
-    assert len(retry_req["messages"]) == 3
+    assert retry_req["tool_choice"] == "auto"
+    assert retry_req["extra_body"] == {"thinking": {"type": "enabled"}}
+    assert len(retry_req["tools"]) == 11
+    assert retry_req["messages"] == model.requests[0]["messages"]
+    assert len(retry_req["messages"]) == 2
     drained = sb.drain_evidence()
     assert [d.event_type for d in drained] == [
         "decision_started", "observation",
         "model_request", "model_response", "model_request", "model_response", "model_request", "model_response",
+    ]
+    assert [d.data["protocol_feedback"]["error_code"] for d in drained if d.event_type == "model_response"] == [
+        "OUTPUT_TRUNCATED", "OUTPUT_TRUNCATED", "OUTPUT_TRUNCATED",
     ]
 
 

@@ -101,7 +101,7 @@ async def test_deleted_start_activity_reply_is_refused_as_a_tool_that_is_not_off
         ToolResponse("start_activity", {"items": [{"action": "interact", "target": "家"}]}),
         ToolResponse(MAIN_TOOL, _REST, "call-valid")])
     offered = [tool["function"]["name"] for tool in requests[0]["tools"]]
-    assert len(offered) == 9 and offered[:2] == [MAIN_TOOL, SIDE_TOOL] and "start_activity" not in offered
+    assert len(offered) == 11 and offered[:2] == [MAIN_TOOL, SIDE_TOOL] and "start_activity" not in offered
     feedback = json.loads(requests[1]["messages"][-1]["content"])
     assert feedback["error_code"] == "TOOL_CALL_REQUIRED"
     assert [item for item in feedback["items"] if item["path"] == ["tool_calls", 0, "function", "name"]] == [{
@@ -122,8 +122,11 @@ async def test_removed_query_world_reply_is_refused_as_a_tool_that_is_not_offere
                                      "offset": 0}),
         ToolResponse(MAIN_TOOL, _REST, "call-valid")])
     offered = [tool["function"]["name"] for tool in requests[0]["tools"]]
-    assert offered == ["start_main_activity", "start_side_activity", "report_status", "pause_activity",
-                       "conclude_activity", "revise_day_plan", "search_world", "recall_task_summary", "search_memory"]
+    assert offered == [
+        "start_main_activity", "start_side_activity", "search_world", "continue_activity",
+        "recall_task_summary", "report_status", "pause_activity", "conclude_activity",
+        "revise_day_plan", "search_memory", "lookup_targets",
+    ]
     feedback = json.loads(requests[1]["messages"][-1]["content"])
     assert feedback["error_code"] == "TOOL_CALL_REQUIRED"
     assert [item for item in feedback["items"] if item["path"] == ["tool_calls", 0, "function", "name"]] == [{
@@ -168,7 +171,7 @@ async def test_dataset_travel_method_name_is_the_one_wording_from_the_prompt_to_
     prompt = user_layer(json.loads(requests[0]["messages"][1]["content"]), "工具层")
     assert expand_tool_layer(prompt) == observed["tool_layer"]
     [group] = [row for row in prompt["groups"] if row["action"] == "travel"]
-    assert group["kind"] == "location" and len(group["targets"]) == 7 * 3
+    assert group["kind"] == "location" and len(group["targets"]) == 2 * 3
     assert [row["detail"] for row in group["targets"][:3]] == ["步行", "电动车", "划船"]
     assert [row["note"] for row in group["targets"][:3]] == ["费力", "轻松", "费力"]
     assert "travel_method_id" not in requests[0]["messages"][1]["content"]

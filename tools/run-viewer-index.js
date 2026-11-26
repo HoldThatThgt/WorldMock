@@ -9,8 +9,6 @@ const ViewerIndex = {
 {
   /** observation 的 data 里进索引的键：时间线摘要、身体曲线与经济流水按类型批量读取的四个字段（buildIndex 的投影）。 */
   const OBSERVATION_DATA_KEEP = ['balance_fen', 'body', 'active_activities', 'calendar_context'];
-  /** model_request 的 data.request.messages 进索引的条数：上下文索引只读第一条的 role 与 content（ContextView.index）。 */
-  const REQUEST_MESSAGES_KEEP = 1;
   /** 建索引时连续占用页面的上限（毫秒），超过就让出一次事件循环。 */
   const YIELD_MS = 100;
   /** 索引库的表：events 与 world_state 与运行数据库同形，event_lines 记每行在 events.jsonl 里的字节起点与长度（不含换行）。 */
@@ -22,18 +20,13 @@ version INTEGER NOT NULL, body TEXT NOT NULL);`;
   /** 与各视图按类型读取的 WHERE json_extract(body,'$.event_type')=… ORDER BY event_seq 同一写法的索引。 */
   const TYPE_INDEX = "CREATE INDEX events_type ON events(json_extract(body,'$.event_type'), event_seq)";
 
-  /** @brief 一条事件在索引里的形状：observation 的 data 只留 OBSERVATION_DATA_KEEP，model_request 的
-   *  data.request.messages 只留前 REQUEST_MESSAGES_KEEP 条，model_response 去掉 data.request；信封与其余字段原样。
-   *  其余类型返回 null，索引写原行。 */
+  /** @brief 一条事件在索引里的形状：observation 的 data 只留 OBSERVATION_DATA_KEEP，model_response 去掉 data.request；
+   *  model_request 保留完整日会话多轮 messages，信封与其余字段原样。其余类型返回 null，索引写原行。 */
   function prune(event) {
     const data = event.data;
     if (event.event_type === 'observation') {
       return {...event, data: Object.fromEntries(OBSERVATION_DATA_KEEP.filter(key => key in data)
         .map(key => [key, data[key]]))};
-    }
-    if (event.event_type === 'model_request') {
-      return {...event, data: {...data, request: {...data.request,
-        messages: data.request.messages.slice(0, REQUEST_MESSAGES_KEEP)}}};
     }
     if (event.event_type === 'model_response') {
       const {request, ...rest} = data;
@@ -140,8 +133,8 @@ version INTEGER NOT NULL, body TEXT NOT NULL);`;
     return '查询的是页面从导出的 events.jsonl 建的索引，不是运行数据库。表：<code>events(event_seq, event_id, body)</code>' +
       ' · <code>event_lines(event_seq, offset, length)</code> · <code>world_state(singleton, version, body)</code>' +
       '（只有带最终存档的完整导出才有一行）。body 为 JSON，可用 <code>json_extract</code> 取字段。<br>' +
-      `三类事件的 body 已裁剪：observation 的 data 只留 ${OBSERVATION_DATA_KEEP.join('、')}；` +
-      `model_request 的 data.request.messages 只留前 ${REQUEST_MESSAGES_KEEP} 条；model_response 去掉 data.request。` +
+      `两类事件的 body 已裁剪：observation 的 data 只留 ${OBSERVATION_DATA_KEEP.join('、')}；` +
+      'model_response 去掉 data.request；model_request 保留完整日会话多轮 messages。' +
       '其余事件的 body 与 events.jsonl 的原行相同。索引里没有 checkpoints 与 artifacts 表。<br>' +
       '完整的行在 events.jsonl 里：event_lines 是每行的字节起点与长度，时间线展开一行读的就是这一段。' +
       '要对完整事件、存档或素材写 SQL，用 <code>sqlite3</code> 以只读方式打开运行目录的 footprints.sqlite，' +

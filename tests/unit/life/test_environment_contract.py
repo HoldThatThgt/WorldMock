@@ -262,6 +262,7 @@ def test_model_identity_accepts_configured_endpoint_and_budgets():
         metadata_url="https://model.example/models", context_window=262144, thinking=True,
         max_output_tokens=4096, max_retries=2, transport_max_retries=3, max_react_turns=8,
         reflection_validation_max_retries=2, day_plan_validation_max_retries=2,
+        compact_trigger_tokens=80000, prompt_cache_key=False,
         model_metadata=meta, effective_max_tokens=4096,
     )
     identity = ModelIdentity(

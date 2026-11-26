@@ -8,7 +8,7 @@ from __future__ import annotations
 import pytest
 
 from tests.committed_world_guard import public_methods
-from tests.life.conftest import action_identity, advance_next, search_world, travel
+from tests.life.conftest import action_identity, advance_next, search_world, stub_day_session, travel
 from tests.life.environment_runtime import act, events, settle_decision
 from worldmock.foundation.errors import IntegrityError
 from worldmock.simulation_engine.engine import LifeEngine
@@ -80,7 +80,7 @@ def test_every_staging_entry_refuses_a_diverged_engine_world(engine_factory, com
         [wakeup] = engine.prepare_barrier((1,))
         sandbox = engine.open_sandbox(wakeup)
         sandbox.dispatch_world_tool("start_main_activity", travel("公司"), action_identity("probe"))
-        outcome = sandbox.finish_wakeup(None)
+        outcome = sandbox.finish_wakeup(None, stub_day_session(wakeup))
         call = lambda: engine.commit_barrier([outcome])
     else:
         engine = engine_factory()

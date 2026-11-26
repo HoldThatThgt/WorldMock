@@ -224,11 +224,20 @@ class ModelProfileConfig(InputModel):
     context_window: int = Field(ge=262144)
     thinking: bool
     max_output_tokens: int = Field(gt=0)
+    compact_trigger_tokens: int = Field(default=80000, ge=16384)
+    prompt_cache_key: bool = False
     max_retries: int = Field(default=0, ge=0, le=10)
     transport_max_retries: int = Field(default=3, ge=0, le=10)
     max_react_turns: int = Field(default=16, ge=1, le=64)
     reflection_validation_max_retries: int = Field(default=3, ge=0, le=5)
     day_plan_validation_max_retries: int = Field(default=3, ge=0, le=5)
+
+    @model_validator(mode="after")
+    def validate_compact_trigger(self) -> ModelProfileConfig:
+        """@brief 核对日内压缩阈值严格小于上下文窗口的 85%。"""
+        if self.compact_trigger_tokens >= int(self.context_window * 0.85):
+            _invalid("compact_trigger_tokens must be strictly less than int(context_window * 0.85)")
+        return self
 
 
 class ModelStageOverride(InputModel):
@@ -279,9 +288,9 @@ def referenced_profile_ids(routing: ModelRoutingConfig) -> tuple[str, ...]:
 
 
 class RunConfig(InputModel):
-    """@brief 一次多数字人运行的时区、时间、唯一种子、节律与双维模型配置；结构版本为 3。"""
+    """@brief 一次多数字人运行的时区、时间、唯一种子、节律与双维模型配置；结构版本为 4。"""
 
-    schema_version: Literal[3]
+    schema_version: Literal[4]
     seed: int
     timezone: str = Field(min_length=1)
     start_time: datetime
@@ -289,9 +298,6 @@ class RunConfig(InputModel):
     activity_feedback_seconds: int = Field(ge=60, le=86400)
     reconsideration_interval_seconds: int = Field(default=5400, gt=0, le=86400)
     progress_report_interval_seconds: int = Field(default=1800, gt=0)
-    candidate_presentation_limit: int = Field(default=20, gt=0, le=1000)
-    rotation_quota_ratio: float = Field(default=0.15, gt=0, lt=1, allow_inf_nan=False)
-    rotation_stale_seconds: int = Field(gt=0, le=31536000)
     calendar: CalendarConfig
     models: dict[str, ModelProfileConfig]
     model_routing: ModelRoutingConfig

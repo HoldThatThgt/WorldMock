@@ -106,7 +106,7 @@ def test_valid_environment_result_has_only_public_identity(environment):
 
 def test_independent_invalid_inputs_are_all_reported(environment):
     (environment / "personas" / "persona_1.toml").write_bytes(b"schema_version = 3\n")
-    (environment / "config.toml").write_bytes(b"schema_version = 3\n")
+    (environment / "config.toml").write_bytes(b"schema_version = 4\n")
     (environment / "catalog/app-catalog.jsonl").write_bytes(b"[]\n")
     result = validate_environment(environment, metadata_loader=metadata)
     assert result["valid"] is False
@@ -156,7 +156,9 @@ def test_persona_invalid_or_retired_values_fail(field, value):
 
 
 @pytest.mark.parametrize("field,value", [
+    ("schema_version", 3),
     ("seed", True), ("seed", 7.0), ("candidate_pool_limit", 100),
+    ("candidate_presentation_limit", 20), ("rotation_quota_ratio", 0.15), ("rotation_stale_seconds", 86400),
     ("max_same_moment_decisions", 6), ("idle_reconsideration_interval_seconds", 900),
     ("scenario_id", "old"),
 ])
@@ -178,6 +180,37 @@ def test_model_budgets_are_strict_bounded_integers(field, low, high):
     for value in (low - 1, high + 1, True, "1", 1.5):
         with pytest.raises(ValidationError):
             ModelProfileConfig.model_validate({**payload, field: value})
+
+
+def test_model_profile_compact_trigger_and_prompt_cache_key(environment):
+    """compact_trigger_tokens 默为 80000 且须处于 [16384, int(context_window * 0.85))；prompt_cache_key 仅收布尔。"""
+    payload = tomllib.loads((SOURCE / "config.toml").read_text(encoding="utf-8"))["models"]["reasoner"]
+    defaulted = ModelProfileConfig.model_validate(payload)
+    assert defaulted.compact_trigger_tokens == 80000
+    assert defaulted.prompt_cache_key is False
+
+    limit = int(payload["context_window"] * 0.85)
+    for valid_trigger in (16384, limit - 1):
+        assert ModelProfileConfig.model_validate(
+            {**payload, "compact_trigger_tokens": valid_trigger}
+        ).compact_trigger_tokens == valid_trigger
+    for bad_trigger in (16383, True, "80000", 80000.5):
+        with pytest.raises(ValidationError):
+            ModelProfileConfig.model_validate({**payload, "compact_trigger_tokens": bad_trigger})
+    with pytest.raises(ValidationError, match="compact_trigger_tokens must be strictly less than"):
+        ModelProfileConfig.model_validate({**payload, "compact_trigger_tokens": limit})
+
+    assert ModelProfileConfig.model_validate({**payload, "prompt_cache_key": True}).prompt_cache_key is True
+    for bad_flag in (1, 0, "true", None):
+        with pytest.raises(ValidationError):
+            ModelProfileConfig.model_validate({**payload, "prompt_cache_key": bad_flag})
+
+    anchor = b"max_output_tokens = 16000\n"
+    assert config_rejected(environment, anchor, anchor + f"compact_trigger_tokens = {limit}\n".encode()) == (
+        "config.toml", "RUN_CONFIG_INVALID",
+        "compact_trigger_tokens must be strictly less than int(context_window * 0.85)")
+    assert config_rejected(environment, anchor, anchor + b'prompt_cache_key = "true"\n') == (
+        "config.toml", "RUN_CONFIG_INVALID", "Run config validation failed")
 
 
 @pytest.mark.parametrize("payload", [
@@ -236,13 +269,13 @@ def config_rejected(environment, original: bytes, replacement: bytes):
     return caught.value.path, caught.value.code, caught.value.reason
 
 
-@pytest.mark.parametrize("written", [b"1", b"2", b"4", b"0", b'"3"', b"3.5", b"true"])
-def test_config_schema_version_other_than_three_is_rejected_without_an_old_format_reader(environment, written):
-    """config.toml 的结构版本是 3：写旧版本或非整数字面量的文件都被严格字面量拒绝，
-    原因写出这个字段；纯校验给出同一条 {path, code, reason}。夹具写的 3 可以加载。"""
-    assert parse_run_config_file(environment / "config.toml")[0].schema_version == 3
-    reason = "schema_version: Input should be 3"
-    assert config_rejected(environment, b"schema_version = 3\n", b"schema_version = " + written + b"\n") == (
+@pytest.mark.parametrize("written", [b"1", b"2", b"3", b"5", b"0", b'"4"', b"4.5", b"true"])
+def test_config_schema_version_other_than_four_is_rejected_without_an_old_format_reader(environment, written):
+    """config.toml 的结构版本是 4：写旧版本或非整数字面量的文件都被严格字面量拒绝，
+    原因写出这个字段；纯校验给出同一条 {path, code, reason}。夹具写的 4 可以加载。"""
+    assert parse_run_config_file(environment / "config.toml")[0].schema_version == 4
+    reason = "schema_version: Input should be 4"
+    assert config_rejected(environment, b"schema_version = 4\n", b"schema_version = " + written + b"\n") == (
         "config.toml", "RUN_CONFIG_INVALID", reason)
     assert validate_environment(environment, metadata_loader=metadata) == {
         "valid": False, "errors": [{"path": "config.toml", "code": "RUN_CONFIG_INVALID", "reason": reason}]}
@@ -250,7 +283,7 @@ def test_config_schema_version_other_than_three_is_rejected_without_an_old_forma
 
 def test_config_without_a_schema_version_is_rejected_and_names_the_field(environment):
     """config.toml 的结构版本没有缺省值：整行不写时原因是这个字段必填。"""
-    assert config_rejected(environment, b"schema_version = 3\n", b"") == (
+    assert config_rejected(environment, b"schema_version = 4\n", b"") == (
         "config.toml", "RUN_CONFIG_INVALID", "schema_version is required")
 
 

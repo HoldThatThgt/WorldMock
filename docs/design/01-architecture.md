@@ -52,7 +52,7 @@ flowchart TB
 引擎内部按登记、计算、活动、调度、沙盒屏障和记录等职责分子目录。
 跨模块共用的状态、请求、挂起恢复载荷与纯字段判定在 `state` 中维护，通用模型、文件和序列化函数在 `foundation` 中维护。
 人物提示与主观记忆、多人物与模型档案路由配置、运行装配分别独立；目录调整与职责切分保持规则一致性。
-认证导出包含跟随当前版本的 `quality.json`（结构版本 `11`），统计字段与严格重算要求按当前合同校验。
+认证导出包含跟随当前版本的 `quality.json`（结构版本 `12`），统计字段与严格重算要求按当前合同校验。
 独立候选比较、真人参照、盲评和 `evaluate` 命令退役；保留的独立行为分析在 `tools/analysis` 中运行。
 导出认证实际依赖的约束、事务和质量统计仍由记录引擎提供，工具复用它们，不复制实现。
 
@@ -79,10 +79,10 @@ flowchart TB
 
 | 状态 | 唯一写入方 | 协作边界 |
 | --- | --- | --- |
-| 世界时钟、人物客观状态、活动、订单与计划 | 模拟引擎 | 模型推理并发运行在 `AgentSandbox` 深拷贝沙盒与只读 `SearchCatalogView` 上；只有 `LifeEngine` 主线程在屏障提交与推进事务中更新已提交 `WorldState` |
+| 世界时钟、人物客观状态、活动、订单、计划与已提交日会话 | 模拟引擎 | 模型推理并发运行在 `AgentSandbox` 深拷贝沙盒与只读 `SearchCatalogView` 上；`AgentSandbox` 在唤醒内维护 `_loaded_target_keys` 与 `_delivered_layers` 并在退出时封装 `SandboxOutcome.day_session`；只有 `LifeEngine` 主线程在屏障提交、午夜跨日重置与推进事务中更新已提交 `WorldState` |
 | 登记对象、内容与发布图 | 资源引擎 | 启动时读取发布版本，运行中只读 |
 | 交换常数与计算规则 | 交换引擎 | 返回纯计算结果，不直接修改世界或存储 |
-| 主观记忆、画像与模型会话 | 人物模块 | 引用真实事件形成主观记录，工作区 `MEMORY.md` 仅在屏障提交成功后落盘 |
+| 主观记忆、画像与日会话连续消息构建 | 人物模块 | 引用真实事件形成主观记录，工作区 `MEMORY.md` 仅在屏障提交成功后落盘；`LifeAgent` 与 `AgentLoop` 负责构建日内连续 `DaySessionState.messages` 与确定性日内 Compaction，由 `AgentSandbox.finish_wakeup` 封口交还模拟引擎提交 |
 | 持久事件、素材、状态版本与检查点 | 记录引擎 | 在单次 SQLite 事务内保存并校验，向恢复与评估提供已记录事实 |
 
 运行宿主（`src/worldmock/runtime/lifecycle/run_host.py` 的 `RunHost`）组织调用，不另建世界状态副本，也不持有第二份时钟。字段面见[状态与序列化](09-io-formats.md)，
@@ -120,7 +120,9 @@ flowchart LR
 ### 观察、行动与执行
 
 模拟引擎在同刻屏障通过 `prepare_barrier` 为每位就绪人物生成只读 `AgentWakeupInput`，人物模块经 `ModelRegistry` 按阶段与人物解析模型档案并在个人沙盒 `AgentLoop` 内执行多回合推理。
-只读查询（`search_memory` 与 `recall_task_summary`）以及零耗时世界控制工具、业务规则拒绝均在沙盒内存即时结算，随状态差量 `layer_changes` 直接写回当前 `messages` 的 `tool` 消息；发起 `search_world` 时保存无栈挂起载荷 `SuspendedLoopState`；持续开始动作或开始组受理后退出循环，由 `BarrierMerger` 按 `agent_id` 升序核验并原子提交。
+同一人物在同一本地日内沿用连续**日会话**（`DaySessionState`）：当日首次唤醒初始化 `[system, init_user]`，后续唤醒与搜索恢复将 `boundary_delta_payload` 或 `search_result_payload` 作为配对 `role: "tool"` 差量消息追加到原消息前缀之后，全天除 `messages[1]` 外严禁插入第二条 `role: "user"` 消息，跨轮维持 `tools`（11 个原生工具）与 `thinking` 恒定不变，并在达到 `compact_trigger_tokens` 水位时执行确定性**日内 Compaction**、跨越本地午夜 `00:00` 时执行**跨日重置**（置 `day_session = None`）。
+`工具层` 通过**顶层门禁**（`工具层.gate`）统一宣告槽位、睡眠、在途与待收尾全局约束，行级只评估目标固有条件并精简为**核心常驻工具层**（移除商品轮转窗口）。
+只读查询（`search_memory`、`recall_task_summary` 与零耗时按需目标检索 `lookup_targets`）以及零耗时世界控制工具、业务规则拒绝均在沙盒内存即时结算，随状态差量 `layer_changes` 直接写回当前 `messages` 的 `tool` 消息；发起 `search_world` 时保存无栈挂起载荷 `SuspendedLoopState`；持续开始动作、开始组或 `continue_activity`（取代已废除的纯文本空闲退出）受理后退出循环，由 `BarrierMerger` 按 `agent_id` 升序核验冲突并原子提交 `WorldState.agents[id].day_session` 与事件草稿。
 模型的叙述只作为主观文字保存，不能代替实际进度、支付或收货；搜索子会话亦受 `Fact Guard` 严格约束，禁止编造数值或虚构标识。
 
 请求和受理规则见[模拟引擎](04-simulation-engine.md)，
@@ -143,8 +145,8 @@ flowchart LR
     R --> F["记录引擎保存新分支的实际足迹"]
 ```
 
-检查点包含共同边界上的世界状态（含无栈挂起载荷 `AgentState.suspended_loop`）、全体数字人工作区及恢复所需材料。
-记录引擎负责核验和提供这些材料，模拟引擎负责恢复外部运行实例、施加已声明的干预（反事实干预会清空全员 `suspended_loop`）并继续执行。
+检查点包含共同边界上的世界状态（含无栈挂起载荷 `AgentState.suspended_loop` 与日会话状态 `AgentState.day_session`，结构版本 `WORLD_SCHEMA_VERSION = 18`）、全体数字人工作区及恢复所需材料。
+记录引擎负责核验和提供这些材料，模拟引擎负责恢复外部运行实例、施加已声明的干预（反事实干预会清空全员 `suspended_loop` 与 `day_session`）并继续执行。
 假设文本和实际重新模拟得到的结果分别标明来源，新分支结果不改写原分支经历。
 完整规则见[记录引擎](05-recording-engine.md)与[模拟引擎](04-simulation-engine.md)。
 
@@ -170,12 +172,12 @@ flowchart LR
 
 | 职责包 | 现有承载位置 | 详细设计 |
 | --- | --- | --- |
-| 数字人 | [LifeAgent](../../src/worldmock/agents/life_agent.py)、[通用循环与协议](../../src/worldmock/agents/protocol)（`agent_loop.py`、`engine_handle.py`）、`agents/search/` 搜索子会话、`agents/prompt/` 七层提示、[人物工作区与记忆存储](../../src/worldmock/agents/memory) | [人物](06-agent.md) |
+| 数字人 | [LifeAgent](../../src/worldmock/agents/life_agent.py)、[通用循环与协议](../../src/worldmock/agents/protocol)（`agent_loop.py`、`engine_handle.py`）、`agents/search/` 搜索子会话、`agents/prompt/` 七层提示与日内 Compaction（`prompt_capacity.py`）、[人物工作区与记忆存储](../../src/worldmock/agents/memory) | [人物](06-agent.md) |
 | 配置与模型 | `configuration/inputs/`（`personas/*.toml` 与 `config.toml`）、[人物画像](../../src/worldmock/configuration/persona)、[模型客户端与元数据](../../src/worldmock/configuration/model)（含 `ModelRegistry`） | [配置](08-configuration.md) |
-| 共享状态与基础 | `state/`（含 `state/decisions/barrier.py` 与 `state/interaction/search_requests.py`）、`foundation/` | [状态与序列化](09-io-formats.md) |
+| 共享状态与基础 | `state/`（含 `state/decisions/day_session.py`、`state/decisions/barrier.py` 与 `state/interaction/search_requests.py`）、`foundation/` | [状态与序列化](09-io-formats.md) |
 | 资源引擎 | [目录登记、加载与图查询](../../src/worldmock/resource_engine)及只读反向索引；内容选择与进度由模拟引擎负责 | [资源引擎](03-resource-engine.md) |
 | 交换引擎 | [固定类型、常数与算子](../../src/worldmock/exchange_engine)、[具体动作声明](../../src/worldmock/exchange_engine/conditions/activity_rules.py)、[资源分录计算与校验](../../src/worldmock/exchange_engine/ledger)及生活模型中的条件、费用和报酬规则 | [交换引擎](02-exchange-engine.md) |
-| 模拟引擎 | [模拟职责](../../src/worldmock/simulation_engine)、[LifeEngine](../../src/worldmock/simulation_engine/engine.py)、[沙盒与屏障提交](../../src/worldmock/simulation_engine/decisions)（`sandbox.py`、`merger.py`）、`activities/search/` 搜索投影、[日、月、年回顾](../../src/worldmock/simulation_engine/evidence/memory_digest.py) | [模拟引擎](04-simulation-engine.md) |
+| 模拟引擎 | [模拟职责](../../src/worldmock/simulation_engine)、[LifeEngine](../../src/worldmock/simulation_engine/engine.py)、[沙盒与屏障提交](../../src/worldmock/simulation_engine/decisions)（`sandbox.py`、`merger.py`）、[观察与核心常驻工具层](../../src/worldmock/simulation_engine/observation)、`activities/search/` 搜索投影、[日、月、年回顾](../../src/worldmock/simulation_engine/evidence/memory_digest.py) | [模拟引擎](04-simulation-engine.md) |
 | 运行装配 | [运行宿主与零点任务](../../src/worldmock/runtime)（[运行宿主](../../src/worldmock/runtime/lifecycle/run_host.py)、[零点任务](../../src/worldmock/runtime/lifecycle/midnight.py)） | [运行装配与决策循环](10-runtime.md) |
 | 记录引擎 | [足迹存储](../../src/worldmock/recording_engine)、[素材存储](../../src/worldmock/recording_engine/storage/assets.py)、[导出模块](../../src/worldmock/recording_engine/export/export.py) | [记录引擎](05-recording-engine.md) |
 | 行为分析 | [分析工具](../../tools/analysis) | [行为评估](07-evaluation.md) |
@@ -241,7 +243,8 @@ flowchart LR
 | 全局确定性时钟屏障与并发沙盒有序提交 | 多人物在同一共享时钟下经 `asyncio.gather` 并发运行只读输入与私有沙盒，`BarrierMerger` 按 `agent_id` 升序单事务合入，事件序号与随机流完全可复现 |
 | 只提供实际可见与信息隔离的内容 | 主循环观察与记忆可追溯到明确的世界版本和事件；`LLM Search Session` 与人物隐私记忆和余额隔离 |
 | 结构化事件与原始素材分离保存 | 支持查询和对账，同时按阶段用途分别留存主循环与 `search_session` 的模型请求和响应原貌 |
-| 从共同检查点建立新分支 | 恢复保存父子关系与无栈挂起恢复状态 `suspended_loop`，反事实分支清空挂起状态并保留原运行事实 |
+| 从共同检查点建立新分支 | 恢复保存父子关系、无栈挂起恢复状态 `suspended_loop` 与日会话状态 `day_session`；反事实分支清空全员 `suspended_loop` 与 `day_session` 并保留原运行事实 |
+| 日会话连续前缀与双触发上下文控制 | 同日唤醒复用 `[system, init_user, assistant, tool, ...]` 恒定前缀并通过配对 `role: "tool"` 交付 `layer_changes`（禁止第二条 `user`），配合 `工具层.gate` 解耦、`lookup_targets` 按需检索、`continue_activity` 显式续行以及水位 Compaction 与午夜重置控制上下文成本 |
 | 现行设计按模块维护 | 规则只有一个归属，历史开发记录不参与当前行为判定 |
 
 <a name="architecture-工程验证"></a>
@@ -272,8 +275,7 @@ python -m pytest tests
 交给 `scripts/freeze_rrs_baseline.py`；两份候选逐项相等且身份合法才写入，否则目标文件保留原字节，
 先查明不确定性的来源，不重试到相等为止。`tests/` 不计入代码身份，提交基线不会让它再次失效。
 `scripts/render_day.py` 不计入代码身份，但导出的一天时间线由它生成并进基线摘要，改它同样要重冻。
-查看器录制样例 `tests/fixtures/viewer-context.json` 逐字记着系统层、工具定义、用户层的层序与沙盒工具消息 `changes` 的键，
-改了其中任何一样都要用真实宿主重录。
+查看器录制样例 `tests/fixtures/viewer-context.json` 逐字记着系统层、11 个原生工具定义、用户层的层序、`工具层.gate`、日会话连续 `messages` 序列及沙盒/跨唤醒 `role: "tool"` 差量 `changes` 的键，改了其中任何一样都要用真实宿主重录。
 模型提供商、平台能力和长期人物行为必须由对应真实运行证明，离线测试不能替代。
 
 引擎优化指声明不改变人物经历、只改成本或记录形式的变更。证明它的工具有三项，都在 `scripts/`，不计入代码身份：

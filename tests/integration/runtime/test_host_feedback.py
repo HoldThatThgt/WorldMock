@@ -85,7 +85,9 @@ async def _corrected_loop(bad_responses: list, observation: dict | None = None) 
     assert len(sandbox.calls) == 1
     feedback = [json.loads(req["messages"][-1]["content"]) for req in requests[1:]]
     errors = [item.error for item in sandbox.evidence if item.phase == "response" and item.error is not None]
-    return feedback, errors, requests
+    ev_feedbacks = [item.response["protocol_feedback"] for item in sandbox.evidence
+                    if item.phase == "response" and item.error is not None]
+    return feedback, errors, requests, ev_feedbacks
 
 
 def _binding_for(client, max_turns: int):
@@ -94,33 +96,37 @@ def _binding_for(client, max_turns: int):
 
 @pytest.mark.asyncio
 async def test_protocol_feedback_is_the_shared_structure_with_the_fixed_instruction() -> None:
-    """损坏 JSON、缺字段与无调用保留五键反馈、完整路径和纯英文证据。"""
+    """损坏 JSON 与缺字段以配对 tool 消息纠错，无调用保留五键证据反馈且绝不插入第二条 user 消息。"""
     missing = copy.deepcopy(_WAIT_CHOICE)
     missing.pop("action")
     broken = '{"target": "自己家" "action":"interact", "detail": "歇一会儿"}'
-    feedback, errors, requests = await _corrected_loop([
+    _, errors, requests, ev_feedbacks = await _corrected_loop([
         _ModelResponse("call-json", MAIN_TOOL, broken),
         _ModelResponse("call-shape", MAIN_TOOL, json.dumps(missing, ensure_ascii=False)),
         _NoToolResponse(),
     ])
-    assert [item["error_code"] for item in feedback] == ["ARGUMENTS_NOT_JSON", "ARGUMENTS_INVALID", "TOOL_CALL_REQUIRED"]
-    for item in feedback:
+    paired = [json.loads(req["messages"][-1]["content"]) for req in requests[1:3]]
+    assert [item["error_code"] for item in paired] == ["ARGUMENTS_NOT_JSON", "ARGUMENTS_INVALID"]
+    assert requests[3]["messages"] == requests[2]["messages"]
+    assert all([m["role"] for m in req["messages"] if m["role"] == "user"] == ["user"] for req in requests)
+    assert [item["error_code"] for item in ev_feedbacks] == ["ARGUMENTS_NOT_JSON", "ARGUMENTS_INVALID", "TOOL_CALL_REQUIRED"]
+    for item in paired:
         assert list(item) == [*ERROR_KEYS, "instruction"] and item["instruction"] == FEEDBACK_INSTRUCTION
         assert item["reason"] and item["unmet"] == []
         assert item["fix"] == host_defaults(item["error_code"])[1]
         assert not any(marker in json.dumps(item) for marker in _DUMP_MARKERS)
-    assert [item["fix"] for item in feedback] == [
+    assert [item["fix"] for item in ev_feedbacks] == [
         "Submit a complete JSON object.", "Correct every reported parameter.",
         "Submit one world request, the two start tools together, or only read queries."]
-    assert feedback[0]["items"][0]["path"] == ["tool_calls", 0, "function", "arguments"]
-    assert "line 1, column" in feedback[0]["items"][0]["expected"]
-    row = feedback[1]["items"][0]
+    assert paired[0]["items"][0]["path"] == ["tool_calls", 0, "function", "arguments"]
+    assert "line 1, column" in paired[0]["items"][0]["expected"]
+    row = paired[1]["items"][0]
     assert row["path"] == ["tool_calls", 0, "function", "arguments", "action"]
     assert row["written"] is None and "required" in row["expected"]
     assert row["allowed_values"] == ["travel", "interact", "sleep"]
-    assert feedback[2]["items"][0]["path"] == ["tool_calls"]
+    assert ev_feedbacks[2]["items"][0]["path"] == ["tool_calls"]
     assert [type(error) for error in errors] == [str, str, str]
-    assert [error.split(":", 1)[0] for error in errors] == [item["error_code"] for item in feedback]
+    assert [error.split(":", 1)[0] for error in errors] == [item["error_code"] for item in ev_feedbacks]
     assert len(requests) == 4
 
 
@@ -150,7 +156,7 @@ async def test_protocol_feedback_is_a_structure_with_its_evidence_text() -> None
     copied = copy.deepcopy(error)
     assert isinstance(error, ProtocolFeedback) and not isinstance(error, str)
     assert copied == error and copied.report == error.report
-    _, errors, _ = await _corrected_loop([
+    _, errors, _, _ = await _corrected_loop([
         _ModelResponse("call-bad", MAIN_TOOL, json.dumps(wrong, ensure_ascii=False)),
     ])
     assert errors == [error.text] and type(errors[0]) is str

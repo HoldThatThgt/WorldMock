@@ -1,4 +1,4 @@
-"""@brief 与具体业务解耦的通用异步模型循环：容量预检、证据记录、截断重试、纠错配对与挂起退出。
+"""@brief 与具体业务解耦的通用异步模型循环：日内压缩钩子、容量预检、证据记录、截断重试与纠错配对。
 
 来源：本模块部分代码改写自 AgentSociety2 2.8.7（上游提交 670c94ff），按 Apache-2.0 使用，许可全文见 LICENSES/AgentSociety2-Apache-2.0.txt。
 """
@@ -15,22 +15,25 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ValidationError
 
-from worldmock.agents.prompt.prompt_capacity import FittedRequest, ProgressBudget, compare_usage, fit_request
+from worldmock.agents.prompt.prompt_capacity import (
+    FittedRequest,
+    ProgressBudget,
+    compare_usage,
+    fit_request,
+    prompt_token_count,
+)
 from worldmock.agents.protocol.life_feedback import (
+    FEEDBACK_INSTRUCTION,
     ProtocolFeedback,
     argument_feedback,
     host_feedback,
-    report_content,
     stage_error,
     stage_feedback,
 )
 from worldmock.agents.protocol.life_truncation import (
     RETRY_TOOL_CHOICE,
-    retry_due,
-    thinking_enabled,
     truncated,
     truncation_feedback,
-    with_feedback,
 )
 from worldmock.configuration.model.model_client import collect_transport_attempts
 from worldmock.configuration.model.model_registry import ResolvedModelBinding
@@ -43,11 +46,15 @@ from worldmock.state.model.exchange import (
     response_self_note,
     wire_tool_call,
 )
-from worldmock.state.model.truncation import RETRY_THINKING
 
 #: 回合预算耗尽时的默认协议错误原因。
 TURNS_EXHAUSTED = "Model turn limit exhausted"
 _FUNC_TYPE = "function"
+
+
+def _default_tool_content(payload: Mapping[str, Any]) -> str:
+    """@brief 默认工具消息紧凑序列化（无观察字段黑名单）。"""
+    return json.dumps(dict(payload), ensure_ascii=False, separators=(",", ":"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +83,8 @@ class LoopOutcome:
     turns_used: int
     messages: tuple[dict[str, Any], ...]
     payload: Any = None
+    last_prompt_tokens: int | None = None
+    pending_boundary_calls: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,20 +101,24 @@ class LoopConfig:
     allow_thinking: bool = True
     purpose: str | None = None
     activity_id: str | None = None
-    protected_prefix: int = 2
     exhausted_message: str = TURNS_EXHAUSTED
+    prompt_cache_key: str | None = None
+    render_tool_content: Callable[[Mapping[str, Any]], str] = _default_tool_content
 
 
 @dataclass(frozen=True, slots=True)
 class LoopCallbacks:
-    """@brief 通用循环调用具体业务方的五个无状态回调。"""
+    """@brief 通用循环调用具体业务方的五个无状态回调与可选日内压缩钩子。"""
 
     turn_tools: Callable[[int, bool], tuple[list[dict[str, Any]], dict[str, type[BaseModel]]]]
     validate_call: Callable[[LoopToolCall, Mapping[str, type[BaseModel]]], ProtocolFeedback | None]
     validate_batch: Callable[[Sequence[LoopToolCall], Mapping[str, type[BaseModel]]], ProtocolFeedback | None]
     execute_calls: Callable[[list[LoopToolCall], str | None], LoopStepOutcome]
     record_exchange: Callable[[ModelCallEvidence], None]
-    can_finish_without_calls: Callable[[], bool] = lambda: False
+    compact_history: Callable[
+        [list[dict[str, Any]], int],
+        tuple[list[dict[str, Any]], ProgressBudget | None] | None,
+    ] | None = None
 
 
 def model_call_id(scope_id: str, kind: str, turn: int, attempt: int = 1) -> str:
@@ -147,10 +160,14 @@ def validate_single_tool_call(call: LoopToolCall, models: Mapping[str, type[Base
     return None
 
 
-def tool_message(call_id: str, payload: Mapping[str, Any]) -> dict[str, Any]:
+def tool_message(
+    call_id: str,
+    payload: Mapping[str, Any],
+    renderer: Callable[[Mapping[str, Any]], str] | None = None,
+) -> dict[str, Any]:
     """@brief 把工具结果或查询拒绝压缩序列化成原生 tool 对话消息。"""
-    return {"role": "tool", "tool_call_id": call_id,
-            "content": json.dumps(dict(payload), ensure_ascii=False, separators=(",", ":"))}
+    render = _default_tool_content if renderer is None else renderer
+    return {"role": "tool", "tool_call_id": call_id, "content": render(payload)}
 
 
 def dispatch_tool_safely(label: str, index: int, fn: Callable[[], Any]) -> Any:
@@ -257,30 +274,40 @@ class AgentLoop:
     async def run(self, initial_messages: Sequence[dict[str, Any]]) -> LoopOutcome:
         """@brief 按回合预算持续对话直至完成、挂起或预算耗尽抛 ProtocolError。"""
         history = [copy.deepcopy(item) for item in initial_messages]
-        previous: dict[str, Any] = {}
+        last_truncated = False
+        last_prompt_tokens: int | None = None
         start = self.config.start_turn
         base_limit = (self.config.max_turns if self.config.max_turns is not None
                       else self.config.binding.profile.max_react_turns)
         limit = max(base_limit, start)
         for turn in range(start, limit + 1):
             remaining = limit - turn + 1
-            retry = retry_due(history, previous)
-            fitted, raw, attempts = await self._invoke_turn(history, turn, remaining, retry)
-            previous = fitted.request
-            decisions, feedback, payload = self._validate_reply(raw, remaining, retry)
+            fitted, raw, attempts = await self._invoke_turn(history, turn, remaining, last_truncated)
+            decisions, feedback, payload = self._validate_reply(raw, remaining, last_truncated)
+            last_prompt_tokens = _observed_prompt_tokens(payload, fitted.prompt_tokens)
             self._write_response_evidence(turn, fitted, payload, feedback, attempts)
             if feedback is not None:
-                history = _append_correction(history, fitted.request, raw, feedback, self.config.protected_prefix)
+                last_truncated = self._handle_feedback(history, raw, feedback)
                 continue
+            last_truncated = False
             history.append(_response_assistant_message(raw))
-            if not decisions:
-                return LoopOutcome("completed", turn, tuple(history), None)
             step = self.callbacks.execute_calls(decisions, response_self_note(payload))
             if step.status in ("completed", "suspended"):
-                return LoopOutcome(step.status, turn, tuple(history), step.payload)
+                pending = tuple(call.tool_call_id for call in decisions)
+                return LoopOutcome(step.status, turn, tuple(history), step.payload, last_prompt_tokens, pending)
             history.extend(step.tool_messages)
         logging.error("%s", self.config.exhausted_message)
         raise ProtocolError(self.config.exhausted_message)
+
+    def _handle_feedback(self, history: list[dict[str, Any]], raw: Any, feedback: ProtocolFeedback) -> bool:
+        """@brief 结构完整且非截断时追加配对 tool 纠偏，否则保持 history 合法边界不变并返回截断标志。"""
+        calls = _raw_tool_calls(raw)
+        if not truncated(raw) and _pairable_calls(calls):
+            payload = {**feedback.report.payload(), "instruction": FEEDBACK_INSTRUCTION}
+            history.append(_response_assistant_message(raw))
+            history.extend(tool_message(call.id, payload, self.config.render_tool_content) for call in calls)
+            return False
+        return truncated(raw)
 
     async def _invoke_turn(
         self,
@@ -289,35 +316,51 @@ class AgentLoop:
         remaining: int,
         retry: bool,
     ) -> tuple[FittedRequest, Any, list[dict[str, Any]]]:
-        """@brief 执行单回合容量预检、请求留证与模型异步发送。"""
+        """@brief 执行日内压缩检查、容量预检、请求留证与模型异步发送。"""
         tools, _ = self.callbacks.turn_tools(remaining, retry)
         request = self._turn_request(history, tools, retry)
+        if self.callbacks.compact_history is not None and len(history) > 2:
+            tokens = prompt_token_count(request)
+            if tokens >= self.config.binding.profile.compact_trigger_tokens:
+                compacted = self.callbacks.compact_history(history, tokens)
+                if compacted is not None:
+                    rebuilt, self.budget = compacted
+                    history[:] = rebuilt
+                    request = self._turn_request(history, tools, retry)
         fitted = fit_request(request, self.config.binding.metadata, self.budget)
         call_id = model_call_id(self.config.scope_id, self.config.call_kind, turn)
         self._emit_exchange(ModelCallEvidence(
             self.config.wakeup_id, self.config.agent_id, call_id, "request", 1, copy.deepcopy(fitted.request),
             purpose=self.config.purpose, activity_id=self.config.activity_id,
         ))
+        raw, attempts = await self._call_model(call_id, fitted.request)
+        return fitted, raw, attempts
+
+    async def _call_model(self, call_id: str, request: dict[str, Any]) -> tuple[Any, list[dict[str, Any]]]:
+        """@brief 在传输尝试收集上下文中异步调用模型，失败时记录 failure 证据。"""
         with collect_transport_attempts() as attempts:
             try:
-                raw = await self.config.binding.client.call(fitted.request)
+                raw = await self.config.binding.client.call(request)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
                 logging.error("Model service failed during %s call %s: %s", self.config.call_kind, call_id, exc)
-                self._emit_failure_evidence(call_id, fitted.request, attempts)
+                self._emit_failure_evidence(call_id, request, attempts)
                 raise
-        return fitted, raw, attempts
+        return raw, attempts
 
     def _turn_request(self, history: list[dict[str, Any]], tools: list[dict[str, Any]], retry: bool) -> dict[str, Any]:
-        """@brief 构造满足六键次序的模型请求。"""
-        thinking_on = self.config.allow_thinking and self.config.binding.profile.thinking and not retry
-        extra_body = dict(RETRY_THINKING) if not thinking_on else {"thinking": {"type": "enabled"}}
+        """@brief 构造满足六键次序的模型请求，保持工具与思考开关恒定并按需注入缓存路由键。"""
+        thinking_on = self.config.allow_thinking and self.config.binding.profile.thinking
+        extra_body: dict[str, Any] = {"thinking": {"type": "enabled" if thinking_on else "disabled"}}
+        if self.config.prompt_cache_key:
+            extra_body["prompt_cache_key"] = self.config.prompt_cache_key
+        tool_choice = RETRY_TOOL_CHOICE if (not thinking_on and retry) else "auto"
         return {
             "model": self.config.binding.profile.requested_model,
             "messages": copy.deepcopy(history),
             "tools": tools,
-            "tool_choice": RETRY_TOOL_CHOICE if retry else "auto",
+            "tool_choice": tool_choice,
             "max_tokens": self.config.binding.effective_max_tokens,
             "extra_body": extra_body,
         }
@@ -334,8 +377,6 @@ class AgentLoop:
             return [], truncation_feedback(), payload
         _, models = self.callbacks.turn_tools(remaining, retry)
         calls = _raw_tool_calls(raw)
-        if not calls and not retry and self.callbacks.can_finish_without_calls():
-            return [], None, payload
         indexed, parse_reports = parse_tool_calls(calls, models)
         reports: list[ErrorReport] = []
         if calls:
@@ -385,6 +426,15 @@ class AgentLoop:
         except Exception as error:
             logging.exception("Failed to record model exchange %s (%s)", exchange.call_id, exchange.phase)
             raise stage_error("EVIDENCE_WRITE_FAILED", ("tool_calls",)) from error
+
+
+def _observed_prompt_tokens(payload: Mapping[str, Any], estimated: int) -> int:
+    """@brief 提取模型响应实际观测输入令牌数；缺失时回退至发送前预检值。"""
+    usage = payload.get("usage") if isinstance(payload, Mapping) else None
+    actual = usage.get("prompt_tokens") if isinstance(usage, Mapping) else None
+    if isinstance(actual, int) and not isinstance(actual, bool) and actual >= 0:
+        return actual
+    return estimated
 
 
 def _raw_tool_calls(raw: Any) -> list[Any]:
@@ -462,20 +512,3 @@ def _pairable_calls(calls: Sequence[Any]) -> bool:
             return False
         ids.append(cid)
     return len(set(ids)) == len(ids)
-
-
-def _append_correction(
-    history: list[dict[str, Any]],
-    fitted: Mapping[str, Any],
-    raw: Any,
-    feedback: ProtocolFeedback,
-    prefix: int,
-) -> list[dict[str, Any]]:
-    """@brief 按配对规则将纠错反馈接回对话历史：思考开启且结构完整时用 tool 配对，否则替换末尾 user 纠错。"""
-    text = report_content(feedback.report)
-    calls = _raw_tool_calls(raw)
-    if thinking_enabled(fitted) and not truncated(raw) and _pairable_calls(calls):
-        updated = [*history, _response_assistant_message(raw)]
-        updated.extend({"role": "tool", "tool_call_id": call.id, "content": text} for call in calls)
-        return updated
-    return with_feedback(history, text, prefix)

@@ -125,7 +125,9 @@ async def test_last_turn_narrows_search_tools_to_submit_only(engine_factory) -> 
         }, ensure_ascii=False)),
     ])
     await SearchSessionRunner().run(task_two, catalog, resolved_binding(model, frozen=engine.context.inputs, stage="search"))
-    assert [t["function"]["name"] for t in model.requests[1]["tools"]] == ["submit_search_results"]
+    assert [t["function"]["name"] for t in model.requests[1]["tools"]] == [
+        "search_goods", "inspect_goods_offers", "search_places", "submit_search_results",
+    ]
 
 
 def SearchTaskSpec_with_budget(task, budget: int):

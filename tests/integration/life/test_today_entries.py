@@ -31,6 +31,7 @@ from tests.life.conftest import (
     search_world,
     sleep,
     stage_day_plan,
+    stub_day_session,
     tool_of,
     travel,
     use_app,
@@ -86,15 +87,15 @@ def _noted(engine, label, request, note, tool=None):
     if res.suspended:
         suspended = SuspendedLoopState(
             wakeup_id=wakeup.wakeup_id, action_id=identity,
-            activity_id=res.tool_message_payload["activity_id"],
-            pending_tool_call_id="call-1", messages=(), turn_used=1,
+            activity_id=res.activity_id,
+            pending_tool_call_id="call-1", turn_used=1,
             memory_search_count=0, accepted_action_ids=(identity,),
             pending_memories=(), verified_experiences=(), local_rejection_counts={},
             observation_event_id=wakeup.observation["observation_event_id"],
             observation_parts=dict(wakeup.observation_parts),
-            suspended_at=wakeup.observed_at, base_layers=(),
+            suspended_at=wakeup.observed_at,
         )
-    outcome = sandbox.finish_wakeup(suspended)
+    outcome = sandbox.finish_wakeup(suspended, stub_day_session(wakeup))
     engine.commit_barrier([outcome])
     return wakeup.observation, action_result(engine, identity)
 
@@ -199,7 +200,7 @@ def test_a_world_request_registered_after_the_cutoff_is_not_yet_a_decision(engin
                              wakeup.observed_at, engine.context.store.last_event_seq)
     assert [entry.shown for entry in during.entries] == [entry.shown for entry in before.entries]
     assert during.published == before.published
-    engine.commit_barrier([sandbox.finish_wakeup(None)])
+    engine.commit_barrier([sandbox.finish_wakeup(None, stub_day_session(wakeup))])
     assert _last(engine)["自述"] == ["哔哩哔哩：收尾。"]
 
 
@@ -724,13 +725,13 @@ def test_same_wakeup_consolidates_into_one_entry_and_splits_across_midnight(engi
     res_search = sb1.dispatch_world_tool("search_world", req_search, search_id)
     same_day.commit_barrier([sb1.finish_wakeup(SuspendedLoopState(
         wakeup_id=w1.wakeup_id, action_id=search_id,
-        activity_id=res_search.tool_message_payload["activity_id"],
-        pending_tool_call_id="c-s", messages=(), turn_used=1,
+        activity_id=res_search.activity_id,
+        pending_tool_call_id="c-s", turn_used=1,
         memory_search_count=0, accepted_action_ids=(search_id,),
         pending_memories=(), verified_experiences=(), local_rejection_counts={},
         observation_event_id=w1.observation["observation_event_id"],
-        observation_parts=dict(w1.observation_parts), suspended_at=w1.observed_at, base_layers=(),
-    ))])
+        observation_parts=dict(w1.observation_parts), suspended_at=w1.observed_at,
+    ), stub_day_session(w1))])
     while not same_day.due_searches():
         advance_next(same_day)
     [(task, _)] = same_day.due_searches()
@@ -742,7 +743,7 @@ def test_same_wakeup_consolidates_into_one_entry_and_splits_across_midnight(engi
     assert w1_resumed.wakeup_id == w1.wakeup_id
     sb2 = same_day.open_sandbox(w1_resumed)
     sb2.dispatch_world_tool("start_side_activity", use_app("哔哩哔哩"), f"{w1.wakeup_id}:action:0003")
-    same_day.commit_barrier([sb2.finish_wakeup(None)])
+    same_day.commit_barrier([sb2.finish_wakeup(None, stub_day_session(w1_resumed))])
     today_entries = _today(same_day).entries
     grouped = [entry for entry in today_entries if entry.wakeup_id == w1.wakeup_id]
     assert len(grouped) == 1 and len(today_entries) == 1
@@ -765,13 +766,13 @@ def test_same_wakeup_consolidates_into_one_entry_and_splits_across_midnight(engi
     res_c = sbc.dispatch_world_tool("search_world", search_world("柠檬茶", prefer="饿了么"), aid_c)
     cross.commit_barrier([sbc.finish_wakeup(SuspendedLoopState(
         wakeup_id=wc.wakeup_id, action_id=aid_c,
-        activity_id=res_c.tool_message_payload["activity_id"],
-        pending_tool_call_id="c-cross", messages=(), turn_used=1,
+        activity_id=res_c.activity_id,
+        pending_tool_call_id="c-cross", turn_used=1,
         memory_search_count=0, accepted_action_ids=(aid_c,),
         pending_memories=(), verified_experiences=(), local_rejection_counts={},
         observation_event_id=wc.observation["observation_event_id"],
-        observation_parts=dict(wc.observation_parts), suspended_at=wc.observed_at, base_layers=(),
-    ))])
+        observation_parts=dict(wc.observation_parts), suspended_at=wc.observed_at,
+    ), stub_day_session(wc))])
     while not cross.due_searches():
         if cross.midnight_rhythm_pending:
             cross.decide_midnight_rhythm()
@@ -786,7 +787,7 @@ def test_same_wakeup_consolidates_into_one_entry_and_splits_across_midnight(engi
     assert wc_next.wakeup_id == wc.wakeup_id
     sb_next = cross.open_sandbox(wc_next)
     sb_next.dispatch_world_tool("start_side_activity", use_app("哔哩哔哩"), f"{wc.wakeup_id}:action:0002")
-    cross.commit_barrier([sb_next.finish_wakeup(None)])
+    cross.commit_barrier([sb_next.finish_wakeup(None, stub_day_session(wc_next))])
     day1 = [e for e in past_day_entries(cross.context.inputs, cross.context.store, 1, "2026-01-05",
                                        cross.context.state.current_time) if e.wakeup_id == wc.wakeup_id]
     day2 = [e for e in _today(cross).entries if e.wakeup_id == wc.wakeup_id]

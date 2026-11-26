@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from worldmock.state.model.reflection import REFLECTION_TOOL
-from worldmock.state.model.truncation import RETRY_THINKING
 from worldmock.state.interaction.actions import START_TOOLS
 from worldmock.state.model.exchange import (
     MEMORY_DIGEST_PURPOSE,
@@ -73,9 +72,9 @@ _PRICING = {
 def build_quality_report(events: list[Event], activities: list[dict], manifest: dict, names: DisplayNames) -> dict:
     """@brief 汇总完成、异常、内容、效率、记忆、模型用量、实测加速比、当日目标、个人事务与收尾记忆、运行输入警告与输出截断。
 
-    报告结构 11（docs/design/05-recording-engine.md「完整导出认证」）：CALL_CLASSES 新增 search_session，
-    decision_rhythm 去除 same_moment_round_counts 并统计 decision_started 的 wakeup_id 计数，
-    errand_metrics.conclusion_memories 按 (agent_id, wakeup_id) 关联。
+    报告结构 12（SPEC.md / docs/design/05-recording-engine.md）：兼容 prompt_tokens_details.cached_tokens
+    提取缓存令牌与命中率，_model_quality 按同唤醒前序 OUTPUT_TRUNCATED 判定 truncation_retry，
+    并统计 day_session_compacted 的 compaction_count。
 
     @param events 已经认证且按 event_seq 排序的完整事件。
     @param activities 已经认证的活动终态视图。
@@ -87,7 +86,7 @@ def build_quality_report(events: list[Event], activities: list[dict], manifest: 
     _validate_inputs(events, activities, manifest)
     rows = [{**event.model_dump(mode="json"), "code_sha256": manifest.get("code_sha256")} for event in events]
     return {
-        "schema_version": 11,
+        "schema_version": 12,
         "run_id": manifest["run_id"],
         "source_group_id": manifest["source_group_id"],
         "event_range": {
@@ -573,9 +572,8 @@ def _add_memory_problem(state: dict, code: str, event_id: str, agent_id: Any, re
 
 
 def _model_quality(events: list[Event]) -> dict:
-    """@brief 去重调用身份，累计提供商实报 token 并估算公开标价成本。"""
-    requests = [event for event in events if event.event_type == "model_request"]
-    request_classes = [_call_class(event.data) for event in requests]
+    """@brief 去重调用身份，累计提供商实报 token 与缓存命中，估算公开标价成本并统计日内压缩次数。"""
+    requests, request_classes = _classified_requests(events)
     identified = [(event, name) for event, name in zip(requests, request_classes)
                   if isinstance(event.data.get("call_id"), str)]
     request_times = {event.data["call_id"]: event.recorded_at for event, _ in identified}
@@ -590,8 +588,7 @@ def _model_quality(events: list[Event]) -> dict:
              if isinstance(event.data.get("response"), dict)]
     reported = [item for item in usage if item["tokens"] is not None]
     estimated = [item for item in usage if item["estimated_cost_usd"] is not None]
-    request_ids = set(classes)
-    terminal_ids = set(terminals)
+    request_ids, terminal_ids = set(classes), set(terminals)
     failures = sum(event.data.get("phase") == "failure" for event in selected)
     pending = sorted(request_ids - terminal_ids)
     duplicates = sorted(identity for identity, rows in terminals.items() if len(rows) > 1)
@@ -606,12 +603,39 @@ def _model_quality(events: list[Event]) -> dict:
         "orphan_terminal_call_ids": sorted(terminal_ids - request_ids),
         "duplicate_terminal_call_ids": duplicates,
         "protocol_error_responses": sum(bool(event.data.get("error")) for event in selected),
+        "compaction_count": _compaction_count(events),
         "token_usage": _aggregate_tokens(usage, reported, missing_responses + len(pending)),
         "estimated_cost": _aggregate_cost(usage, estimated, missing_responses, pending),
         "by_actual_model": _usage_by_model(usage),
         "by_call_class": _usage_by_call_class(request_classes, usage),
         "pricing_snapshot": _PRICING,
     }
+
+
+def _compaction_count(events: list[Event]) -> int:
+    """@brief 统计事件流中日内上下文压缩环境事件 day_session_compacted 的次数。"""
+    return sum(
+        event.event_type == "environment_event" and event.data.get("kind") == "day_session_compacted"
+        for event in events
+    )
+
+
+def _classified_requests(events: list[Event]) -> tuple[list[Event], list[str]]:
+    """@brief 按事件顺序判定每个模型请求的调用类；同唤醒紧邻前序响应为 OUTPUT_TRUNCATED 时判为截断重试。"""
+    requests: list[Event] = []
+    request_classes: list[str] = []
+    truncated_by_wakeup: dict[tuple[Any, str], bool] = {}
+    for event in events:
+        wid = event.wakeup_id or event.data.get("wakeup_id")
+        key = (event.agent_id, wid) if isinstance(wid, str) and wid else None
+        if event.event_type == "model_request":
+            requests.append(event)
+            after_trunc = key is not None and truncated_by_wakeup.get(key, False)
+            request_classes.append(_call_class(event.data, after_truncation=after_trunc))
+        elif event.event_type == "model_response" and key is not None:
+            feedback = event.data.get("protocol_feedback")
+            truncated_by_wakeup[key] = isinstance(feedback, dict) and feedback.get("error_code") == "OUTPUT_TRUNCATED"
+    return requests, request_classes
 
 
 def _select_terminal(events: list[Event]) -> Event:
@@ -627,14 +651,15 @@ def _usage_entry(event: Event, request_recorded_at: str | None, call_class: str)
     tokens = _token_fields(usage)
     model = response.get("model") if isinstance(response.get("model"), str) else None
     cost, band, reason = _estimate_cost(model, usage, request_recorded_at)
+    breakdown, _ = _cost_breakdown(usage)
     return {
         "event_id": event.event_id,
         "call_class": call_class,
         "model": model,
         "tokens": tokens,
-        "priced_tokens": None if cost is None else {
-            "cache_hit_input_tokens": usage["prompt_cache_hit_tokens"],
-            "cache_miss_input_tokens": usage["prompt_cache_miss_tokens"],
+        "priced_tokens": None if cost is None or breakdown is None else {
+            "cache_hit_input_tokens": breakdown[0],
+            "cache_miss_input_tokens": breakdown[1],
             "output_tokens": usage["completion_tokens"]},
         "estimated_cost_usd": cost,
         "price_band": band,
@@ -643,36 +668,80 @@ def _usage_entry(event: Event, request_recorded_at: str | None, call_class: str)
     }
 
 
+def _cached_input_tokens(usage: dict) -> int | None:
+    """@brief 兼容 prompt_cache_hit_tokens 与 prompt_tokens_details.cached_tokens 提取缓存命中输入令牌。"""
+    hit = usage.get("prompt_cache_hit_tokens")
+    if _is_nonnegative_int(hit):
+        return hit
+    details = usage.get("prompt_tokens_details")
+    cached = details.get("cached_tokens") if isinstance(details, dict) else None
+    return cached if _is_nonnegative_int(cached) else None
+
+
+def _uncached_input_tokens(usage: dict, cached: int | None) -> int | None:
+    """@brief 提取或由 prompt_tokens - cached_input_tokens 派生未命中输入令牌，缺失返回 None。"""
+    miss = usage.get("prompt_cache_miss_tokens")
+    if _is_nonnegative_int(miss):
+        return miss
+    prompt = usage.get("prompt_tokens")
+    if cached is not None and _is_nonnegative_int(prompt) and prompt >= cached:
+        return prompt - cached
+    return None
+
+
 def _token_fields(usage: Any) -> dict | None:
-    """@brief 只接受提供商明确返回的非负整数 token，不以缺失补零。"""
+    """@brief 只接受提供商明确返回的非负整数 token，兼容缓存明细，不以缺失补零。"""
     if not isinstance(usage, dict):
         return None
     names = ("prompt_tokens", "completion_tokens", "total_tokens")
     if any(not _is_nonnegative_int(usage.get(name)) for name in names):
         return None
-    return {"input_tokens": usage["prompt_tokens"], "output_tokens": usage["completion_tokens"],
-            "total_tokens": usage["total_tokens"]}
+    cached = _cached_input_tokens(usage)
+    uncached = _uncached_input_tokens(usage, cached)
+    prompt = usage["prompt_tokens"]
+    ratio = round(cached / prompt, 6) if cached is not None and prompt > 0 else None
+    return {
+        "input_tokens": prompt, "output_tokens": usage["completion_tokens"], "total_tokens": usage["total_tokens"],
+        "cached_input_tokens": cached, "uncached_input_tokens": uncached, "cache_hit_ratio": ratio,
+    }
+
+
+def _cost_breakdown(usage: Any) -> tuple[tuple[int, int] | None, str | None]:
+    """@brief 提取或派生可计价的缓存命中与未命中令牌，仅当两者之和等于 prompt_tokens 时有效。"""
+    if not isinstance(usage, dict):
+        return None, "provider_usage_missing"
+    prompt, completion = usage.get("prompt_tokens"), usage.get("completion_tokens")
+    if not _is_nonnegative_int(prompt) or not _is_nonnegative_int(completion):
+        return None, "cache_or_token_breakdown_missing"
+    hit, miss = usage.get("prompt_cache_hit_tokens"), usage.get("prompt_cache_miss_tokens")
+    if _is_nonnegative_int(hit) and _is_nonnegative_int(miss):
+        if hit + miss != prompt:
+            return None, "cache_breakdown_disagrees_with_input_tokens"
+        return (hit, miss), None
+    if hit is None and miss is None:
+        details = usage.get("prompt_tokens_details")
+        cached = details.get("cached_tokens") if isinstance(details, dict) else None
+        if _is_nonnegative_int(cached):
+            if cached > prompt:
+                return None, "cache_breakdown_disagrees_with_input_tokens"
+            return (cached, prompt - cached), None
+    return None, "cache_or_token_breakdown_missing"
 
 
 def _estimate_cost(model: str | None, usage: Any,
                    request_recorded_at: str | None) -> tuple[float | None, str | None, str | None]:
-    """@brief 按冻结官方峰谷价估算单次响应，任何计价字段缺失都返回未知。"""
+    """@brief 按冻结官方峰谷价估算单次响应，任何计价字段缺失或口径冲突都返回未知。"""
     if model != _PRICING["model"]:
         return None, None, "actual_model_has_no_frozen_price"
-    if not isinstance(usage, dict):
-        return None, None, "provider_usage_missing"
-    names = ("prompt_tokens", "completion_tokens", "prompt_cache_hit_tokens", "prompt_cache_miss_tokens")
-    if any(not _is_nonnegative_int(usage.get(name)) for name in names):
-        return None, None, "cache_or_token_breakdown_missing"
-    if usage["prompt_cache_hit_tokens"] + usage["prompt_cache_miss_tokens"] != usage["prompt_tokens"]:
-        return None, None, "cache_breakdown_disagrees_with_input_tokens"
+    breakdown, error = _cost_breakdown(usage)
+    if breakdown is None:
+        return None, None, error
     peak = _peak_band(request_recorded_at)
     if peak is None:
         return None, None, "recorded_wall_time_is_invalid"
     band = "peak" if peak else "off_peak"
     rates = _PRICING[band]
-    amount = (usage["prompt_cache_hit_tokens"] * rates["cache_hit_input"]
-              + usage["prompt_cache_miss_tokens"] * rates["cache_miss_input"]
+    amount = (breakdown[0] * rates["cache_hit_input"] + breakdown[1] * rates["cache_miss_input"]
               + usage["completion_tokens"] * rates["output"]) / 1_000_000
     return round(amount, 12), band, None
 
@@ -692,11 +761,19 @@ def _peak_band(value: str | None) -> bool | None:
 
 
 def _aggregate_tokens(all_usage: list[dict], reported: list[dict], missing_calls: int = 0) -> dict:
-    """@brief 同时给出已知合计、完整合计和覆盖分母。"""
+    """@brief 同时给出已知合计、完整合计、缓存汇总与覆盖分母；全部缺失时不伪装为零。"""
     known = None
     if reported:
         known = {name: sum(item["tokens"][name] for item in reported)
                  for name in ("input_tokens", "output_tokens", "total_tokens")}
+    cached_rows = [item["tokens"]["cached_input_tokens"] for item in reported
+                   if item["tokens"]["cached_input_tokens"] is not None]
+    uncached_rows = [item["tokens"]["uncached_input_tokens"] for item in reported
+                     if item["tokens"]["uncached_input_tokens"] is not None]
+    cached = sum(cached_rows) if cached_rows else None
+    uncached = sum(uncached_rows) if uncached_rows else None
+    ratio = (round(cached / known["input_tokens"], 6)
+             if known is not None and cached is not None and known["input_tokens"] > 0 else None)
     provider_missing = len(all_usage) - len(reported)
     complete = known if all_usage and provider_missing == 0 and missing_calls == 0 else None
     return {
@@ -705,6 +782,9 @@ def _aggregate_tokens(all_usage: list[dict], reported: list[dict], missing_calls
         "calls_without_provider_response": missing_calls,
         "known_tokens": known,
         "complete_tokens": complete,
+        "cached_input_tokens": cached,
+        "uncached_input_tokens": uncached,
+        "cache_hit_ratio": ratio,
     }
 
 
@@ -750,12 +830,8 @@ def _usage_by_model(usage: list[dict]) -> list[dict]:
     return result
 
 
-def _call_class(data: dict) -> str:
-    """@brief 一次模型调用的类，只凭它的 model_request 事件判定，不读响应里的请求副本：purpose 为 plan_day 是零点计划；
-    purpose 为 memory_digest 是日、月、年回顾；purpose 为 search_session 是搜索子会话；没有 purpose 时，行动请求
-    （exchange.is_action_request）消息恰为 system、user 两条是新决策回合，更多是带历史的回合；工具含 start_main_activity、
-    tool_choice 为 required 且思考开关是截断重试的那一个（truncation.RETRY_THINKING）是截断重试；不带工具是记忆巩固；
-    工具恰为 submit_reflection 是就寝反思；其余为 unrecognized。"""
+def _call_class(data: dict, *, after_truncation: bool = False) -> str:
+    """@brief 按请求形状及同唤醒紧邻前序响应是否 OUTPUT_TRUNCATED 判定模型调用类。"""
     purpose, request = data.get("purpose"), data.get("request")
     if purpose == PLAN_DAY_PURPOSE:
         return "plan_day"
@@ -765,12 +841,14 @@ def _call_class(data: dict) -> str:
         return "search_session"
     if purpose is not None or not isinstance(request, dict):
         return _UNRECOGNIZED_CLASS
-    if is_action_request(request):
-        return "fresh_decision_turn" if _message_roles(request) == ["system", "user"] else "turn_with_history"
     names = request_tool_names(request)
-    if (START_TOOLS[0] in names and request.get("tool_choice") == "required"
-            and request.get("extra_body") == RETRY_THINKING):
+    if after_truncation and START_TOOLS[0] in names and request.get("tool_choice") in ("auto", "required"):
         return "truncation_retry"
+    if is_action_request(request):
+        roles = _message_roles(request)
+        if roles == ["system", "user"]:
+            return "fresh_decision_turn"
+        return "turn_with_history" if len(roles) > 2 else _UNRECOGNIZED_CLASS
     if not names:
         return "consolidation"
     return "reflection" if names == [REFLECTION_TOOL] else _UNRECOGNIZED_CLASS

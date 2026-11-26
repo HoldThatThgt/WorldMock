@@ -113,9 +113,18 @@ _CALLABLE_INDEX = _object({
     "prefer_apps": {"type": "array", "uniqueItems": True, "items": _TEXT},
 })
 
+#: 工具层顶层全局门禁：主副槽位占用、睡眠状态、出行在途与当前待收尾活动显示名称列表。
+_GATE = _object({
+    "main_slot_busy": {"type": "boolean"},
+    "side_slot_busy": {"type": "boolean"},
+    "sleeping": {"type": "boolean"},
+    "in_transit": {"type": "boolean"},
+    "pending_conclusions": {"type": "array", "items": _TEXT},
+})
+
 TOOL_LAYER_SCHEMA: dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema", "title": "工具层",
-    **_object({"layer": {"const": "工具层"}, "targets": {"type": "array", "items": _TARGET},
+    **_object({"layer": {"const": "工具层"}, "gate": _GATE, "targets": {"type": "array", "items": _TARGET},
                "callable_index": _CALLABLE_INDEX}),
 }
 
@@ -125,7 +134,7 @@ _GROUP = _object({"kind": {"enum": list(TARGET_KINDS)}, "action": {"enum": [*ACT
                   "targets": {"type": "array", "minItems": 1, "items": {"type": "object"}}})
 COMPACT_TOOL_LAYER_SCHEMA: dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema", "title": "工具层",
-    **_object({"layer": {"const": "工具层"}, "groups": {"type": "array", "items": _GROUP},
+    **_object({"layer": {"const": "工具层"}, "gate": _GATE, "groups": {"type": "array", "items": _GROUP},
                "callable_index": _CALLABLE_INDEX}),
 }
 
@@ -153,7 +162,7 @@ PERSONA_LAYER_SCHEMA: dict[str, Any] = {
     }),
 }
 
-#: 「类别」：类别闭集里互不相同的一到三项，以「、」相连（今天条目与计数行共用）。
+#: 「类别」：类别闭集里互不相同的一到三项，以「、」相连。
 _CATEGORY_TEXT = {"enum": ["、".join(names) for size in range(1, len(MEMORY_CATEGORIES) + 1)
                            for names in itertools.permutations(MEMORY_CATEGORIES, size)]}
 #: 今天条目的一项核验或自述：每条合计至多 120 字（由条目构建器保证），所以单项也至多 120 字。
@@ -164,11 +173,16 @@ _TODAY_ENTRY = _object({"时刻": {"type": "string", "pattern": r"^([01][0-9]|2[
 _TODAY_ENTRY["anyOf"] = [{"required": ["核验"]}, {"required": ["自述"]}]
 #: 「可查」：能查到的最早日期；还没有可查的日期时是空对象。
 _AVAILABLE = _object({"最早日期": _DATE}, optional=("最早日期",))
-#: 计数行「时刻」的全部写法：HH:00–(HH+1):00，23 时写 23:00–24:00。
-_HOUR_SPANS = [f"{hour:02d}:00–{hour + 1:02d}:00" for hour in range(24)]
-#: 兜底合成的计数行：同一本地小时、同一类别串的各项合成一行。
-_COUNT_LINE = _object({"时刻": {"enum": _HOUR_SPANS}, "类别": _CATEGORY_TEXT,
-                       "条数": {"type": "integer", "minimum": 1}})
+#: 日内 Compaction 生成的确定性前序折叠摘要。
+_FOLD_SUMMARY = _object({
+    "folded_through_seq": {"type": "integer", "minimum": 0},
+    "folded_until_clock": {"type": "string", "pattern": r"^([01][0-9]|2[0-3]):[0-5][0-9]$"},
+    "completed_activities": _LINES,
+    "places_visited": _LINES,
+    "purchases": _LINES,
+    "body_and_balance_notes": _LINES,
+    "open_commitments": _LINES,
+})
 
 
 def _recent_cells(work: bool) -> dict[str, Any]:
@@ -189,8 +203,9 @@ MEMORY_LAYER_SCHEMA: dict[str, Any] = {
         "layer": {"const": "记忆层"},
         "可查": _AVAILABLE,
         "近三天": _object(_RECENT_CELLS, optional=MEMORY_CATEGORIES),
-        "今天": {"type": "array", "items": {"oneOf": [_TODAY_ENTRY, _COUNT_LINE]}},
-    }),
+        "今天": {"type": "array", "items": _TODAY_ENTRY},
+        "折叠摘要": _FOLD_SUMMARY,
+    }, optional=("折叠摘要",)),
 }
 
 _GOAL = _object({"intent_kind": {"enum": list(INTENT_KINDS)}, "goal": _TEXT,

@@ -1,15 +1,12 @@
-"""观察路径上的记忆层：「可查」的最早日期、「今天」每次决策只在末尾追加、兜底与上限、换存储对象后逐字节重算、
-缓存在换日、换固定部分与条目变少时从头递推，以及整层一个观察分件。"""
+"""观察路径上的记忆层：「可查」的最早日期、「今天」每次决策只在末尾追加、换存储对象后逐字节重算、
+缓存在换日与条目变少时从头递推，以及整层一个观察分件。"""
 
 from __future__ import annotations
 
 import json
-import logging
 from datetime import datetime
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
-
-import pytest
 
 from tests.integration.runtime_fixtures import branch_of
 from tests.life.conftest import activity_name, advance_until_ready, conclude_request, do_at, sleep, stage_day_plan
@@ -19,11 +16,8 @@ from tests.unit.life.test_memory_layout import _entry
 from worldmock.agents.prompt.narration import render_layer_json
 from worldmock.agents.prompt.prompt_schemas import validate_layer
 from worldmock.foundation.serialization import canonical_json, is_sha256
-from worldmock.recording_engine.events.models import EventDraft
 from worldmock.recording_engine.storage.store import FootprintStore
 from worldmock.simulation_engine.observation.layers import memory_layer
-from worldmock.simulation_engine.observation.memory import layout
-from worldmock.simulation_engine.observation.memory.layout import assemble_layer, layer_chars
 
 ZONE = "Asia/Shanghai"
 
@@ -95,53 +89,19 @@ def _three_decisions(engine):
     return observe_only(engine, "fourth")["memory_layer"]
 
 
-def _backstopped(engine, monkeypatch, caplog) -> tuple[dict, dict, int]:
-    """清空缓存、把上限与目标都设成此刻记忆层的字数减一再观察：返回补丁前后的记忆层与补丁前的字数。"""
+def test_a_new_store_rebuilds_today_byte_for_byte(engine_factory, tmp_path):
+    """连续三次决策后：恢复分支（新存储对象，缓存为空）与清空缓存后的父运行，此刻观察的记忆层逐字节相同。"""
+    engine = engine_factory()
     before = _three_decisions(engine)
-    size = layer_chars(before)
-    memory_layer._FOLDS.clear()
-    monkeypatch.setattr(layout, "MEMORY_LAYER_CHARS", size - 1)
-    monkeypatch.setattr(layout, "MEMORY_BACKSTOP_CHARS", size - 1)
-    caplog.clear()
-    return before, observe_only(engine, "patched")["memory_layer"], size
-
-
-def test_the_observation_path_applies_the_backstop_and_the_budget(engine_factory, monkeypatch, caplog):
-    """上限与目标设成 L−1：「今天」仍三项，只有收尾那一项的「自述」换成「…」，没有计数行，恰写一条警告；上限设成固定部分
-    的字数减一时观察以 RuntimeError 停止。"""
-    engine = engine_factory()
-    before, after, size = _backstopped(engine, monkeypatch, caplog)
-    today, original = after["今天"], before["今天"]
-    assert len(today) == 3 and "自述" not in original[0] and "自述" not in original[2]
-    assert today[1]["自述"] == ["…"] and {key: today[1][key] for key in ("时刻", "类别", "核验")} == {
-        key: original[1][key] for key in ("时刻", "类别", "核验")}
-    assert today[0] == original[0] and today[2] == original[2] and not any("条数" in item for item in today)
-    assert layer_chars(after) <= size - 1
-    warnings = [record.getMessage() for record in caplog.records if record.levelno == logging.WARNING]
-    assert warnings == [f"Memory layer backstop rewrote today from {size} to {layer_chars(after)} characters "
-                        f"(target {size - 1})"]
-    fixed = layer_chars(assemble_layer(after["可查"]["最早日期"], after["近三天"], []))
-    memory_layer._FOLDS.clear()
-    monkeypatch.setattr(layout, "MEMORY_LAYER_CHARS", fixed - 1)
-    with pytest.raises(RuntimeError) as refused:
-        observe_only(engine, "over")
-    assert str(refused.value) == f"Memory layer exceeds {fixed - 1} characters"
-    assert "Memory layer has" in caplog.text and "above its" in caplog.text
-
-
-def test_a_new_store_rebuilds_today_byte_for_byte(engine_factory, monkeypatch, caplog, tmp_path):
-    """触发一次兜底之后：恢复分支（新存储对象，缓存为空）与清空缓存后的父运行，此刻观察的记忆层与触发后的观察逐字节相同。"""
-    engine = engine_factory()
-    _, after, _ = _backstopped(engine, monkeypatch, caplog)
-    triggered = render_layer_json(after)
+    rendered = render_layer_json(before)
     source = engine.context.store.read_last_event().event_id
     child = branch_of(engine, tmp_path, "resume", source)
     try:
-        assert render_layer_json(observe_only(child, "branch")["memory_layer"]) == triggered
+        assert render_layer_json(observe_only(child, "branch")["memory_layer"]) == rendered
     finally:
         child.close()
     memory_layer._FOLDS.clear()
-    assert render_layer_json(observe_only(engine, "parent")["memory_layer"]) == triggered
+    assert render_layer_json(observe_only(engine, "parent")["memory_layer"]) == rendered
 
 
 def _context(day: str):
@@ -157,13 +117,12 @@ def _fresh(store, context, entries, recent):
     return memory_layer._today(context, store, entries, "2026-01-05", recent)
 
 
-def test_today_restarts_when_the_day_the_fixed_part_or_the_entry_count_changes(tmp_path, monkeypatch):
-    """同一存储对象先在 D 日以三条条目递推；换到 D+1 日、固定部分变了、条目变少，结果都等于清空缓存后从头递推的结果。"""
+def test_today_restarts_when_the_day_the_fixed_part_or_the_entry_count_changes(tmp_path):
+    """同一存储对象先在 D 日以三条条目递推；换到 D+1 日或条目变少时，结果都等于清空缓存后从头递推的结果。"""
     store = FootprintStore.create(tmp_path / "run", {"run_id": "run", "agent_ids": [1]},
                                   {"version": 0, "current_time": 0})
     first = [_entry(f"0{hour}:00", "生活", [f"第{hour}件"], [f"自述{hour}"]) for hour in range(7, 10)]
     other = [_entry(f"1{hour}:00", "工作", [f"另{hour}件"]) for hour in range(3)]
-    recent = {"饮食": [{"日期": "2026-01-04", "星期": "星期日", "回顾": "饭" * 200}]}
     today = _context("2026-01-05")
 
     def restored():
@@ -174,13 +133,6 @@ def test_today_restarts_when_the_day_the_fixed_part_or_the_entry_count_changes(t
         assert restored() == [entry.item for entry in first]
         assert memory_layer._today(_context("2026-01-06"), store, other, "2026-01-05", {}) == [
             entry.item for entry in other] == _fresh(store, _context("2026-01-06"), other, {})
-        restored()
-        size = layer_chars(assemble_layer("2026-01-05", {}, [entry.item for entry in first]))
-        monkeypatch.setattr(layout, "MEMORY_LAYER_CHARS", size)
-        monkeypatch.setattr(layout, "MEMORY_BACKSTOP_CHARS", size)
-        changed = memory_layer._today(today, store, first, "2026-01-05", recent)
-        assert changed == _fresh(store, today, first, recent) != [entry.item for entry in first]
-        monkeypatch.undo()
         restored()
         assert memory_layer._today(today, store, first[:2], "2026-01-05", {}) == [
             entry.item for entry in first[:2]] == _fresh(store, today, first[:2], {})

@@ -78,7 +78,7 @@ PROGRESS_PREFIX, VIEW_PREFIX, MEMORY_PREFIX, BODY_PREFIX = "进展·", "看法·
 LINE_KINDS = ("ending", "purchase", "delivery", "pickup", "receipt", "errand_done", "search", "pause", "start",
               "rejection", "errand_change", "revise", "fallback", "crossing")
 #: 自述项的种类闭集与渲染次序档位（routine 只进全文）。
-SELF_RANKS = {"summary": 0, "progress": 0, "view": 1, "memory": 2, "routine": 2, "body": 3}
+SELF_RANKS = {"summary": 0, "progress": 0, "view": 1, "memory": 2, "routine": 2, "continue": 2, "body": 3}
 #: 缓存读的本人事件类型。
 AGENT_EVENT_TYPES = ("action_requested", "action_result", "environment_event")
 
@@ -116,8 +116,8 @@ class AgentEvents:
     commit_counts: dict[tuple[str, str], int] = field(default_factory=dict)
     #: 连续请求片段 (key, start_seq, end_seq) → 提交末序号缓存。
     slice_commits: dict[tuple[tuple[str, str], int, int], int] = field(default_factory=dict)
-    #: (wakeup_id, local_date) → 已建的今天条目。
-    entries: dict[tuple[str, str], "TodayEntry"] = field(default_factory=dict)
+    #: (wakeup_id, local_date) → 已建的今天条目（静默维持唤醒为 None）。
+    entries: dict[tuple[str, str], "TodayEntry | None"] = field(default_factory=dict)
     #: 日期 → B_D（day_bound 的返回值，03 章）。
     day_bounds: dict[str, int] = field(default_factory=dict)
     #: 日期 → 零点收尾条目（没有时为 None）。
@@ -224,12 +224,13 @@ class _Note:
 
 @dataclass(frozen=True, slots=True)
 class _Head:
-    """@brief 条目的唤醒部分：唤醒身份、主请求与它的第一条结果、受理的控制请求点名的活动；零点收尾条目全为空。"""
+    """@brief 条目的唤醒部分：唤醒身份、主请求与它的第一条结果、受理的控制请求及续行活动；零点收尾条目全为空。"""
 
     wakeup_id: str | None
     primary: Event | None
     result: Event | None
     activity_ids: tuple[str, ...]
+    continue_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -349,8 +350,8 @@ def wakeup_commits(store: FootprintStore, cached: AgentEvents, cutoff: int, time
 
 
 def build_entry(book: CategoryBook, store: FootprintStore, cached: AgentEvents,
-                commit: WakeupCommit, lower: int) -> TodayEntry:
-    """@brief 唤醒提交对应非重叠窗口上的今天条目，存进 cached.entries；只读事件与冻结输入。"""
+                commit: WakeupCommit, lower: int) -> TodayEntry | None:
+    """@brief 唤醒提交对应非重叠窗口上的今天条目，静默 continue_activity 返回 None 并缓存。"""
     day = commit.local_date
     raw_spans = cached.commit_spans.get((commit.wakeup_id, day))
     windows = (tuple((max(lo, lower), hi) for lo, hi in raw_spans if hi > lower)
@@ -362,6 +363,12 @@ def build_entry(book: CategoryBook, store: FootprintStore, cached: AgentEvents,
     _validate_entry_results(results)
     drafts = [*_settled_drafts(scope), *_own_drafts(scope, requests, results)]
     notes = _notes(requests, results)
+    if not drafts and not notes and requests and all(
+        req.data["tool_name"] == "continue_activity" and res.data.get("status") in _ACCEPTED
+        for req, res in zip(requests, results)
+    ):
+        cached.entries[(commit.wakeup_id, day)] = None
+        return None
     if not drafts and all(note.kind == "routine" for note in notes):
         ctl = next(((req, res) for req, res in zip(requests, results)
                     if res.data.get("status") in _ACCEPTED and req.data["tool_name"] in CONTROL_TOOLS), None)
@@ -372,7 +379,11 @@ def build_entry(book: CategoryBook, store: FootprintStore, cached: AgentEvents,
     controls = tuple(cid for req, res in zip(requests, results)
                      if res.data.get("status") in _ACCEPTED and req.data["tool_name"] in CONTROL_TOOLS
                      for cid in _control_ids(req, res))
-    head = _Head(commit.wakeup_id, primary, results[requests.index(primary)], controls)
+    continues = tuple(
+        res.data["data"]["activity_ids"][0] for req, res in zip(requests, results)
+        if res.data.get("status") in _ACCEPTED and req.data["tool_name"] == "continue_activity"
+    )
+    head = _Head(commit.wakeup_id, primary, results[requests.index(primary)], controls, continues)
     entry = _assemble(scope, drafts, notes, head)
     cached.entries[(commit.wakeup_id, day)] = entry
     return entry
@@ -601,11 +612,19 @@ def _fallback_draft(request: Event, result: Event) -> _Draft:
 
 
 def _notes(requests: Sequence[Event], results: Sequence[Event]) -> list[_Note]:
-    """@brief 本次唤醒的各项自述，按总结与进展、看法、记住、正文四档排列；同一档按请求里的先后。"""
+    """@brief 本次唤醒的各项自述，按总结与进展、看法、记住、续行、正文四档排列；同一档按请求里的先后。"""
     notes: list[_Note] = []
     for request, result in zip(requests, results):
-        if result.data.get("status") in _ACCEPTED and request.data["tool_name"] in CONTROL_TOOLS:
+        if result.data.get("status") not in _ACCEPTED:
+            continue
+        tool = request.data["tool_name"]
+        if tool in CONTROL_TOOLS:
             notes.extend(_control_notes(request, result))
+        elif tool == "continue_activity":
+            reason = request.data["request"].get("reason")
+            if isinstance(reason, str) and reason.strip():
+                notes.append(_Note("continue", reason.strip(), None, (request.event_id,),
+                                   result.data["data"]["activity_ids"][0]))
     for request in requests:
         body = request.data.get("self_note")
         if body is not None:
@@ -635,7 +654,8 @@ def _assemble(scope: _Scope, drafts: Sequence[_Draft], notes: Sequence[_Note], h
     named = [identity for draft in drafts if draft.kind in _NAMING for identity in draft.activities]
     named += [note.activity_id for note in notes if note.kind in {"summary", "progress"}]
     involved = [*(identity for draft in drafts for identity in draft.activities),
-                *(note.activity_id for note in notes if note.activity_id is not None), *head.activity_ids]
+                *(note.activity_id for note in notes if note.activity_id is not None),
+                *head.activity_ids, *head.continue_ids]
     facts = _facts(scope, involved, named)
     main = None if head.primary is None else request_category(scope.book, scope.store, head.primary, head.result,
                                                               facts.categories)
@@ -686,6 +706,8 @@ def _item(facts: _Facts, note: _Note, main: MemoryCategory | None) -> SelfItem:
         text = f"{VIEW_PREFIX}{note.subject}：{note.text}"
     elif note.kind == "body":
         text = f"{BODY_PREFIX}{note.text}"
+    elif note.kind == "continue":
+        text = f"续行：{note.text}"
     else:
         text = f"{MEMORY_PREFIX}{note.text}"
     category = main if note.activity_id is None else facts.categories[note.activity_id]
@@ -886,6 +908,8 @@ def _action_object(request: Event) -> str:
     if tool in CONTROL_TOOLS:
         names = (short_name(item.activity_name) for item in control_items(tool, arguments))
         return _CONTROL_VERBS[tool] + "、".join(names)
+    if tool == "continue_activity":
+        return "继续当前活动"
     return "改今日计划"
 
 

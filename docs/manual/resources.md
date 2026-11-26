@@ -185,7 +185,7 @@ WorldMock 不在环境包里保存 `map.json`；每次加载时，引擎按 `cit
 {"exertion":"light","name":"打车","price_per_km_fen":300,"speed_meters_per_second":7,"start_price_fen":1400,"travel_method_id":"taxi"}
 ```
 
-工具层只列出当前城市全部地点与从当前地点存在跨城声明边直连的异地枢纽：同城目的地下展示 `步行`（如有）与允许的同城方式（`city_wide: true` 及直连边允许的方式），跨城枢纽下只展示该跨城声明边 `travel_method_ids` 允许的方式。所有出行方式（含 `city_wide: false`）均沿用同一张天气系数表；余额不足、发车窗口外或缺少票证状态的声明边方式照样列出并标明此刻不可用。
+核心常驻工具层只列出关键生活锚点（当前地点、住处、工作地点、本城驿站、跨城枢纽）、从当前地点存在跨城声明边直连的异地枢纽，以及本周期经 `lookup_targets` 载入的地点：同城已列目的地下展示 `步行`（如有）与允许的同城方式（`city_wide: true` 及直连边允许的方式），跨城枢纽下只展示该跨城声明边 `travel_method_ids` 允许的方式（同城其余地点可通过 `lookup_targets` 或 `search_world` 检索，或按全名直呼）。所有出行方式（含 `city_wide: false`）均沿用同一张天气系数表；余额不足、发车窗口外或缺少票证状态的声明边方式照样列出并标明此刻不可用。
 
 #### `app-catalog.jsonl`：内容 app 与功能 app 分工明确
 
@@ -245,7 +245,7 @@ flowchart TD
 | --- | --- | --- | --- |
 | 即时电子履约 | 商品写 `app_ids` 且 `instant: true` | `0` 运费；下单并付款完成当秒于同次事务直接收货，触发 `gain_on_goods` 或 `reset_on_goods`，只写 `ORDER_PLACED` 与 `payment_notification` | 店铺商品（`store_kinds` 非空）声明 `instant` 或写成 `null` 会直接报 `ENVIRONMENT_KIND_INVALID` |
 | 到店购买 | 商品写 `store_kinds`，人停在对应门店 | 付款完成当秒收货，无运费 | 人在店门口却刚好打烊时不会降级成外卖，直接报 `LOCATION_CLOSED` |
-| 外卖送达 | 商品写 `store_kinds`，人在别处且**当前城市**有门店营业并绑定了内容 app | 下单起算，备货时长固定，路程受天气影响。实际送达须已付款，每配送组运费 `500` 分 | 候选门店、缺货提示、`search_world` 搜索与工具层商品窗口只看当前城市；若人物习惯写了“用美团外卖点午餐”，要确保本城卖午餐的店把 `meituan` 放进 `app_ids` |
+| 外卖送达 | 商品写 `store_kinds`，人在别处且**当前城市**有门店营业并绑定了内容 app | 下单起算，备货时长固定，路程受天气影响。实际送达须已付款，每配送组运费 `500` 分 | 候选门店、缺货提示、`lookup_targets` 与 `search_world` 搜索只看当前城市（已移除常驻商品轮转窗口）；若人物习惯写了“用美团外卖点午餐”，要确保本城卖午餐的店把 `meituan` 放进 `app_ids` |
 | 快递到驿站 | 商品写 `app_ids` 且 `instant: false` | `2` 至 `5` 天到达**每位人物住处所属城市**里离各自住处最近的 `accepts_parcels: true` 驿站；运费 `0` 或 `500` 分 | 只有目录存在非即时的 `app_ids` 商品时，才要求每位人物住处城市内至少有一个驿站；但凡声明出来的驿站，**其地点类型都必须有至少一条地点内容**，否则报 `PARCEL_STATION_REQUIRED` |
 
 关于驿站取件的联动规则：引擎没有单独的“取快递动作”，人物必须亲自来到驿站、点名开始任意一条属于该驿站类型的地点内容时，才会把站内全部已到站包裹一并领走；如果本人没有已到站的包裹，在驿站开始任何内容都会被 `PARCEL_NOT_READY` 拒绝。

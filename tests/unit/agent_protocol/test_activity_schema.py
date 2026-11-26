@@ -34,11 +34,12 @@ from worldmock.state.interaction.schema import deepseek_strict_schema
 
 
 _UNSUPPORTED_KEYS = {"oneOf", "minLength", "maxLength", "minItems", "maxItems", "default"}
-#: 稳定工具面的八件请求工具（两个开始工具与搜索在前）；当日计划由零点后台任务 plan_day 生成，不是人物工具（时间与能量规格第四章）。
+#: 稳定工具面的九件请求工具（两个开始工具、搜索与继续在先）；当日计划由零点后台任务 plan_day 生成，不是人物工具。
 _ACTION_TOOLS = {
     "start_main_activity",
     "start_side_activity",
     "search_world",
+    "continue_activity",
     "recall_task_summary",
     "report_status",
     "pause_activity",
@@ -287,7 +288,7 @@ def test_recall_uses_readable_activity_name_and_retired_world_tools_are_absent(e
     """回看绑定真实活动名称，旧消息、工作提交与闹钟工具不再提供。"""
     names = {entry["function"]["name"] for entry in _agent().turn_tools(16, False)}
     assert {"start_activity", "submit_work", "send_message", "set_alarm", "finish"}.isdisjoint(names)
-    assert len(names) == 9 and {MAIN_TOOL, SIDE_TOOL, SEARCH_TOOL} <= names
+    assert len(names) == 11 and {MAIN_TOOL, SIDE_TOOL, SEARCH_TOOL, "continue_activity", "lookup_targets"} <= names
     recall = _function("recall_task_summary")["parameters"]
     assert set(recall["properties"]) == {"task_name"}
     _, active_name, sandbox = _with_active_rest(engine_factory)
@@ -375,3 +376,26 @@ def test_conclusion_memory_rejects_fact_like_memory_types(retired_type: str) -> 
     assert list(Draft202012Validator(_function("conclude_activity")["parameters"]).iter_errors(payload))
     with pytest.raises(ValidationError):
         REQUEST_MODELS["conclude_activity"].model_validate(payload)
+
+
+def test_continue_activity_and_lookup_targets_strict_schemas_and_batches() -> None:
+    """@brief continue_activity 与 lookup_targets 满足 strict 封闭 Schema 与批次互斥规则。"""
+    for tool_name, model in (("continue_activity", REQUEST_MODELS["continue_activity"]),
+                             ("lookup_targets", QUERY_MODELS["lookup_targets"])):
+        fn = _function(tool_name)
+        assert fn["strict"] is True and fn["parameters"] == deepseek_strict_schema(model)
+        _assert_closed(fn["parameters"])
+    assert _host_error("continue_activity", {"reason": None}) is None
+    assert _host_error("continue_activity", {"reason": "等外卖送到"}) is None
+    assert _host_error("continue_activity", {"reason": "   "}).report.error_code == "ARGUMENTS_INVALID"
+    assert _host_error("lookup_targets", {"kind": "location", "keyword": None, "limit": 10, "offset": 0}) is None
+    assert _host_error("lookup_targets", {"kind": None, "keyword": "咖啡", "limit": 31, "offset": 0}).report.error_code == "ARGUMENTS_INVALID"
+    assert validate_life_batch([LoopToolCall("continue_activity", {"reason": None}, "c1")], _FULL_MODELS) is None
+    assert validate_life_batch([
+        LoopToolCall("lookup_targets", {"kind": None, "keyword": "咖啡", "limit": 5, "offset": 0}, "q1"),
+        LoopToolCall("search_memory", {"category": "饮食", "time": "今天", "keyword": None}, "q2"),
+    ], _FULL_MODELS) is None
+    assert validate_life_batch([
+        LoopToolCall("continue_activity", {"reason": None}, "c1"),
+        LoopToolCall("lookup_targets", {"kind": None, "keyword": "咖啡", "limit": 5, "offset": 0}, "q1"),
+    ], _FULL_MODELS) is not None

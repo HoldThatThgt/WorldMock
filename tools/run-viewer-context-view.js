@@ -81,18 +81,27 @@ const ContextView = {};
       <label>查看内容<select id="ctx-view">${options(Object.entries(views), state.view)}</select></label></div>`;
   }
 
-  /** @brief 按调用阶段显示当前处理流程。 */
-  function flow(stage) {
+  /** @brief 按调用阶段与日会话上下文特征显示当前处理流程。 */
+  function flow(stage, blocks = []) {
     if (stage === 'other') return '<div class="cx-meta">其他模型调用按原始消息结构展示。</div>';
     if (stage === 'search_session') {
       return `<div class="cx-flow" aria-label="搜索子会话流程"><span>主循环 search_world</span><span>→</span>
         <span class="active">LLM Search Session 多轮目录检索</span><span>→</span>
         <span>submit_search_results / Fact Guard</span></div>`;
     }
+    const hasCompaction = blocks.some(block => block.key === 'memory' && isObject(block.value?.['折叠摘要']));
+    const hasToolDelta = blocks.some(block => block.key === 'message' && block.role === 'tool');
+    if (hasCompaction || hasToolDelta) {
+      return `<div class="cx-flow" aria-label="人物日会话流程"><span>冻结观察 / 日会话</span><span>→</span>
+        ${hasCompaction ? '<span class="active">日内 Compaction 重建</span><span>→</span>' : ''}
+        <span class="active">系统层与六层${hasToolDelta ? ' + tool 差量延续' : '输入'} → 世界请求或检索</span><span>→</span>
+        <span>沙盒执行与屏障提交</span></div>`;
+    }
     return `<div class="cx-flow" aria-label="人物决策流程"><span>冻结观察</span><span>→</span>
       <span class="active">系统层与六层输入 → 世界请求或挂起搜索</span><span>→</span>
       <span>沙盒执行与屏障提交</span></div>`;
   }
+  function isObject(value) { return value !== null && typeof value === 'object' && !Array.isArray(value); }
 
   /** @brief 绘制按请求实际顺序排列的内容块与字符数量条。 */
   function blockList(blocks) {
@@ -166,7 +175,7 @@ const ContextView = {};
     const usage = response?.usage ?? null;
     const visible = {choices:(response?.choices || []).map(choice => ({index:choice.index,
       content:choice.message?.content, tool_calls:choice.message?.tool_calls, finish_reason:choice.finish_reason})),
-      usage, cache_hit_tokens:usage?.prompt_cache_hit_tokens ?? null,
+      usage, cache_hit_tokens:usage?.prompt_cache_hit_tokens ?? usage?.prompt_tokens_details?.cached_tokens ?? null,
       reasoning_tokens:usage?.completion_tokens_details?.reasoning_tokens ?? null, error:data.error ?? null};
     const reasoning = (response?.choices || []).map(choice => choice.message?.reasoning_content)
       .filter(text => typeof text === 'string' && text).join('\n\n');
@@ -201,7 +210,7 @@ const ContextView = {};
     const detail = state.view === 'growth' ? growth(block) : blockDetail(block);
     const body = state.view === 'comparison' ? comparison(model) :
       `<div class="cx-layout">${blockList(blocks)}${detail}</div>`;
-    return `${flow(model.current.stage)}<p class="cx-meta">${esc(model.current.stageLabel)} ·
+    return `${flow(model.current.stage, blocks)}<p class="cx-meta">${esc(model.current.stageLabel)} ·
       消息 ${nf(model.current.messageChars)} 字符 · 工具定义 ${nf(model.current.toolChars)} 字符。
       Unicode 字符计数，分隔符计入随后块，对象按 JSON 计量；不等于 token。</p>${provenance}${trace}${warnings}${body}
       ${output(model)}${disclosure('完整请求消息与工具', JSON.stringify(model.event.data.request,null,2))}`;

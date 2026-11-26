@@ -13,6 +13,7 @@ from tests.life.conftest import (
     do_at,
     sleep,
     stage_day_plan,
+    stub_day_session,
 )
 from tests.life.environment_runtime import act, action_result, finish_activity
 from tests.life.observation_record import assert_observations_round_trip, record_observations
@@ -29,7 +30,7 @@ def _record_stored_observe(engine):
     """@brief 发起一次无世界工具动作的唤醒并提交，确保观察事件完整落库。"""
     [wakeup] = engine.prepare_barrier((1,))
     sandbox = engine.open_sandbox(wakeup)
-    engine.commit_barrier([sandbox.finish_wakeup(None)])
+    engine.commit_barrier([sandbox.finish_wakeup(None, stub_day_session(wakeup))])
     return wakeup, wakeup.observation
 
 
@@ -81,7 +82,7 @@ def test_a_past_day_part_follows_the_activity_phase_after_midnight(engine_factor
     sandbox.dispatch_world_tool("conclude_activity", conclude_request(name), action_identity("conclude-night", 1))
     night_rest_id = action_identity("night-rest", 2)
     sandbox.dispatch_world_tool("start_main_activity", do_at("家", "测试休息"), night_rest_id)
-    engine.commit_barrier([sandbox.finish_wakeup(None)])
+    engine.commit_barrier([sandbox.finish_wakeup(None, stub_day_session(woke))])
     rest = action_result(engine, night_rest_id)
     assert rest.status == "in_progress", rest.error_code
     assert advance_until_ready(engine)

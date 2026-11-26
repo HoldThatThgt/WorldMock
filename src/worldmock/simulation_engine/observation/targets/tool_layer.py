@@ -23,7 +23,7 @@ from worldmock.simulation_engine.body.felt import sleep_debt_phrase
 from worldmock.simulation_engine.observation.wording.guidance import Refusal
 from worldmock.simulation_engine.activities.content.location_activities import running_series_note, unit_facts
 from worldmock.state.world.activity import ActivityState
-from worldmock.state.world.kinds import ActivityStatus, FulfillmentKind
+from worldmock.state.world.kinds import ActivityKind, ActivityStatus, FulfillmentKind
 from worldmock.simulation_engine.commerce.purchase.purchase_offers import quote_goods
 from worldmock.foundation.time.readable import duration_phrase, interval_phrases, money_phrase
 from worldmock.resource_engine.catalog.travel_methods import travel_method
@@ -40,6 +40,8 @@ class LayerContext:
     open_activities: tuple[ActivityState, ...]
     #: 沙盒内层重算时覆盖的世界副本；正常提交观察时为空。
     state_override: Any = None
+    #: 本轮或日内通过 lookup_targets 懒加载的目标键集合 (kind, object_id)。
+    loaded_target_keys: frozenset[tuple[str, str]] = frozenset()
 
     @property
     def state(self):
@@ -95,17 +97,17 @@ def availability(context: LayerContext, candidate: Candidate) -> dict:
 
 
 def refusal_for(context: LayerContext, candidate: Candidate) -> Refusal | None:
-    """@brief 待收尾与真实目标条件按受理顺序判定；开始动作行按只含这一行的一组求值。"""
+    """@brief 开始动作行仅按自身固有条件求值（全局槽位、睡眠与待收尾由顶层 gate 宣告）；活动工具保留待收尾与单条校验。"""
+    if candidate.tool in START_TOOLS:
+        row = {**candidate.binding, "selected_action": candidate.action}
+        return admission.intrinsic_refusal(
+            _admission_context(context), admission.Call(candidate.tool, candidate.action["action"], (row,)),
+        )
     waiting = activity_control.pending_conclusions(context.open_activities)
     activity = None if candidate.activity_id is None else context.state.activities[candidate.activity_id]
     if waiting and candidate.tool != "conclude_activity":
         return activity_control.conclusion_refusal(waiting, context.names["activities"])
-    if candidate.tool not in START_TOOLS:
-        return activity_control.control_refusal(_admission_context(context), candidate.tool, activity)
-    row = {**candidate.binding, "selected_action": candidate.action}
-    blocked = admission.group_refusal(
-        _admission_context(context), (admission.Call(candidate.tool, candidate.action["action"], (row,)),))
-    return None if blocked is None else blocked.refusal
+    return activity_control.control_refusal(_admission_context(context), candidate.tool, activity)
 
 
 def _start_candidate(row: dict, action: dict) -> Candidate:
@@ -120,25 +122,76 @@ def annotated_bindings(context: LayerContext) -> list[dict]:
             for row in context.bindings]
 
 
+def _gate(context: LayerContext) -> dict[str, Any]:
+    """@brief 顶层门禁五键：主槽位占用、副槽位占用、睡眠中、在途与待收尾活动显示名称列表。"""
+    waiting = activity_control.pending_conclusions(context.open_activities)
+    return {
+        "main_slot_busy": any(
+            "first" in item.resource_claims and activity_control.occupies_slot(item)
+            for item in context.open_activities
+        ),
+        "side_slot_busy": any(
+            "second" in item.resource_claims and activity_control.occupies_slot(item)
+            for item in context.open_activities
+        ),
+        "sleeping": any(
+            item.kind == ActivityKind.SLEEP and item.status == ActivityStatus.ACTIVE
+            for item in context.open_activities
+        ),
+        "in_transit": admission.present_location(context.state, context.agent_id) is None,
+        "pending_conclusions": [context.names["activities"].get(item.activity_id, item.name) for item in waiting],
+    }
+
+
 def tool_layer(context: LayerContext, index: dict) -> dict:
-    """@brief 目标顺序保持地点、商品、内容 app、活动；地点仅暴露当前城市地点及一步直达异地枢纽。"""
+    """@brief 构造含顶层 gate、核心常驻/已载入目标与完整可调用索引的工具层。"""
     targets = [_binding_target(context, row) for row in context.bindings if _target_visible(context, row)]
     targets.extend(_activity_target(context, item) for item in context.state.activities.values()
                    if item.agent_id == context.agent_id and (item.status == ActivityStatus.ACTIVE
                    or activity_control.is_pending_conclusion(item)))
-    return {"layer": "工具层", "targets": targets, "callable_index": index}
+    return {"layer": "工具层", "gate": _gate(context), "targets": targets, "callable_index": index}
 
 
 def _target_visible(context: LayerContext, row: dict) -> bool:
-    """@brief 工具层只显示当前所在城市的地点，以及从当前停留或锚定地点一步直达的异地枢纽。"""
-    if row["kind"] != "location":
+    """@brief 核心常驻工具层过滤：核心锚点/驿站枢纽/合格或置顶推送应用/进行中活动与已载入目标。"""
+    kind = row["kind"]
+    if kind == "location":
+        return _location_visible(context, row["object_id"])
+    if kind == "supply":
+        return ("product", row["object_id"]) in context.loaded_target_keys
+    if kind == "app":
+        return _app_visible(context, row["object_id"])
+    return True
+
+
+def _location_visible(context: LayerContext, destination: str) -> bool:
+    """@brief 核心常驻地点：当前点、同城家与工作地、本城驿站与跨城枢纽、一步直达异地枢纽或已检索载入地点。"""
+    if ("location", destination) in context.loaded_target_keys:
         return True
     origin = context.state.agents[context.agent_id].location_id
-    destination = row["object_id"]
     graph = context.catalog.graph
-    if graph.city_of(destination) == graph.city_of(origin):
+    place = context.catalog.locations[destination]
+    anchors = {context.inputs.home_location_ids[context.agent_id]}
+    workplace = context.inputs.workplace_location_ids[context.agent_id]
+    if workplace is not None:
+        anchors.add(workplace)
+    if destination == origin or (destination in anchors and place.city_id == graph.city_of(origin)):
+        return True
+    if place.city_id == graph.city_of(origin) and (
+        place.kind == "parcel_station" or place.accepts_parcels or bool(graph.intercity_edges_from(destination))
+    ):
         return True
     return destination in dict(graph.intercity_edges_from(origin))
+
+
+def _app_visible(context: LayerContext, app_id: str) -> bool:
+    """@brief 内容应用：具备合格内容或置顶推送，或已检索载入时收录入核心常驻工具层。"""
+    if ("app", app_id) in context.loaded_target_keys:
+        return True
+    stay = admission.present_location(context.state, context.agent_id)
+    request = ContentRequest(context.agent_id, app_id, stay)
+    eligible = eligible_contents(context.catalog, context.state, request)
+    return bool(eligible) or pinned_push_content(eligible, context.state, request) is not None
 
 
 def _visible_actions(context: LayerContext, row: dict) -> list[dict]:

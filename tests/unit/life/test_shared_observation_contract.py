@@ -201,8 +201,12 @@ def test_content_sentence_requires_authenticated_progress_and_pending_conclusion
         activity_sentence(layer, engine.context.state.activities[started.activity_id])
     assert advance_until_ready(engine)
     waiting_layer = _context(engine)
-    for tool in (MAIN_TOOL, SIDE_TOOL):
-        refusal = refusal_for(waiting_layer, Candidate(tool, action={"action": "interact"}))
+    observed = engine.observations._observation_data(engine.context.state.agents[1])
+    assert observed["tool_layer"]["gate"]["pending_conclusions"] == [
+        engine.context.state.activities[started.activity_id].name
+    ]
+    for tool in ("report_status", "pause_activity"):
+        refusal = refusal_for(waiting_layer, Candidate(tool, activity_id=started.activity_id))
         assert refusal.code == "ACTIVITY_CONCLUSION_REQUIRED"
 
 
@@ -265,7 +269,7 @@ def test_observation_computes_open_activities_once(engine_factory, monkeypatch):
 
 
 def test_tool_layer_rows_take_availability_from_the_private_binding_note(engine_factory, monkeypatch):
-    engine = engine_factory()
+    engine = engine_factory(mutate=lambda p, _c: p.__setitem__("initial_balance_fen", 100))
     stage_day_plan(engine)
     act_group(engine, "both-slots", use_app("Keep"), travel("公司"))
     calls, original = [], tool_layer.availability
@@ -282,7 +286,7 @@ def test_tool_layer_rows_take_availability_from_the_private_binding_note(engine_
     expected += sum(len(target["tools"]) for target in targets if target["kind"] == "activity")
     assert len(calls) == expected
     layer = engine.observations._layer_context(engine.context.state.agents[1], bindings)
-    for binding, target in zip(bindings, targets):
+    for binding, target in zip(bindings, [row for row in targets if row["kind"] != "activity"]):
         actions = [action for action in binding["actions"] if not action.get("locked")]
         for action, row in zip(actions, target["actions"], strict=True):
             assert row["available"] is (action["note"] is None)

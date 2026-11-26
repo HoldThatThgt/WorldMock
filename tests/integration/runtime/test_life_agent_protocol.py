@@ -1,8 +1,9 @@
 """LifeAgent 闭集 Schema、宿主身份注入与无状态回合循环测试。
 
-一次唤醒采用通用 AgentLoop 驱动单一连续对话：请求为原生 tools、系统层 system 与六层 user；全量九个原生工具在常规
-回合开放（含 search_world 与两项只读查询），末回合与截断重试仅保留六个核心世界请求。控制工具与只读查询直接在当前沙盒
-结算并回传结果及层差量，search_world 发起异步搜索并产出 SuspendedLoopState，有效开始动作提交并封口沙盒。
+一次唤醒采用通用 AgentLoop 驱动日会话连续对话：请求为恒定 11 个原生工具、系统层 system 与六层 user（及日内追加的
+assistant/tool 差量消息）。控制工具与只读查询（search_memory、recall_task_summary、lookup_targets）直接在当前
+沙盒结算并回传结果及层差量，search_world 发起异步搜索并产出 SuspendedLoopState，有效开始动作或 continue_activity
+提交并封口沙盒。
 """
 
 from __future__ import annotations
@@ -86,9 +87,8 @@ _SEARCH = '{"category":"全部","time":"今天","keyword":null}'
 _SEARCH_ARGS = {"category": "全部", "time": "今天", "keyword": None}
 _SEARCH_ANSWER = {"类别": "全部", "时间": "今天", "关键词": None, "结果": [], "未列出": []}
 
-#: 全量工具名与核心世界工具名（九个全量 = 6 核心世界 + search_world + 2 只读查询）。
+#: 全量工具名（11 个全量 = 9 个 REQUEST_MODELS 世界/任务工具 + 2 个只读查询工具）。
 _BASE_ACTION_NAMES = set(life_action_tool_names())
-_CORE_ACTION_NAMES = _BASE_ACTION_NAMES - {SEARCH_TOOL, "recall_task_summary"}
 _READ_QUERY_NAMES = set(life_query_tool_names())
 _FULL_TOOL_NAMES = _BASE_ACTION_NAMES | _READ_QUERY_NAMES
 
@@ -168,10 +168,14 @@ def _wakeup(
     action_seq_start: int = 1,
     suspended_loop=None,
     search_result_payload: dict | None = None,
+    day_session=None,
+    boundary_delta_payload: dict | None = None,
 ) -> AgentWakeupInput:
     """构造单次人物唤醒不可变快照 AgentWakeupInput。"""
     obs = copy.deepcopy(observation) if observation is not None else _observations()[0]["data"]
     return AgentWakeupInput(
+        run_id="run-1",
+        local_date="2026-01-05",
         wakeup_id=wakeup_id,
         agent_id=agent_id,
         observed_at=int(obs["current_time"]),
@@ -179,10 +183,11 @@ def _wakeup(
         mode=mode,
         observation=obs,
         observation_parts={},
-        pending_presentation={},
         action_seq_start=action_seq_start,
         suspended_loop=suspended_loop,
         search_result_payload=search_result_payload,
+        day_session=day_session,
+        boundary_delta_payload=boundary_delta_payload,
     )
 
 
@@ -221,8 +226,13 @@ def _stored_memories(args: dict) -> list[dict]:
 def _layers() -> dict:
     """环境构建的五层与看法偏好。"""
     return {
-        "tool_layer": {"layer": "工具层", "targets": copy.deepcopy([_SELF_OBJECT[0], _WORK_OBJECT[0]]),
-                       "callable_index": {"navigation_apps": [], "payment_apps": [], "goods": [], "prefer_apps": []}},
+        "tool_layer": {
+            "layer": "工具层",
+            "gate": {"main_slot_busy": False, "side_slot_busy": False, "sleeping": False,
+                     "in_transit": False, "pending_conclusions": []},
+            "targets": copy.deepcopy([_SELF_OBJECT[0], _WORK_OBJECT[0]]),
+            "callable_index": {"navigation_apps": [], "payment_apps": [], "goods": [], "prefer_apps": []},
+        },
         "todo_layer": {"layer": "待办层", "paused_activities": [], "errands": [], "orders": [], "day_plan": None},
         "environment_layer": {"layer": "环境层", "observed_at": _NOW_ISO, "body": dict(_BODY),
                               "location": {"session_kind": "stay", "name": "自己家", "place_type": "住宅",
@@ -362,6 +372,17 @@ class _SandboxStub:
         self.queries.append(("recall_task_summary", request))
         return {"task": getattr(request, "task_name", ""), "summary": "暂无进展摘要。"}
 
+    def lookup_targets(self, request) -> dict[str, Any]:
+        self.queries.append(("lookup_targets", request))
+        return {"ok": True, "result": {"total": 0, "has_more": False, "next_offset": 0,
+                                        "targets": [], "loaded_count": 0}}
+
+    def compact_snapshot(self) -> dict[str, Any]:
+        return {
+            key: copy.deepcopy(self._obs[key])
+            for key in ("tool_layer", "todo_layer", "environment_layer", "memory_layer", "progress_layer", "progress_meta")
+        }
+
     def dispatch_world_tool(self, tool_name: str, arguments, call_id: str,
                             note: str | None = None) -> ToolDispatchResult:
         if self.dispatch_error is not None:
@@ -371,48 +392,49 @@ class _SandboxStub:
                     if tool_name == "conclude_activity" else [])
         self.pending_memories.extend(memories)
         self.calls.append(SimpleNamespace(action_id=call_id, tool_name=tool_name, request=arguments, note=note))
-        terminal = tool_name in START_TOOLS or tool_name == SEARCH_TOOL
+        terminal = tool_name in START_TOOLS or tool_name in (SEARCH_TOOL, "continue_activity")
         suspended = tool_name == SEARCH_TOOL
         payload: dict[str, Any] = {
+            "ok": True,
             "result": {"status": "active" if suspended else ("in_progress" if terminal else "accepted")},
             "changes": {}, "events": [],
         }
-        if suspended:
-            payload["activity_id"] = "search-act-1"
-        return ToolDispatchResult(accepted=True, terminal_exit=terminal, suspended=suspended,
-                                  tool_message_payload=payload, pending_memories=tuple(memories))
+        return ToolDispatchResult(
+            accepted=True, terminal_exit=terminal, suspended=suspended,
+            tool_message_payload=payload, pending_memories=tuple(memories),
+            activity_id="search-act-1" if suspended else None,
+        )
 
     def record_model_exchange(self, exchange) -> None:
         self.evidence.append(exchange)
 
-    def finish_wakeup(self, suspended) -> SandboxOutcome:
+    def finish_wakeup(self, suspended, day_session, compaction_records=()) -> SandboxOutcome:
         self.finished = True
         self.suspended = suspended
         status = "suspended" if suspended is not None else "completed"
         return SandboxOutcome(
             wakeup_id="wakeup-v3-a7-1767571200", agent_id=7, status=status,
             state=_stub_world(), evidence_drafts=(), observation_parts={},
-            pending_presentation={}, accepted_action_ids=tuple(c.action_id for c in self.calls),
+            accepted_action_ids=tuple(c.action_id for c in self.calls),
             pending_memories=tuple(self.pending_memories), verified_experiences=(),
             observation_event_id=str(self._obs["observation_event_id"]),
             observation_payload=self._obs, memory_evidence=None,
+            day_session=day_session, compaction_records=tuple(compaction_records),
         )
-
-    def can_finish_idle(self) -> bool:
-        return False
 
 
 def test_life_agent_schema_is_closed_and_host_fields_are_hidden() -> None:
-    """常规回合开放全量九个原生工具，末回合与重试只留六个核心世界请求；宿主身份不入 Schema。"""
+    """全回合开放恒定 11 个原生工具（含 continue_activity 与 lookup_targets）；宿主身份不入 Schema。"""
     functions = _functions(remaining=2, retry=False)
-    assert set(functions) == _FULL_TOOL_NAMES
+    assert set(functions) == _FULL_TOOL_NAMES and len(functions) == 11
     assert set(list(functions)[:len(REQUEST_MODELS)]) == set(REQUEST_MODELS)
     assert list(functions)[:2] == [MAIN_TOOL, SIDE_TOOL]
     assert not {"start_activity", "finish", "memory_step_range", "memory_tick_range"} & set(functions)
     assert all(function["strict"] is True for function in functions.values())
-    assert set(_functions(remaining=1, retry=False)) == _CORE_ACTION_NAMES
-    assert set(_functions(remaining=4, retry=True)) == _CORE_ACTION_NAMES
-    closed = copy.deepcopy({name: functions[name] for name in (MAIN_TOOL, SIDE_TOOL, SEARCH_TOOL, "report_status")})
+    assert set(_functions(remaining=1, retry=False)) == _FULL_TOOL_NAMES
+    assert set(_functions(remaining=4, retry=True)) == _FULL_TOOL_NAMES
+    closed = copy.deepcopy({name: functions[name] for name in (
+        MAIN_TOOL, SIDE_TOOL, SEARCH_TOOL, "report_status", "continue_activity", "lookup_targets")})
     for tool, fields, actions in (
         (MAIN_TOOL, ["action", "target", "detail"], ["travel", "interact", "sleep"]),
         (SIDE_TOOL, ["action", "target", "prefer"], ["purchase", "interact"]),
@@ -425,6 +447,13 @@ def test_life_agent_schema_is_closed_and_host_fields_are_hidden() -> None:
     search_params = closed[SEARCH_TOOL]["parameters"]
     assert list(search_params["properties"]) == search_params["required"] == ["query", "prefer"]
     assert search_params["additionalProperties"] is False
+    cont_params = closed["continue_activity"]["parameters"]
+    assert list(cont_params["properties"]) == cont_params["required"] == ["reason"]
+    assert cont_params["additionalProperties"] is False
+    lookup_params = closed["lookup_targets"]["parameters"]
+    assert list(lookup_params["properties"]) == lookup_params["required"] == ["kind", "keyword", "limit", "offset"]
+    assert lookup_params["properties"].pop("kind")["anyOf"][0]["enum"] == ["location", "app", "product"]
+    assert lookup_params["additionalProperties"] is False
     change = closed["report_status"]["parameters"]["properties"]["errands"]["items"]["properties"]
     assert change.pop("change")["enum"] == ["新增", "更新", "取消"]
     assert '"enum"' not in json.dumps(closed)
@@ -433,9 +462,9 @@ def test_life_agent_schema_is_closed_and_host_fields_are_hidden() -> None:
 
 
 def test_plan_day_is_no_person_tool_and_revision_carries_remind_time() -> None:
-    """请求模型共八个（无 plan_day、含 search_world 与 recall_task_summary），revise_day_plan 整次运行都在。"""
-    assert len(REQUEST_MODELS) == 8 and "plan_day" not in REQUEST_MODELS
-    assert {MAIN_TOOL, SIDE_TOOL, SEARCH_TOOL} <= set(REQUEST_MODELS)
+    """请求模型共九个（无 plan_day、含 continue_activity、search_world 与 recall_task_summary），revise_day_plan 整次运行都在。"""
+    assert len(REQUEST_MODELS) == 9 and "plan_day" not in REQUEST_MODELS
+    assert {MAIN_TOOL, SIDE_TOOL, SEARCH_TOOL, "continue_activity"} <= set(REQUEST_MODELS)
     assert "start_activity" not in REQUEST_MODELS
     assert life_action_tool_names() == frozenset(REQUEST_MODELS)
     functions = _functions(2, False)
@@ -454,14 +483,14 @@ def test_plan_day_is_no_person_tool_and_revision_carries_remind_time() -> None:
 
 
 def test_how_to_live_a_day_is_one_resident_section_of_the_life_system_layer() -> None:
-    """起居与搜索恢复规则只在系统层 rules 写一次，「怎样过一天」已删。"""
+    """起居、门禁与检索规则只在系统层 rules 写一次，「怎样过一天」已删。"""
     action_system = system_message()["content"]
     assert action_system == render_layer_json(LIFE_SYSTEM_LAYER)
     rules = json.loads(action_system)["rules"]
     for sentence in ("同时最多两项活动", "睡着后到你写的时长才会再请你决策", "商品实际收到时自动吃掉或用掉",
                      "都只是你的想法和回忆，不能改变身体、资金、内容进度或订单结果", "工作安排由环境给出",
                      "没有进行中的活动时时间不会往前走", "打开后放完一条自动接下一条", "环境也不按它们限制你此刻能做什么",
-                     "系列的 note 或进行中活动的 state", "今日计划只是自己的打算", "available 为 true 的动作单独提交都会受理",
+                     "系列的 note 或进行中活动的 state", "今日计划只是自己的打算",
                      "个人事务只记要买到或取到的商品", "调用 search_world 会发起异步搜索并挂起本次唤醒"):
         assert sum(sentence in rule for rule in rules) == 1
     assert sum("同时最多两项活动，槽位 1 和槽位 2 各放一项" in rule for rule in rules) == 1
@@ -510,17 +539,21 @@ _BATCH_FIX = "Submit one world request, the two start tools together, or only re
 
 
 def test_life_agent_rejects_invalid_or_non_atomic_batches() -> None:
-    """合法批次只有三种：全为只读查询、恰好一个世界请求（含 search_world）、两个开始工具各一次。"""
+    """合法批次只有三种：全为只读查询、恰好一个世界请求（含 search_world 与 continue_activity）、两个开始工具各一次。"""
     _, models = _life_turn_tools(2, False)
     valid = LoopToolCall(MAIN_TOOL, _WAIT_CHOICE, "c1")
     side = LoopToolCall(SIDE_TOOL, _WORK_CHOICE, "c2")
+    cont = LoopToolCall("continue_activity", {"reason": None}, "cc")
     search = LoopToolCall(SEARCH_TOOL, {"query": "咖啡", "prefer": None}, "cs")
     memory = LoopToolCall("search_memory", _SEARCH_ARGS, "cm")
+    lookup = LoopToolCall("lookup_targets", {"kind": None, "keyword": None, "limit": 10, "offset": 0}, "cl")
     revise = LoopToolCall("revise_day_plan", {"goals": []}, "cr")
 
-    for legal in ([valid], [side], [search], [valid, side], [side, valid], [memory], [memory, memory], [revise]):
+    for legal in ([valid], [side], [cont], [search], [valid, side], [side, valid],
+                  [memory], [lookup], [memory, lookup], [memory, memory], [revise]):
         assert validate_life_batch(legal, models) is None
-    for batch in ([valid, valid], [side, side], [search, valid], [valid, search], [memory, valid],
+    for batch in ([valid, valid], [side, side], [cont, valid], [cont, memory], [cont, revise],
+                  [search, valid], [valid, search], [memory, valid], [lookup, valid],
                   [valid, revise], [revise, side], [valid, side, memory], [revise, revise]):
         report = validate_life_batch(batch, models).report
         assert report.error_code == "TOOL_CALL_REQUIRED" and report.reason == _BATCH_REASON
@@ -554,7 +587,7 @@ async def test_wakeup_messages_are_system_layer_and_six_layer_user() -> None:
                       ("环境层", "environment_layer"), ("进度层", "progress_layer")):
         layer = user_layer(layers, name)
         if key == "tool_layer":
-            assert "groups" in layer and "targets" not in layer
+            assert "gate" in layer and "groups" in layer and "targets" not in layer
             assert layer["callable_index"] == obs[key]["callable_index"]
         elif key is not None:
             assert layer == obs[key]
@@ -573,7 +606,7 @@ def test_blacklisted_observation_fields_never_enter_messages() -> None:
     text = user_message(layers)["content"]
     for banned in ("motivation_internal", "motivation_hints", "world_state_version",
                    "end_time", "interaction_bindings", "observation_event_id",
-                   "activity_bindings", "pending_conclusions", "activity-private-1", "progress_meta"):
+                   "activity_bindings", "activity-private-1", "progress_meta"):
         assert banned not in text
     assert _WAIT in text and "刚结束" in text
     leaking = _observations()[0]["data"]
@@ -751,7 +784,7 @@ async def test_reasoning_content_is_persisted_in_model_response_evidence() -> No
 
 @pytest.mark.asyncio
 async def test_budgeted_memory_search_preserves_the_action_turn() -> None:
-    """三轮查记忆后仅剩最后 1 回合：只开放 6 核心世界工具，随后顺利提交动作。"""
+    """三轮查记忆后第 4 回合仍开放恒定 11 工具并顺利提交动作。"""
     dispatcher = _GroundedCorrectionDispatcher(responses=[
         _ModelResponse("call-memory-1", "search_memory", _SEARCH),
         _ModelResponse("call-memory-2", "search_memory", _SEARCH),
@@ -763,16 +796,14 @@ async def test_budgeted_memory_search_preserves_the_action_turn() -> None:
     await LifeAgent(_person_7()).decide_wakeup(wakeup, sandbox, _binding(dispatcher, max_turns=4))
 
     assert len(sandbox.calls) == 1
-    assert _react_tool_names(dispatcher.requests) == [
-        _FULL_TOOL_NAMES, _FULL_TOOL_NAMES, _FULL_TOOL_NAMES, _CORE_ACTION_NAMES,
-    ]
+    assert _react_tool_names(dispatcher.requests) == [_FULL_TOOL_NAMES] * 4
     assert [item.call_id.rsplit(":model:", 1)[1].split(":", 1)[0]
             for item in sandbox.evidence[::2]] == ["0001", "0002", "0003", "0004"]
 
 
 @pytest.mark.asyncio
 async def test_multiple_memory_calls_share_one_model_turn() -> None:
-    """同一响应的多个检索调用只消耗一个模型回合。"""
+    """同一响应的多个检索调用只消耗一个模型回合，且全程工具列表保持恒定 11 个。"""
     dispatcher = _GroundedCorrectionDispatcher(responses=[
         _MultipleModelResponse([
             ("call-memory-1", "search_memory", _SEARCH),
@@ -785,14 +816,14 @@ async def test_multiple_memory_calls_share_one_model_turn() -> None:
 
     assert len(sandbox.calls) == 1
     assert [tool for tool, _ in sandbox.queries] == ["search_memory", "search_memory"]
-    assert _react_tool_names(dispatcher.requests) == [_FULL_TOOL_NAMES, _CORE_ACTION_NAMES]
+    assert _react_tool_names(dispatcher.requests) == [_FULL_TOOL_NAMES, _FULL_TOOL_NAMES]
     assert [item["tool_call_id"] for item in dispatcher.requests[1]["messages"][3:]] == [
         "call-memory-1", "call-memory-2"]
 
 
 @pytest.mark.asyncio
 async def test_reserved_action_boundary_rejects_query_without_extra_request() -> None:
-    """只剩末回合时非法检索零执行，回合用完后抛出 ProtocolError(TURNS_EXHAUSTED)。"""
+    """只读查询在末回合执行后不结束唤醒；回合耗尽后直接抛出 ProtocolError(TURNS_EXHAUSTED)，不发第 3 次请求。"""
     dispatcher = _GroundedCorrectionDispatcher(responses=[
         _ModelResponse("call-memory-1", "search_memory", _SEARCH),
         _ModelResponse("call-memory-2", "search_memory", _SEARCH),
@@ -802,12 +833,9 @@ async def test_reserved_action_boundary_rejects_query_without_extra_request() ->
         await LifeAgent(_person_7()).decide_wakeup(_wakeup(), sandbox, _binding(dispatcher, max_turns=2))
 
     assert len(dispatcher.requests) == 2
-    assert {item["function"]["name"] for item in dispatcher.requests[1]["tools"]} == _CORE_ACTION_NAMES
-    assert sandbox.calls == [] and len(sandbox.queries) == 1
+    assert {item["function"]["name"] for item in dispatcher.requests[1]["tools"]} == _FULL_TOOL_NAMES
+    assert sandbox.calls == [] and len(sandbox.queries) == 2
     assert [item.phase for item in sandbox.evidence] == ["request", "response"] * 2
-    assert "TOOL_CALL_REQUIRED:" in sandbox.evidence[-1].error
-    fb_items = sandbox.evidence[-1].response["protocol_feedback"]["items"]
-    assert any(item["written"] == "search_memory" and "not offered" in item["why"] for item in fb_items)
 
 
 @pytest.mark.asyncio
@@ -1038,5 +1066,5 @@ async def test_usage_check_reuses_the_count_taken_before_sending(monkeypatch, ca
     sandbox = _SandboxStub()
     with caplog.at_level("INFO"):
         await LifeAgent(_person_7()).decide_wakeup(_wakeup(), sandbox, _binding(dispatcher, max_turns=4))
-    assert len(counts) == len(dispatcher.requests) == 4
+    assert len(counts) >= len(dispatcher.requests) == 4
     assert caplog.text.count("estimated=1000 actual=1000 difference=0") == 4

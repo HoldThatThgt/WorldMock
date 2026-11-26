@@ -35,6 +35,8 @@ def _profile_identity(profile, metadata) -> StageProfileIdentity:
         context_window=profile.context_window,
         thinking=profile.thinking,
         max_output_tokens=profile.max_output_tokens,
+        compact_trigger_tokens=profile.compact_trigger_tokens,
+        prompt_cache_key=profile.prompt_cache_key,
         max_retries=profile.max_retries,
         transport_max_retries=profile.transport_max_retries,
         max_react_turns=profile.max_react_turns,
@@ -60,8 +62,8 @@ def _model_identity_from_fixture() -> ModelIdentity:
 
 
 def test_run_manifest_schema_version_and_stage_profile_excludes_credentials():
-    """运行清单结构版本为 8，StageProfileIdentity 冻结端点和有效输出上限且不含凭据字段。"""
-    assert RUN_MANIFEST_SCHEMA_VERSION == 8
+    """运行清单结构版本为 9，StageProfileIdentity 冻结端点、压缩阈值、缓存键开关与有效输出上限且不含凭据字段。"""
+    assert RUN_MANIFEST_SCHEMA_VERSION == 9
     loaded = load_environment(SOURCE, metadata_loader=fixture_metadata)
     reasoner = loaded.config.models["reasoner"]
     reasoner_meta = loaded.model_metadata["reasoner"]
@@ -70,6 +72,8 @@ def test_run_manifest_schema_version_and_stage_profile_excludes_credentials():
     assert "api_key_env" not in dumped
     assert dumped["effective_max_tokens"] == min(16000, reasoner_meta.max_output_tokens) == 16000
     assert dumped["thinking"] is True
+    assert dumped["compact_trigger_tokens"] == 80000
+    assert dumped["prompt_cache_key"] is False
     assert dumped["max_react_turns"] == 16
 
     capped_meta = reasoner_meta.model_copy(update={"max_output_tokens": 8192})
@@ -83,6 +87,19 @@ def test_run_manifest_schema_version_and_stage_profile_excludes_credentials():
     bad_meta = {**dumped, "model_metadata": reasoner_meta.model_copy(update={"requested_model": "other"})}
     with pytest.raises(ValidationError, match="stage profile model metadata disagrees"):
         StageProfileIdentity.model_validate(bad_meta)
+
+    limit = int(reasoner.context_window * 0.85)
+    assert StageProfileIdentity.model_validate({**dumped, "compact_trigger_tokens": limit - 1}).compact_trigger_tokens == limit - 1
+    assert StageProfileIdentity.model_validate({**dumped, "prompt_cache_key": True}).prompt_cache_key is True
+    for bad_override, pattern in (
+        ({"compact_trigger_tokens": 16383}, "greater than or equal to 16384"),
+        ({"compact_trigger_tokens": True}, "valid integer"),
+        ({"compact_trigger_tokens": limit}, "compact_trigger_tokens must be strictly less than"),
+        ({"prompt_cache_key": 1}, "valid boolean"),
+        ({"prompt_cache_key": "true"}, "valid boolean"),
+    ):
+        with pytest.raises(ValidationError, match=pattern):
+            StageProfileIdentity.model_validate({**dumped, **bad_override})
 
 
 def test_model_identity_requires_exact_routed_profiles_and_stage_digests():

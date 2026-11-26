@@ -14,8 +14,8 @@ const {CASES, RUN_ID, epoch, viewer, event, droppedFile, fileHandle, directoryHa
 const CONTEXT = JSON.parse(readFileSync(path.join(__dirname, '../../fixtures/viewer-context.json'), 'utf8'));
 /** observation 进索引的四个键（tools/run-viewer-index.js 的 OBSERVATION_DATA_KEEP）。 */
 const OBSERVATION_KEEP = ['balance_fen', 'body', 'active_activities', 'calendar_context'];
-/** 三类裁剪的事件。 */
-const PRUNED = new Set(['observation', 'model_request', 'model_response']);
+/** 两类裁剪的事件。 */
+const PRUNED = new Set(['observation', 'model_response']);
 /** 一条运行输入警告。 */
 const warning = (code, agent_id, message) => ({code, agent_id, message, details: {}});
 
@@ -380,7 +380,7 @@ test('lines split across reads at any read size give the same index and byte ran
   assert.ok(candidate.rows.includes('中') && candidate.rows.includes('😀'));
 });
 
-test('the index prunes exactly the three listed types and the console says so', async () => {
+test('the index prunes exactly the two listed types and the console says so', async () => {
   const {rows, options} = identityRun();
   const app = await viewer(rows, options);
   /** @brief 在页面的索引库上执行一条查询。 */
@@ -399,9 +399,8 @@ test('the index prunes exactly the three listed types and the console says so', 
       } else if (line.event_type === 'model_request') {
         const [{n}] = query(`SELECT json_array_length(body,'$.data.request.messages') AS n FROM events
           WHERE event_seq=${seq}`);
-        assert.equal(n, 1, `request ${seq}`);
-        line.data.request.messages = line.data.request.messages.slice(0, 1);
-        assert.deepEqual(pruned, line, `request ${seq}`);
+        assert.equal(n, line.data.request.messages.length, `request ${seq}`);
+        assert.equal(body, app.exported.lines[seq - 1], `request ${seq}`);
       } else if (line.event_type === 'model_response') {
         const [{t}] = query(`SELECT json_type(body,'$.data.request') AS t FROM events WHERE event_seq=${seq}`);
         assert.equal(t, null, `response ${seq}`);
@@ -419,7 +418,7 @@ test('the index prunes exactly the three listed types and the console says so', 
     assert.ok(!tables.includes('checkpoints') && !tables.includes('artifacts'), tables.join());
     app.run('renderSqlConsole()');
     const help = app.get('#sql-body').innerHTML;
-    for (const text of [...OBSERVATION_KEEP, '只留前 1 条', '去掉 data.request', 'event_lines(event_seq, offset, length)',
+    for (const text of [...OBSERVATION_KEEP, '保留完整日会话多轮 messages', '去掉 data.request', 'event_lines(event_seq, offset, length)',
       '没有 checkpoints 与 artifacts 表', 'sqlite3', 'scripts/inspect_run.py']) {
       assert.ok(help.includes(text), text);
     }
@@ -429,8 +428,6 @@ test('the index prunes exactly the three listed types and the console says so', 
 /** 页面源码的变异：名称、文件、原文、替换文字，以及快照里必须因此不同的项。 */
 const MUTATIONS = [
   ['observation_keep_drops_balance', 'tools/run-viewer-index.js', "'balance_fen', ", '', ['state', 'rows']],
-  ['request_keeps_no_message', 'tools/run-viewer-index.js', 'const REQUEST_MESSAGES_KEEP = 1;',
-    'const REQUEST_MESSAGES_KEEP = 0;', ['contextIndex']],
   ['response_drops_the_response', 'tools/run-viewer-index.js', 'const {request, ...rest} = data;',
     'const {request, response, ...rest} = data;', ['overview', 'reasoning']],
   ['byte_range_off_by_one', 'tools/run-viewer-index.js', 'lineStart = position + start;',

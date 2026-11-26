@@ -7,6 +7,8 @@ from worldmock.exchange_engine.conditions.activity_rules import ACTIVITY_ACTIONS
 START_TOOLS = ("start_main_activity", "start_side_activity")
 #: 独立搜索原生工具名。
 SEARCH_TOOL = "search_world"
+#: 边界退出工具：调用后结束或挂起本次唤醒。
+BOUNDARY_TOOLS = (*START_TOOLS, SEARCH_TOOL, "continue_activity")
 
 
 

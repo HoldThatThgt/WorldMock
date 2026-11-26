@@ -18,6 +18,7 @@ from tests.life.conftest import (
     MAIN_TOOL,
     SIDE_TOOL,
     report_request,
+    stub_day_session,
     travel,
     use_app,
     wakeup_for,
@@ -388,7 +389,7 @@ def _decide(engine, name, tool, request):
     action_id = f"{wakeup.wakeup_id}:action:0001"
     payload = request(wakeup.observation) if callable(request) else request
     sandbox.dispatch_world_tool(tool, payload, action_id)
-    outcome = sandbox.finish_wakeup(None)
+    outcome = sandbox.finish_wakeup(None, stub_day_session(wakeup))
     engine.commit_barrier([outcome])
     return action_result(engine, action_id)
 

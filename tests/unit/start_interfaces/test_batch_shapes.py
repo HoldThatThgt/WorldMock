@@ -1,4 +1,4 @@
-"""@brief 一次回复的批次形状与工具面门禁：四种合法形状通过，其余组合以 TOOL_CALL_REQUIRED 整批拒绝，末回合或重试收敛至六项核心工具。"""
+"""@brief 一次回复的批次形状与工具面门禁：四种合法形状通过，其余组合以 TOOL_CALL_REQUIRED 整批拒绝，全回合恒定开放十一项工具。"""
 
 from __future__ import annotations
 
@@ -38,6 +38,8 @@ _REPORT = ("report_status", {
     "items": [{"activity_name": "在办公室工作", "summary": "写完了两页。"}],
     "errands": [],
 })
+_LOOKUP = ("lookup_targets", {"kind": "location", "keyword": None, "limit": 5, "offset": 0})
+_CONTINUE = ("continue_activity", {"reason": None})
 _MAIN = (MAIN_TOOL, {"action": "sleep", "target": "420", "detail": None})
 _SIDE = (SIDE_TOOL, {"action": "interact", "target": ["微博"], "prefer": None})
 _WORLD_SEARCH = (SEARCH_TOOL, {"query": "热美式咖啡", "prefer": None})
@@ -75,17 +77,16 @@ def _evaluate(*calls: tuple[str, dict], remaining: int = 16, retry: bool = False
 
 
 def test_tool_surface_exposes_nine_tools_normally_and_six_on_forced_final_turn():
-    """@brief 常规回合开放 9 个工具（含 search_world），末回合与截断重试仅保留 6 个核心世界工具。"""
+    """@brief 全回合与截断重试均恒定开放全量 11 个原生工具（含 continue_activity 与 lookup_targets）。"""
     agent = _agent()
     normal = [item["function"]["name"] for item in agent.turn_tools(2, False)]
     forced = [item["function"]["name"] for item in agent.turn_tools(1, False)]
     retried = [item["function"]["name"] for item in agent.turn_tools(4, True)]
-    assert len(normal) == 9 and normal[:2] == [MAIN_TOOL, SIDE_TOOL]
+    assert len(normal) == 11 and normal[:2] == [MAIN_TOOL, SIDE_TOOL]
     assert set(normal) == set(_FULL_MODELS)
-    assert forced == retried
-    assert len(forced) == 6 and SEARCH_TOOL not in forced
+    assert forced == retried == normal
     assert life_action_tool_names() == frozenset(REQUEST_MODELS)
-    assert life_query_tool_names() == frozenset({"recall_task_summary", "search_memory"})
+    assert life_query_tool_names() == frozenset({"recall_task_summary", "search_memory", "lookup_targets"})
     assert len(life_tool_schema_sha256()) == 64
 
 
@@ -93,18 +94,20 @@ def test_tool_surface_exposes_nine_tools_normally_and_six_on_forced_final_turn()
     (_RECENT,),
     (_RECENT, _SEARCH_MEM),
     (_RECENT, _RECALL),
+    (_RECENT, _LOOKUP),
     (_MAIN,),
     (_SIDE,),
     (_WORLD_SEARCH,),
+    (_CONTINUE,),
     (_REPORT,),
     (_MAIN, _SIDE),
     (_SIDE, _MAIN),
 ])
 def test_legal_batch_shapes_pass(calls):
-    """@brief 全为只读查询、单个世界请求、单独 search_world 或两个开始工具成组都合法通过。"""
+    """@brief 全为只读查询、单个世界请求、单独 search_world/continue_activity 或两个开始工具成组都合法通过。"""
     feedback, offered = _evaluate(*calls)
     assert feedback is None
-    assert offered[:2] == [MAIN_TOOL, SIDE_TOOL] and len(offered) == 9 and "start_activity" not in offered
+    assert offered[:2] == [MAIN_TOOL, SIDE_TOOL] and len(offered) == 11 and "start_activity" not in offered
 
 
 @pytest.mark.parametrize("calls", [

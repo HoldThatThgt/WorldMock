@@ -112,6 +112,8 @@ def _group_report(
     notes.extend(workload["notes"])
     reports = {
         "decision_prompt_token_median": token_median,
+        "cache_hit_summary": _cache_hit_summary(events),
+        "day_session_compaction": _compaction_summary(events),
         "wake_reason_distribution": _wake_reason_distribution(events, notes),
         "content_contact_minutes": _content_contact_minutes(events),
         "person_elapsed_minutes": _person_elapsed_minutes(events, notes),
@@ -155,10 +157,8 @@ def _decision_model_requests(events: list[dict[str, Any]]) -> list[dict[str, Any
     return selected
 
 
-def _message_text(message: Mapping[str, Any]) -> str | None:
-    """@brief 提取单条提示消息的文本（字符串或内容块列表两种形态）。"""
-    if message.get("role") != "user":
-        return None
+def _content_text(message: Mapping[str, Any]) -> str | None:
+    """@brief 提取单条对话消息的文本正文（字符串或内容块列表两种形态）。"""
     content = message.get("content")
     if isinstance(content, str):
         return content or None
@@ -169,22 +169,59 @@ def _message_text(message: Mapping[str, Any]) -> str | None:
     return None
 
 
-def _observation_gate(events: list[dict[str, Any]], notes: list[str]) -> dict[str, Any]:
-    """@brief 统计同一 user 观察文本出现于不同（人物，唤醒标识）会话中的最大数目；门禁必须为 1。
+def _message_text(message: Mapping[str, Any]) -> str | None:
+    """@brief 提取单条 user 提示消息的文本（字符串或内容块列表两种形态）。"""
+    return _content_text(message) if message.get("role") == "user" else None
 
-    同一次唤醒（包含挂起前与搜索恢复后及同唤醒多轮 ReAct）复用同一观察文本合法，只计一次；
-    不同唤醒（含同一模拟秒因跨人物冲突或搜索恢复产生的新唤醒）出现重复仍计为重复。
-    带 purpose 的请求（search_session、工作验收、零点计划、回顾）不参与统计；就寝反思请求也不参与。
-    """
-    chains: dict[str, set[tuple[Any, Any]]] = {}
-    user_messages = 0
+
+def _wakeup_observation_signature(messages: list[Any]) -> tuple[str, Any] | None:
+    """@brief 提取日会话唤醒首次入模的观察签名：user 结尾取 user 正文，tool 结尾取末尾连续 tool 差量。"""
+    if not messages or not isinstance(messages[-1], Mapping):
+        return None
+    last_role = messages[-1].get("role")
+    if last_role == "user":
+        text = _message_text(messages[-1])
+        return ("user", text) if text is not None else None
+    if last_role != "tool":
+        return None
+    trailing: list[str] = []
+    for message in reversed(messages):
+        if not isinstance(message, Mapping) or message.get("role") != "tool":
+            break
+        trailing.append(_content_text(message) or "")
+    trailing.reverse()
+    return ("tool", tuple(trailing))
+
+
+def _observation_gate(events: list[dict[str, Any]], notes: list[str]) -> dict[str, Any]:
+    """@brief 按（人物，唤醒标识）首条请求检测观察重复，并禁止同一决策请求出现多条 user 消息。"""
+    chains: dict[tuple[str, Any], set[tuple[Any, Any]]] = {}
+    seen_wakeups: set[tuple[Any, Any]] = set()
+    user_messages, multi_user_requests = 0, 0
     for event in _decision_model_requests(events):
         messages = event.get("data", {}).get("request", {}).get("messages", [])
-        for message in messages if isinstance(messages, list) else []:
-            text = _message_text(message) if isinstance(message, Mapping) else None
-            if text is not None:
-                user_messages += 1
-                chains.setdefault(text, set()).add((event.get("agent_id"), event.get("wakeup_id")))
+        if not isinstance(messages, list):
+            continue
+        user_count = sum(1 for msg in messages if isinstance(msg, Mapping) and msg.get("role") == "user")
+        user_messages += sum(1 for msg in messages if isinstance(msg, Mapping) and _message_text(msg) is not None)
+        if user_count > 1:
+            multi_user_requests += 1
+        wakeup_key = (event.get("agent_id"), event.get("wakeup_id"))
+        if wakeup_key in seen_wakeups:
+            continue
+        seen_wakeups.add(wakeup_key)
+        signature = _wakeup_observation_signature(messages)
+        if signature is not None:
+            chains.setdefault(signature, set()).add(wakeup_key)
+    if multi_user_requests:
+        notes.append(f"{multi_user_requests} 条决策 model_request 包含多条 user 消息")
+        entry = _gate(max(len(keys) for keys in chains.values()) if chains else None,
+                      "==", 1, note="决策请求存在多条 user 消息")
+        entry["pass"] = False
+        entry["multi_user_request_count"] = multi_user_requests
+        entry["duplicated_observation_count"] = sum(1 for keys in chains.values() if len(keys) > 1)
+        entry["user_message_count"] = user_messages
+        return entry
     if not chains:
         notes.append("决策 model_request 无 user 消息，观察重复率无法计算")
         return _gate(None, "==", 1)
@@ -262,6 +299,60 @@ def _decision_token_median(events: list[dict[str, Any]], notes: list[str]) -> di
         return {"value": None, "target_reference": 15000, "sample_size": 0}
     return {"value": statistics.median(sorted(tokens_list)), "target_reference": 15000,
             "sample_size": len(tokens_list)}
+
+
+def _is_nonneg_int(value: Any) -> bool:
+    """@brief 排除 bool 后判断非负整数。"""
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def _cache_hit_summary(events: list[dict[str, Any]]) -> dict[str, Any]:
+    """@brief 汇总已落盘模型响应的缓存命中令牌、未命中令牌与整体命中率；全部缺失时返回 None。"""
+    total_prompt, total_cached, total_uncached, matched = 0, 0, 0, 0
+    for event in events:
+        data = event.get("data")
+        if event.get("event_type") != "model_response" or not isinstance(data, Mapping):
+            continue
+        response = data.get("response")
+        usage = response.get("usage") if isinstance(response, Mapping) else None
+        if not isinstance(usage, Mapping):
+            continue
+        prompt = usage.get("prompt_tokens")
+        hit = usage.get("prompt_cache_hit_tokens")
+        if not _is_nonneg_int(hit):
+            details = usage.get("prompt_tokens_details")
+            hit = details.get("cached_tokens") if isinstance(details, Mapping) else None
+        if not _is_nonneg_int(prompt) or not _is_nonneg_int(hit):
+            continue
+        miss = usage.get("prompt_cache_miss_tokens")
+        if not _is_nonneg_int(miss):
+            miss = prompt - hit if prompt >= hit else None
+        matched += 1
+        total_prompt += prompt
+        total_cached += hit
+        if miss is not None:
+            total_uncached += miss
+    if not matched:
+        return {"responses_with_cache_usage": 0, "input_tokens": None, "cached_input_tokens": None,
+                "uncached_input_tokens": None, "cache_hit_ratio": None}
+    ratio = round(total_cached / total_prompt, 6) if total_prompt > 0 else None
+    return {"responses_with_cache_usage": matched, "input_tokens": total_prompt, "cached_input_tokens": total_cached,
+            "uncached_input_tokens": total_uncached, "cache_hit_ratio": ratio}
+
+
+def _compaction_summary(events: list[dict[str, Any]]) -> dict[str, Any]:
+    """@brief 统计事件流中日内上下文压缩事件（day_session_compacted）的次数与折叠组/令牌摘要。"""
+    rows = [event["data"] for event in events if event.get("event_type") == "environment_event"
+            and isinstance(event.get("data"), Mapping) and event["data"].get("kind") == "day_session_compacted"]
+    if not rows:
+        return {"compaction_count": 0, "total_folded_groups": 0,
+                "total_before_tokens": None, "total_after_tokens": None}
+    before = [row["before_tokens"] for row in rows if _is_nonneg_int(row.get("before_tokens"))]
+    after = [row["after_tokens"] for row in rows if _is_nonneg_int(row.get("after_tokens"))]
+    folded = sum(row["folded_groups"] for row in rows if _is_nonneg_int(row.get("folded_groups")))
+    return {"compaction_count": len(rows), "total_folded_groups": folded,
+            "total_before_tokens": sum(before) if before else None,
+            "total_after_tokens": sum(after) if after else None}
 
 
 

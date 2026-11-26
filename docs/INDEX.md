@@ -25,10 +25,10 @@ flowchart LR
 | [资源引擎](design/03-resource-engine.md) | 环境目录、对象绑定、登记错误、地图与发布身份 |
 | [模拟引擎](design/04-simulation-engine.md) | 工具接口、沙盒与屏障提交、共享时钟、活动、搜索、交易、计划与事务 |
 | [记录引擎](design/05-recording-engine.md) | 事件、素材、事务、检查点、认证导出与运行查看器 |
-| [人物](design/06-agent.md) | 画像、记忆、七层提示、通用循环、搜索子会话与 Fact Guard |
+| [人物](design/06-agent.md) | 画像、记忆、七层提示、日会话连续上下文、11 个原生工具、核心常驻工具层、日内 Compaction 与 Fact Guard |
 | [行为评估](design/07-evaluation.md) | 保留行为与工作统计、工具归属和缺失说明 |
 | [配置](design/08-configuration.md) | 多人物声明、工作安排、运行配置、双维模型路由、模型身份与加载检查 |
-| [状态与序列化](design/09-io-formats.md) | 世界与人物状态、无栈挂起载荷、严格字段和编码规则 |
+| [状态与序列化](design/09-io-formats.md) | 世界与人物状态、日会话状态、无栈挂起载荷、严格字段和编码规则 |
 | [运行装配与决策循环](design/10-runtime.md) | 运行装配、时钟屏障与并发唤醒、生命周期、命令行、安装和恢复 |
 
 在仓库根执行 `python scripts/build_design_doc.py`，得到 `.work/docs/design/worldmock-design.html`。

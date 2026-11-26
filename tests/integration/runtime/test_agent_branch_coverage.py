@@ -114,7 +114,7 @@ async def test_unknown_target_in_sandbox_is_rejected_and_retried_in_same_wakeup(
 
 
 def test_tool_surface_is_stable_across_observation_activities() -> None:
-    """全量九个原生工具整次运行保持稳定，私有身份不进 Schema；批次和请求校验只核对通用批次及参数结构。"""
+    """全量 11 个原生工具整次运行保持稳定，私有身份不进 Schema；批次和请求校验只核对通用批次及参数结构。"""
     _, models = _life_turn_tools(2, False)
     functions = _functions(2, False)
     assert set(REQUEST_MODELS) <= set(functions)
@@ -122,11 +122,13 @@ def test_tool_surface_is_stable_across_observation_activities() -> None:
     for call in (
         LoopToolCall(SIDE_TOOL, _WORK_CHOICE, "c1"),
         LoopToolCall(MAIN_TOOL, _WAIT_CHOICE, "c2"),
+        LoopToolCall("continue_activity", {"reason": None}, "c_cont"),
         LoopToolCall("pause_activity", {"items": [{"activity_name": _WORK, "summary": "先停。"}], "errands": []}, "c3"),
         LoopToolCall("report_status", {"items": [{"activity_name": _NEWS, "summary": "接着看。"}],
                                         "errands": []}, "c4"),
         LoopToolCall("conclude_activity", _conclude_args(_WORK, _NEWS, memories=[[], []]), "c5"),
         LoopToolCall("recall_task_summary", {"task_name": _NEWS}, "c6"),
+        LoopToolCall("lookup_targets", {"kind": None, "keyword": None, "limit": 10, "offset": 0}, "c_lookup"),
     ):
         assert validate_single_tool_call(call, models) is None
         assert validate_life_batch([call], models) is None
@@ -142,7 +144,7 @@ def test_life_agent_sandbox_guards_fail_closed_on_unsupported_tool(engine_factor
     stage_day_plan(engine)
     [wakeup] = engine.prepare_barrier((1,))
     sandbox = engine.open_sandbox(wakeup)
-    for bad in ("start_activity", "finish", "memory_step_range", "recall_task_summary"):
+    for bad in ("start_activity", "finish", "memory_step_range", "recall_task_summary", "lookup_targets"):
         with pytest.raises(ProtocolError, match="Unsupported sandbox world tool"):
             sandbox.dispatch_world_tool(bad, {}, "act-bad")
 

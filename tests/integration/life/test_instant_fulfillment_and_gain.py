@@ -10,7 +10,6 @@ import pytest
 from tests.footprints.recording import artifact_rows, export_completed, reproject
 from tests.life.conftest import (
     SEARCH_TOOL,
-    bring_to_window,
     conclude_pending,
     progress_calls,
     purchase,
@@ -94,7 +93,7 @@ def _start_at(place_name: str, *, hours: int = 8, seed: int = 7, reconsideration
 def test_instant_tool_preview_query_route_and_city_commerce_isolation(engine_factory, tmp_path):
     """@brief instant 在工具层写运费0元、付款即收货，搜索写即时到账并过 Schema，且店铺商品与搜索按当前城市隔离。"""
     root = _instant_and_gain_environment(copy_environment(tmp_path / "env"))
-    assert life_prompt_sha256() == "445922b5d51c8e18a0c1e967211d0701da21e1195b9b9412988bec0620fc250e"
+    assert life_prompt_sha256() == "fe70f591357cf3418192d0098e4200f920ec835addbc8262cc501be8f161e19c"
     assert ROUTE_NAMES["instant"] == "即时到账"
 
     engine = engine_factory(environment_root=root, mutate=_start_at("家", seed=4))
@@ -126,12 +125,21 @@ def test_instant_tool_preview_query_route_and_city_commerce_isolation(engine_fac
     assert rows[0]["route"] == "即时到账" and rows[0]["store"] is None and rows[0]["delivery_fee"] == "0 元"
     assert rows[0]["now"] == "可以下单"
 
-    # 在乙城：callable_index.goods 只露出乙城门店类别饮品并隐藏跨城店铺商品，SearchCatalogView 同样隔离非本城门店商品。
+    # 在乙城：callable_index.goods 只露出乙城门店类别饮品并隐藏跨城店铺商品，lookup_targets 与 SearchCatalogView 同样隔离非本城门店商品。
     engine_b = engine_factory(environment_root=root, mutate=_start_at("乙城驿站前街"))
-    bring_to_window(engine_b, ("b-special-tea",))
-    obs_b = observe_only(engine_b, "obs-b")
+    obs_b_init = observe_only(engine_b, "obs-b-init")
+    assert "乙城冻茶" not in tool_targets(obs_b_init) and "牛肉面" not in tool_targets(obs_b_init)
+    assert all(row["category"] == "饮料" for row in obs_b_init["tool_layer"]["callable_index"]["goods"])
+    [w_b] = engine_b.prepare_barrier((1,))
+    sb_b = engine_b.open_sandbox(w_b)
+    assert any(row["name"] == "乙城冻茶" for row in sb_b.lookup_targets(
+        {"kind": "product", "keyword": "乙城冻茶", "limit": 10, "offset": 0})["result"]["targets"])
+    assert sb_b.lookup_targets(
+        {"kind": "product", "keyword": "牛肉面", "limit": 10, "offset": 0})["result"]["total"] == 0
+    obs_b = engine_b.observations.build_wakeup_observation(
+        engine_b.context.state.agents[1], loaded_target_keys=tuple(sb_b._loaded_target_keys),
+    )[0]
     assert "乙城冻茶" in tool_targets(obs_b) and "牛肉面" not in tool_targets(obs_b)
-    assert all(row["category"] == "饮料" for row in obs_b["tool_layer"]["callable_index"]["goods"])
 
     _, q_beef = act(engine_b, "q-beef", search_world("牛肉面"))
     assert q_beef.status == "in_progress", q_beef.error_code

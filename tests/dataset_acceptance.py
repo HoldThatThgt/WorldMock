@@ -95,11 +95,11 @@ MUTATIONS = (
         "age: int", "age: int = Field(ge=16, le=100)",
         ("tests/unit/test_environment_inputs.py::test_age_takes_any_integer_the_dataset_writes",)),
     SourceMutation("previous_run_config_version_accepted", 'worldmock.configuration.inputs.models::RunConfig',
-        "schema_version: Literal[3]", "schema_version: Literal[2, 3]",
+        "schema_version: Literal[4]", "schema_version: Literal[3, 4]",
         ("tests/unit/test_environment_inputs.py"
-         "::test_config_schema_version_other_than_three_is_rejected_without_an_old_format_reader",)),
+         "::test_config_schema_version_other_than_four_is_rejected_without_an_old_format_reader",)),
     SourceMutation("previous_run_manifest_version_accepted", 'worldmock.simulation_engine.world.run_identity::require_environment_identity',
-        'manifest.get("schema_version") == RUN_MANIFEST_SCHEMA_VERSION', 'manifest.get("schema_version") in (7, 8)',
+        'manifest.get("schema_version") == RUN_MANIFEST_SCHEMA_VERSION', 'manifest.get("schema_version") in (8, 9)',
         ("tests/integration/runtime/test_environment_identity.py"
          "::test_run_whose_stored_manifest_carries_the_previous_structure_number_cannot_be_opened",)),
     SourceMutation("clock_text_without_day_wrap", 'worldmock.configuration.persona.persona_text::hour_text',
@@ -266,11 +266,11 @@ MUTATIONS = (
         ("tests/unit/catalog/test_manifest_version.py"
          "::test_otherwise_complete_package_with_an_old_version_number_is_refused",)),
     SourceMutation("world_schema_version_still_fifteen", 'worldmock.state.world.world::WORLD_SCHEMA_VERSION',
-        "WORLD_SCHEMA_VERSION = 17", "WORLD_SCHEMA_VERSION = 16",
+        "WORLD_SCHEMA_VERSION = 18", "WORLD_SCHEMA_VERSION = 17",
         ("tests/integration/life/test_state_serialization.py"
-         "::test_world_state_schema_is_seventeen_and_the_previous_version_is_refused",)),
+         "::test_world_state_schema_is_eighteen_and_the_previous_version_is_refused",)),
     SourceMutation("export_schema_version_still_seven", 'worldmock.recording_engine.export.export::EXPORT_SCHEMA_VERSION',
-        "EXPORT_SCHEMA_VERSION = 9", "EXPORT_SCHEMA_VERSION = 8",
+        "EXPORT_SCHEMA_VERSION = 10", "EXPORT_SCHEMA_VERSION = 9",
         ("tests/integration/footprints/test_acs_export.py"
          "::test_actual_purchase_content_and_current_artifacts_are_authenticated",)),
     SourceMutation("result_details_schema_refuses_query", 'worldmock.agents.prompt.prompt_schemas::_RESULT_DETAILS',
@@ -372,24 +372,6 @@ MUTATIONS = (
         'latest[data["state"]] = KitUse(data["state"], data["goods_id"], event.occurred_at)',
         'latest.setdefault(data["state"], KitUse(data["state"], data["goods_id"], event.occurred_at))',
         ("tests/unit/life/test_kit_sentence.py::test_the_latest_reset_before_the_start_names_the_kit",)),
-    SourceMutation("memory_backstop_triggers_at_the_budget", 'worldmock.simulation_engine.observation.memory.layout::fold_entry',
-        "if before > MEMORY_LAYER_CHARS:", "if before >= MEMORY_LAYER_CHARS:",
-        ("tests/unit/life/test_memory_layout.py::test_a_layer_of_exactly_14000_characters_is_not_backstopped",)),
-    SourceMutation("memory_backstop_overshoots_its_target", 'worldmock.simulation_engine.observation.memory.layout::fold_entry',
-        "<= MEMORY_BACKSTOP_CHARS)", "< MEMORY_BACKSTOP_CHARS)",
-        ("tests/unit/life/test_memory_layout.py::test_the_backstop_stops_at_exactly_12000_characters",)),
-    SourceMutation("memory_backstop_ignores_conclusions", 'worldmock.simulation_engine.observation.memory.layout::_backstop',
-        " and slot.reported <= fold.concluded", "",
-        ("tests/unit/life/test_memory_layout.py::test_the_backstop_first_blanks_report_notes_whose_activities_were_concluded",)),
-    SourceMutation("memory_backstop_adds_notes", 'worldmock.simulation_engine.observation.memory.layout::_blank',
-        'if slot.item.get("自述", ["…"]) == ["…"]:', 'if slot.item.get("自述") == ["…"]:',
-        ("tests/unit/life/test_memory_layout.py::test_the_backstop_never_adds_notes_and_never_drops_verified_lines",)),
-    SourceMutation("memory_single_entries_left_unmerged", 'worldmock.simulation_engine.observation.memory.layout::_merge_hours',
-        "if len(members) == 1 and members[0].line:", "if len(members) == 1:",
-        ("tests/unit/life/test_memory_layout.py::test_the_backstop_merges_same_hour_same_category_items_into_count_lines_last",)),
-    SourceMutation("memory_layer_budget_unchecked", 'worldmock.simulation_engine.observation.memory.layout::require_budget',
-        "if chars > MEMORY_LAYER_CHARS:", "if False:",
-        ("tests/unit/life/test_memory_layout.py::test_a_memory_layer_above_14000_characters_is_refused",)),
     SourceMutation("memory_budget_counts_today_only", 'worldmock.simulation_engine.observation.memory.layout::layer_chars',
         "return len(render_layer_json(layer))", 'return len(render_layer_json(layer["今天"]))',
         ("tests/unit/life/test_memory_layout.py::test_layer_chars_is_the_length_of_the_rendered_layer_with_its_keys",)),
@@ -1319,12 +1301,10 @@ MUTATIONS = (
     SourceMutation("asleep_check_reads_no_activity", 'worldmock.simulation_engine.actions.admission::_sleep_refusal',
         "for activity in context.open_activities)", "for activity in ())",
         ("tests/unit/test_environment_engine_admission.py::test_sleep_blocks_second_slot_start_until_its_own_end",)),
-    SourceMutation("tool_layer_admission_without_open_activities", 'worldmock.simulation_engine.observation.targets.tool_layer::_admission_context',
+    SourceMutation("tool_layer_admission_without_open_activities",
+        'worldmock.simulation_engine.observation.targets.tool_layer::_admission_context',
         "context.open_activities, places,", "(), places,",
-        ("tests/integration/start_interfaces/test_location_activities.py"
-         "::test_doing_something_blocks_departure_and_another_unit_by_slot",
-         "tests/integration/life/test_pause_limit.py"
-         "::test_slot_conflict_offers_pausing_only_while_the_running_activity_can_be_paused")),
+        ("tests/integration/life/test_pause_limit.py::test_pause_with_exactly_180_seconds_left_succeeds",)),
     SourceMutation("tool_row_ignores_the_binding_note", 'worldmock.simulation_engine.observation.targets.tool_layer::_action_row',
         '"available": action["note"] is None,', '"available": True,',
         ("tests/unit/life/test_shared_observation_contract.py"
@@ -1335,21 +1315,9 @@ MUTATIONS = (
         ("tests/unit/life/test_native_environment_contract.py"
          "::test_capacity_uses_verified_actual_context_and_enforces_verified_output_limit",)),
     SourceMutation("history_turn_counted_as_fresh", 'worldmock.recording_engine.reports.quality::_call_class',
-        'if _message_roles(request) == ["system", "user"] else', "if len(_message_roles(request)) >= 2 else",
+        'if roles == ["system", "user"]:', "if len(roles) >= 2:",
         ("tests/unit/footprints/test_quality.py"
          "::test_model_usage_lists_every_call_class_from_the_recorded_request_shape",)),
-    SourceMutation("truncation_retry_not_recognized", 'worldmock.recording_engine.reports.quality::_call_class',
-        'if (START_TOOLS[0] in names and request.get("tool_choice") == "required"\n'
-        '            and request.get("extra_body") == RETRY_THINKING):',
-        "if False:",
-        ("tests/unit/footprints/test_quality.py"
-         "::test_model_usage_lists_every_call_class_from_the_recorded_request_shape",)),
-    SourceMutation("truncation_retry_matched_without_its_switch", 'worldmock.recording_engine.reports.quality::_call_class',
-        'if (START_TOOLS[0] in names and request.get("tool_choice") == "required"\n'
-        '            and request.get("extra_body") == RETRY_THINKING):',
-        "if START_TOOLS[0] in names:",
-        ("tests/unit/footprints/test_quality.py"
-         "::test_a_start_tool_request_without_the_retry_switch_is_unrecognized",)),
     SourceMutation("report_status_reads_the_open_activities_of_the_committed_world",
         'worldmock.simulation_engine.actions.dispatcher::ActionHandlers._admission_context',
         "activity_control.open_activities(state, agent_id)",
@@ -1376,7 +1344,7 @@ MUTATIONS = (
         ("tests/integration/runtime/test_run_host.py::test_same_second_redecision_checkpoints_without_advancing",)),
     SourceMutation("prepare_barrier_returns_shared_observation",
         'worldmock.simulation_engine.observation.layers.observe::ObservationBuilder.build_wakeup_observation',
-        "return deepcopy(data), parts, stamps", "return data, parts, stamps",
+        "return deepcopy(data), parts", "return data, parts",
         ("tests/integration/life/test_engine_facade.py::test_prepare_barrier_returns_a_deep_copy",)),
     SourceMutation("read_task_summary_returns_shared_copy",
         'worldmock.simulation_engine.engine::LifeEngine.read_task_summary',
@@ -1397,12 +1365,6 @@ MUTATIONS = (
          "::test_rejected_retry_turns_are_dropped_while_valid_assistant_thoughts_remain",
          "tests/integration/runtime/test_agent_loop.py"
          "::test_output_truncation_and_max_turns_exhaustion_preserve_prefix_and_drain_evidence")),
-    SourceMutation("correction_paired_without_thinking",
-        'worldmock.agents.protocol.agent_loop::_append_correction',
-        "if thinking_enabled(fitted) and not truncated(raw) and _pairable_calls(calls):",
-        "if not truncated(raw) and _pairable_calls(calls):",
-        ("tests/integration/runtime/test_output_truncation.py"
-         "::test_rejected_retry_turns_are_dropped_while_valid_assistant_thoughts_remain",)),
     SourceMutation("call_identity_counts_from_zero",
         'worldmock.agents.protocol.agent_loop::model_call_id',
         'return f"{scope_id}:{kind}:{turn:04d}:attempt:{attempt}"',

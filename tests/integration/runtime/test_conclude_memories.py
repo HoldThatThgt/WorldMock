@@ -48,6 +48,7 @@ from tests.life.conftest import (  # noqa: E402
     pause_request,
     report_request,
     stage_day_plan,
+    stub_day_session,
     use_app,
 )
 from worldmock.agents.life_agent import LifeAgent, _life_turn_tools, life_action_tool_names, life_query_tool_names, person_inputs  # noqa: E402
@@ -78,10 +79,10 @@ def _observed(*activities: tuple[str, str]) -> dict:
 
 
 def test_life_tool_surface_never_offers_finish() -> None:
-    """常规生活回合始终开放全部九个原生工具，不含 finish。"""
+    """常规生活回合始终开放全部 11 个原生工具，不含 finish。"""
     schemas, _ = _life_turn_tools(2, False)
     names = {item["function"]["name"] for item in schemas}
-    assert "finish" not in names
+    assert "finish" not in names and len(names) == 11
     assert names == set(life_action_tool_names()) | set(life_query_tool_names())
     assert set(REQUEST_MODELS) == set(life_action_tool_names())
 
@@ -330,7 +331,7 @@ def _settle_action(engine, tool: str, req_dict: dict):
     [wakeup] = engine.prepare_barrier((1,))
     sb = engine.open_sandbox(wakeup)
     res = sb.dispatch_world_tool(tool, req_dict, f"{wakeup.wakeup_id}:action:0001")
-    out = sb.finish_wakeup(None)
+    out = sb.finish_wakeup(None, stub_day_session(wakeup))
     engine.commit_barrier([out])
     return res, wakeup.wakeup_id
 
@@ -432,7 +433,21 @@ def _identity_leaks(text: str, private: set[str], now: int) -> list[str]:
 @pytest.mark.asyncio
 async def test_nothing_sent_to_the_person_model_carries_an_internal_identity(_engine_factory) -> None:
     """系统层、六层 user、工具 Schema 与查询/纠错返回中不出现任何私有身份。"""
-    engine, wait_id = _engine_with_pending_wait(_engine_factory)
+    engine = _engine_factory()
+    stage_day_plan(engine, submitted=True)
+    agent = LifeAgent(replace(person_inputs(engine.context.inputs.persona_by_id[1]), name="陈曦"))
+    class _StartClient:
+        async def call(self, _req):
+            return _ModelResponse("c-wait", MAIN_TOOL, json.dumps(do_at("家", "测试休息").model_dump(mode="json"),
+                                                                  ensure_ascii=False))
+
+    binding = resolved_binding(_StartClient(), frozen=engine.context.inputs)
+    [w1] = engine.prepare_barrier((1,))
+    sb1 = engine.open_sandbox(w1)
+    out1, _ = await turns_with_history(agent, w1, sb1, binding)
+    engine.commit_barrier([out1])
+    assert advance_until_ready(engine)
+    wait_id = next(iter(engine.context.state.activities))
     name = activity_name(engine, wait_id)
     resps = [
         _ModelResponse("c-mem", "search_memory", _SEARCH),
@@ -457,7 +472,6 @@ async def test_nothing_sent_to_the_person_model_carries_an_internal_identity(_en
     client = _Client()
     [wakeup] = engine.prepare_barrier((1,))
     sb = engine.open_sandbox(wakeup)
-    agent = LifeAgent(replace(person_inputs(engine.context.inputs.persona_by_id[1]), name="陈曦"))
     outcome, history = await turns_with_history(
         agent, wakeup, sb, resolved_binding(client, frozen=engine.context.inputs),
     )
@@ -468,9 +482,10 @@ async def test_nothing_sent_to_the_person_model_carries_an_internal_identity(_en
     visible = [text for req in client.requests for text in _model_visible(req["messages"], req.get("tools", []))]
     visible.extend(_model_visible(history, []))
     assert [leak for text in visible for leak in _identity_leaks(text, private, now)] == []
+    assert any(row["layer"] == "工具层" for row in json.loads(client.requests[0]["messages"][1]["content"]))
+    deltas = json.loads(client.requests[0]["messages"][-1]["content"])["changes"]["工具层"]["group_deltas"]
     assert any(row["name"] == name and row["kind"] == "activity" and row["phase"] == "刚结束"
-               for row in expand_tool_layer(user_layer(json.loads(client.requests[0]["messages"][1]["content"]),
-                                                       "工具层"))["targets"])
+               for row in deltas["added"])
 
 
 @pytest.mark.asyncio

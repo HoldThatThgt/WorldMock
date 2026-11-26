@@ -113,6 +113,17 @@ def group_refusal(context: Context, calls: Sequence[Call]) -> Blocked | None:
     return None if search is None else _search_blocked(context, search)
 
 
+def intrinsic_refusal(context: Context, call: Call) -> Refusal | None:
+    """@brief 仅核验单条开始调用自身固有条件与余额，跳过槽位占用与睡眠互斥检查。"""
+    main = call if call.tool == START_TOOLS[0] else None
+    side = call if call.tool == START_TOOLS[1] else None
+    for check in (_main_refusal, _side_refusal, _funds_refusal):
+        blocked = check(context, main, side)
+        if blocked is not None:
+            return blocked.refusal
+    return None
+
+
 def _slots_refusal(context: Context, calls: Sequence[Call]) -> Blocked | None:
     """@brief 同槽位占用：按主调用、副调用与搜索顺序核验槽位占用并点名占用者。"""
     ordered = sorted(calls, key=lambda call: START_TOOLS.index(call.tool) if call.tool in START_TOOLS else 2)

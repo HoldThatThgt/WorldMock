@@ -19,7 +19,7 @@ flowchart LR
 ```
 
 环境包根目录下允许的条目为严格闭集 `{"catalog", "personas", "config.toml"}`：根目录下存在旧式 `persona.toml` 或未知文件、或 `personas/` 下包含非 `.toml` 文件及子目录时均以 `ENVIRONMENT_STALE_FILE` 拒绝；出现符号链接时以 `ENVIRONMENT_IDENTITY_MISMATCH` 拒绝。
-`personas/*.toml` 与 `config.toml` 各有自己的 `schema_version`，取值均为严格整数 `3`，分别写在「人物声明」和「运行配置」的字段表里；
+`personas/*.toml` 的 `schema_version` 为严格整数 `3`，`config.toml` 的 `schema_version` 为严格整数 `4`；
 写其他值的文件直接拒绝，没有读取旧格式的分支。所有声明文件都须采用 UTF-8 无 BOM、只用 LF。
 文件、编码、解析、类型、未知字段、范围与卡片文本超长的失败在创建世界和运行资产前拒绝。
 输入按原字节冻结 SHA-256（全员人物各自登记于 `persona_sha256s`），不规范化后计算。纯加载不请求生成模型、不创建资产。
@@ -103,19 +103,18 @@ flowchart LR
 
 | 字段 | 规则 |
 | --- | --- |
-| `schema_version` | 必填，严格整数 `3`；写其他值以 `RUN_CONFIG_INVALID` 拒绝，原因是 `schema_version: Input should be 3`，没有写时原因是 `schema_version is required` |
+| `schema_version` | 必填，严格整数 `4`；写其他值（含旧版 `3`）以 `RUN_CONFIG_INVALID` 拒绝，原因是 `schema_version: Input should be 4`，没有写时原因是 `schema_version is required` |
 | `seed` | 唯一严格整数种子，不限整数范围；所有随机流由它派生 |
 | `timezone` | 有效 IANA 时区 |
 | `start_time`、`stop_time` | TOML 原生带偏移日期时间；按自身偏移整点，偏移与时区一致，停止晚于开始 |
 | `activity_feedback_seconds` | 现行身体与活动结算间隔 |
 | `reconsideration_interval_seconds` | 唯一常规重估间隔，不再区分空闲与承诺 |
 | `progress_report_interval_seconds` | 活动进展播报间隔 |
-| 候选呈现与轮转 | 只保留实际消费者使用的参数；删除 `candidate_pool_limit` |
 | `calendar` | 现行特殊日期声明；不保留场景副本 |
 | `models` | 具名模型档非空字典 `[models.<profile_id>]`，见下节 |
 | `model_routing` | 四维阶段路由器 `[model_routing]` 与人物级覆盖表 `[model_routing.agent_overrides."<agent_id>"]`，见下节 |
 
-删除场景、环境钉、第二份目录路径、评估种子、`max_same_moment_decisions` 与单一顶层 `model` 表。
+彻底删除场景、环境钉、第二份目录路径、评估种子、`max_same_moment_decisions`、单一顶层 `model` 表，以及退役的商品轮转三项配置键（`candidate_presentation_limit`、`rotation_quota_ratio`、`rotation_stale_seconds`；`config.toml` 中出现上述字段直接以 `RUN_CONFIG_INVALID` 拒绝）。
 
 <a name="configuration-模型配置"></a>
 ## 模型配置与凭据
@@ -131,6 +130,8 @@ flowchart LR
 | `ModelProfileConfig` | `context_window` | 必填严格整数，至少 `262144`，声明最低上下文要求 |
 | `ModelProfileConfig` | `thinking` | 必填严格布尔值，控制请求 `extra_body.thinking` 开关与思考内容校验 |
 | `ModelProfileConfig` | `max_output_tokens` | 必填正严格整数，模型档单次请求输出预留上限；实际有效值 `effective_max_tokens = min(max_output_tokens, metadata.max_output_tokens)` |
+| `ModelProfileConfig` | `compact_trigger_tokens` | 默认 `80000`，严格整数 `>= 16384`，日内 Compaction 触发阈值；`validate_compact_trigger` 校验严格满足 `compact_trigger_tokens < int(context_window * 0.85)`，不成立抛出 `ValueError("compact_trigger_tokens must be strictly less than int(context_window * 0.85)")` 并统一映射为 `EnvironmentInputError("config.toml", "RUN_CONFIG_INVALID", reason)` |
+| `ModelProfileConfig` | `prompt_cache_key` | 默认 `false`，`strict=True` 下仅接受严格布尔值；为 `true` 时仅主循环 `action` 请求在 `extra_body` 内注入 `"prompt_cache_key": f"{run_id}:a{agent_id}:{local_date}"` |
 | `ModelProfileConfig` | `max_retries` | 默认 `0`，严格整数 `0–10`，可重试非传输服务拒绝；限流 429 用尽后停放重发 |
 | `ModelProfileConfig` | `transport_max_retries` | 默认 `3`，严格整数 `0–10`，连接、超时（含单次发送整次期限）与服务暂不可用；用尽后停放重发 |
 | `ModelProfileConfig` | `max_react_turns` | 默认 `16`，严格整数 `1–64`，单次主活动唤醒或单次搜索子会话最大模型回合预算 |
@@ -163,7 +164,7 @@ flowchart LR
 `ModelRegistry` 内部按 `(profile.base_url, profile.api_key_env, profile.max_retries, profile.transport_max_retries)` 键复用共享 `ModelClient` 连接池，并在运行结束或异常清理时通过 `async def close()` 统一关闭全部连接。
 `ModelClient` 直接调用 `litellm.acompletion`，不经 Router，也不用 litellm 的客户端缓存：构造时建一个 OpenAI SDK 异步网络客户端（SDK 重试 0 次、超时 300 秒），每次发送作为 `client=` 传入，关闭时关掉它。
 两类重试次数从对应的冻结 `StageProfileIdentity`（存于运行清单 `model_identity.profiles`）读取并在构造时校验，不是 `0–10` 的严格整数时以 `Model retry budgets must be integers in [0, 10]` 拒绝；请求里不带重试次数。
-它只接受键集合恰为 `model`、`messages`、`tools`、`tool_choice`、`max_tokens`、`extra_body` 的请求，不合时以 `Model request keys must be exactly model, messages, tools, tool_choice, max_tokens, extra_body` 拒绝、不发送；同一请求的每次重发参数逐值相同。
+它只接受键集合恰为 `model`、`messages`、`tools`、`tool_choice`、`max_tokens`、`extra_body` 的请求（`REQUEST_KEYS` 严格保持六键契约不变），不合时以 `Model request keys must be exactly model, messages, tools, tool_choice, max_tokens, extra_body` 拒绝、不发送；同一请求的每次重发参数逐值相同。当 `resolved.profile.prompt_cache_key` 为 `True` 时，仅主循环 `action` 请求在 `extra_body` 字典内注入 `"prompt_cache_key": f"{run_id}:a{agent_id}:{local_date}"`（与 `"thinking"` 并存于 `extra_body` 中）；`prompt_cache_key` 为 `False` 时不在 `extra_body` 写入该键；后台 `plan_day`、`memory_digest` 与搜索子会话 `search_session` 不注入 `prompt_cache_key`。
 最终失败抛 `LLMDispatchError`，文字为 `Failed to get valid response after {N} attempts in {s:.1f} s. Last error type: {T}. Error chain: {chain}`，错误链只有类型名。
 `src` 里只有 `model_client.py` 导入 litellm；它在导入 litellm 之前把 `LITELLM_LOCAL_MODEL_COST_MAP` 设为 `True`，不联网拉取价目表；token 计数用的 `token_counter` 也经这个模块取得。`model_metadata.py` 与 `model_registry.py` 严格保持不反向导入 `litellm`。
 

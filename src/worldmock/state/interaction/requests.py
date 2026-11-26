@@ -613,10 +613,76 @@ class ConcludeActivityRequest(ToolRequestModel):
 
 
 
+#: 继续活动原因的字符上限（DeepSeek strict 禁 maxLength，由本地校验执行）。
+CONTINUE_REASON_MAX_CHARS = 200
+#: 目标检索关键词的字符上限与单页条目上限。
+LOOKUP_KEYWORD_MAX_CHARS = 100
+LOOKUP_LIMIT_MIN = 1
+LOOKUP_LIMIT_MAX = 30
+
+
+class ContinueActivityRequest(ToolRequestModel):
+    """@brief 维持当前进行中活动并结束本次唤醒。"""
+
+    reason: str | None = Field(description="继续当前活动的简要说明，无需补充时写空值。")
+
+    @field_validator("reason")
+    @classmethod
+    def validate_reason(cls, value: str | None) -> str | None:
+        """@brief 原因非空时去掉首尾空白并校验长度。"""
+        if value is None:
+            return None
+        stripped = value.strip()
+        if not 1 <= len(stripped) <= CONTINUE_REASON_MAX_CHARS:
+            _LOGGER.error("Continue activity reason length is out of range")
+            raise ValueError("continue_activity reason must be 1 to 200 non-blank characters")
+        return stripped
+
+
+class LookupTargetsRequest(ToolRequestModel):
+    """@brief 零耗时只读检索当前城市地点、内容应用或店铺商品并载入工具层。"""
+
+    kind: Literal["location", "app", "product"] | None = Field(
+        description="按类别筛选目标：地点、应用、商品，或不按类别筛选时写空值。")
+    keyword: str | None = Field(description="按关键词筛选目标名称或说明，不设关键词时写空值。")
+    limit: int = Field(description="本次返回的目标条目数量。")
+    offset: int = Field(description="分页偏移量，从零开始。")
+
+    @field_validator("keyword")
+    @classmethod
+    def validate_keyword(cls, value: str | None) -> str | None:
+        """@brief 关键词非空时去掉首尾空白并校验长度。"""
+        if value is None:
+            return None
+        stripped = value.strip()
+        if not 1 <= len(stripped) <= LOOKUP_KEYWORD_MAX_CHARS:
+            _LOGGER.error("Lookup targets keyword length is out of range")
+            raise ValueError("lookup_targets keyword must be 1 to 100 non-blank characters")
+        return stripped
+
+    @field_validator("limit")
+    @classmethod
+    def validate_limit(cls, value: int) -> int:
+        """@brief 校验每页数量处于 1 到 30 之间。"""
+        if not LOOKUP_LIMIT_MIN <= value <= LOOKUP_LIMIT_MAX:
+            _LOGGER.error("Lookup targets limit %d is out of range", value)
+            raise ValueError("lookup_targets limit must be between 1 and 30")
+        return value
+
+    @field_validator("offset")
+    @classmethod
+    def validate_offset(cls, value: int) -> int:
+        """@brief 校验分页偏移量为非负整数。"""
+        if value < 0:
+            _LOGGER.error("Lookup targets offset %d is negative", value)
+            raise ValueError("lookup_targets offset must be non-negative")
+        return value
+
+
 ActionRequest = Annotated[
     StartMainActivityRequest | StartSideActivityRequest | SearchWorldRequest |
-    RecallTaskSummaryRequest | ReportStatusRequest | PauseActivityRequest |
-    ConcludeActivityRequest | ReviseDayPlanRequest,
+    ContinueActivityRequest | RecallTaskSummaryRequest | ReportStatusRequest |
+    PauseActivityRequest | ConcludeActivityRequest | ReviseDayPlanRequest,
     Field(union_mode="left_to_right"),
 ]
 
@@ -625,6 +691,7 @@ ActionRequest = Annotated[
 REQUEST_MODELS: dict[str, type[FrozenModel]] = {
     **dict(zip(START_TOOLS, (StartMainActivityRequest, StartSideActivityRequest), strict=True)),
     SEARCH_TOOL: SearchWorldRequest,
+    "continue_activity": ContinueActivityRequest,
     "recall_task_summary": RecallTaskSummaryRequest,
     "report_status": ReportStatusRequest,
     "pause_activity": PauseActivityRequest,
@@ -633,4 +700,7 @@ REQUEST_MODELS: dict[str, type[FrozenModel]] = {
 }
 
 #: 只读查询的工具模型：不进 REQUEST_MODELS，也不进 ActionRequest（docs/design/06-agent.md「检索记忆」）。
-QUERY_MODELS: dict[str, type[FrozenModel]] = {"search_memory": SearchMemoryRequest}
+QUERY_MODELS: dict[str, type[FrozenModel]] = {
+    "search_memory": SearchMemoryRequest,
+    "lookup_targets": LookupTargetsRequest,
+}

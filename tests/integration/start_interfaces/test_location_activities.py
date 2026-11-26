@@ -313,8 +313,9 @@ def test_doing_something_blocks_departure_and_another_unit_by_slot(engine_factor
     assert other.status == "rejected" and other.error_code == "RESOURCE_CONFLICT" and other.message == reason
     assert other.data["next_step"] == f"Conclude or pause {name} first."
     rows = _target(observed, "家")["actions"]
-    assert [(row["available"], row["reason"]) for row in rows] == [(False, reason)] * 3
-    assert _target(observed, "公司")["actions"][0]["reason"] == reason
+    assert observed["tool_layer"]["gate"]["main_slot_busy"] is True
+    assert all(row["available"] and row["reason"] is None for row in rows)
+    assert _target(observed, "公司")["actions"][0]["available"] is True
     activity = _target(observed, name)
     assert activity["kind"] == "activity" and [tool["tool"] for tool in activity["tools"]] == [
         "report_status", "pause_activity", "conclude_activity"]

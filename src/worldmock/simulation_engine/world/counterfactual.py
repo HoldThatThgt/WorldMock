@@ -21,7 +21,7 @@ class CounterfactualRuntime:
         self.context = context
 
     def apply_counterfactual(self, intervention: CounterfactualIntervention) -> CounterfactualReceipt:
-        """@brief 在新反事实分支首次决策前提交一次对等余额干预，并清除悬挂搜索循环。"""
+        """@brief 在新反事实分支首次决策前提交一次对等余额干预，并清除全员悬挂循环与日会话。"""
         if type(intervention) is not CounterfactualIntervention:
             logging.error("Counterfactual intervention must use the strict life model")
             raise ProtocolError("Counterfactual intervention must use the strict life model")
@@ -32,8 +32,8 @@ class CounterfactualRuntime:
         staged = self.context.state.model_copy(deep=True)
         staged.accounts[agent.balance_account_id] = intervention.balance_fen
         staged.accounts["external:scenario"] += before - intervention.balance_fen
-        staged.agents[intervention.agent_id] = staged.agents[intervention.agent_id].model_copy(
-            update={"suspended_loop": None}, deep=True)
+        for aid, member in list(staged.agents.items()):
+            staged.agents[aid] = member.model_copy(update={"suspended_loop": None, "day_session": None}, deep=True)
         staged.version = self.context.state.version + 1
         changes = {
             f"account:{agent.balance_account_id}": intervention.balance_fen - before,

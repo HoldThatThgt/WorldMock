@@ -158,8 +158,10 @@ def test_persona_table_failures_are_reported_with_the_field_named(published_envi
 
 
 @pytest.mark.parametrize("original,replacement,reason", [
-    (b"schema_version = 3\n", b"schema_version = 2\n", "schema_version: Input should be 3"),
-    (b"schema_version = 3\n", b"", "schema_version is required"),
+    (b"schema_version = 4\n", b"schema_version = 3\n", "schema_version: Input should be 4"),
+    (b"schema_version = 4\n", b"", "schema_version is required"),
+    (b"schema_version = 4\n", b"schema_version = 4\ncandidate_presentation_limit = 20\n",
+     "Run config validation failed"),
     (b"max_output_tokens = 16000\n", b"max_output_tokens = 16000\npersona_validation_max_retries = 3\n",
      "Run config validation failed"),
     (b'digest = "reasoner"', b'digest = "reasoner"\n\n[model_routing.agent_overrides."99"]\naction = "reasoner"',
@@ -167,7 +169,7 @@ def test_persona_table_failures_are_reported_with_the_field_named(published_envi
 ])
 def test_config_of_the_previous_structure_is_rejected_by_validate(published_environment, original, replacement,
                                                                   reason):
-    """@brief config.toml 的结构版本是 3：上一版版本、缺版本号、未知字段或引用未加载 agent_id 都让 validate 非零退出。"""
+    """@brief config.toml 的结构版本是 4：上一版版本、缺版本号、已退场轮转字段、未知字段或引用未加载 agent_id 都让 validate 非零退出。"""
     path = published_environment / "config.toml"
     assert path.read_bytes().count(original) == 1
     path.write_bytes(path.read_bytes().replace(original, replacement))

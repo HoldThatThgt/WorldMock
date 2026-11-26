@@ -29,12 +29,22 @@ _FIRST_EVENT_SQL = ("SELECT json_extract(body,'$.recorded_at') FROM events "
 _LAST_EVENT_SQL = ("SELECT json_extract(body,'$.recorded_at'),json_extract(body,'$.event_type') FROM events "
                    "WHERE event_seq=(SELECT max(event_seq) FROM events)")
 #: 已落盘提供商响应的按模型用量合计：经类型表达式索引找到模型响应，只读这些正文。
-_OBSERVED_USAGE_SQL = """
+_CACHED_TOKEN_EXPR = (
+    "COALESCE(json_extract(body,'$.data.response.usage.prompt_cache_hit_tokens'),"
+    " json_extract(body,'$.data.response.usage.prompt_tokens_details.cached_tokens'))"
+)
+_UNCACHED_TOKEN_EXPR = (
+    "COALESCE(json_extract(body,'$.data.response.usage.prompt_cache_miss_tokens'),"
+    f" json_extract(body,'$.data.response.usage.prompt_tokens') - {_CACHED_TOKEN_EXPR})"
+)
+_OBSERVED_USAGE_SQL = f"""
         SELECT json_extract(body,'$.data.response.model'), count(*),
         count(json_extract(body,'$.data.response.usage.prompt_tokens')),
         sum(json_extract(body,'$.data.response.usage.prompt_tokens')),
         sum(json_extract(body,'$.data.response.usage.completion_tokens')),
-        sum(json_extract(body,'$.data.response.usage.total_tokens'))
+        sum(json_extract(body,'$.data.response.usage.total_tokens')),
+        sum({_CACHED_TOKEN_EXPR}),
+        sum({_UNCACHED_TOKEN_EXPR})
         FROM events WHERE event_seq IN (SELECT event_seq FROM events
                                         WHERE json_extract(body,'$.event_type')='model_response')
         AND json_extract(body,'$.data.phase')='response'
@@ -180,9 +190,16 @@ def event_type_counts(connection: sqlite3.Connection) -> list[tuple[str, int, in
 def _observed_usage(connection: sqlite3.Connection) -> list[dict]:
     """@brief 直接累计已保存提供商响应中的用量，按模型名排出确定的行序；未知响应不伪装成零 token。"""
     rows = connection.execute(_OBSERVED_USAGE_SQL)
-    return [{"model": model, "responses": count, "responses_with_usage": known,
-             "input_tokens": input_tokens, "output_tokens": output_tokens, "total_tokens": total}
-            for model, count, known, input_tokens, output_tokens, total in rows]
+    return [
+        {
+            "model": model, "responses": count, "responses_with_usage": known,
+            "input_tokens": input_tokens, "output_tokens": output_tokens, "total_tokens": total,
+            "cached_input_tokens": cached, "uncached_input_tokens": uncached,
+            "cache_hit_ratio": (round(cached / input_tokens, 6)
+                                if input_tokens is not None and cached is not None and input_tokens > 0 else None),
+        }
+        for model, count, known, input_tokens, output_tokens, total, cached, uncached in rows
+    ]
 
 
 def _people_status(connection: sqlite3.Connection, state: dict) -> list[dict]:

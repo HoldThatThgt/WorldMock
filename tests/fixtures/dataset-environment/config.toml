@@ -1,4 +1,4 @@
-schema_version = 3
+schema_version = 4
 seed = 7
 timezone = "Asia/Shanghai"
 start_time = 2026-01-05T08:00:00+08:00
@@ -6,9 +6,6 @@ stop_time = 2026-01-06T08:00:00+08:00
 activity_feedback_seconds = 900
 reconsideration_interval_seconds = 5400
 progress_report_interval_seconds = 1800
-candidate_presentation_limit = 20
-rotation_quota_ratio = 0.15
-rotation_stale_seconds = 86400
 
 [calendar]
 spring_festival_dates = ["2026-02-17"]

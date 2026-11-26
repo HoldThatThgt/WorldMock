@@ -78,13 +78,29 @@ def agents_missing_plan(state: WorldState, timezone_name: str) -> list[int]:
             if date not in state.agents[agent_id].plan_submitted_dates]
 
 
+#: 零点计划载荷固定键序：静态不变键置前，动态变动键置后，确保稳定前缀。
+_PLAN_KEY_ORDER = (
+    "人物", "上班安排", "计划日期", "回顾时段", "生成时刻",
+    "动作结果", "收尾记录", "个人事务", "在途订单", "上一天的目标", "已核验经历",
+)
+
+
+def _ordered_plan_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """@brief 按静态键置前、动态键置后的固定顺序重排零点计划载荷。"""
+    ordered = {key: payload[key] for key in _PLAN_KEY_ORDER if key in payload}
+    for key, value in payload.items():
+        if key not in ordered:
+            ordered[key] = value
+    return ordered
+
+
 def prepare_plan_day(payload: dict[str, Any], model_name: str) -> dict[str, Any]:
-    """@brief 形成零点计划请求：中文模板、JSON 输入、唯一严格工具，思考关闭且给出 max_tokens；只含交给模型客户端的六个键。"""
+    """@brief 形成零点计划请求：中文模板、固定键序紧凑 JSON、唯一严格工具，思考关闭；只含六个键。"""
     tool = {"type": "function", "function": {
         "name": PLAN_DAY_TOOL, "strict": True, "description": "Submit today's complete ordered goal list.",
         "parameters": deepseek_strict_schema(PlanDayRequest)}}
-    messages = [{"role": "system", "content": PLAN_DAY_PROMPT},
-                {"role": "user", "content": json.dumps(payload, ensure_ascii=False, sort_keys=True)}]
+    encoded = json.dumps(_ordered_plan_payload(payload), ensure_ascii=False, separators=(",", ":"))
+    messages = [{"role": "system", "content": PLAN_DAY_PROMPT}, {"role": "user", "content": encoded}]
     return {"model": model_name, "messages": messages, "tools": [tool], "tool_choice": "required",
             "max_tokens": PLAN_DAY_MAX_TOKENS, "extra_body": {"thinking": {"type": "disabled"}}}
 

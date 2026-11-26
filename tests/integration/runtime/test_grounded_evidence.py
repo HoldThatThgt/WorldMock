@@ -11,7 +11,7 @@ import pytest
 
 from tests.engine_fixture import engine_factory as _engine_factory  # noqa: F401
 from tests.integration.runtime.current_contract_fixtures import resolved_binding
-from tests.life.conftest import MAIN_TOOL, SIDE_TOOL, main_arguments, stage_day_plan  # noqa: F401
+from tests.life.conftest import MAIN_TOOL, SIDE_TOOL, main_arguments, stage_day_plan, stub_day_session  # noqa: F401
 from worldmock.agents.life_agent import LifeAgent, life_action_tool_names, life_query_tool_names, person_inputs
 from worldmock.foundation.serialization import canonical_json
 from worldmock.recording_engine.storage.store import FootprintStore
@@ -116,7 +116,7 @@ def test_model_request_persists_exact_grounded_tools(_engine_factory):  # noqa: 
     sandbox.record_model_exchange(ModelCallEvidence(
         wakeup_id=wakeup.wakeup_id, agent_id=1, call_id="grounded-call", phase="request", attempt=1, request=wire,
     ))
-    engine.commit_barrier([sandbox.finish_wakeup(None)])
+    engine.commit_barrier([sandbox.finish_wakeup(None, stub_day_session(wakeup))])
     cutoff = engine.context.store.last_event_seq
     directory = engine.context.store.run_dir
     engine.close()

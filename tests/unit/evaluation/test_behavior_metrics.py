@@ -243,6 +243,49 @@ def test_observation_gate_distinct_wakeups_with_distinct_observations_pass() -> 
     assert gate["duplicated_observation_count"] == 0
 
 
+def test_observation_gate_day_session_tool_delta_and_multi_user_ban() -> None:
+    """@brief 日会话复用早期 messages[1] 并以 tool 差量结尾时不误判重复；发现多条 user 消息直接门禁失败；报告含缓存与压缩摘要。"""
+    base_user = {"role": "user", "content": "日初观察基座"}
+    sys_msg = {"role": "system", "content": "系统"}
+    asst_msg = {"role": "assistant", "content": ""}
+
+    def tool_req(seq: int, call_id: str, wakeup_id: str, tool_content: str) -> dict[str, Any]:
+        req = _model_request(seq, call_id, [], wakeup_id=wakeup_id)
+        req["data"]["request"]["messages"] = [sys_msg, base_user, asst_msg, {"role": "tool", "content": tool_content}]
+        return req
+
+    ok_events = [
+        _model_request(1, "c1", ["日初观察基座"], wakeup_id="w1"),
+        tool_req(2, "c2", "w2", '{"boundary":{"observed_at":"09:00"}}'),
+        tool_req(3, "c3", "w3", '{"boundary":{"observed_at":"10:00"}}'),
+        _event("model_response", _clock(0, 9), event_seq=4,
+               data={"phase": "response", "call_id": "c2",
+                     "response": {"usage": {"prompt_tokens": 200, "prompt_tokens_details": {"cached_tokens": 120}}}}),
+        _event("environment_event", _clock(0, 10), event_seq=5,
+               data={"kind": "day_session_compacted", "folded_groups": 3, "before_tokens": 9000, "after_tokens": 4000}),
+    ]
+    rep = _report(ok_events)
+    assert rep["gates"]["observation_repetition"]["pass"] is True
+    assert rep["reports"]["cache_hit_summary"] == {
+        "responses_with_cache_usage": 1, "input_tokens": 200,
+        "cached_input_tokens": 120, "uncached_input_tokens": 80, "cache_hit_ratio": 0.6,
+    }
+    assert rep["reports"]["day_session_compaction"] == {
+        "compaction_count": 1, "total_folded_groups": 3,
+        "total_before_tokens": 9000, "total_after_tokens": 4000,
+    }
+
+    dup_tool = [
+        tool_req(1, "c1", "w1", '{"boundary":{"observed_at":"09:00"}}'),
+        tool_req(2, "c2", "w2", '{"boundary":{"observed_at":"09:00"}}'),
+    ]
+    assert _report(dup_tool)["gates"]["observation_repetition"]["pass"] is False
+
+    multi_user = [_model_request(1, "c1", ["第一条", "第二条"], wakeup_id="w1")]
+    bad_gate = _report(multi_user)["gates"]["observation_repetition"]
+    assert bad_gate["pass"] is False and bad_gate["multi_user_request_count"] == 1
+
+
 def test_observation_gate_fails_closed_without_user_messages() -> None:
     """@brief 无任何决策 user 消息时门禁按不通过处理并注明未提供。"""
     events = [_event("decision_started", _clock(0, 8), wakeup_id="w0")]

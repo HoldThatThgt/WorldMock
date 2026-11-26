@@ -66,7 +66,10 @@ async def test_host_corrects_opening_an_order_only_app_without_registering_a_req
     plain, _, _ = await _open_keep_after(engine_factory)
     got, base = engine.context.state.agents[1], plain.context.state.agents[1]
     assert got.body.relaxation_need == pytest.approx(base.body.relaxation_need + 0.05)
-    assert got.model_copy(update={"body": base.body}) == base
+    assert got.model_copy(update={"body": base.body, "day_session": base.day_session}) == base
+    assert got.day_session.loaded_target_keys == base.day_session.loaded_target_keys
+    assert got.day_session.pending_boundary_calls == ("call-1",)
+    assert base.day_session.pending_boundary_calls == ("call-0",)
     assert engine.context.state.current_time == before
 
 

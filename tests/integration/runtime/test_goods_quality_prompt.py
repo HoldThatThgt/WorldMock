@@ -13,9 +13,8 @@ import pytest
 
 from tests.engine_fixture import engine_factory_at
 from tests.integration.runtime.current_contract_fixtures import ToolResponse, decide
-from tests.life.conftest import MAIN_TOOL, conclude_request, main_arguments, purchase, stage_day_plan
-from tests.life.environment_runtime import act, events, until_ended
-from worldmock.agents.prompt.prompt_schemas import validate_layer
+from tests.life.conftest import MAIN_TOOL, SIDE_TOOL, conclude_request, main_arguments, side_arguments, stage_day_plan
+from tests.life.environment_runtime import events, until_ended
 
 
 def _at_store(persona, config):
@@ -25,7 +24,7 @@ def _at_store(persona, config):
 async def _receipt_request(create, sample, quality):
     engine = create(mutate=_at_store)
     stage_day_plan(engine, submitted=True)
-    _, started = act(engine, "tea", purchase("柠檬茶"))
+    _, _, _, [started] = await decide(engine, "tea", [ToolResponse(SIDE_TOOL, side_arguments("purchase", "柠檬茶"))])
     shop = engine.context.catalog.locations["store"]
     before = engine.observations._observation_data(engine.context.state.agents[1])["progress_layer"]
     quoted = next(row["result"]["details"]["purchases"][0] for row in before["events"] if row["type"] == "tool_call")
@@ -42,11 +41,10 @@ async def _receipt_request(create, sample, quality):
         ToolResponse(MAIN_TOOL, main_arguments("travel", "家", "步行"), "after-home"),
     ])
     assert result.status == "completed"
-    captured = [event.data["request"] for event in events(engine, "model_request")][0]
+    captured = [event.data["request"] for event in events(engine, "model_request")][-2]
     assert captured["messages"] == request["messages"]
-    progress = next(layer for layer in json.loads(request["messages"][1]["content"]) if layer["layer"] == "进度层")
-    validate_layer(progress)
-    [receipt] = [row for row in progress["events"] if row["type"] == "receipt"]
+    delta_events = json.loads(request["messages"][-1]["content"])["changes"]["进度层"]["events_append"]
+    [receipt] = [row for row in delta_events if row["type"] == "receipt"]
     assert (receipt["store"], receipt["product"], receipt["quality"]) == (shop.display_name, "柠檬茶", quality)
     [source] = [event for event in events(engine, "environment_event") if event.data["kind"] == "goods_received"]
     [fact] = [entry for entry in observation["verified_experiences"] if entry["kind"] == "received"]
@@ -62,11 +60,15 @@ async def _receipt_request(create, sample, quality):
 
 async def receipt_prompt_pair(create):
     """从真实收货与宿主决策生成同历史的好货、坏货两份待收尾输入。"""
-    good = await _receipt_request(create, 4.0, "好")
-    bad = await _receipt_request(create, 2.0, "坏")
-    good_text = good["messages"][1]["content"]
-    assert good_text.replace('"quality":"好"', '"quality":"坏"') == bad["messages"][1]["content"]
-    assert good["tools"] == bad["tools"] and good["messages"][0] == bad["messages"][0]
+    del create
+    with TemporaryDirectory() as tmp_good, engine_factory_at(Path(tmp_good), None) as good_factory:
+        good = await _receipt_request(good_factory, 4.0, "好")
+    with TemporaryDirectory() as tmp_bad, engine_factory_at(Path(tmp_bad), None) as bad_factory:
+        bad = await _receipt_request(bad_factory, 2.0, "坏")
+    assert good["messages"][:-1] == bad["messages"][:-1]
+    masked = good["messages"][-1]["content"].replace('"quality":"好"', '"quality":"坏"').replace("品质好", "品质坏")
+    assert masked == bad["messages"][-1]["content"]
+    assert good["tools"] == bad["tools"]
     return {"good": good, "bad": bad}
 
 

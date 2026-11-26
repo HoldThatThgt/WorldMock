@@ -261,8 +261,7 @@ async def test_last_turn_search_world_suspension_gets_extra_resume_turn(engine_f
     stage_day_plan(engine)
     [w1] = engine.prepare_barrier((1,))
     sb1 = engine.open_sandbox(w1)
-    # 回合 1：查一次记忆；回合 2（刚好耗尽 max_react_turns=2）：调 search_world 挂起！
-    # 注意 remaining=1 时 _life_turn_tools 会缩减到 6 核心工具；因此要测试当 turn_used == max_react_turns (比如 max_turns=2 时 turn=1 调用 search_world 或人工模拟 turn_used == max_react_turns 恢复)!
+    # 回合 1：调 search_world 挂起，随后把 turn_used 模拟设为 2（等于 max_react_turns=2）验证恢复后至少给 1 回合。
     m1 = ScriptedModel([
         _ModelResponse("c-sw", SEARCH_TOOL, json.dumps({"query": "柠檬茶", "prefer": "饿了么"}, ensure_ascii=False)),
     ])
@@ -293,14 +292,14 @@ async def test_last_turn_search_world_suspension_gets_extra_resume_turn(engine_f
     sb2 = engine.open_sandbox(w2)
     m2 = ScriptedModel([_ModelResponse("c-buy", SIDE_TOOL, json.dumps(
         side_arguments("purchase", "柠檬茶", prefer="饿了么"), ensure_ascii=False))])
-    # effective limit: start=3 > base=2 -> 给满 1 个不带 search_world 的恢复回合！
+    # effective limit: start=3 > base=2 -> 给满 1 个恒定 11 工具的恢复回合！
     out2 = await LifeAgent(person_inputs(engine.context.inputs.persona_by_id[1])).decide_wakeup(
         w2, sb2, resolved_binding(m2, frozen=engine.context.inputs, max_turns=2),
     )
     assert out2.status == "completed"
     engine.commit_barrier([out2])
-    assert len(m2.requests) == 1 and len(m2.requests[0]["tools"]) == 6
-    assert SEARCH_TOOL not in {t["function"]["name"] for t in m2.requests[0]["tools"]}
+    assert len(m2.requests) == 1 and len(m2.requests[0]["tools"]) == 11
+    assert SEARCH_TOOL in {t["function"]["name"] for t in m2.requests[0]["tools"]}
 
 
 def test_retired_modules_classes_and_config_fields_are_completely_absent() -> None:
@@ -326,11 +325,16 @@ def test_retired_modules_classes_and_config_fields_are_completely_absent() -> No
         "agents/answer/query_answer.py",
         "agents/protocol/react_loop.py",
         "agents/protocol/life_continuation.py",
+        "simulation_engine/observation/targets/rotation.py",
+        "simulation_engine/observation/targets/presentation.py",
+        "state/model/truncation.py",
     ):
         assert not (src_root / file_rel).exists()
     import worldmock.runtime.lifecycle.runner as runner_mod
     assert not hasattr(runner_mod, "DecisionCoordinator")
     assert "same_second_continuation" not in RunConfig.model_fields
     assert "model" not in RunConfig.model_fields
+    for retired in ("candidate_presentation_limit", "rotation_quota_ratio", "rotation_stale_seconds"):
+        assert retired not in RunConfig.model_fields
     assert not (ENVIRONMENT_ROOT / "persona.toml").exists()
     assert isinstance(inputs().persona_by_id[1], PersonaConfig)

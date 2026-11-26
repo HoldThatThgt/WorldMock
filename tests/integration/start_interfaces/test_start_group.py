@@ -16,6 +16,7 @@ from tests.life.conftest import (
     report_request,
     sleep,
     stage_day_plan,
+    stub_day_session,
     travel,
     use_app,
 )
@@ -133,7 +134,7 @@ def test_commit_returns_every_result_and_persists_both(engine_factory):
                   sandbox.dispatch_world_tool(MAIN_TOOL, main, main_id)]
     assert [item.accepted for item in dispatches] == [True, True]
     assert [item.tool_message_payload["result"]["status"] for item in dispatches] == ["in_progress", "in_progress"]
-    outcome = sandbox.finish_wakeup(None)
+    outcome = sandbox.finish_wakeup(None, stub_day_session(wakeup))
     with pytest.raises(ProtocolError, match="Sandbox is already finished"):
         sandbox.dispatch_world_tool(MAIN_TOOL, main, action_identity("single", 3))
     receipt = engine.commit_barrier([outcome])
@@ -163,7 +164,7 @@ def test_second_registration_outside_a_start_pair_is_a_protocol_fault(engine_fac
     assert feedback is not None and feedback.report.error_code == "TOOL_CALL_REQUIRED"
     engine = engine_factory()
     [wakeup] = engine.prepare_barrier((1,))
-    outcome = engine.open_sandbox(wakeup).finish_wakeup(None)
+    outcome = engine.open_sandbox(wakeup).finish_wakeup(None, stub_day_session(wakeup))
     with pytest.raises(ProtocolError, match="Duplicate agent in barrier commit"):
         engine.commit_barrier([outcome, outcome])
 
@@ -472,7 +473,7 @@ def test_sandbox_rolls_back_first_start_call_atomically_when_second_fails(engine
     assert sandbox._operations == []
     assert [d for d in sandbox._drafts if d.event_type == "action_accepted"] == []
     assert len([d for d in sandbox._drafts if d.event_type == "action_rejected"]) == 2
-    receipt = engine.commit_barrier([sandbox.finish_wakeup(None)])
+    receipt = engine.commit_barrier([sandbox.finish_wakeup(None, stub_day_session(wakeup))])
     assert receipt.committed_agent_ids == (1,)
     rejected = [e for e in events(engine, "action_rejected")]
     assert len(rejected) == 2 and all(d.data["error_code"] == "INSUFFICIENT_FUNDS" for d in rejected)

@@ -91,9 +91,9 @@ class _Engine:
         self.log.append(("prepare_barrier", agent_ids))
         return tuple(
             AgentWakeupInput(
-                wakeup_id=f"run:wake:{_EPOCH}:v5:a{agent_id}", agent_id=agent_id, observed_at=_EPOCH,
-                world_state_version=5, mode="regular", observation={"id": agent_id},
-                observation_parts={}, pending_presentation={}, action_seq_start=1,
+                wakeup_id=f"run:wake:{_EPOCH}:v5:a{agent_id}", run_id="run", agent_id=agent_id,
+                observed_at=_EPOCH, local_date="2026-09-15", world_state_version=5, mode="regular",
+                observation={"id": agent_id}, observation_parts={}, action_seq_start=1,
             )
             for agent_id in agent_ids
         )
@@ -159,7 +159,7 @@ async def test_due_searches_run_concurrently_before_wakeups_and_advance(tmp_path
             log.append(("wakeup", wakeup.agent_id, resolved.profile_id))
             return SandboxOutcome.model_construct(
                 wakeup_id=wakeup.wakeup_id, agent_id=wakeup.agent_id, status="completed", state=object(),
-                evidence_drafts=(), observation_parts={}, pending_presentation={}, accepted_action_ids=(),
+                evidence_drafts=(), observation_parts={}, day_session=None, compaction_records=(), accepted_action_ids=(),
                 pending_memories=(), verified_experiences=(), observation_event_id=f"obs-{wakeup.agent_id}",
                 observation_payload={}, memory_evidence=None, action_operations=(),
             )
@@ -209,7 +209,7 @@ async def test_concurrent_wakeups_commit_barrier_and_save_step_skips_requeued_an
             status = "suspended" if wakeup.agent_id == 2 else "completed"
             return SandboxOutcome.model_construct(
                 wakeup_id=wakeup.wakeup_id, agent_id=wakeup.agent_id, status=status, state=object(),
-                evidence_drafts=(), observation_parts={}, pending_presentation={}, accepted_action_ids=(),
+                evidence_drafts=(), observation_parts={}, day_session=None, compaction_records=(), accepted_action_ids=(),
                 pending_memories=(), verified_experiences=(), observation_event_id=f"obs-{wakeup.agent_id}",
                 observation_payload={}, memory_evidence=None, action_operations=(),
             )
@@ -254,7 +254,7 @@ async def test_wakeup_failure_flushes_record_failed_evidence_and_closes_engine_b
                 raise ProtocolError("turn budget exhausted")
             return SandboxOutcome.model_construct(
                 wakeup_id=wakeup.wakeup_id, agent_id=wakeup.agent_id, status="completed", state=object(),
-                evidence_drafts=(), observation_parts={}, pending_presentation={}, accepted_action_ids=(),
+                evidence_drafts=(), observation_parts={}, day_session=None, compaction_records=(), accepted_action_ids=(),
                 pending_memories=(), verified_experiences=(), observation_event_id="obs-1",
                 observation_payload={}, memory_evidence=None, action_operations=(),
             )

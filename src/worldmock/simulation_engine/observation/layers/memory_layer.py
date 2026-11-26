@@ -1,4 +1,4 @@
-"""@brief 记忆层的门面：按决策组装「可查」「近三天」「今天」并执行字数上限（组装与兜底在 observation/memory/layout.py），
+"""@brief 记忆层的门面：按决策组装「可查」「近三天」「今天」（组装在 observation/memory/layout.py），
 另给人设看法证据与回看去重；「今天」的条目每次决策一条、从下一次决策起可见，由 observation/memory/entries.py 生成。"""
 
 from __future__ import annotations
@@ -28,7 +28,6 @@ from worldmock.simulation_engine.observation.memory.layout import (
     earliest_date,
     fold_entry,
     fold_items,
-    require_budget,
 )
 from worldmock.simulation_engine.observation.targets.tool_layer import LayerContext
 from worldmock.simulation_engine.observation.wording.settled_text import ActivityFacts
@@ -62,7 +61,7 @@ _FOLDS: WeakKeyDictionary[FootprintStore, dict[int, _TodayCache]] = WeakKeyDicti
 
 
 def memory_view(context: LayerContext, store: FootprintStore) -> MemoryView:
-    """@brief 这次观察的记忆层（可查、近三天、今天，合计不超过字数上限）、本人真实活动的事实、回看标注与已发布界。"""
+    """@brief 这次观察的记忆层（可查、近三天、今天）、本人真实活动的事实、回看标注与已发布界。"""
     book = memory_book(store, context.inputs, context.agent_id)
     today = local_date(context.state.current_time, context.config.timezone)
     digests = day_digests(store, context.agent_id, store.last_event_seq)
@@ -72,7 +71,6 @@ def memory_view(context: LayerContext, store: FootprintStore) -> MemoryView:
                                 store.last_event_seq)
     entries = tuple(published_entry(entry) for entry in published.entries)
     layer = assemble_layer(earliest, recent, _today(context, store, entries, earliest, recent))
-    require_budget(layer)
     facts = activity_facts(agent_events(store, context.agent_id, context.catalog.kit_states()))
     labels = note_labels(published.entries, layer["今天"], context.names["activities"])
     return MemoryView(layer=layer, facts=facts, note_labels=labels, published=published.published)

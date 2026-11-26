@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from tests.integration.life.test_opslog import _records
-from tests.life.conftest import MAIN_TOOL, SIDE_TOOL, action_identity, do_at, stage_day_plan, use_app
+from tests.life.conftest import MAIN_TOOL, SIDE_TOOL, action_identity, do_at, stage_day_plan, stub_day_session, use_app
 from tests.life.environment_runtime import action_result, events
 from worldmock.foundation.errors import IntegrityError, ProtocolError
 from worldmock.simulation_engine.engine import LifeEngine
@@ -65,11 +65,11 @@ def test_prepare_barrier_returns_a_deep_copy(engine_factory, monkeypatch):
     captured = []
     original = ObservationBuilder._observation_bundle
 
-    def capture(builder, agent, state):
+    def capture(builder, agent, state, loaded_target_keys=()):
         """记下引擎内部构造的观察字典。"""
-        data, stamps = original(builder, agent, state)
+        data = original(builder, agent, state, loaded_target_keys)
         captured.append(data)
-        return data, stamps
+        return data
 
     monkeypatch.setattr(ObservationBuilder, "_observation_bundle", capture)
     [wakeup] = engine.prepare_barrier((1,))
@@ -93,7 +93,7 @@ def test_mutating_the_returned_observation_changes_nothing_persisted(engine_fact
     assert sandbox.recall_task_summary(request) == engine.read_task_summary(1, request, pristine)
     aid = action_identity("facade-mutate")
     assert sandbox.dispatch_world_tool(MAIN_TOOL, do_at("家", "测试休息"), aid).accepted
-    receipt = engine.commit_barrier([sandbox.finish_wakeup(None)])
+    receipt = engine.commit_barrier([sandbox.finish_wakeup(None, stub_day_session(wakeup))])
     assert receipt.committed_agent_ids == (1,) and action_result(engine, aid).error_code is None
     stored = engine.context.store.read_event(pristine["observation_event_id"])
     assert stored.data["tool_layer"] == pristine["tool_layer"]
@@ -163,7 +163,7 @@ def test_mutating_submitted_requests_changes_nothing_persisted(engine_factory):
     aid = action_identity("facade-submit")
     sandbox.dispatch_world_tool("revise_day_plan", plan, aid)
     plan.goals.clear()
-    engine.commit_barrier([sandbox.finish_wakeup(None)])
+    engine.commit_barrier([sandbox.finish_wakeup(None, stub_day_session(wakeup))])
     [requested] = events(engine, "model_request")
     [responded] = events(engine, "model_response")
     assert requested.data["request"] == saved and responded.caused_by == [requested.event_id]
@@ -178,7 +178,7 @@ def test_commit_returns_receipt_and_persists_both_results_of_start_group(engine_
     side_id, main_id = action_identity("facade-group", 1), action_identity("facade-group", 2)
     sandbox.dispatch_world_tool(SIDE_TOOL, use_app("哔哩哔哩"), side_id)
     sandbox.dispatch_world_tool(MAIN_TOOL, do_at("家", "测试闲聊"), main_id)
-    receipt = engine.commit_barrier([sandbox.finish_wakeup(None)])
+    receipt = engine.commit_barrier([sandbox.finish_wakeup(None, stub_day_session(wakeup))])
     assert receipt.committed_agent_ids == (1,) and receipt.conflict_requeued_agent_ids == ()
     assert [action_result(engine, identity).action_id for identity in (side_id, main_id)] == [side_id, main_id]
     assert _committed_barrier_detail(engine) == "Barrier committed agents=[1] conflicts=[]"
@@ -201,7 +201,7 @@ def test_engine_uses_the_worldmock_barrier_types(engine_factory):
     with pytest.raises(ProtocolError, match="^Unsupported sandbox world tool: start_activity$"):
         sandbox.dispatch_world_tool("start_activity", SimpleNamespace(), "bad-1")
     assert sandbox.dispatch_world_tool(MAIN_TOOL, do_at("家", "测试休息"), action_identity("facade-boundary")).accepted
-    engine.commit_barrier([sandbox.finish_wakeup(None)])
+    engine.commit_barrier([sandbox.finish_wakeup(None, stub_day_session(wakeup))])
     with pytest.raises(ProtocolError, match="^World advance must match the next scheduling boundary$"):
         engine.advance(1, wrong + timedelta(seconds=1))
 

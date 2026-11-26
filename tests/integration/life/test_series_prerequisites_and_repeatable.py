@@ -230,7 +230,7 @@ def test_exhausted_repeatable_app_displays_no_unread_and_refuses_while_local_cit
     assert play_k.status == "in_progress"
     finish_activity(engine, play_k, "done-keep-once")
 
-    obs = observe_only(engine, "obs-exhausted")
+    obs = observe_only(engine, "obs-exhausted", (("app", "keep"),))
     keep_target = tool_targets(obs)["Keep"]
     assert keep_target["state"] == "无未读内容"
     interact_act = target_actions(obs, "Keep")["interact"]

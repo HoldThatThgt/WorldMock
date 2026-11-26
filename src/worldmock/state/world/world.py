@@ -21,7 +21,7 @@ from worldmock.state.decisions.state import StoredAction
 from worldmock.state.logging import _LOGGER
 
 #: 世界状态结构版本：版本不符的检查点与导出直接拒绝，不迁移。
-WORLD_SCHEMA_VERSION = 17
+WORLD_SCHEMA_VERSION = 18
 
 
 
@@ -64,9 +64,6 @@ class WorldState(StrictModel):
     #: 规则仍会读取的已结算动作：本秒的结果与进行中或暂停活动的开始动作
     #: （docs/design/04-simulation-engine.md「原子性与恢复」）。
     processed_actions: dict[str, StoredAction] = Field(default_factory=dict)
-    #: 呈现派生量（docs/design/09-io-formats.md「世界、人物与活动」）：按（人物, 对象标识）记录上次呈现
-    #: 时刻（UTC 纪元秒），是曝光轮转的判据，不含任何偏好推断。
-    presentation_state: dict[int, dict[str, int]] = Field(default_factory=dict)
     #: 按本地日期与城市索引的每日天气条件（local_date -> {city_id: condition}）。
     weather_by_date: dict[str, dict[str, str]] = Field(default_factory=dict)
     #: 运行开始回调是否已执行。

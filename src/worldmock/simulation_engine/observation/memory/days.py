@@ -221,7 +221,9 @@ def _wakeup_entries(store: FootprintStore, cached: AgentEvents, commits: list[Wa
         if key not in cached.entries:
             entry_lower = bound if key in cached.commit_spans else lower
             build_entry(memory_book(store, inputs, agent_id), store, cached, commit, entry_lower)
-        entries.append(cached.entries[key])
+        entry = cached.entries[key]
+        if entry is not None:
+            entries.append(entry)
         lower = max(commit.commit, bound)
     return entries
 

@@ -40,7 +40,12 @@ def compact_tool_layer(layer: dict) -> dict:
                   and all(key in row and row[key] == value for row in targets[1:])}
         group["shared"] = shared
         group["targets"] = [{key: value for key, value in row.items() if key not in shared} for row in targets]
-    return {"layer": layer["layer"], "groups": groups, "callable_index": deepcopy(layer["callable_index"])}
+    return {
+        "layer": layer["layer"],
+        "gate": deepcopy(layer["gate"]),
+        "groups": groups,
+        "callable_index": deepcopy(layer["callable_index"]),
+    }
 
 
 def expand_tool_layer(layer: dict) -> dict:
@@ -65,8 +70,12 @@ def expand_tool_layer(layer: dict) -> dict:
                 action = {"action": group["action"], **{key: row.get(key) for key in _ACTION_FIELDS}}
                 if action not in target["actions"]:
                     target["actions"].append(action)
-    return {"layer": layer["layer"], "targets": list(targets.values()),
-            "callable_index": deepcopy(layer["callable_index"])}
+    return {
+        "layer": layer["layer"],
+        "gate": deepcopy(layer["gate"]),
+        "targets": list(targets.values()),
+        "callable_index": deepcopy(layer["callable_index"]),
+    }
 
 
 def compact_render(value: object) -> object:

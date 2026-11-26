@@ -6,7 +6,7 @@ import json
 
 import pytest
 from jsonschema import Draft202012Validator
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from worldmock.exchange_engine.conditions.activity_rules import (
     ACTIVITY_ACTIONS,
@@ -15,9 +15,13 @@ from worldmock.exchange_engine.conditions.activity_rules import (
     SIDE_ACTIVITY_ACTIONS,
     activity_slot,
 )
-from worldmock.state.interaction.actions import SEARCH_TOOL, START_TOOLS
+from worldmock.state.interaction.actions import BOUNDARY_TOOLS, SEARCH_TOOL, START_TOOLS
 from worldmock.state.interaction.requests import (
+    QUERY_MODELS,
     REQUEST_MODELS,
+    ActionRequest,
+    ContinueActivityRequest,
+    LookupTargetsRequest,
     SearchWorldRequest,
     StartMainActivityRequest,
     StartSideActivityRequest,
@@ -42,6 +46,16 @@ _SEARCH_VALID = (
     {"query": "无糖乌龙茶", "prefer": "美团"},
     {"query": "附近的咖啡馆或茶室", "prefer": None},
 )
+_CONTINUE_VALID = (
+    {"reason": None},
+    {"reason": "继续当前活动"},
+)
+_LOOKUP_VALID = (
+    {"kind": None, "keyword": None, "limit": 10, "offset": 0},
+    {"kind": "location", "keyword": "咖啡", "limit": 1, "offset": 5},
+    {"kind": "app", "keyword": None, "limit": 30, "offset": 0},
+    {"kind": "product", "keyword": "茶" * 100, "limit": 30, "offset": 0},
+)
 #: 副工具 prefer 字段的说明原文。
 _PREFER_DESCRIPTION = "purchase 写想用来下单的内容 app 的完整名称，没有想法写 null；interact 写 null。"
 
@@ -64,11 +78,14 @@ def test_action_closed_sets_and_start_tools_are_declared_once():
     assert SIDE_ACTIVITY_ACTIONS == ("purchase", "interact")
     assert START_TOOLS == ("start_main_activity", "start_side_activity")
     assert SEARCH_TOOL == "search_world"
-    assert list(REQUEST_MODELS) == [*START_TOOLS, SEARCH_TOOL, "recall_task_summary", "report_status",
-                                    "pause_activity", "conclude_activity", "revise_day_plan"]
+    assert BOUNDARY_TOOLS == (*START_TOOLS, SEARCH_TOOL, "continue_activity")
+    assert list(REQUEST_MODELS) == [*START_TOOLS, SEARCH_TOOL, "continue_activity", "recall_task_summary",
+                                    "report_status", "pause_activity", "conclude_activity", "revise_day_plan"]
     assert REQUEST_MODELS["start_main_activity"] is StartMainActivityRequest
     assert REQUEST_MODELS["start_side_activity"] is StartSideActivityRequest
     assert REQUEST_MODELS["search_world"] is SearchWorldRequest
+    assert REQUEST_MODELS["continue_activity"] is ContinueActivityRequest
+    assert QUERY_MODELS["lookup_targets"] is LookupTargetsRequest
     assert "start_activity" not in REQUEST_MODELS
 
 
@@ -112,15 +129,18 @@ def test_search_world_request_accepts_valid_inputs(arguments):
 
 
 def test_both_models_generate_closed_strict_schemas_with_verbatim_descriptions():
-    """开始工具与 search_world 全部通过 DeepSeek strict 校验；每个参数都必填。"""
+    """开始工具、search_world、continue_activity 与 lookup_targets 全部通过 DeepSeek strict 校验；每个参数都必填。"""
     main = deepseek_strict_schema(StartMainActivityRequest)
     side = deepseek_strict_schema(StartSideActivityRequest)
     search = deepseek_strict_schema(SearchWorldRequest)
-    for schema in (main, side, search):
+    cont = deepseek_strict_schema(ContinueActivityRequest)
+    lookup = deepseek_strict_schema(LookupTargetsRequest)
+    for schema in (main, side, search, cont, lookup):
         Draft202012Validator.check_schema(schema)
         assert schema["additionalProperties"] is False and schema["required"] == list(schema["properties"])
         assert "$ref" not in json.dumps(schema) and "description" not in schema
         assert "maxLength" not in json.dumps(schema) and "minLength" not in json.dumps(schema)
+        assert "default" not in json.dumps(schema)
     assert list(main["properties"]) == ["action", "target", "detail"]
     assert main["properties"]["action"]["enum"] == ["travel", "interact", "sleep"]
     assert main["properties"]["target"]["type"] == "string" and main["properties"]["target"]["pattern"] == r"\S"
@@ -150,12 +170,18 @@ def test_both_models_generate_closed_strict_schemas_with_verbatim_descriptions()
         assert list(Draft202012Validator(side).iter_errors(arguments)) == []
     for arguments in _SEARCH_VALID:
         assert list(Draft202012Validator(search).iter_errors(arguments)) == []
+    for arguments in _CONTINUE_VALID:
+        assert list(Draft202012Validator(cont).iter_errors(arguments)) == []
+    for arguments in _LOOKUP_VALID:
+        assert list(Draft202012Validator(lookup).iter_errors(arguments)) == []
 
 
 @pytest.mark.parametrize("model,tool,valid", [
     (StartMainActivityRequest, "start_main_activity", _MAIN_VALID[0]),
     (StartSideActivityRequest, "start_side_activity", _SIDE_VALID[0]),
     (SearchWorldRequest, "search_world", _SEARCH_VALID[0]),
+    (ContinueActivityRequest, "continue_activity", _CONTINUE_VALID[0]),
+    (LookupTargetsRequest, "lookup_targets", _LOOKUP_VALID[0]),
 ])
 def test_every_parameter_is_required_and_extra_keys_are_refused(model, tool, valid):
     """每个参数都必须出现在请求里；多写任何键按多余字段拒绝，旧的 items 形状同样被拒。"""
@@ -172,7 +198,13 @@ def test_every_parameter_is_required_and_extra_keys_are_refused(model, tool, val
 
 def _allowed(model, field: str) -> tuple:
     """字段在 Schema 里声明的完整闭集（没有闭集时为空）。"""
-    return tuple(model.model_json_schema()["properties"][field].get("enum", ()))
+    schema = model.model_json_schema()["properties"][field]
+    if "enum" in schema:
+        return tuple(schema["enum"])
+    branches = schema.get("anyOf", [])
+    if branches and all("enum" in part or part.get("type") == "null" for part in branches):
+        return tuple(value for part in branches for value in (part["enum"] if "enum" in part else [None]))
+    return ()
 
 
 @pytest.mark.parametrize("model,tool,valid,allowed", [
@@ -280,3 +312,52 @@ def test_opening_an_app_requires_a_null_prefer(arguments, expected):
 def test_search_world_request_validates_query_and_prefer(arguments, expected):
     """search_world 在严格校验里限制 query 非空且去空白后至多 200 字，prefer 非空白或 null。"""
     assert _report(SearchWorldRequest, "search_world", arguments) == expected
+
+
+def test_continue_activity_request_strips_reason_and_joins_action_union():
+    """continue_activity 去除 reason 首尾空白、限制 1..200 字并纳入 ActionRequest 联合类型。"""
+    assert ContinueActivityRequest.model_validate({"reason": None}).reason is None
+    assert ContinueActivityRequest.model_validate({"reason": "  继续阅读  "}).reason == "继续阅读"
+    assert ContinueActivityRequest.model_validate({"reason": "字" * 200}).reason == "字" * 200
+    parsed = TypeAdapter(ActionRequest).validate_python({"reason": "维持午睡"})
+    assert isinstance(parsed, ContinueActivityRequest) and parsed.reason == "维持午睡"
+
+    for bad_reason, message in (
+        ("", "continue_activity reason must be 1 to 200 non-blank characters"),
+        ("   ", "continue_activity reason must be 1 to 200 non-blank characters"),
+        ("字" * 201, "continue_activity reason must be 1 to 200 non-blank characters"),
+        (123, "A JSON string is required."),
+    ):
+        assert _report(ContinueActivityRequest, "continue_activity", {"reason": bad_reason}) == [
+            (("reason",), bad_reason, (), message)]
+
+
+def test_lookup_targets_request_validates_kind_keyword_limit_and_offset():
+    """lookup_targets 严格校验类别闭集、关键词长度 1..100、limit 1..30 与非负 offset。"""
+    for arguments in _LOOKUP_VALID:
+        req = LookupTargetsRequest.model_validate(arguments)
+        assert req.limit == arguments["limit"] and req.offset == arguments["offset"]
+    assert LookupTargetsRequest.model_validate(
+        {"kind": None, "keyword": "  乌龙茶  ", "limit": 5, "offset": 0}
+    ).keyword == "乌龙茶"
+
+    for bad_args, field, written, allowed, message in (
+        ({"kind": "activity", "keyword": None, "limit": 10, "offset": 0},
+         ("kind",), "activity", ("location", "app", "product", None), "The value is outside the declared allowed values."),
+        ({"kind": None, "keyword": "   ", "limit": 10, "offset": 0},
+         ("keyword",), "   ", (), "lookup_targets keyword must be 1 to 100 non-blank characters"),
+        ({"kind": None, "keyword": "茶" * 101, "limit": 10, "offset": 0},
+         ("keyword",), "茶" * 101, (), "lookup_targets keyword must be 1 to 100 non-blank characters"),
+        ({"kind": None, "keyword": None, "limit": 0, "offset": 0},
+         ("limit",), 0, (), "lookup_targets limit must be between 1 and 30"),
+        ({"kind": None, "keyword": None, "limit": 31, "offset": 0},
+         ("limit",), 31, (), "lookup_targets limit must be between 1 and 30"),
+        ({"kind": None, "keyword": None, "limit": True, "offset": 0},
+         ("limit",), True, (), "A JSON integer is required."),
+        ({"kind": None, "keyword": None, "limit": 10, "offset": -1},
+         ("offset",), -1, (), "lookup_targets offset must be non-negative"),
+        ({"kind": None, "keyword": None, "limit": 10, "offset": False},
+         ("offset",), False, (), "A JSON integer is required."),
+    ):
+        assert _report(LookupTargetsRequest, "lookup_targets", bad_args) == [
+            (field, written, allowed, message)]

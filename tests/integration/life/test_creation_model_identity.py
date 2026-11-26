@@ -97,7 +97,7 @@ def test_creation_rejects_foreign_run_model_identity_without_writing(tmp_path, c
 
 
 def test_creation_accepts_actual_config_metadata_and_rejects_retired_keys(tmp_path):
-    """真实 v8 模型身份可以新建运行并冻结全部档案，已退役 stage_model_identity 选项键被直接拒绝。"""
+    """真实 v9 模型身份可以新建运行并冻结全部档案，已退役 stage_model_identity 选项键被直接拒绝。"""
     frozen = inputs()
     identity = current_run_identity(frozen, "actual-model")
     actual = model_identity(frozen.config, frozen.model_metadata)
@@ -106,7 +106,7 @@ def test_creation_accepts_actual_config_metadata_and_rejects_retired_keys(tmp_pa
     engine = LifeEngine.create(frozen, tmp_path / "actual-run", identity, actual, {})
     try:
         manifest = engine.context.store.manifest
-        assert manifest["schema_version"] == 8
+        assert manifest["schema_version"] == 9
         assert "stage_model_identity" not in manifest
         assert manifest["model_identity"] == actual.model_dump(mode="json")
         assert manifest["persona_sha256s"] == {str(k): v for k, v in frozen.persona_sha256s.items()}

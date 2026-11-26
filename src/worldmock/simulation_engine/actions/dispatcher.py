@@ -35,6 +35,7 @@ from worldmock.state.interaction.request_errors import argument_report
 from worldmock.state.interaction.requests import (
     ChangeActivityRequest,
     ConcludeActivityRequest,
+    ContinueActivityRequest,
     PauseActivityRequest,
     RecallTaskSummaryRequest,
     ReportStatusRequest,
@@ -44,7 +45,7 @@ from worldmock.state.interaction.requests import (
 from worldmock.state.planning.schedule import RemindTimeInvalid, day_plan_expired, registered_goals, revise_day_plan
 from worldmock.state.world.activity import ActivityState
 from worldmock.state.world.kinds import ActionStatus, ActivityChange, ActivityKind, ActivityStatus
-from worldmock.state.world.world import WorldState
+from worldmock.state.world.world import WorldState, active_activities
 
 _LOGGER = logging.getLogger(__name__)
 RECALL_IN_MEMORY_LAYER = "已在记忆层"
@@ -331,6 +332,28 @@ class ActionHandlers:
         views = {"goal": self._recall_goal, "activity": self._recall_activity}
         return {"recall": {"kind": kind, **views[kind](state, agent_id, row, observed)}}
 
+    def _continue_activity(
+        self, state: WorldState, pending: ToolInvocation, request: ContinueActivityRequest
+    ) -> tuple[WorldState, ActionResult]:
+        """@brief 明确维持当前进行中活动不改动状态；无进行中活动时以 ACTIVITY_PRECONDITION_UNMET 拒绝。"""
+        running = active_activities(state, pending.agent_id)
+        if not running:
+            _LOGGER.error("Agent %d cannot continue_activity without an active activity", pending.agent_id)
+            raise Refusal(
+                "ACTIVITY_PRECONDITION_UNMET",
+                "No active activity is running to continue.",
+                "Start an activity or choose another action.",
+                ("active_activity",),
+            ).error()
+        data: dict[str, Any] = {"activity_ids": [item.activity_id for item in running]}
+        if request.reason is not None:
+            data["reason"] = request.reason
+        return state, ActionResult(
+            action_id=pending.action_id, agent_id=pending.agent_id,
+            status=ActionStatus.COMPLETED, occurred_at=state.current_time,
+            message="Continuing active activities", data=data,
+        )
+
     def _revise_day_plan(
         self, state: WorldState, pending: ToolInvocation, request: ReviseDayPlanRequest
     ) -> tuple[WorldState, ActionResult]:
@@ -418,7 +441,8 @@ class ActionHandlers:
         if waiting and pending.tool_name != "conclude_activity":
             raise activity_control.conclusion_required(waiting, self._control_names(pending))
         handlers = {"report_status": self._report_status, "pause_activity": self._pause_activity,
-                    "conclude_activity": self._conclude_activity, "revise_day_plan": self._revise_day_plan}
+                    "conclude_activity": self._conclude_activity, "revise_day_plan": self._revise_day_plan,
+                    "continue_activity": self._continue_activity}
         return handlers[pending.tool_name](changed, pending, request)
 
     @property

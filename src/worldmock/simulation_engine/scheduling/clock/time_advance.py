@@ -228,13 +228,15 @@ class TimeAdvanceCoordinator:
         return self.midnight is not None
 
     def decide_midnight_rhythm(self, decision: Any = None) -> None:
-        """@brief 零点节律入口：零点计划提交之后执行判定段，与活动反馈对齐一次提交。"""
+        """@brief 零点节律入口：零点计划提交之后执行判定段并清空全员旧日会话，一次提交。"""
         del decision
         boundary = self.midnight
         if boundary is None:
             _LOGGER.error("No midnight rhythm is pending")
             raise ProtocolError("No midnight rhythm is pending")
         staged = decide_engine_rhythm(self.context, self.context.state.model_copy(deep=True), boundary)
+        for agent_id, agent in list(staged.agents.items()):
+            staged.agents[agent_id] = agent.model_copy(update={"day_session": None}, deep=True)
         drafts = [*boundary.drafts, *self._wake_callbacks(staged, list(boundary.drafts))]
         self._commit_advance(staged, drafts)
         self.midnight = None

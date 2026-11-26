@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import Field, model_validator
 
+from worldmock.state.decisions.day_session import DaySessionState
 from worldmock.state.decisions.suspended import StateModel, SuspendedLoopState
 from worldmock.state.logging import _LOGGER
 from worldmock.state.world.world import WorldState
@@ -20,6 +21,7 @@ else:
 __all__ = [
     "AgentWakeupInput",
     "BarrierCommitReceipt",
+    "DaySessionState",
     "SandboxOutcome",
     "SearchCommitReceipt",
     "SearchSessionOutcome",
@@ -34,14 +36,18 @@ class AgentWakeupInput(StateModel):
     """@brief prepare_barrier 生成的只读唤醒快照，传入并发人物唤醒协程。"""
 
     wakeup_id: str = Field(min_length=1)
+    run_id: str = Field(min_length=1)
     agent_id: int = Field(gt=0)
     observed_at: int = Field(ge=0)
+    local_date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
     world_state_version: int = Field(ge=0)
     mode: Literal["regular", "resume_search"]
     observation: dict[str, Any]
     observation_parts: dict[str, str] = Field(default_factory=dict)
-    pending_presentation: dict[str, int] = Field(default_factory=dict)
     action_seq_start: int = Field(ge=0)
+    day_session: DaySessionState | None = None
+    boundary_delta_payload: dict[str, Any] | None = None
+    settled_day_events: tuple[dict[str, Any], ...] = ()
     suspended_loop: SuspendedLoopState | None = None
     search_result_payload: dict[str, Any] | None = None
 
@@ -62,6 +68,7 @@ class ToolDispatchResult(StateModel):
     suspended: bool
     tool_message_payload: dict[str, Any]
     pending_memories: tuple[dict[str, Any], ...] = ()
+    activity_id: str | None = Field(default=None, min_length=1)
 
 
 class SandboxOutcome(StateModel):
@@ -71,9 +78,10 @@ class SandboxOutcome(StateModel):
     agent_id: int = Field(gt=0)
     status: Literal["completed", "suspended"]
     state: WorldState
+    day_session: DaySessionState
+    compaction_records: tuple[dict[str, Any], ...] = ()
     evidence_drafts: tuple[EventDraft, ...] = ()
     observation_parts: dict[str, str] = Field(default_factory=dict)
-    pending_presentation: dict[str, int] = Field(default_factory=dict)
     accepted_action_ids: tuple[str, ...] = ()
     pending_memories: tuple[dict[str, Any], ...] = ()
     verified_experiences: tuple[dict[str, Any], ...] = ()

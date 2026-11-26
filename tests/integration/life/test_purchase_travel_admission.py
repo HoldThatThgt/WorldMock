@@ -472,7 +472,9 @@ def test_world_without_the_travel_method_file_offers_only_walking(engine_factory
 
     engine = engine_factory(walking_only(copy_environment(tmp_path / "walking-only")))
     assert dict(engine.context.catalog.travel_methods) == {}
-    observed, refused = act(engine, "drive", travel("公司", "驾车"))
+    all_locs = tuple(("location", lid) for lid in engine.context.catalog.locations)
+    observed = engine.observations._observation_data(engine.context.state.agents[1], all_locs)
+    _, refused = act(engine, "drive", travel("公司", "驾车"))
     others = [row for row in observed["tool_layer"]["targets"] if row["kind"] == "location" and row["name"] != "家"]
     assert len(others) == 7
     for target in others:
@@ -492,7 +494,9 @@ def test_every_destination_lists_walking_first_then_dataset_methods_by_identity(
     与受理结果同源，余额不够付车费的方式照样列出并标为不可用。"""
     engine = engine_factory(_custom_world(tmp_path))
     assert city_weather_factor(engine.context.state, "test-city") == 0.85
-    observed, result = act(engine, "ride", travel("公司", "电动车"))
+    all_locs = tuple(("location", lid) for lid in engine.context.catalog.locations)
+    observed = engine.observations._observation_data(engine.context.state.agents[1], all_locs)
+    _, result = act(engine, "ride", travel("公司", "电动车"))
     targets = [row for row in observed["tool_layer"]["targets"] if row["kind"] == "location" and row["name"] != "家"]
     assert len(targets) == 7
     for target in targets:
@@ -757,7 +761,8 @@ def test_departure_toward_the_office_with_clock_in_rejects_the_whole_group(engin
     stage_moment(engine, moment(12, 8, 10), "home")
     before = engine.context.state.model_copy(deep=True)
     requests = [travel(OFFICE, "驾车"), use_app("钉钉")]
-    observed, results = act_group(engine, "arrive-and-clock", *(reversed(requests) if reverse else requests))
+    observed = engine.observations._observation_data(engine.context.state.agents[1], (("app", "dingtalk"),))
+    _, results = act_group(engine, "arrive-and-clock", *(reversed(requests) if reverse else requests))
     reason = f"Nothing in 钉钉 can start here now: it requires presence at {OFFICE}."
     assert target_actions(observed, "钉钉")["interact"]["reason"] == reason
     assert travel_rows(observed, OFFICE)["驾车"]["available"] is True

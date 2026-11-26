@@ -61,7 +61,8 @@ def delivered_order(engine, label: str) -> dict:
     context = engine.context
     quote = quote_goods(context.inputs, context.state, 1, "beef-noodles", None)
     started = context.state.current_time
-    observed, ordered = act(engine, label, purchase("牛肉面", "薯片"))
+    observed = engine.observations._observation_data(context.state.agents[1], (("product", "beef-noodles"),))
+    _, ordered = act(engine, label, purchase("牛肉面", "薯片"))
     assert ordered.status == "in_progress", ordered.error_code
     note = target_actions(observed, "牛肉面")["purchase"]["note"]
     orders = {order.goods_id: order for order in context.state.deliveries.values()}

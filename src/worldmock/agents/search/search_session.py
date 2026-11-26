@@ -107,7 +107,6 @@ class SearchSessionRunner:
             allow_thinking=False,
             purpose=SEARCH_SESSION_PURPOSE,
             activity_id=task.activity_id,
-            protected_prefix=2,
             exhausted_message=_BUDGET_EXHAUSTED,
         )
         callbacks = LoopCallbacks(
@@ -136,11 +135,9 @@ class SearchSessionRunner:
 
 
 def _search_turn_tools(remaining: int, retry: bool) -> tuple[list[dict[str, Any]], dict[str, type[BaseModel]]]:
-    """@brief 非最后回合开放全部四个搜索工具，最后一回合或重试仅开放交卷工具促进收敛。"""
-    if remaining <= 1 or retry:
-        models: dict[str, type[BaseModel]] = {_SUBMIT_TOOL: SEARCH_SESSION_MODELS[_SUBMIT_TOOL]}
-    else:
-        models = dict(SEARCH_SESSION_MODELS)
+    """@brief 全程下发恒定四个搜索工具，不在末轮或重试时删减工具列表。"""
+    del remaining, retry
+    models = dict(SEARCH_SESSION_MODELS)
     schemas = [build_tool_schema(name, SEARCH_TOOL_DESCRIPTIONS[name], model) for name, model in models.items()]
     return schemas, models
 

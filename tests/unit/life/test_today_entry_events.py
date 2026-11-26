@@ -382,3 +382,55 @@ def test_day_entries_before_the_day_ended_fail_closed(inputs, caplog):
     assert "Day entries requested before the day ended" in caplog.text
     (entry,) = past_day_entries(inputs, log, 1, DAY, at("00:00", "2026-01-06"))
     assert entry.shown == {"时刻": "23:50", "类别": "生活", "核验": ["改了今日计划"]}
+
+
+def _continue_wakeup(log, wakeup_id, moment, activity_ids, reason=None, self_note=None, status="completed"):
+    """一次 continue_activity 唤醒的请求与结果事件。"""
+    req = log.add(
+        "action_requested", moment,
+        {"tool_name": "continue_activity", "request": {"reason": reason}, "self_note": self_note},
+        wakeup_id=wakeup_id, action_id=f"{wakeup_id}:a",
+    )
+    data = {"activity_ids": list(activity_ids), **({"reason": reason} if reason is not None else {})}
+    log.add(
+        "action_result", moment,
+        {"status": status, "data": data},
+        wakeup_id=wakeup_id, action_id=req.action_id,
+    )
+    log.seal()
+    return req
+
+
+def test_silent_continue_activity_is_filtered_while_published_bound_advances(inputs):
+    """无 reason、无 self_note 且窗口无已结算事实时，continue_activity 不产出 TodayEntry 并推进 published 界。"""
+    log = Log()
+    chat = snapshot("a-1", "d1:a")
+    start(log, "d1", at("08:00"), chat)
+    _continue_wakeup(log, "d2", at("08:15"), ["a-1"])
+    published = published_today(inputs, log, 1, at("08:15"), log.last_event_seq)
+    assert len(published.entries) == 1
+    assert published.entries[0].wakeup_id == "d1"
+    assert published.published == log.last_event_seq
+    cached = agent_events(log, 1, inputs.catalog.kit_states())
+    assert cached.entries[("d2", DAY)] is None
+    # 混入已结算事实时正常生成 TodayEntry
+    log.add("environment_event", at("08:20"), {"kind": "delivery_arrival", "orders": [
+        {"agent_id": 1, "goods_id": "lemon-tea", "status": "delivered"}]})
+    _continue_wakeup(log, "d3", at("08:25"), ["a-1"])
+    entries = today(inputs, log, at("08:25"))
+    assert len(entries) == 2 and entries[-1].wakeup_id == "d3"
+    assert entries[-1].shown["核验"] == ["08:20 送达柠檬茶"]
+
+
+def test_continue_activity_with_reason_self_note_or_rejection_creates_entry(inputs):
+    """携带 reason 渲染为「续行：…」，带 self_note 渲染为「正文：…」，被拒渲染为「被拒：继续当前活动」。"""
+    log = Log()
+    chat = snapshot("a-1", "d1:a")
+    start(log, "d1", at("08:00"), chat)
+    _continue_wakeup(log, "d2", at("08:10"), ["a-1"], reason="再休息一会儿。")
+    _continue_wakeup(log, "d3", at("08:20"), ["a-1"], self_note="先不切换。")
+    _continue_wakeup(log, "d4", at("08:30"), ["a-1"], status="rejected")
+    entries = today(inputs, log, at("08:30"))
+    assert entries[1].shown == {"时刻": "08:10", "类别": "生活", "自述": ["续行：再休息一会儿。"]}
+    assert entries[2].shown == {"时刻": "08:20", "类别": "生活", "自述": ["正文：先不切换。"]}
+    assert entries[3].shown == {"时刻": "08:30", "类别": "生活", "核验": ["被拒：继续当前活动"]}

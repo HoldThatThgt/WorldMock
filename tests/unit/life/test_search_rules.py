@@ -6,7 +6,7 @@ from dataclasses import replace
 
 import pytest
 
-from tests.life.conftest import action_identity, advance_next, do_at, search_world, stage_day_plan
+from tests.life.conftest import action_identity, advance_next, do_at, search_world, stage_day_plan, stub_day_session
 from tests.life.environment_inputs import catalog_rows, copy_environment, write_catalog_rows
 from tests.life.environment_runtime import act, finish_activity
 from worldmock.foundation.errors import ProtocolError
@@ -166,7 +166,7 @@ def test_search_validation_and_complete_searches_attribute_app_and_release_slot(
     sandbox = engine.open_sandbox(wakeup)
     sandbox.dispatch_world_tool("start_main_activity", {"action": "sleep", "target": "60", "detail": None},
                                 f"{wakeup.wakeup_id}:action:0002")
-    engine.commit_barrier([sandbox.finish_wakeup(None)])
+    engine.commit_barrier([sandbox.finish_wakeup(None, stub_day_session(wakeup))])
     today = published_today(engine.context.inputs, engine.context.store, 1,
                             engine.context.state.current_time, engine.context.store.last_event_seq)
     merged = [entry for entry in today.entries if entry.wakeup_id == spec.origin_wakeup_id]

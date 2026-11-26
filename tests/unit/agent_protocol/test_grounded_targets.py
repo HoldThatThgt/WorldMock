@@ -8,6 +8,7 @@ from tests.life.conftest import (
     main_arguments,
     side_arguments,
     stage_day_plan,
+    stub_day_session,
     tool_targets,
     wakeup_for,
 )
@@ -86,7 +87,7 @@ def test_valid_readable_target_dispatches_exact_current_typed_request(engine_fac
         assert validate_single_tool_call(LoopToolCall(tool, payload, f"call-{index}"), REQUEST_MODELS) is None
         result = sandbox.dispatch_world_tool(tool, payload, f"{wakeup.wakeup_id}:action:{index:04d}")
         assert result.accepted and result.terminal_exit
-    outcome = sandbox.finish_wakeup(None)
+    outcome = sandbox.finish_wakeup(None, stub_day_session(wakeup))
     engine.commit_barrier([outcome])
     records = engine.context.store.read_agent_events("action_requested", 1)
     assert [(record.data["tool_name"], record.data["request"]) for record in records] == [
@@ -114,6 +115,10 @@ def test_tool_schema_has_current_shape_and_no_per_round_names(engine_factory):
     assert all("enum" not in json.dumps(fields[key]) for fields in (main, side, search)
                for key in fields if key != "action")
     start = json.dumps([functions[MAIN_TOOL], functions[SIDE_TOOL], functions[SEARCH_TOOL]], ensure_ascii=False)
-    names = set(tool_targets(wakeup.observation)) | {"测试闲聊", "测试休息", "步行", "驾车", "打车", "公共交通"}
+    names = (
+        {row["object"] for row in wakeup.observation["catalog_bindings"]}
+        | set(tool_targets(wakeup.observation))
+        | {"测试闲聊", "测试休息", "步行", "驾车", "打车", "公共交通"}
+    )
     assert len(names) > 20 and not [name for name in names if name in start]
     assert "c-welcome" not in str(schemas) and "agent:1" not in str(schemas)

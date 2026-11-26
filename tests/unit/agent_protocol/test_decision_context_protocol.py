@@ -59,9 +59,9 @@ class _FailingScriptedModel(ScriptedModel):
         return item
 
 
-def _setup(engine_factory, responses: list, max_turns: int = 6) -> tuple:
+def _setup(engine_factory, responses: list, max_turns: int = 6, mutate=None) -> tuple:
     """@brief 构造真实引擎沙盒、人物唤醒适配器和脚本模型绑定。"""
-    engine = engine_factory()
+    engine = engine_factory(mutate=mutate)
     stage_day_plan(engine)
     wakeup = wakeup_for(engine)
     sandbox = engine.open_sandbox(wakeup)
@@ -122,6 +122,7 @@ async def test_followup_requests_hide_receipts_and_keep_memory_pairing_and_initi
         names = {tool["function"]["name"] for tool in item["tools"]}
         assert "finish" not in names
         assert set(REQUEST_MODELS) <= names
+        assert len(item["tools"]) == 11
 
 
 @pytest.mark.asyncio
@@ -154,7 +155,10 @@ async def test_action_transport_and_evidence_failures_are_logged_without_retry(
 @pytest.mark.asyncio
 async def test_each_model_entry_preflights_the_complete_token_request(engine_factory, monkeypatch) -> None:
     """@brief 行动入口达到窗口八成五时在发送前报容量故障。"""
-    _, wakeup, sandbox, agent, client, binding = _setup(engine_factory, [_action_response()], max_turns=3)
+    _, wakeup, sandbox, agent, client, binding = _setup(
+        engine_factory, [_action_response()], max_turns=3,
+        mutate=lambda persona, _config: persona.__setitem__("initial_balance_fen", 100),
+    )
     monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model, metadata: 524288)
     monkeypatch.setattr(prompt_capacity, "request_token_count", lambda request: 445645)
     with pytest.raises(RuntimeError, match="model request capacity exceeded"):
@@ -178,7 +182,10 @@ async def test_long_system_message_passes_when_complete_request_is_below_thresho
 @pytest.mark.asyncio
 async def test_start_tool_descriptions_say_purpose_only_and_conditions_stay_in_the_tool_layer(engine_factory) -> None:
     """@brief 开始工具与 search_world 的描述只写用途；动作的时长与未满足条件由工具层字段表达，系统层规则只在系统消息出现。"""
-    _, wakeup, sandbox, agent, client, binding = _setup(engine_factory, [_action_response()], max_turns=3)
+    _, wakeup, sandbox, agent, client, binding = _setup(
+        engine_factory, [_action_response()], max_turns=3,
+        mutate=lambda persona, _config: persona.__setitem__("initial_balance_fen", 100),
+    )
     outcome = await agent.decide_wakeup(wakeup, sandbox, binding)
     request = client.requests[0]
     descriptions = {tool["function"]["name"]: tool["function"]["description"] for tool in request["tools"]}
@@ -193,7 +200,8 @@ async def test_start_tool_descriptions_say_purpose_only_and_conditions_stay_in_t
         assert "reason" not in descriptions[tool] and "available" not in descriptions[tool]
     rules = json.loads(request["messages"][0]["content"])["rules"]
     assert any("工具层 available 为 false 的动作仍可提交，会按 reason 拒绝；先照原因处理。" in rule for rule in rules)
-    assert any("查询记忆、回看任务与提交控制请求在本次唤醒内当场完成并回传，不推进时间。" in rule for rule in rules)
+    assert any("查询记忆、回看任务、检索目标（lookup_targets）与提交控制请求在本次唤醒内当场完成并回传，不推进时间。"
+               in rule for rule in rules)
     tools = expand_tool_layer(life_prompt.user_layer(json.loads(request["messages"][1]["content"]), "工具层"))
     work = next(action for target in tools["targets"] for action in target["actions"] if not action["available"])
     assert (work["available"], "way" not in work) == (False, True) and work["reason"]

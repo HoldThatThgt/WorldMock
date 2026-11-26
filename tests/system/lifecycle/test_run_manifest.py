@@ -16,7 +16,7 @@ from worldmock.state.identity import RUN_MANIFEST_SCHEMA_VERSION, StageProfileId
 
 
 @pytest.mark.parametrize("field", ["transport_max_retries", "max_react_turns", "reflection_validation_max_retries",
-                                   "day_plan_validation_max_retries"])
+                                   "day_plan_validation_max_retries", "compact_trigger_tokens"])
 @pytest.mark.parametrize("change", ["missing", "float", "string", "negative"])
 def test_manifest_model_budgets_refuse_incomplete_or_invalid_values(field, change):
     frozen = inputs()
@@ -33,6 +33,20 @@ def test_manifest_model_budgets_refuse_incomplete_or_invalid_values(field, chang
         StageProfileIdentity.model_validate(payload)
 
 
+def test_stage_profile_identity_freezes_prompt_cache_key_and_compact_trigger_bounds():
+    """@brief StageProfileIdentity 严格冻结 prompt_cache_key 与 compact_trigger_tokens 上界。"""
+    frozen = inputs()
+    profile_id = frozen.config.model_routing.action
+    identity = stage_profile_identity(frozen.config.models[profile_id], frozen.model_metadata[profile_id])
+    assert identity.compact_trigger_tokens == frozen.config.models[profile_id].compact_trigger_tokens
+    assert identity.prompt_cache_key is frozen.config.models[profile_id].prompt_cache_key
+    payload = identity.model_dump(mode="json")
+    with pytest.raises(ValidationError):
+        StageProfileIdentity.model_validate({**payload, "prompt_cache_key": "yes"})
+    with pytest.raises(ValidationError, match="compact_trigger_tokens"):
+        StageProfileIdentity.model_validate({**payload, "compact_trigger_tokens": int(identity.context_window * 0.85)})
+
+
 @pytest.mark.asyncio
 async def test_native_environment_manifest_contains_full_declared_service_identity(tmp_path, monkeypatch):
     frozen = inputs()
@@ -42,7 +56,7 @@ async def test_native_environment_manifest_contains_full_declared_service_identi
     host = await new_run(prepared, OfflineClient())
     try:
         manifest = host.engine.context.store.manifest
-        assert manifest["schema_version"] == RUN_MANIFEST_SCHEMA_VERSION == 8
+        assert manifest["schema_version"] == RUN_MANIFEST_SCHEMA_VERSION == 9
         listed = [entry.path for entry in frozen.catalog.manifest.files]
         assert listed == ["app-catalog.jsonl", "content-catalog.jsonl", "location.jsonl", "merchant-catalog.jsonl",
                           "travel-method.jsonl"]

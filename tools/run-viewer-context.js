@@ -20,11 +20,11 @@ const ViewerContext = {};
     },
     tool: {
       label: '工具层', source: 'src/worldmock/simulation_engine/observation/targets/tool_layer.py · tool_layer、availability',
-      fill: '环境按本次观察列出可操作目标，逐个动作与工具给出 available 与 reason。',
+      fill: '环境输出顶层工具层.gate（全局槽位/睡眠/在途/待收尾门禁）与核心常驻可操作目标；非常驻目标由 lookup_targets 按需分页载入。',
       steps: [
-        ['单一来源', '可用性与环境受理使用同一组拒绝检查，列出即可提交。'],
-        ['不可用项', 'available 为 false 的动作仍然列出，reason 与被拒时的原因相同。'],
-        ['每次重建', '每次观察重新构建，不累积上一决策的目标。'],
+        ['顶层门禁', '工具层.gate 统一宣告全局阻塞条件；目标行级 available 与 reason 仅反映目标自身固有条件。'],
+        ['核心常驻', '仅收入停留地点、关键锚点、进行中/待收尾活动、可达内容 app 与本周期 lookup_targets 已载入目标。'],
+        ['增量同步', '同日日会话通过 role=tool 差量按 group_deltas 增量更新，不再每轮全城展开。'],
       ],
     },
     persona: {
@@ -40,15 +40,14 @@ const ViewerContext = {};
       label: '记忆层',
       source: 'src/worldmock/simulation_engine/observation/layers/memory_layer.py · memory_view；'
         + 'src/worldmock/simulation_engine/observation/memory/',
-      fill: '环境从已提交事件与回顾事件派生「可查」「近三天」「今天」三部分，整层合计不超过 14,000 字。',
+      fill: '环境从已提交事件与回顾事件派生「可查」「近三天」「今天」三部分，并在日内 Compaction 重建时附带可选「折叠摘要」。',
       steps: [
         ['今天', '今天的每次唤醒一条（同日 search_world 挂起与恢复按 wakeup_id 归并），提交后从下一次唤醒起可见；'
           + '每条「核验」与「自述」合计至多 120 字，全文用 search_memory 查「今天」。'],
         ['近三天', '过了零点，模型把前一天每类的条目整理成一段回顾；饮食和生活取最近三天，工作取最近三个有工作的日子；'
           + '整理不出时这一格写「未整理」，那天没有这类事时这一格省略。'],
         ['可查', '写出 search_memory 能查到的最早日期；更早的日回顾、月回顾和年回顾都要检索。'],
-        ['兜底', '追加一条后超过 14,000 字时一次回落到 12,000 字以内：先把只交了播报的条目的自述换成「…」，'
-          + '再让其余条目只留核验，最后按小时合成计数行。'],
+        ['折叠摘要', '触发日内 Compaction 时依据已提交事件与被折叠的今天条目确定性生成可选「折叠摘要」键，零额外模型调用。'],
         ['核验区分', '「核验」是环境核验的事实；「自述」和「回顾」是人物自己写下或整理的，未经核验。'],
       ],
     },
@@ -92,22 +91,24 @@ const ViewerContext = {};
     },
     tools: {
       label: '工具定义', source: 'src/worldmock/agents/life_agent.py · 原生工具；src/worldmock/agents/prompt/life_prompt.py · TOOL_DESCRIPTIONS',
-      fill: '七个世界请求工具（两个开始工具、search_world、三个活动控制工具与计划修订）、一个回看工具（recall_task_summary）'
-        + '与一个记忆检索工具（search_memory），共九个，严格参数结构，整次运行字节相同。',
+      fill: '八个世界请求工具（两个开始工具、continue_activity、search_world、三个活动控制工具与计划修订）、'
+        + '一个只读参数检索工具（lookup_targets）、一个回看工具（recall_task_summary）与一个记忆检索工具（search_memory），'
+        + '共十一个，严格参数结构，整次运行字节相同。',
       steps: [
         ['稳定工具面', '不再按观察绑定枚举，名称在宿主本地按私有绑定校验。'],
-        ['最后回合', '只剩最后一个回合时与输出截断后的那次重试时去掉全部只读工具（回看任务与 search_memory），只留世界请求工具。'],
+        ['全回合恒定', '所有决策回合与截断重试保持全部十一个工具定义与恒定思考开关，不删减只读工具以保护前缀缓存。'],
+        ['按需检索', 'lookup_targets 为零耗时、零足迹分页检索，结果只对当前周期工具层生效。'],
         ['检索上限', '一次唤醒至多查三次记忆，第四次返回 MEMORY_SEARCH_LIMIT。'],
         ['计量口径', '未提供 tools 与显式 tools: [] 分别保留；工具参数和描述均可查看。'],
       ],
     },
     message: {
-      label: '本轮追加消息', source: 'src/worldmock/agents/protocol/agent_loop.py · AgentLoop.run；src/worldmock/agents/life_agent.py · decide_wakeup',
-      fill: '同一次唤醒沙盒内的 assistant 调用、控制工具回执、search_memory 与回看任务结果，以及搜索挂起恢复结果按实际顺序保留。',
+      label: '日会话追加消息', source: 'src/worldmock/agents/protocol/agent_loop.py · AgentLoop.run；src/worldmock/agents/life_agent.py · decide_wakeup',
+      fill: '同一自然日内延续同一日会话前缀：包含各唤醒的 assistant 调用、role=tool 边界与内部工具差量消息，以及搜索挂起恢复与 Compaction 后的完整尾部消息。',
       steps: [
-        ['检索结果', '检索与控制工具结果作为紧凑 JSON 工具消息追加；search_memory 查到的往日是回顾段落。'],
+        ['工具差量', '同日后续唤醒以 role=tool 消息追加 result、boundary 与五层精细 changes，不插入第二条 user 消息。'],
         ['挂起与恢复', 'search_world 在沙盒挂起，待 LLM Search Session 完成后带着 Fact Guard 核验结果恢复同一上下文继续决策。'],
-        ['持续开始', '登记持续开始世界请求即结束本次唤醒沙盒。'],
+        ['持续开始', '登记持续开始世界请求即结束本次唤醒沙盒，保留 pending_boundary_calls。'],
         ['未知格式', '不符合七层合同的消息不做分段，完整正文仍可查看。'],
       ],
     },
@@ -146,12 +147,12 @@ const ViewerContext = {};
       ],
     },
     capacity: {
-      label: '请求容量', source: 'src/worldmock/agents/prompt/prompt_capacity.py · fit_request',
-      fill: '计量系统层、工具、各用户层、本轮沙盒消息与最大输出预留；展示的字符数量不是 token 数。',
+      label: '请求容量与压缩', source: 'src/worldmock/agents/prompt/prompt_capacity.py · fit_request；src/worldmock/agents/life_agent.py',
+      fill: '先按 compact_trigger_tokens（默认 80,000）执行确定性日内 Compaction，再由 fit_request 守护 85% 模型上下文硬上限；展示的字符数量不是 token 数。',
       steps: [
-        ['整体计量', '达到模型上下文容量的 85% 时开始处理，每步之后重新计量。'],
-        ['浓缩进度层', '把最旧一段连续的未受保护记录折叠为 condensed，重复到阈值以下。'],
-        ['保留当前', '受保护记录，以及人设层、记忆层、待办层、工具层与环境层都不被压缩。'],
+        ['阈值压缩', '日会话发送前若 prompt_tokens 达到 compact_trigger_tokens，确定性折叠前序交互组至记忆层折叠摘要，仅保留最近不超过 6 组且 16,000 tokens 内的完整尾部。'],
+        ['整体计量', '仍超模型上下文容量的 85% 时对进度层做最后防线浓缩。'],
+        ['保留当前', '受保护记录，以及人设层、记忆层、待办层、工具层与环境层都不被浓缩改写。'],
         ['明确失败', '仍超限则按层记录 token 数并报错，不静默截掉请求。'],
       ],
     },
@@ -333,6 +334,9 @@ const ViewerContext = {};
    * 目标类别、工具名和下钻正文保持原文。 */
   function toolItems(layer) {
     const items = [];
+    if (isObject(layer?.gate)) {
+      items.push({label: '工具层门禁 · gate', text: JSON.stringify(layer.gate, null, 2)});
+    }
     for (const group of Array.isArray(layer?.groups) ? layer.groups : []) {
       for (const entry of group.targets) {
         const target = {...group.shared, ...entry, kind:group.kind};

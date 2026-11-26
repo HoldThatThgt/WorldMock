@@ -60,7 +60,6 @@ def _world_state() -> WorldState:
         agents={1: agent},
         accounts={"agent:1": 0, "external:scenario": 0},
         activities=[activity],
-        presentation_state={1: {"product-z": 1_700_000_000, "product-a": 1_700_000_600}},
         random_seed=1,
         random_state="random-state",
     )
@@ -111,9 +110,7 @@ def test_json_mode_sorts_every_persisted_string_set() -> None:
         assert values == sorted(values)
     assert isinstance(state.model_dump()["agents"][1]["callback_once_keys"], set)
     assert isinstance(state.model_dump()["activities"]["activity-1"]["resource_claims"], set)
-    # 轮转派生量按（人物, 对象标识）逐个记录时刻，JSON 模式取值确定
-    assert payload["presentation_state"] == {
-        "1": {"product-a": 1_700_000_600, "product-z": 1_700_000_000}}
+    assert "presentation_state" not in payload
 
 
 def _errand(errand_id: str, registered_at: int, progress: float) -> ErrandState:
@@ -165,25 +162,60 @@ def test_readonly_commit_is_identical_across_python_hash_seeds(tmp_path: Path) -
     assert _set_arrays(json.loads(first_payload)) == _set_arrays(state)
 
 
-def test_world_state_schema_is_seventeen_and_the_previous_version_is_refused() -> None:
-    """世界状态结构版本是 17；结构号 16 及更旧的世界状态由严格字面量拒绝，不迁移、不读取。"""
+def test_world_state_schema_is_eighteen_and_the_previous_version_is_refused() -> None:
+    """世界状态结构版本是 18；结构号 17 及更旧的世界状态由严格字面量拒绝，不迁移、不读取。"""
     import pytest
     from pydantic import ValidationError
 
-    assert WORLD_SCHEMA_VERSION == 17
+    assert WORLD_SCHEMA_VERSION == 18
     payload = _world_state().model_dump(mode="json")
     payload["weather_by_date"] = {"2026-01-05": {"test-city": "sunny"}}
     payload["agents"]["1"]["lodging_stays"] = {"hotel-1": 1767672000}
     validated = WorldState.model_validate(payload)
-    assert validated.schema_version == 17
+    assert validated.schema_version == 18
     assert validated.weather_by_date == {"2026-01-05": {"test-city": "sunny"}}
     assert validated.agents[1].lodging_stays == {"hotel-1": 1767672000}
-    for retired in (16, 15, "17", None):
+    for retired in (17, 16, "18", None):
         with pytest.raises(ValidationError, match="schema_version"):
             WorldState.model_validate({**payload, "schema_version": retired})
     missing = {key: value for key, value in payload.items() if key != "schema_version"}
     with pytest.raises(ValidationError, match="schema_version"):
         WorldState.model_validate(missing)
+
+
+def test_day_session_round_trips_through_world_state_and_store(tmp_path: Path) -> None:
+    """AgentState.day_session 随 WorldState v18 与 FootprintStore 往返且规范 JSON 编码逐字节稳定。"""
+    from worldmock.state.decisions.day_session import DaySessionState
+
+    session = DaySessionState(
+        local_date="2026-01-05",
+        system_prompt='{"layer":"系统层"}',
+        tools_digest="a" * 64,
+        messages=(
+            {"role": "system", "content": '{"layer":"系统层"}'},
+            {"role": "user", "content": "[]"},
+            {"role": "assistant", "content": None, "tool_calls": [
+                {"id": "c-1", "type": "function", "function": {"name": "continue_activity", "arguments": '{"reason":null}'}},
+            ]},
+        ),
+        pending_boundary_calls=("c-1",),
+        last_observed_layers={"todo_layer": {"layer": "待办层"}},
+        loaded_target_keys=(("product", "lemon-tea"),),
+        compaction_count=1,
+        compacted_through_seq=12,
+        last_prompt_tokens=4500,
+    )
+    state = _world_state()
+    state.agents[1] = state.agents[1].model_copy(update={"day_session": session})
+    payload = state.model_dump(mode="json")
+    assert WorldState.model_validate(payload) == state
+    store = FootprintStore.create(tmp_path / "run", {"run_id": "run-1", "agent_ids": [1]}, payload)
+    store.close()
+    reopened = FootprintStore(tmp_path / "run")
+    try:
+        assert canonical_json(WorldState.model_validate(reopened.state).model_dump(mode="json")) == canonical_json(payload)
+    finally:
+        reopened.close()
 
 
 def test_world_state_with_a_running_search_round_trips(engine_factory, tmp_path: Path) -> None:

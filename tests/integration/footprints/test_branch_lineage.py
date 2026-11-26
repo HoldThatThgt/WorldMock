@@ -64,11 +64,11 @@ def _chain(engine_factory, tmp_path):
     return (parent, child, grandchild), (first, second)
 
 
-def test_fresh_run_manifest_has_empty_lineage_and_structure_eight(engine_factory):
-    """新建运行的清单结构号是 8，lineage 是空数组。"""
+def test_fresh_run_manifest_has_empty_lineage_and_structure_nine(engine_factory):
+    """新建运行的清单结构号是 9，lineage 是空数组。"""
     manifest = engine_factory().context.store.manifest
     assert manifest["lineage"] == []
-    assert manifest["schema_version"] == 8
+    assert manifest["schema_version"] == 9
 
 
 def test_lineage_chains_parents_in_order_with_their_end_reasons(engine_factory, tmp_path):

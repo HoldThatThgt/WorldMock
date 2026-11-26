@@ -58,7 +58,7 @@ WINGS = "可乐鸡翅配清炒菌菇一人份食材包"
 GUARDS = ["response", "truncated", "schema", "text_without_input", "null_with_input", "text_empty", "text_length",
           "refs_empty", "refs_category", "unrecognized"]
 CHECK_NAMES = ["cooking_lines_name_the_kit", "yesterday_food_cell_visible", "search_validation_errors",
-               "search_non_empty", "search_is_read_only", "memory_layer_budget", "progress_layer_median",
+               "search_non_empty", "search_is_read_only", "progress_layer_median",
                "progress_layer_p90", "user_message_median", "persona_layer_stable", "fresh_turn_cache_hit",
                "cost_per_day", "decisions_per_day_band", "rejections", "turns_exhausted", "run_failures",
                "capacity_compressions", "no_restarted_activities",
@@ -743,14 +743,12 @@ def test_m6_layer_statistics_by_layer_name_and_memory_parts(tmp_path, skip_authe
                                                      "max": float(sizes[2])}
 
 
-def test_m6_detects_a_fallback_rewrite_as_a_non_prefix_today(tmp_path, skip_authentication):
+def test_m6_fallback_rewrites_is_zero_after_backstop_retirement(tmp_path, skip_authentication):
     builder = PilotExportBuilder(tmp_path)
-    first, second, third = entry("08:00", "生活", ["起床"]), entry("09:00", "工作", ["开会"]), entry("10:00", "生活", ["散步"])
-    rewritten = entry("08:00", "生活", ["…"])
-    for day, today in ((1, [first]), (1, [first, second]), (1, [rewritten, third]), (1, [rewritten, third, second]),
-                       (2, [first]), (2, [first, third])):
-        builder.observation(builder.at(day, "11:00"), memory=memory_layer(today))
-    assert m6_volume(*_load(builder))["fallback_rewrites"] == 1
+    first, second = entry("08:00", "生活", ["起床"]), entry("09:00", "工作", ["开会"])
+    builder.observation(builder.at(1, "11:00"), memory=memory_layer([first]))
+    builder.observation(builder.at(1, "12:00"), memory=memory_layer([first, second]))
+    assert m6_volume(*_load(builder))["fallback_rewrites"] == 0
 
 
 def test_m6_persona_layer_identical_share(tmp_path, skip_authentication):
@@ -874,21 +872,19 @@ def test_m9_band_rejections_turns_failures_and_compressions(tmp_path, skip_authe
     rejecting = builder.decision(2, "10:00")
     for _ in range(3):
         builder.reject(rejecting, builder.at(2, "10:00"))
-    condensed = builder.decision(2, "12:00")
-    builder.turn(condensed, builder.at(2, "12:00"), layers=[memory_layer(), {"layer": "进度层", "events": [
-        {"occurred_at": "2026-10-09T11:00:00+08:00", "type": "condensed"}]}])
     following = builder.decision(2, "12:00")
     builder.turn(following, builder.at(2, "12:00"), layers=[memory_layer(), {"layer": "进度层", "events": [
         {"type": "tool_call"}]}])
-    # 每条回合请求都数，不只数首个请求：这一唤醒第二回合的进度层带折叠记录。
-    builder.turn(following, builder.at(2, "12:00"), layers=[memory_layer(), {"layer": "进度层", "events": [
-        {"occurred_at": "2026-10-09T11:30:00+08:00", "type": "condensed"}]}])
+    builder.add("environment_event", builder.at(2, "11:30"),
+                {"kind": "day_session_compacted", "compaction_count": 1, "before_tokens": 90000, "after_tokens": 12000})
+    builder.add("environment_event", builder.at(2, "12:30"),
+                {"kind": "day_session_compacted", "compaction_count": 2, "before_tokens": 92000, "after_tokens": 13000})
     builder.add("run_failed", builder.at(2, "13:00"), {"reason": "stopped"})
     metric = m9_guardrails(*_load(builder))
-    assert metric["decisions_per_day"] == {"2026-10-08": 71, "2026-10-09": 3, "2026-10-10": 0}
+    assert metric["decisions_per_day"] == {"2026-10-08": 71, "2026-10-09": 2, "2026-10-10": 0}
     assert (metric["decision_band"], metric["days_outside_band"]) == ([68.85, 93.15], ["2026-10-09", "2026-10-10"])
     assert (metric["rejections"], metric["rejection_limit"]) == (3, 7.2)
-    assert metric["turns"] == {"max_react_turns": 6, "p99": 8.7, "max": 16, "exhausted": 2, "six_or_more": [
+    assert metric["turns"] == {"max_react_turns": 6, "p99": 8.8, "max": 16, "exhausted": 2, "six_or_more": [
         {"wakeup_id": "d-six", "time": "2026-10-08 18:00", "turns": 6},
         {"wakeup_id": "d-sixteen", "time": "2026-10-08 19:00", "turns": 16}]}
     assert (metric["run_failures"], metric["capacity_compressions"]) == (1, 2)
@@ -1379,7 +1375,7 @@ def test_m12_earlier_view_reliance_by_mention_or_echo_absent_from_the_request(tm
 CHECK_VALUES = [
     ("M2.named.value", 1.0, 0.9), ("M3.periods.all.value", 1.0, 0.99), ("M5.validation_errors.value", 0.05, 0.06),
     ("M5.non_empty.value", 0.7, 0.69), ("M5.non_model_events_between", 0, 1),
-    ("M6.memory_layer_by_observation.max", 14000.0, 14000.1), ("M6.layers.进度层.median", 3000.0, 3000.5),
+    ("M6.layers.进度层.median", 3000.0, 3000.5),
     ("M6.layers.进度层.p90", 7000.0, 7000.5), ("M6.layers.user.median", 22000.0, 22000.5),
     ("M6.persona_layer_identical.value", 1.0, 0.95), ("M7.fresh_decision_turn.value", 0.55, 0.5499),
     ("M8.per_day_usd", 0.22, 0.220001), ("M9.days_outside_band", [], ["2026-10-09"]), ("M9.rejections", 4, 5),
@@ -1417,11 +1413,11 @@ def test_checks_apply_the_final_state_thresholds():
                         {"M10.statistics_copy_violations": None, "M11.coverage_plus_fallback.value": None,
                          "M11.cooking_mismatches": None}):
         assert pilot_checks(_metrics({**passing, **report_only})) == checks
-    assert checks[13] == {"name": "rejections", "path": "M9.rejections", "comparison": "<=", "threshold": 4.8,
+    assert checks[12] == {"name": "rejections", "path": "M9.rejections", "comparison": "<=", "threshold": 4.8,
                           "value": 4, "pass": True}
-    assert checks[21] == {"name": "month_digests", "path": "M10.periods.month", "comparison": "==", "threshold": 1,
+    assert checks[20] == {"name": "month_digests", "path": "M10.periods.month", "comparison": "==", "threshold": 1,
                           "value": 1, "pass": True}
-    assert (checks[12]["value"], checks[17]["value"]) == (0, 0)
+    assert (checks[11]["value"], checks[16]["value"]) == (0, 0)
     for index, (path, _, bad) in enumerate(CHECK_VALUES):
         failing = pilot_checks(_metrics({**passing, path: bad}))[index]
         missing = pilot_checks(_metrics({**passing, path: None}))[index]

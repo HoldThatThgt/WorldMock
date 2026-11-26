@@ -45,50 +45,51 @@ flowchart LR
 
 ## 提示与工具
 
-人物每次唤醒先由宿主基于 `AgentWakeupInput` 构造七层提示：`system` 是系统层；`user` 是六层组成的 JSON 数组，次序固定为人设层、记忆层、待办层、
-工具层、环境层、进度层，即 [prompt_schemas.py](../../src/worldmock/agents/prompt/prompt_schemas.py) 的 `USER_LAYER_NAMES`。
-这个次序让整次运行不变的部分在前、每次唤醒都变的部分在后：
+人物在同一本地日内维持连续**日会话**（`DaySessionState`）：当日首次唤醒（`day_session is None`）由宿主基于 `AgentWakeupInput` 构造初始消息序列 `[system, init_user]`，其中 `system` 是整日恒定不变的 `系统层`（固化于 `DaySessionState.system_prompt`），`init_user`（`messages[1]`）是由六层组成的 JSON 数组，次序固定为人设层、记忆层、待办层、工具层、环境层、进度层，即 [prompt_schemas.py](../../src/worldmock/agents/prompt/prompt_schemas.py) 的 `USER_LAYER_NAMES`。
+同日后续唤醒与搜索恢复复用已有 `DaySessionState.messages` 前缀，仅在末尾按 `pending_boundary_calls` 顺序追加配对 `role: "tool"` 差量消息，全天除 `messages[1]` 之外**严禁插入第二条 `role: "user"` 消息**，直到底层触发**日内 Compaction** 重建 `messages[1]` 或跨本地午夜执行**跨日重置**（`day_session = None`）。
+`USER_LAYER_NAMES` 让整次运行与整日不变的部分在前、随时间推进变化的部分在后：
 
 | 层 | 什么时候变 |
 | --- | --- |
 | 人设层 | 整次运行不变 |
-| 记忆层 | 「可查」整次运行不变；「近三天」只在零点变；「今天」每次唤醒提交（按 `wakeup_id` 归并）后追加或更新，兜底触发时改写 |
-| 待办层 | 付款完成（下单）、快递到站、送达或领取、暂停与恢复、个人事务变更、改计划，以及零点换上新的今日计划时变 |
-| 工具层、环境层 | 每次唤醒都变 |
-| 进度层 | 每次唤醒都变，排在最后 |
+| 记忆层 | 「可查」整次运行不变；「近三天」只在零点变；「今天」每次唤醒提交（按 `(wakeup_id, local_date)` 归并）后通过跨唤醒 `tool` 差量（`今天_append` / `今天_tail`）交付，日内 Compaction 时重建并与最新权威「今天」及可选「折叠摘要」对齐 |
+| 待办层 | 付款完成（下单）、快递到站、送达或领取、暂停与恢复、个人事务变更、改计划及零点换上新计划时通过 `tool` 差量交付 |
+| 工具层、环境层 | 随沙盒求值或时间推进经 `tool` 差量 `changes` 增量交付；核心常驻工具层仅保留关键锚点与已加载目标 |
+| 进度层 | 随时间推进经 `tool` 差量 `events_append` / `rejected_today_append` 增量交付，在初始用户消息数组内排在最后 |
 
 宿主按层名取层，不按位置；进度层必须是最后一层，不是时以 `RuntimeError("Progress layer must be the last user layer")` 停止。
-容量浓缩只改进度层，人设层、记忆层、待办层、工具层与环境层不浓缩，记忆层的上限见「进度、待办与记忆」的「记忆层的形状、上限与兜底」。
+容量浓缩仅在日内首次唤醒或日内 Compaction 重建 `messages[1]` 后仍超 `0.85 * context_window` 时缩减进度层，人设层、记忆层、待办层、工具层与环境层不浓缩，记忆层的形状见「进度、待办与记忆」的「记忆层的形状与上限」。
 
-地点行只显示 `location_id` 与 `name` 的私有绑定，不显示地点类型；工具层展示完整显示名和当前实际动作。
+地点行只显示 `location_id` 与 `name` 的私有绑定，不显示地点类型；核心常驻工具层展示完整显示名和目标固有可行动作（全局槽位、睡眠、在途与待收尾约束由顶层 `工具层.gate` 统一声明）。
 功能 app 不成为人物可选择对象；没有登记内容的内容 app 不是可打开的目标，只出现在 `callable_index.prefer_apps` 里。导航、下单与支付 app 的前台区间和通知不进入本人记忆；下单用的 app 写在购买结果的 `channel` 里，搜索结果的详情写在 `details.search` 里。
 
-主活动循环的原生工具共九个，开始与搜索工具的参数、槽位与受理见[模拟引擎](04-simulation-engine.md)。
+主活动循环的原生工具共十一个，全部请求参数、槽位与受理规则分别归[模拟引擎](04-simulation-engine.md)与 [requests.py](../../src/worldmock/state/interaction/requests.py)：
 
-| 工具 | 数量 | 成员 |
+| 工具分组 | 数量 | 成员 |
 | --- | --- | --- |
-| 开始与搜索工具 | 三个 | `start_main_activity`、`start_side_activity`（仅 `purchase` 与 `interact`）、`search_world` |
-| 控制与计划工具 | 四个 | `report_status`、`pause_activity`、`conclude_activity`、`revise_day_plan` |
-| 只读查询工具 | 两个 | `recall_task_summary`、`search_memory` |
+| 边界退出工具（`BOUNDARY_TOOLS`） | 四个 | `start_main_activity`、`start_side_activity`（仅 `purchase` 与 `interact`）、`search_world`、`continue_activity` |
+| 控制与计划工具（`CONTROL_TOOLS`） | 四个 | `report_status`、`pause_activity`、`conclude_activity`、`revise_day_plan` |
+| 只读查询工具（`QUERY_TOOLS`） | 三个 | `recall_task_summary`、`search_memory`、`lookup_targets` |
 
-只读查询（`recall_task_summary` 与 `search_memory`）与零耗时世界控制工具（`report_status`、`pause_activity`、`conclude_activity`、`revise_day_plan`）均在当前人物的 `AgentSandbox` 内存中即时求值，直接把返回结果、业务拒绝引导与观察差量 `layer_changes` 写入 `tool` 消息交还同一内存 `AgentLoop` 进入下一回合，无需跨轮重建。
-`search_memory` 是人物唯一的记忆工具，见「进度、待办与记忆」的「检索记忆」。
-一次回复的工具调用只允许下列合法批次形状，其余组合整批以 `TOOL_CALL_REQUIRED` 在循环内纠偏：
+只读查询（`recall_task_summary`、`search_memory` 与零耗时按需目标检索 `lookup_targets`）与零耗时世界控制工具（`report_status`、`pause_activity`、`conclude_activity`、`revise_day_plan`）均在当前人物的 `AgentSandbox` 内存中即时求值，直接把返回结果、业务拒绝引导与观察差量 `layer_changes` 写入 `tool` 消息交还同一内存 `AgentLoop` 进入下一回合，无需跨轮重建。
+`search_memory` 是人物唯一的记忆检索工具，见「进度、待办与记忆」的「检索记忆」；`lookup_targets` 是零耗时、零足迹的只读目标目录检索工具（见下文）。
+一次回复的工具调用只允许下列合法批次形状，其余组合整批以 `TOOL_CALL_REQUIRED` 在循环内经配对 `role: "tool"` 纠偏：
 
 | 批次形状 | 内容 | 循环行为 |
 | --- | --- | --- |
-| 只读查询或控制工具 | 只读工具或零耗时控制工具（允许多个只读工具，控制工具按单独调用执行） | 沙盒求值后写回 `tool` 消息，留在当前 `AgentLoop` 继续推理 |
-| `search_world` | 恰好一个 `search_world` 调用 | 沙盒在副槽位分配 `ActivityKind.SEARCH`、保存 `SuspendedLoopState` 并挂起退出 |
-| 一个持续开始请求 | 恰好一个 `start_main_activity` 或 `start_side_activity` | 沙盒受理后退出本次唤醒；被拒时写回拒绝结果与差量留在循环内纠偏 |
-| 开始组 | 恰好两个调用：`start_main_activity` 与 `start_side_activity` 各一个，先后不限 | 沙盒整组核验；全部受理则退出本次唤醒，任一被拒则留循环纠偏 |
+| 只读查询或控制工具 | 一个或多个只读工具（可混用 `recall_task_summary`、`search_memory`、`lookup_targets`），或单个零耗时控制工具 | 沙盒求值后写回配对 `tool` 消息，留在当前 `AgentLoop` 继续推理 |
+| `continue_activity` | 恰好一个 `continue_activity` 调用 | 校验无待收尾且存在进行中活动；受理后退出本次唤醒并记录 `pending_boundary_calls`，被拒时写回 `tool` 消息纠偏 |
+| `search_world` | 恰好一个 `search_world` 调用 | 沙盒在副槽位分配 `ActivityKind.SEARCH`、保存 `SuspendedLoopState` 与 `pending_boundary_calls` 并挂起退出 |
+| 一个持续开始请求 | 恰好一个 `start_main_activity` 或 `start_side_activity` | 沙盒受理后退出本次唤醒并记录 `pending_boundary_calls`；被拒时写回拒绝结果与差量留在循环内纠偏 |
+| 开始组 | 恰好两个调用：`start_main_activity` 与 `start_side_activity` 各一个，先后不限 | 沙盒整组核验；全部受理则退出本次唤醒并按序记录两个 `pending_boundary_calls`，任一被拒则留循环纠偏 |
 
-同一个开始工具两次、多个 `search_world`、开始工具与控制/只读/`search_world` 混发都不合法。
+同一个开始工具两次、多个 `search_world` 或 `continue_activity`、`continue_activity` 与其他任何工具混发、开始工具与控制/只读/`search_world` 混发都不合法。
 两条开始调用各自校验参数和名称，全部问题合并成一次纠偏；全部通过后按回复中的先后依次登记，
 `action_id` 为 `{wakeup_id}:action:{序号:04d}`（环境只受理这个形式，见[模拟引擎](04-simulation-engine.md)「原子性与恢复」）。
-最后回合（剩余回合预算为 1）或截断重试回合只开放持续行动工具及控制工具（排除只读查询与 `search_world`），引导模型在当前唤醒结束前收敛动作；
-原生 `tool_calls` 是唯一可执行模型输出。人物请求不提供运行种子、截止时间、凭据、付款 app 或系统参数。
+**全回合恒定工具与恒定思考**：所有决策回合（含最后一回合与截断重试回合）一律下发完全相同的十一个原生工具定义并保持 `allow_thinking and profile.thinking` 恒定不变，绝不在末轮或重试时删减工具或关闭思考，以维持网关前缀缓存逐字节命中。
+原生 `tool_calls` 是唯一可执行模型输出（已彻底废除 `can_finish_idle` 纯文本空闲退出）。人物请求不提供运行种子、截止时间、凭据、付款 app 或系统参数。
 
-系统层用规则条目写明：各层写什么，进度层只写此刻还没了结的事；记忆层按饮食、工作、生活三类记已经过去的事，「今天」按单次唤醒会话（`wakeup_id`）归并，提交后从下一次唤醒起可见，「核验」是环境确认的经过，「自述」是人物当时写下的话，五种前缀分别是收尾或暂停的总结、report_status 的进展、看法、想记住的事和回复正文，每条至多 120 字、写不下的地方以「…」结尾，当天条目太多时较早的条目只留核验或按小时合成计数行；过了零点每类当天的条目整理成一段回顾，「近三天」的饮食和生活取最近三天、工作取最近三个有工作的日子，回顾像日记，只记要紧的事和当时的感受，可能记错或漏记，是回忆而不是核验事实，「未整理」只说明那天这一类没整理出回顾；日子以零点为界，一件事在哪天结束就记在哪天；更早的事和今天条目的全文经 `search_memory` 按类别、时间和可选关键词去查，按名称回看任务或活动的进展用 `recall_task_summary`，每次唤醒至多查三次记忆；拿不准时可以先看记忆再定，记忆只说明过去发生了什么、人物当时怎么想，不替人物决定，照旧、重复还是换一换都可以；每次唤醒内控制动作和查询结果直接回传当前对话继续思考，提交持续活动或无需继续操作后唤醒结束，什么时候时钟停着、醒着时什么事会再唤醒人物；`start_main_activity`、`start_side_activity` 与 `search_world` 各自填什么，`prefer` 照工具层 `prefer_apps` 列出的名称写；名称要写完整，`prefer` 只是意向、写得不准不返回候选；在地点做哪件事由人物点名；内容 app 打开后自动连续放，人物结束它才停，找不到能接的内容时这次使用停下、等人物收尾；用内容 app 只是看，买东西只有购买，想按口味、预算或位置找商品与同城地点用 `search_world`（占副槽位几分钟后以真实报价和同城信息恢复当前对话继续下单或出发）；主槽位与副槽位各自放什么；睡眠怎样写；出发前要先结束什么；活动怎样收尾，搜索到期自动结算并腾出副槽位；在地点做的事结束就算做完，只有暂停保留进度；暂停的活动怎样恢复；进度层的结果和「今天」里的核验是核验事实，自己写的总结、正文，记忆层的自述和回顾都只是想法和回忆，不改变世界事实，也不缩小人物此刻能做的事，想法变了就照现在的想法选；解饿只有两种办法，系列哪一集供一餐写在单元行的 `note` 或进行中活动的 `state` 里；今日计划是人物给自己定的打算，环境不判定完成与否，计划里有在工具层和拒绝原因中都看不到做法的事时，人物用 `revise_day_plan` 去掉它或改成做得到的；`available` 为 `true` 的动作单独提交一定受理，重复与先后环境不另加限制；个人事务只用于要买到或领取的商品，通话、家务之类没有商品的打算不记；正文写了就作为这次唤醒的自述，从下一次唤醒起记在记忆层「今天」里，思考链在同一次唤醒会话的连续工具回合内保留，跨越唤醒边界后重置为最新七层快照。规则文字只在系统层写一次，逐字原文只在代码里；工具说明只写用途与参数格式。
+系统层用规则条目写明：各层写什么，进度层只写此刻还没了结的事；工具层顶层 `gate` 宣告当前主副槽位占用、是否睡眠、是否在途及待收尾活动清单，目标行仅反映自身固有条件，未直接列出的同城地点、内容 app 或门店商品可通过 `lookup_targets` 按需检索后按全名调用；记忆层按饮食、工作、生活三类记已经过去的事，「今天」按单次唤醒会话（`wakeup_id`）归并，提交后经工具消息差量增量交付或从下一次唤醒起可见，「核验」是环境确认的经过，「自述」是人物当时写下的话，五种前缀分别是收尾或暂停的总结、report_status 的进展、看法、想记住的事和回复正文，每条至多 120 字、写不下的地方以「…」结尾；过了零点每类当天的条目整理成一段回顾，「近三天」的饮食和生活取最近三天、工作取最近三个有工作的日子，回顾像日记，只记要紧的事和当时的感受，可能记错或漏记，是回忆而不是核验事实，「未整理」只说明那天这一类没整理出回顾；日子以零点为界，一件事在哪天结束就记在哪天；更早的事和今天条目的全文经 `search_memory` 按类别、时间和可选关键词去查，按名称回看任务或活动的进展用 `recall_task_summary`，每次唤醒至多查三次记忆；拿不准时可以先看记忆再定，记忆只说明过去发生了什么、人物当时怎么想，不替人物决定，照旧、重复还是换一换都可以；每次唤醒内控制动作和查询结果直接回传当前对话继续思考，不再需要其他操作且已有进行中活动时调用 `continue_activity` 显式续行退出（或调用开始/`search_world` 边界工具结束唤醒），什么时候时钟停着、醒着时什么事会再唤醒人物；`start_main_activity`、`start_side_activity`、`search_world`、`continue_activity` 与 `lookup_targets` 各自填什么，`prefer` 照工具层 `prefer_apps` 列出的名称写；名称要写完整，`prefer` 只是意向、写得不准不返回候选；在地点做哪件事由人物点名；内容 app 打开后自动连续放，人物结束它才停，找不到能接的内容时这次使用停下、等人物收尾；用内容 app 只是看，买东西只有购买，想按口味、预算或位置找商品与同城地点用 `search_world`（占副槽位几分钟后以真实报价和同城信息恢复当前对话继续下单或出发）；主槽位与副槽位各自放什么；睡眠怎样写；出发前要先结束什么；活动怎样收尾，搜索到期自动结算并腾出副槽位；在地点做的事结束就算做完，只有暂停保留进度；暂停的活动怎样恢复；进度层的结果和「今天」里的核验是核验事实，自己写的总结、正文，记忆层的自述和回顾都只是想法和回忆，不改变世界事实，也不缩小人物此刻能做的事，想法变了就照现在的想法选；解饿只有两种办法，系列哪一集供一餐写在单元行的 `note` 或进行中活动的 `state` 里；今日计划是人物给自己定的打算，环境不判定完成与否，计划里有在工具层和拒绝原因中都看不到做法的事时，人物用 `revise_day_plan` 去掉它或改成做得到的；`available` 为 `true` 的动作在 `gate` 放行时单独提交一定受理，重复与先后环境不另加限制；个人事务只用于要买到或领取的商品，通话、家务之类没有商品的打算不记；正文写了就作为这次唤醒的自述，从下一次唤醒起记在记忆层「今天」里；日会话在同一本地日内跨唤醒保留连续消息前缀并以配对工具消息增量推进，达到触发阈值时执行日内 Compaction、跨越零点时重置为新日会话。规则文字只在系统层写一次，逐字原文只在代码里；工具说明只写用途与参数格式。
 讲睡眠的条目写明分钟数的范围、就在当前地点睡且地点须能睡、睡着后到写的时长才再唤醒人物、
 提醒推送和送达都不叫醒、过去一天睡得太少时可能再多睡二十分钟到一小时，以及 sleep 行的 `note` 只供参考。
 人物看不到睡过头的门槛、概率和抽取结果。
@@ -105,22 +106,33 @@ flowchart LR
 
 提示指纹 `prompt_sha256s`（运行清单 `model_identity` 的一项，包含 `"action"` 与 `"search"`）分别摘要主唤醒系统层加七层 Schema（`LAYER_SCHEMAS`）与搜索子会话提示词。
 
+工具层顶层新增必填字段 `gate`（**顶层门禁**），在 `TOOL_LAYER_SCHEMA` 与 `COMPACT_TOOL_LAYER_SCHEMA` 中作为封闭对象存在（`compact_tool_layer` 按 `("layer", "gate", "groups", "callable_index")` 键序返回，`expand_tool_layer` 按 `("layer", "gate", "targets", "callable_index")` 键序返回，无损深拷贝 `gate`）：
+
+| `工具层.gate` 键 | 类型 | 语义 |
+| --- | --- | --- |
+| `main_slot_busy` | `bool` | 主槽位（`"first"`）是否被进行中或待收尾活动占用 |
+| `side_slot_busy` | `bool` | 副槽位（`"second"`）是否被进行中或待收尾活动占用 |
+| `sleeping` | `bool` | 人物当前是否处于进行中的 `ActivityKind.SLEEP` 活动 |
+| `in_transit` | `bool` | 人物当前是否处于出行在途会话（`present_location(state, agent_id) is None`） |
+| `pending_conclusions` | `list[str]` | 当前必须先调用 `conclude_activity` 收尾的活动显示名称列表（按 `open_activities` 排序投影） |
+
 工具层动作行固定八个字段，键序 `action, detail, available, reason, price, duration, quantity, note`，
 紧凑渲染省略 `null`。`detail` 是调用里要照写的名称：出行行是出行方式名称，购买行和内容 app 行为 `null`，
 地点上的 interact 行与 sleep 行见下表。
-工具层只列出**当前城市（与 `agent.location_id` 同 `city_id`）的全部地点**，以及**与当前地点存在直接跨城声明边相连的异地枢纽地点**；不直接相连的异地地点不进工具层列表（仍可通过名称解析识别，但受理以 `ACTIVITY_PRECONDITION_UNMET` 拒绝并在 `next_step` 指引 `Travel to <hub display_name> first.`）。人在路上时 `agent.location_id` 仍锚定出发城市。
-当前城市其余地点的目标行下列出可用的同城出行方式：`walking` 在前（若允许），其余按 `travel_method_id` 升序；同城自由街区开放 `walking` 与全部 `city_wide: true` 的方式，`city_wide: false` 的方式只在该两点存在直接声明边且边上 `travel_method_ids` 列出它时才叠加出现（并受该边 `opens` 与 `consumes_state` 约束）。直接相连的异地枢纽目标行下，**只列出该跨城声明边声明的 `travel_method_ids`**（按 `travel_method_id` 升序，不含 `walking`）。所有可达目的地的允许方式均不轮转、不截断。
+核心常驻工具层的目标收录遵循严格过滤规则（`_target_visible`）：
+- **地点（`kind == "location"`）**：仅收入人物当前所在地点（`agent.location_id`）、居住地（`home_location_ids[agent_id]`）与工作地点（`workplace_location_ids[agent_id]`，非 `None` 时）、当前所在城市全部驿站（`parcel_station`）与具备跨城直达出边的城市枢纽、从当前地点存在跨城声明直达边的异地枢纽，以及本周期经 `lookup_targets` 载入 `DaySessionState.loaded_target_keys` 的地点。其余同城与非邻接异地地点不占常驻篇幅；`catalog_bindings` 仍保留全量目录，以便已知或刚检索到的目标按全名直接调用并由 `name_resolution.py` 精确解析（对非邻接异地地点发起 `travel` 时由准入返回 `Travel to <hub display_name> first.`）。人在路上时 `agent.location_id` 仍锚定出发城市。
+- **同城与跨城出行方式**：同城其他地点的目标行下列出可用的同城出行方式：`walking` 在前（若允许），其余按 `travel_method_id` 升序；同城自由街区开放 `walking` 与全部 `city_wide: true` 的方式，`city_wide: false` 的方式只在该两点存在直接声明边且边上 `travel_method_ids` 列出它时才叠加出现（并受该边 `opens` 与 `consumes_state` 约束）。直接相连的异地枢纽目标行下，**只列出该跨城声明边声明的 `travel_method_ids`**（按 `travel_method_id` 升序，不含 `walking`）。所有已列出目的地的允许方式均不截断。
 地点目标行的 `state` 先写出当天的营业时段（未写 `opens` 写「全天营业」，否则以「、」连接当日时段或写「今日休息」）；若当前城市中的该地点连有至少一条跨城声明边，则在营业时段后紧接附加门户说明：`；城际可达：<dest1>（<method1>、<method2>）、...`，按目的枢纽 `location_id` 升序排列、每个目的枢纽下的出行方式显示名按 `travel_method_id` 升序以「、」相连。
 出行的 `price` 是车费的人读写法（免费写「0 元」），`duration` 是按当刻天气算出的用时（跨城边取起终两城当日天气系数的较小值），`quantity` 为 `null`，`note` 是「轻松」或「费力」；余额不够付车费、发车窗口外或缺少票证状态的声明边方式照样列出并标为不可用。
 私有绑定的出行行另带 `travel_method_id`，不进入公开工具层；紧凑渲染的分组键仍是目标类别与动作，全部目的地的出行行落在同一组里，还原后与完整工具层逐值相同。
 同一个出行方式名称用于工具层的 `detail`、活动名、环境层路上的位置（键 `travel_method`）和到达句「<时刻> <出行方式名称>到了<地点显示名>」；步行写「步行」，其余写数据集起的名称。
-每行的 `available` 与 `reason` 和受理用同一套检查，对只含这一行的一组求值，说明与拒绝原因一字不差。
-所以 `available` 为 `true` 的行单独提交一定受理（开始组仍两项一起核验）；重复做同一件事、几件事谁先谁后，环境都不另加限制，
-凡是限制都已经写在那一行的 `available` 与 `reason` 里，这是[概述](00-overview.md)「核心原则」里人物自主性的落实，系统层有一句讲它。
-人物停留在某个地点时，该地点的目标行下为每个内容单元列一条 interact 行（凭状态而未开放、或 `repeatable: false` 且已完整做完一轮的单元除外，见下文「在地点做的一件事」表），完整列出，不轮转、不截断，按单元键升序；
+**行级 `available` 与 `reason` 解耦**：对于 `START_TOOLS`（`location`、`app`、`product`），工具层跳过 `pending_conclusions` 并改调 `admission.intrinsic_refusal`（跳过全局槽位占用与睡眠互斥检查），使目标行仅反映自身固有条件（营业时段、直达路线与方式、前置状态/票证、内容应用前提、在途对原地动作限制、余额不足）；全局门禁由顶层 `工具层.gate` 统一声明，并在实际调用 `dispatch_world_tool` 时由 `admission.group_refusal` 与 `StartGroups` 严格拒绝。活动目标行（`kind == "activity"`）继续保留单条活动的 `report_status`、`pause_activity`、`conclude_activity` 可用性判断。
+所以 `available` 为 `true` 且 `gate` 允许的行单独提交一定受理（开始组仍两项一起核验）；重复做同一件事、几件事谁先谁后，环境都不另加限制，
+凡是限制都已经写在顶层 `gate` 与那一行的 `available`、`reason` 里，这是[概述](00-overview.md)「核心原则」里人物自主性的落实，系统层有一句讲它。
+人物停留在某个地点时，该地点的目标行下为每个内容单元列一条 interact 行（凭状态而未开放、或 `repeatable: false` 且已完整做完一轮的单元除外，见下文「在地点做的一件事」表），完整列出，不截断，按单元键升序；
 地点标了 `sleepable` 时 sleep 行排在其后（商业住宿地点若声明了 `sleep_consumes_state`，当前不在 `lodging_stays` 有效入住期内且状态不足时，该行标为 `available: false` 并给出购买对应房晚商品的拒绝原因）。人在路上时不列任何地点的 interact 行，其他地点只列出行；没有单元的地点没有 interact 行。
 
-工具层轮转展示的店铺商品（`discovery.py`）和 `callable_index.goods` 仅筛选在**当前城市（`store.city_id == current_city`）**拥有门店售卖的店铺商品，不露出仅在其他城市售卖的商品。工具层商品购买行按没有意向的路线预览，其中即时电子商品（`instant: true`）的 `note` 显示「运费0元，付款即收货」。工具层另有 `callable_index`，两个键。`goods` 是商品品类行（仅统计当前城市有门店售卖的店铺商品品类，线上商品与同城搜索交由 `search_world` 检索），`prefer_apps` 是全部下单 app 的完整名称，按 `app_id` 升序；`prefer_apps` 只取决于冻结目录，整次运行不变，不按此刻营业与否筛选，不轮转，不截断，不参加目标行分组，不进沙盒回传的差量比较，容量浓缩不删它；没有下单 app 的环境里是空数组。工具层没有搜索的动作行，搜索能力通过原生工具 `search_world` 提供。
+**废除商品轮转窗口与常驻筛选**：已彻底移除每轮 20 项 `product:purchase` 商品滚动窗口；默认核心常驻工具层不主动列出静态 `product` 项，仅保留在 `DaySessionState.loaded_target_keys` 中通过 `lookup_targets` 显式检索过的商品（`("product", object_id)`）与 `callable_index` 汇总计数（检索及预览仍限定当前城市门店在售店铺商品，其中即时电子商品 `instant: true` 的 `note` 显示「运费0元，付款即收货」）。内容 app 仅保留当前具备有效内容或含置顶推送（`pinned_push_content(...) is not None`）的应用，或位于 `loaded_target_keys` 中的应用（`("app", object_id)`）；其余停用或无内容可播的应用不占常驻篇幅。工具层另有 `callable_index`，两个键：`goods` 是当前城市有门店售卖的店铺商品品类计数行（线上商品与同城搜索交由 `lookup_targets` 或 `search_world` 检索），`prefer_apps` 是全部下单 app 的完整名称，按 `app_id` 升序；`prefer_apps` 只取决于冻结目录，整次运行不变，不按此刻营业与否筛选，不截断，不参加目标行分组，容量浓缩不删它；没有下单 app 的环境里是空数组。工具层没有搜索的动作行，搜索能力通过原生工具 `search_world` 提供，按需目录检索通过零耗时只读工具 `lookup_targets` 提供。
 
 | 动作行 | `detail` | `duration` | `note` |
 | --- | --- | --- | --- |
@@ -177,9 +189,16 @@ conclude_activity 一行不受影响；做完这一集还会接下一集时 `rea
 「有推送」只在此刻打开会钉住那条推送时显示：推送指向的内容已不合格，或推送已经释放，都不显示。
 系统层不为前提新增句子，`available` 为 `false` 的动作仍可提交，会按 `reason` 拒绝。
 
-在单次唤醒的 `AgentLoop` 内部，只读查询直接写回紧凑 JSON 工具消息；零耗时控制动作或业务拒绝经沙盒求值后，把 `{"result": ..., "changes": ..., "events": ...}` 写入该调用的 `tool` 消息末尾继续下一回合（不再由环境在跨轮之间从 SQLite 逆向重建同秒续接链）。
-`changes` 相对于当前消息视角经纯观察投影对比计算，键依次是 `targets`（工具层目标按名称的 `updated` 与 `removed`）、`memory`（`{"added": […]}`，包含已进入当轮待合并清单的「今天」增量视角）、`paused_activities` 与 `errands`（按名称的 `added` 与 `removed`）、`orders`（在途订单按订单标签的 `added` 与 `removed`）、`day_plan` 与 `body`（整体替换）；没有改动的键不写。人设层与所在地点在唤醒内部（除搜索挂起跨越模拟时间外）不变。
-当 `search_world` 挂起并在到期完成搜索后通过 `mode == "resume_search"` 恢复原唤醒上下文时，引擎将结构化搜索结果与经过这段模拟时间产生的世界事件差量写入挂起对应的 `pending_tool_call_id` `tool` 消息，随后在原有思考链上继续推理（若当时在最后一回合挂起，则授予一次非挂起的额外决策机会）。
+在日会话连续上下文中，唤醒**内部**只读查询（`recall_task_summary`、`search_memory`、`lookup_targets`）直接写回紧凑 JSON 工具消息；唤醒内部控制动作或业务拒绝经沙盒求值后，把 `{"ok": true, "result": ..., "changes": ...}`（可选附 `"events": []`）写入该调用的 `tool` 消息继续下一回合。
+在**跨唤醒边界**（`mode == "regular"` 且 `day_session` 非 `None`）与**搜索恢复边界**（`mode == "resume_search"`）时，`BarrierMerger` 基于 `day_session.last_observed_layers` 与当前观察计算 `boundary_delta_payload` 或 `search_result_payload`，由 `_WakeupRunner` 按 `day_session.pending_boundary_calls` 顺序追加配对 `role: "tool"` 消息（若上次以 `start_main_activity` + `start_side_activity` 成组退出、`len(pending_boundary_calls) == 2`，前一条仅携带 `{"ok": true, "result": {"status": "settled", "observed_at": observed_at}}`，最后一条携带完整差量载荷，避免重复发送环境差量）：
+- **跨唤醒与搜索恢复载荷形状**：`{"ok": true, "result": ..., "boundary": {"observed_at": ..., "wake_reasons": [...], "events": [...]}, "changes": {...}}`（`resume_search` 另附 `"search": search_details(...)`）；其中所有面向模型的 `tool` 载荷一律经 `render_tool_content`（主循环传入带观察黑名单校验的 `render_layer_json`）渲染，严禁出现 `activity_id` 或 [narration.py](../../src/worldmock/agents/prompt/narration.py) `FORBIDDEN_OBSERVATION_KEYS` 中的任何键（`SearchSessionRunner` 保留无观察黑名单的紧凑 JSON 序列化以使用 `goods_id` 与 `location_id`）。
+- **`ObservationBuilder.layer_changes(before, after)` 精细子键级差量**：内部观察键 `("environment_layer", "memory_layer", "todo_layer", "progress_layer", "tool_layer")` 映射为公开层键 `("环境层", "记忆层", "待办层", "进度层", "工具层")`，全等层完全省略：
+  - `环境层`：逐键比对 `("observed_at", "body", "location", "weather", "duty", "tomorrow")`，`body` 仅含发生分级变化的体感子键（`appetite`、`sleepiness`、`relaxation`、`social`）；
+  - `记忆层`：逐键比对 `可查`、`近三天` 与 `今天`（严格前缀追加输出 `今天_append`，同日搜索恢复尾部覆写且公共前缀 `k > 0` 输出 `今天_tail: {"from_index": k, "entries": ...}`，其余输出 `今天`）；
+  - `待办层`：逐键比对 `("paused_activities", "errands", "orders", "day_plan")`；
+  - `进度层`：逐键比对 `("session_started_at", "events", "rejected_today")`，`events` 与 `rejected_today` 满足严格前缀追加时分别输出 `events_append` 与 `rejected_today_append`；
+  - `工具层`：单独比对 `gate` 与 `callable_index`，对 `targets` 按 `(kind, name)` 唯一标识计算 `group_deltas = {"added": [...], "updated": [...], "removed": [{"kind": ..., "name": ...}]}` 并显式调用 `tool_groups.compact` 压缩 `added` 与 `updated`、省去空列表键。
+若 `search_world` 跨越本地零点在 `D+1` 完成恢复（此时 `day_session` 已被重置为 `None`），则以当日纯净 `[system, init_user]` 启动新日会话（`进度层` 已直接包含本次完成的搜索结果），不追加孤立的 `role: "tool"` 消息。在唤醒最后回合挂起并同日恢复时，授予至少一次非挂起的恢复机会。
 
 <a name="agent-环境层-duty"></a>
 ### 环境层
@@ -216,7 +235,7 @@ conclude_activity 一行不受影响；做完这一集还会接下一集时 `rea
 零点计划是运行时在零点为缺当日计划的每位人物分别做的一次独立模型调用，不经人物，不是决策唤醒：零点推进之后先做日、月、年回顾（见「进度、待办与记忆」的
 [日、月、年回顾](#agent-日月年回顾)），再做零点计划，最后判定这一秒的唤醒与下一次唤醒时间；运行宿主每次提交共同检查点之后（新建运行的初始检查点、反事实分支的干预检查点与每一步的检查点），
 以及普通恢复启动时、首次唤醒之前，也先补回顾、再做计划，触发点见[运行装配与决策循环](10-runtime.md)「时钟屏障与并发唤醒循环」。
-请求的系统消息是固定的中文模板，用户消息是下表输入的 JSON；通过 `ModelRegistry.resolve("plan_day", agent_id)` 取得该人物的绑定模型档案，只带一个严格工具 `submit_day_plan` 且必须调用，思考开关与 `effective_max_tokens` 按该模型档案设置，底层不重试。
+请求的系统消息是固定的中文模板，用户消息是下表输入的 JSON（`prepare_plan_day` 取消 `sort_keys=True`，严格保留静态不变键 `"人物"`、`"上班安排"`、`"计划日期"` 在前而动态变动键在后的字典构造顺序以匹配前缀缓存）；通过 `ModelRegistry.resolve("plan_day", agent_id)` 取得该人物的绑定模型档案，只带一个严格工具 `submit_day_plan` 且必须调用，思考开关与 `effective_max_tokens` 按该模型档案设置，底层不重试。
 输出不合格时附回英文原因重试，次数是该模型档案的 `day_plan_validation_max_retries`，用完是运行故障。
 
 | 输入 | 内容 |
@@ -364,55 +383,39 @@ conclude_activity 一行不受影响；做完这一集还会接下一集时 `rea
 由 `pending` 变成 `ready_for_pickup`。未付款的报价不在其中，它由进度层带入的购买记录表达。
 行的机器形状见[状态与序列化](09-io-formats.md)「提示层的机器形状」。
 
-### 记忆层的形状、上限与兜底
+### 记忆层的形状与上限
 
-记忆层恰有四个键，次序固定：`layer`（常量「记忆层」）、`可查`、`近三天`、`今天`。键序就是构建顺序，记忆层只由
+记忆层顶层按顺序包含 `layer`（常量「记忆层」）、`可查`、`近三天`、`今天`，在日内 Compaction 重建 `messages[1]` 时还可附带可选字段 `折叠摘要`。键序就是构建顺序，记忆层只由
 [layout.py](../../src/worldmock/simulation_engine/observation/memory/layout.py) 的 `assemble_layer` 构建，渲染时不排序；
 机器形状见[状态与序列化](09-io-formats.md)「提示层的机器形状」。「近三天」见下文「近三天」，「今天」的条目见下文「今天条目」。
 
 「可查」是 `{"最早日期": "YYYY-MM-DD"}`，最早日期是运行开始时刻 `start_time` 的场景本地日期。它整次运行不变：同一天里、跨过零点、
 恢复与重放分支里都相同，因为分支从同一环境加载运行配置并核对配置摘要。
 
-「今天」是当天已发布条目按唤醒提交次序的递推：当天第一次唤醒看到空列表；第 k 次唤醒看到第 `k-1` 次唤醒看到的列表（兜底改过的项保持改后的样子），
-末尾接上第 `k-1` 次唤醒提交产生的条目（若某次搜索恢复与挂起落在同一本地日，则按 `(wakeup_id, local_date)` 归并更新同一条条目）。「今天」只在提交阶段追加或同日归并，兜底是唯一的压缩改写。递推只读当天已发布的条目和这次观察的「可查」与「近三天」，是它们的纯函数；
+「今天」是当天已发布条目按唤醒提交次序的递推：当天第一次唤醒看到空列表；第 k 次唤醒看到第 `k-1` 次唤醒看到的列表，
+末尾接上第 `k-1` 次唤醒提交产生的条目（若某次搜索恢复与挂起落在同一本地日，则按 `(wakeup_id, local_date)` 归并更新同一条条目）。「今天」只在提交阶段追加或同日归并。递推只读当天已发布的条目和这次观察的「可查」与「近三天」，是它们的纯函数；
 进程内缓存只是加速，换了存储对象（恢复、重放分支）、观察的本地日期变了、「可查」与「近三天」的渲染文本变了或已发布的条目比缓存记住的少时，
 从当天第一条重新递推。所以恢复和重放从当天第一次唤醒起按同样的次序重算，得到的「今天」与原运行在同一次唤醒看到的逐字节相同。
 观察里的「今天」各项是递推状态的深拷贝；零点收尾条目不是任何唤醒的条目，从不进「今天」。
-在单次唤醒的 `AgentLoop` 内部发生零耗时控制动作时，`AgentSandbox` 通过 `memory.added` 与 `memory.snapshot` 以差量方式把本轮待合并视角增量回传当前上下文；只有当该分支通过 `BarrierMerger.commit_barrier` 原子落盘后，对应提交才成为已发布条目进入后续唤醒。
+在单次唤醒的 `AgentLoop` 内部发生零耗时控制动作时，`AgentSandbox` 通过 `layer_changes` 中的 `记忆层`（含 `今天_append` / `今天_tail`）增量回传当轮视角；只有当该分支通过 `BarrierMerger.commit_barrier` 原子落盘后，对应提交才成为已发布条目进入后续唤醒。
 
-上限：经 `render_layer_json` 渲染后的整个记忆层（含全部键名、引号、冒号、逗号和括号）按 Python `len` 至多 14,000 字，
-约 8.9k token（按 0.638 token/字）；上限按字执行，不用 litellm 或任何 token 计数器。构建器在交出记忆层之前核对一次，超出时写英文错误日志
-`Memory layer has <字数> characters, above its 14000-character budget`，再以 `RuntimeError("Memory layer exceeds 14000 characters")` 停止。
-各部分自己的上限由生成它的一侧保证：「可查」恒为 21 字，「近三天」每格回顾至多 1000 字、每类至多三格，「今天」每条核验加自述至多 120 字；
-「今天」不单设上限，受合计约束。
+已彻底废除旧版 `14,000`/`12,000` 字记忆硬回填机制（删除 `MEMORY_BACKSTOP_CHARS`、`MEMORY_LAYER_CHARS`、`require_budget`、`_backstop`、`_blank`、`_merge_hours` 及 `记忆层.今天` 中的按小时合成计数行）：单日长序列记忆与上下文预算改由**日内 Compaction**（`compact_trigger_tokens` 水位触发）与**跨日重置**（跨午夜零点置空 `day_session`）管理，不再于 `layout.py` 强制截断或改写已提交「今天」条目。各部分生成上限保持独立约束：「可查」恒为 21 字，「近三天」每格回顾至多 1000 字、每类至多三格，「今天」每条核验加自述至多 120 字。
 
-兜底：为第 k 次唤醒把第 `k-1` 次唤醒的条目接到「今天」末尾以后，渲染出的记忆层严格大于 14,000 字时触发，恰好 14,000 字不触发。
-一次触发按下表的次序逐项改写，每改一项就重新组装、重新量一次，至多 12,000 字时立即停止，后面的项和步骤都不再动：
-
-| 次序 | 步骤 | 依次处理的项（每一轮都按列表次序从最早的一项起） | 改法 |
-| --- | --- | --- | --- |
-| 第一步前半 | 换掉已收尾活动的播报自述 | 只交了受理的 `report_status`、而它点名的每一项活动都已被当天已折入条目里受理的 `conclude_activity` 收尾的条目 | 「自述」换成 `["…"]` |
-| 第一步后半 | 换掉其余播报自述 | 其余只交了受理的 `report_status` 的条目 | 「自述」换成 `["…"]` |
-| 第二步 | 只留核验 | 其余条目（计数行除外） | 「自述」换成 `["…"]`；「时刻」「类别」「核验」不动 |
-| 第三步 | 按小时合成计数行 | 本地小时（「时刻」的前两位）与类别串都相同的项组成的组，按组首项在列表中的先后 | 整组换成一行计数行，放在组首项的位置 |
-
-- 「只交了受理的 `report_status`」指这次唤醒提交的世界请求恰是一个受理的 `report_status`；被拒的 `report_status` 归第二步。
-  「已收尾」只看已折入的条目，不看此刻世界状态，所以冷缓存重算与原来逐字节一致；点名多个活动的播报只在所点名活动全部收尾时归入前半。
-- 前三轮只改「自述」存在且不是 `["…"]` 的项，没有「自述」的项跳过；兜底从不给项新增「自述」，也从不改「核验」。「…」是 U+2026。
-- 第三步的一组包含列表里本地小时与类别串都相同的全部项，不要求相邻；先前触发留下的计数行也是组员，条数按它的「条数」相加；
-  只由一行计数行组成的组跳过，只有一条条目的组也合成。「工作」与「工作、饮食」是两个不同的类别串。
-  计数行的形状见[状态与序列化](09-io-formats.md)「提示层的机器形状」。「核验」只在合成计数行时随整项消失，其余任何时候都不删除。
-- 三步做完仍超过 12,000 字时保留做完以后的样子；此时仍超过 14,000 字，构建器按上限停止。
-- 每次触发写一条英文警告日志 `Memory layer backstop rewrote today from <接上后字数> to <回落后字数> characters (target 12000)`；
-  冷缓存重算会把同一次触发再写一遍。
-- 兜底改过的项在当天后面的唤醒里保持改后的样子，两次触发之间「今天」照样只在末尾追加。触发的那次唤醒看到的「今天」反映改写后的新快照，条目全文不受兜底影响。
+当**日内 Compaction** 执行并重建 `messages[1]` 时，记忆层保持静态 `"可查"` 与 `"近三天"` 不变，更新 `"今天"` 为当日最新权威条目，并依据 `AgentWakeupInput.settled_day_events` 与被折叠的 `记忆层.今天` 条目确定性生成可选结构化 `"折叠摘要"`（写入 `MEMORY_LAYER_SCHEMA` 可选字段 `"折叠摘要"`）：
+- `folded_through_seq: int`：本次已折叠覆盖的最大已提交 `event_seq`；
+- `folded_until_clock: str`：已折叠区间最晚事件本地时刻（`HH:MM`）；
+- `completed_activities: list[str]`：当日已结束主/副活动摘要列表（按发生时刻升序）；
+- `places_visited: list[str]`：当日已抵达地点显示名去重列表（按访问先后）；
+- `purchases: list[str]`：当日已完成购买商品与渠道摘要列表；
+- `body_and_balance_notes: list[str]`：当日关键消费、收货与体感状态变化摘要；
+- `open_commitments: list[str]`：当前尚未了结的目标、待办与在途订单摘要。
 
 记忆层不参与容量浓缩，容量浓缩从不替它削减字数。记忆层以观察键 `memory_layer` 整层存为一个观察分件，相同内容只存一次，
 见[记录引擎](05-recording-engine.md)「事件与来源」；它随每次唤醒变化，所以几乎每次唤醒的观察都登记一个新的分件。
 
 ### 今天条目
 
-一次唤醒提交对应一组按 `wakeup_id` 标识且落在同一本地日 `local_date` 内的世界请求提交记录（`WakeupCommit(wakeup_id, occurred_at, commit)`，组按最小事件序号排序）；任何经 `BarrierMerger` 原子落盘的唤醒提交都产生或归并进一条所属日期的今天条目，包括只提交了 `report_status`、`revise_day_plan` 或被拒请求的唤醒；只读工具（`recall_task_summary` 与 `search_memory`）与搜索挂起尚未提交的世界分支（或被跨人物冲突整分支回滚的唤醒）不形成今天条目。
+一次唤醒提交对应一组按 `wakeup_id` 标识且落在同一本地日 `local_date` 内的世界请求提交记录（`WakeupCommit(wakeup_id, occurred_at, commit)`，组按最小事件序号排序）；任何经 `BarrierMerger` 原子落盘的唤醒提交一般产生或归并进一条所属日期的今天条目（`TodayEntry | None`），包括只提交了 `report_status`、`revise_day_plan` 或被拒请求的唤醒；只读工具（`recall_task_summary`、`search_memory`、`lookup_targets`）与搜索挂起尚未提交的世界分支（或被跨人物冲突整分支回滚的唤醒）不形成今天条目。此外，**静默 `continue_activity` 过滤**：当一次唤醒提交窗口内全部已受理请求仅为 `continue_activity`（无 `START_TOOLS`、`SEARCH_TOOL`、`CONTROL_TOOLS`、被拒请求及 `revise_day_plan`）、窗口内 `_settled_drafts(scope)` 为空，且 `reason is None` 与 `self_note is None` 时，`build_entry` 返回 `None`（并缓存 `entries[(wakeup_id, day)] = None`），`_wakeup_entries` 跳过 `None` 并照常推进窗口下界 `lower` 与 `PublishedToday.published`；若 `continue_activity` 携带非空 `reason`（无其他核验或 `self_note`），则在 `SELF_RANKS["continue"] = 2` 产出一项「续行：」自述（按 `result.data["data"]["activity_ids"][0]` 推导主活动类别并纳入 `involved` 集合），混有已结算事实时正常归并写入。
 具体归并遵循两项时间边界规则：
 
 | 场景 | 归并规则 | 条目范围与窗口 |
@@ -529,6 +532,7 @@ conclude_activity 一行不受影响；做完这一集还会接下一集时 `rea
 | 看法 | 受理的 `conclude_activity` 每项的 `views` | 「看法·」+ 对象 +「：」+ 看法 |
 | 记住 | 同一项里 `type` 不是 `routine` 的普通记忆 | 「记住：」+ 记忆 |
 | routine | 同一项里 `type` 是 `routine` 的普通记忆 | 「记住：」+ 记忆，只进全文，从不渲染 |
+| 续行 | 受理的 `continue_activity` 携带非空 `reason` | 「续行：」+ reason |
 | 正文 | 回复中附带的 `self_note` | 「正文：」+ self_note |
 
 `strip()` 之后为空的总结、记忆或看法不产生项；普通记忆与同一项的总结逐字相同时不产生项，渲染和全文里都没有。
@@ -561,6 +565,8 @@ conclude_activity 一行不受影响；做完这一集还会接下一集时 `rea
 | 发起搜索并在同日恢复完成 | 开始行（或合并后的搜索完成行与后续开始行） | 正文与后续自述 |
 | 只有被拒请求 | 已结算事实、「被拒：…」 | 正文 |
 | 暂停 | 已结算事实、各项「暂停〈标注〉」、个人事务变更行 | 各项总结，正文 |
+| 只交 `continue_activity`（无 `reason` 与 `self_note` 且无结算） | 不产出 `TodayEntry`（`None`），照常推进下界 | — |
+| 交 `continue_activity`（带 `reason`） | 已结算事实（有时） | 「续行：…」与正文（有时） |
 | 改计划 | 已结算事实、「改了今日计划」 | 正文 |
 
 全文：条目全文不渲染，供日回顾输入、检索「今天」和「未整理」时的退路使用，恰为 `{"时刻","类别","核验","当时查到","自述"}`，键依次如此，空列表的键省略；
@@ -575,12 +581,11 @@ conclude_activity 一行不受影响；做完这一集还会接下一集时 `rea
 求 D 日的零点收尾条目和某一往日的全部条目时，调用方给出此刻，此刻早于 `D+1` 日本地零点是完整性故障 `Day entries requested before the day ended`；
 前提按时钟判断，不按存储里最后一个事件。
 
-发布、只追加与缓存：一次观察的「今天」条目是日期等于观察日期、`C` 不超过截止序号的各条记录，按唤醒次序；一次提交落盘后，对应条目的更新就从下一次唤醒起可见，
-在单次唤醒内部还可通过沙盒返回的 `memory.added` 与 `memory.snapshot` 在当轮消息里看到即时增量；而当次唤醒提交前的原始观察里不含本条。条目的文字只依赖序号不超过 `C_k` 的事件和冻结目录，所以一经落盘且不再同日合并便不再改变，只有记忆层的兜底改写早先的条目；
-恢复和重放打开新的存储对象、缓存从空开始，按同样的规则重算，得到逐字节相同的条目。本人事件的增量缓存另存各动作的第一条结果、各次唤醒提交的 `C`、已建条目、各日零点界与零点收尾条目、
+发布、只追加与缓存：一次观察的「今天」条目是日期等于观察日期、`C` 不超过截止序号的各条非空记录，按唤醒次序；一次提交落盘后，对应条目的更新就从下一次唤醒起可见，
+在单次唤醒内部还可通过沙盒返回的 `layer_changes` 中 `记忆层` 的 `今天_append` / `今天_tail` 增量看到即时更新；而当次唤醒提交前的原始观察里不含本条。条目的文字只依赖序号不超过 `C_k` 的事件和冻结目录，所以一经落盘且不再同日合并便不再改变。本人事件的增量缓存另存各动作的第一条结果、各次唤醒提交的 `C`、已建条目、各日零点界与零点收尾条目、
 各活动的快照与食材包推导，只是加速，去掉缓存全量重算的结果逐字节相同。某一往日的全部条目是那天各次唤醒条目按先后次序，最后接那天的零点收尾条目（有时）。
 
-回看名称与回看去重：观察的活动绑定 `note_labels` 来自「今天」：这次观察渲染出的「今天」里每一项自述（兜底改写之后）只要有一个字符串以「〈标注〉：」或「进展·〈标注〉：」开头，
+回看名称与回看去重：观察的活动绑定 `note_labels` 来自「今天」：这次观察渲染出的「今天」里每一项自述只要有一个字符串以「〈标注〉：」或「进展·〈标注〉：」开头，
 就把这个标注记到当天用它写过的活动名下，同名的不同活动都在内；`note_labels` 是标注到这些活动此刻可见名称的映射，标注等于可见名称的不记。
 回看一项活动时，它最新的自述以整项照写的总结或进展（「L：」或「进展·L：」接自述原文，L 依次取短名与冻结名称）留在冻结观察的「今天」里时，回看结果只写这个标注与「已在记忆层」，
 再接自述历史，不写地点、阶段和客观进度；被截断的项以「…」结尾，与自述不会逐字相等，所以只有整项照写的总结或进展才算「已在记忆层」。
@@ -745,7 +750,7 @@ interact 活动的开始内容是放完的第一条，没放完任何一条时�
 只在进程内记下「不需要」：日回顾是那天没有任何条目，月回顾是那个月没有一条日回顾带回顾或未整理的类，年回顾同理看月回顾。
 已结束的日子、月份与年份不会再变，进程内的这些判定从不失效；同一进程里没有新登记、没有跨过零点时，再做一次不重新构建任何条目。
 
-**输入。** 用户消息是下表输入的紧凑 JSON（不排序，键按下表次序），三个类别键用中文名，工具参数与事件用英文键 `food`、`work`、`life`。
+**输入。** 用户消息是下表输入的紧凑 JSON（`prepare_digest_request` 与 `_day_inputs`/`_summary_inputs` 不使用 `sort_keys=True`，严格保留 `"人物卡片"` 等静态字段前置、按日/按期变动的原始条目与统计置后的字典构造顺序），三个类别键用中文名，工具参数与事件用英文键 `food`、`work`、`life`。
 一次调用的输入行在三类之间连续编号，先饮食、再工作、后生活，类内按时间先后：日回顾为 n1、n2…，月回顾为 d1…，年回顾为 m1…；
 编号只在这一次调用里有效。
 
@@ -895,16 +900,16 @@ interact 活动的开始内容是放完的第一条，没放完任何一条时�
 协议纠错与输出截断纠正均与模型客户端的服务重试分别计数。截断的错误日志只在真实出现截断回合时写。
 全部生效模型档、路由表与提示/工具摘要冻结在运行清单的 `model_identity`（[identity.py](../../src/worldmock/state/identity.py)）；每位人物的卡片与名字在每次运行开始时由冻结的 `personas/*.toml` 构造，不在人物工作区里；恢复与重放读同一份清单与对应的 `personas/*.toml`，逐项一致。
 
-人物的一次唤醒按预备、并行回合循环、屏障提交三段进行。并发执行前，主线程通过 `LifeEngine.prepare_barrier` 为每位就绪人物分配不可变 `AgentWakeupInput`：当 `mode == "regular"` 时生成当前时刻完整冻结观察；当 `mode == "resume_search"` 时直接注入已保存的 `SuspendedLoopState`、`search_result_payload` 与挂起期间经过的观察差量（仅包含只读投影差量，不在内存保存跨唤醒活跃对象）。
+人物的一次唤醒按预备、并行回合循环、屏障提交三段进行。并发执行前，主线程通过 `LifeEngine.prepare_barrier` 为每位就绪人物分配不可变 `AgentWakeupInput`：当 `mode == "regular"` 且 `day_session is None`（当日首次唤醒或跨午夜重置后）时生成当日初始六层全量观察并附 `settled_day_events`；当 `mode == "regular"` 且 `day_session` 非 `None` 时复用已有日会话并注入基于 `day_session.last_observed_layers` 计算的 `boundary_delta_payload`；当 `mode == "resume_search"` 时直接注入已保存的 `SuspendedLoopState`、`search_result_payload` 与基于 `day_session.last_observed_layers` 的观察差量（若搜索跨午夜在 `D+1` 完成则 `day_session` 为 `None`，以当日初始观察重启新日会话）。
 
 ```mermaid
 flowchart TD
-    Prepare["prepare_barrier 生成只读 AgentWakeupInput（regular 或 resume_search）"] --> Loop["AgentLoop + AgentSandbox：并行推理，零耗时动作返回 changes"]
+    Prepare["prepare_barrier 生成只读 AgentWakeupInput（regular 或 resume_search）"] --> Loop["AgentLoop + AgentSandbox：日会话连续前缀推理与确定性 Compaction"]
     Loop --> Outcome{"退出状态"}
-    Outcome -->|"suspended（search_world）"| CommitSuspend["BarrierMerger 原子提交挂起态 SuspendedLoopState，不做 save_step"]
-    Outcome -->|"completed（开始动作）"| MergeCheck["BarrierMerger 按 agent_id 升序核验冲突"]
-    MergeCheck -->|"无冲突"| Commit["单事务落盘事件，随后调用 save_step 重写 MEMORY.md 并写 memory_updated"]
-    MergeCheck -->|"有共享资源冲突"| Rollback["整分支回滚重置 next_decision_at = now，不写 MEMORY.md，下一次重算"]
+    Outcome -->|"suspended（search_world）"| CommitSuspend["BarrierMerger 原子提交 SuspendedLoopState 与 DaySessionState，不做 save_step"]
+    Outcome -->|"completed（开始动作 / continue_activity）"| MergeCheck["BarrierMerger 按 agent_id 升序核验冲突"]
+    MergeCheck -->|"无冲突"| Commit["单事务落盘 DaySessionState、Compaction 事件与草稿，随后 save_step 更新 MEMORY.md"]
+    MergeCheck -->|"有共享资源冲突"| Rollback["整分支回滚保留唤醒前 day_session 并置 next_decision_at = now，不写 MEMORY.md"]
 ```
 
 步尾记忆落盘（`save_step`）仅在 `AgentLoop` 正常退出并经 `BarrierMerger.commit_barrier` 核验无跨人物共享资源冲突、且该人物所属草稿完成 SQLite 原子写入之后才执行：先取写入前 `MEMORY.md` 的摘要（文件还不存在时为 `null`），再渲染新视图（「身份」段是卡片文本去掉首尾空白，「已核验经历」是本次唤醒累积的已核验经历），然后写入本唤醒收尾写下的主观条目，最后写 `MEMORY.md`。
@@ -915,38 +920,45 @@ flowchart TD
 <a name="agent-回合协议"></a>
 ### 回合协议
 
-`LifeAgent`（[life_agent.py](../../src/worldmock/agents/life_agent.py)）是数字人唤醒适配器，通用模型回合引擎实现在 [src/worldmock/agents/protocol](../../src/worldmock/agents/protocol) 下的 `agent_loop.py`（取代旧式 `react_loop.py` 与 `life_continuation.py`）。运行宿主为每次唤醒准备只读 `AgentWakeupInput` 与沙盒句柄 `SandboxHandle`（[engine_handle.py](../../src/worldmock/agents/protocol/engine_handle.py)，由模拟引擎的 `AgentSandbox` 实现；`worldmock.agents` 严格禁止反向导入 `runtime` 或 `simulation_engine`）：`LifeAgent` 本身无内存跨唤醒状态，跨模拟时间的搜索暂停通过序列化在 `AgentState.suspended_loop` 中的 `SuspendedLoopState`（显式携带 `wakeup_id`、`action_id`、`activity_id`、`pending_tool_call_id`、`messages`、`turn_used` 与沙盒继续执行字段）无栈恢复。
-实例的冻结输入见「人物身份与画像」：通过 `ModelRegistry.resolve("action", agent_id)` 取得行动阶段 `ResolvedModelBinding`，基础回合上限为 `profile.max_react_turns`，请求的 `model` 与 `max_tokens` 取 `profile.requested_model` 与 `effective_max_tokens`，思考开关取 `profile.thinking`，容量预检用它的 `metadata`；人设层的 `identity.name` 等于对应 `personas/*.toml` 里 `name` 的原字符串，不去空白、不改写。
+`LifeAgent`（[life_agent.py](../../src/worldmock/agents/life_agent.py)）是数字人唤醒适配器，通用模型回合引擎实现在 [src/worldmock/agents/protocol](../../src/worldmock/agents/protocol) 下的 `agent_loop.py`。运行宿主为每次唤醒准备只读 `AgentWakeupInput` 与沙盒句柄 `SandboxHandle`（[engine_handle.py](../../src/worldmock/agents/protocol/engine_handle.py)，由模拟引擎的 `AgentSandbox` 实现；`worldmock.agents` 严格禁止反向导入 `runtime` 或 `simulation_engine`）：同一本地日内的跨唤醒对话流与工具加载状态由 `AgentState.day_session`（`DaySessionState`）连续维护，跨模拟时间的搜索暂停通过序列化在 `AgentState.suspended_loop` 中的 `SuspendedLoopState`（显式携带 `wakeup_id`、`action_id`、`activity_id`、`pending_tool_call_id`、`turn_used`、`memory_search_count` 与沙盒继续执行字段，不再冗余携带 `messages` 与 `base_layers`）无栈恢复。
+实例的冻结输入见「人物身份与画像」：通过 `ModelRegistry.resolve("action", agent_id)` 取得行动阶段 `ResolvedModelBinding`，基础回合上限为 `profile.max_react_turns`，请求的 `model` 与 `max_tokens` 取 `profile.requested_model` 与 `effective_max_tokens`，思考开关取 `profile.thinking`，日内 Compaction 触发阈值为 `profile.compact_trigger_tokens`（默认 `80000`，严格小于 `int(context_window * 0.85)`），前缀缓存路由键开关为 `profile.prompt_cache_key`，容量预检用它的 `metadata`；人设层的 `identity.name` 等于对应 `personas/*.toml` 里 `name` 的原字符串，不去空白、不改写。
 
-对于 `mode == "resume_search"` 的恢复唤醒：引擎把经过这段搜索的权威投影结果、差量事件写入 `suspended_loop.pending_tool_call_id` 对应的 `tool` 消息续入原历史，并按 `effective_turn_limit = max(max_react_turns, suspended_loop.turn_used + 1)` 授予至少一次非挂起恢复机会；若当时是在最后一回合挂起，则剩余预算恰为 1。
+唤醒初始化与搜索恢复规则：
+- **日初首次唤醒（`day_session is None`）**：`_WakeupRunner._init_context` 构造 `[system, init_user]` 初始日会话并按 `messages[1]` 创建对应的 `ProgressBudget(layers, meta)`。
+- **同日后续唤醒与 `resume_search`（`day_session is not None`）**：直接沿用 `day_session.messages` 前缀，按 `day_session.pending_boundary_calls` 顺序在末尾追加配对的 `role: "tool"` 差量消息（若为两个开始动作的成组退出，第一条仅带 `{"ok": true, "result": {"status": "settled", "observed_at": observed_at}}`，最后一条带完整 `boundary_delta_payload`）；因 `messages[1]` 为早期基底且与新 `progress_meta` 不对齐，初始 `budget` 必须置为 `None`（严禁以新 `progress_meta` 配合历史 `messages[1]` 或用 `fit_request` 覆盖已缓存前缀）。若 `mode == "resume_search"`，按 `effective_turn_limit = max(max_react_turns, suspended_loop.turn_used + 1)` 授予至少一次非挂起恢复机会。
 
 每次常规唤醒（或恢复延续）期间，所有模型回合均使用同一个确定性 `wakeup_id = f"{run_id}:wake:{current_time}:v{state.version}:a{agent_id}"`。第 t 回合的模型调用身份 `call_id` 为 `{wakeup_id}:model:{t:04d}:attempt:1`：每次调用加一，截断重试与纠错回合也不例外，三份证据的 `attempt` 恒为 1。
-某一回合的回复受理了一项持续开始活动或有效开始组、受理了 `search_world` 进入挂起退出，或者当前沙盒已有进行中活动且无待收尾与未解拒绝（`SandboxHandle.can_finish_idle` 为真）并以非截断重试的无工具调用回复收束时，回合循环在该回合结束；若直到 `effective_turn_limit` 耗尽仍未结束或挂起，则抛出 `ProtocolError`（`LifeAgent` 外层按运行故障上报并在写回失败前模型草稿后中止）。
-上一回合是截断回合（`finish_reason` 为 `length`、正文为空且没有工具调用）、并且那一回合的请求开启了思考（`profile.thinking` 为真）时，本回合是关闭思考并收窄工具面的截断重试。
+某一回合的回复受理了一项持续开始活动或有效开始组、受理了 `continue_activity`（返回 `terminal_exit=True, suspended=False`），或受理了 `search_world` 进入挂起退出时，回合循环在该回合结束；已彻底废除 `can_finish_idle` 纯文本空闲退出，空 `tool_calls` 一律视为协议错误触发纠偏。若直到 `effective_turn_limit` 耗尽仍未结束或挂起，则抛出 `ProtocolError`（`LifeAgent` 外层按运行故障上报并在写回失败前模型草稿后中止）。
 
 每个回合依次执行：
 
 | 序 | 动作 |
 | --- | --- |
-| 1 | 定工具面：当剩余回合数（含本回合）恰好为 1，或本回合是截断重试时，屏蔽只读工具（`recall_task_summary`、`search_memory`）与 `search_world`，只开放六个核心世界请求工具（按 `REQUEST_MODELS` 次序）；其余回合在它们后面接 `search_world`、`recall_task_summary` 与 `search_memory`，共九个原生工具 |
-| 2 | 组装请求字典，恰为 `model`、`messages`、`tools`、`tool_choice`、`max_tokens`、`extra_body` 六个键，依此次序：平时 `tool_choice` 为 `"auto"`、`extra_body` 按 `profile.thinking` 写 `{"thinking": {"type": "enabled"}}` 或 `{"type": "disabled"}`；截断重试固定为 `"required"` 与 `{"thinking": {"type": "disabled"}}`；请求里没有 `temperature`、`top_p`、`stream` 或重试次数 |
-| 3 | 容量预检：由 `prompt_capacity.py` 按当前实际消息列表与 `effective_max_tokens` 检查 `85%` 上下文窗口预算，超限时折叠连续未受保护进度记录（已删除跨轮续接前缀切分及 `fresh_messages` / `chain_length`）；发出并留证的是预检后的请求，容量浓缩不写回真实对话历史 |
+| 1 | 定工具面：所有回合（含最后一回合与截断重试回合）一律下发完全相同的十一个原生工具定义（`start_main_activity`、`start_side_activity`、`search_world`、`continue_activity`、`report_status`、`pause_activity`、`conclude_activity`、`revise_day_plan`、`recall_task_summary`、`search_memory`、`lookup_targets`），绝不删减工具 |
+| 2 | 组装请求字典，恰为 `model`、`messages`、`tools`、`tool_choice`、`max_tokens`、`extra_body` 六个键，依此次序：`thinking_on = self.config.allow_thinking and profile.thinking` 跨轮保持恒定（截断重试亦不关闭思考）；当 `thinking_on` 为 `True` 时 `tool_choice` 恒为 `"auto"`，仅当 `thinking_on` 为 `False` 且处于截断重试（`last_truncated` 为 `True`）时 `tool_choice` 为 `"required"`；`extra_body` 含 `"thinking"`（`{"type": "enabled"}` 或 `{"type": "disabled"}`），且当 `profile.prompt_cache_key` 为 `True` 时仅主循环 `action` 请求额外注入 `"prompt_cache_key": f"{run_id}:a{agent_id}:{local_date}"`；请求里没有 `temperature`、`top_p`、`stream` 或重试次数 |
+| 3 | **日内阈值 Compaction 与容量预检**：在调用 `fit_request` 之前，若存在压缩钩子（仅主循环 `LifeAgent` 启用）且 `len(history) > 2`，以 `prompt_token_count(request)` 计量当前草拟请求的令牌数；若 `prompt_tokens >= profile.compact_trigger_tokens`，执行确定性结构化 Compaction（算法见下文）并刷新 `self.budget`；随后经 `prompt_capacity.py` `fit_request` 校验 `request_token_count < 0.85 * context_window`（`budget is None` 时从 `request["messages"][1]` 解析层数组输出分段诊断；极端单组仍超限时仅对当前 `messages[1]` 的 `进度层` 浓缩，仍超限则抛出 `RuntimeError("model request capacity exceeded")`）。发出并留证的是预检后的请求 |
 | 4 | 将 `model_request` 证据写入沙盒证据草稿列表后经模型客户端发送；客户端收到的与请求证据完全一致 |
 | 5 | 发送失败时将失败证据写入沙盒证据草稿列表：`error` 是 `MODEL_SERVICE_FAILED: The model service failed before a response was available.`，`response` 只带 `protocol_feedback` 与 `transport_attempts`，再把原异常上抛，原异常的 `repr` 不进证据；主线程在中止前调用 `LifeEngine.record_failed_evidence` 补写尚未落盘的模型草稿。发送被取消时不写失败证据 |
 | 6 | 发送成功时先解析、校验回复，再写 `model_response` 证据进沙盒证据草稿列表；带协议纠错时证据的 `response` 末尾追加 `protocol_feedback`，`error` 是纠错文字 |
-| 7 | 回复通过校验时，历史接上一条 `assistant` 消息，按回复中的先后执行每个调用：只读工具（`recall_task_summary`、`search_memory`）写回紧凑 JSON `tool` 消息；控制工具与被拒世界请求由 `AgentSandbox` 算出 `{"result": ..., "changes": ..., "events": ...}` 写回 `tool` 消息；受理持续开始动作或开始组则返回 `terminal_exit=True` 正常结束；受理 `search_world` 则保存 `SuspendedLoopState`（含 `pending_tool_call_id`）挂起退出；若回复无工具调用且满足 `can_finish_idle`，则接上 `assistant` 消息后直接正常结束本次唤醒 |
-| 8 | 回复带协议纠错时，按下文配对规则或单条 `user` 消息把纠错接进历史继续下一回合 |
+| 7 | 回复通过校验时，历史接上一条 `assistant` 消息，按回复中的先后执行每个调用：只读工具（`recall_task_summary`、`search_memory`、`lookup_targets`）写回紧凑 JSON `tool` 消息；控制工具与被拒世界请求由 `AgentSandbox` 算出 `{"ok": true, "result": ..., "changes": ...}` 写回 `tool` 消息；受理持续开始动作、开始组或 `continue_activity` 时保留末尾 `assistant`（含 `boundary tool_calls`）并写入 `pending_boundary_calls`，通过 `sandbox.finish_wakeup` 封装 `DaySessionState` 与 `compaction_records` 后返回 `terminal_exit=True` 正常结束；受理 `search_world` 则保存 `SuspendedLoopState` 与 `DaySessionState`（含 `pending_boundary_calls`）挂起退出 |
+| 8 | 回复带协议纠错时，严禁向 `history` 插入第二条 `role: "user"` 消息，按下文无 `user` 纠偏规则处理并继续下一回合 |
 
-`assistant` 消息的键依次是 `role`（`"assistant"`）、`content`（回复原值，`null` 或空串不改写）、`tool_calls`、`reasoning_content`（回复带非空推理时才有，放在最后）；每个工具调用的键依次是 `id`、`type`（`"function"`）、`function`（`name` 与 `arguments`，`arguments` 缺省为 `"{}"`）。`tool` 消息的键依次是 `role`、`tool_call_id`、`content`。
+**日内确定性 Compaction 算法（`prompt_capacity.py` 与 `life_agent.py`）**：
+1. 将 `history[2:]` 解析为若干完整 `(assistant, *tool_messages)` 交互组 `G_0, G_1, ..., G_{m-1}`，绝不从组中间截断；自末尾 `G_{m-1}` 向前倒序纳入保留尾部 `tail_groups`，循环条件为 `len(tail_groups) < 6` 且加入下一组后总令牌数 `<= 16000`（若最末一组 `G_{m-1}` 自身超过 `16000` tokens，仍至少保留 `G_{m-1}` 以维持当前推理链与 `tool_call_id` 合法性）。
+2. 若可折叠前序组 `G_0 .. G_{k-1}` 为空（`k == 0`），跳过 Compaction 并直接交由 `fit_request` 校验 `0.85 * context_window`。
+3. 否则保持 `messages[0]`（`day_session.system_prompt`）逐字节不变；调用 `self.sandbox.compact_snapshot()` 清空 `loaded_target_keys = ()`、刷新最新权威 `待办层`、`环境层`、`工具层` 与 `_delivered_layers`；保持静态 `人设层`、`记忆层.可查` 与 `记忆层.近三天` 不变，更新 `记忆层.今天` 为当日最新权威条目并依据 `AgentWakeupInput.settled_day_events` 与被折叠条目确定性生成 `"折叠摘要"`；依 `USER_LAYER_NAMES` 重建 `messages[1]` 并拼接 `*tail_messages` 构成 `[system, rebuilt_user, *tail_messages]`，同时返回新的 `ProgressBudget(rebuilt_layers, rebuilt_meta)` 刷新 `self.budget`；更新 `compaction_count += 1`、`compacted_through_seq = folded_through_seq`，并向 `SandboxOutcome.compaction_records` 写入一条记录（提交时落盘 `day_session_compacted` 环境事件与 `DAY_SESSION_COMPACTED` 运维日志）。
 
-纠错正文是错误报告的五个字段加 `instruction` 的 JSON，不转义中文，分隔符用缺省的「, 」与「: 」。本回合请求开启了思考、且回复的工具调用结构完整（非空的调用表，每个调用的 `type` 是 `"function"`，`id` 与 `function.name` 去空白后非空，`function.arguments` 是字符串，`id` 互不相同）时，纠错与调用配对：历史接上按上面形状构造的 `assistant` 消息，每个调用再接一条 `tool` 消息，正文都是纠错正文。其余情况（没有工具调用、截断回合、截断重试回合、调用结构不完整）纠错是接在末尾的一条 `user` 消息，替换本轮已有的同类 `user` 纠错而不叠加。交给引擎或模型客户端的请求字典、消息列表与其中每条消息，交出之后都不再被原地改动。
+**消息形态与无 `user` 纠偏连续性**：
+- `assistant` 消息的键依次是 `role`（`"assistant"`）、`content`（回复原值，`null` 或空串不改写）、`tool_calls`、`reasoning_content`（回复带非空推理时才有，放在最后）；每个工具调用的键依次是 `id`、`type`（`"function"`）、`function`（`name` 与 `arguments`，`arguments` 缺省为 `"{}"`）。`tool` 消息的键依次是 `role`、`tool_call_id`、`content`（经 `render_tool_content` 渲染；`LifeAgent` 传入带黑名单检查的 `render_layer_json`）。
+- 当模型回复包含结构完整且 `id` 互异的 `tool_calls`（`_pairable_calls(calls)` 为 `True` 且非 `truncated(raw)`）但发生参数校验、批次形状、看法主体或业务规则拒绝时，**无论 `thinking` 开启与否**，一律追加 `_response_assistant_message(raw)` 与配对的 `role: "tool"` 纠偏消息（将 `{**feedback.report.payload(), "instruction": FEEDBACK_INSTRUCTION}` 经 `render_tool_content` 渲染），并将局部状态 `last_truncated` 置为 `False`。
+- 当模型回复为纯文本无工具调用、`choices` 为空或输出截断（`finish_reason == "length"` 且无 `tool_calls`）时，**严禁向 `history` 追加或替换 `role: "user"` 消息**。`AgentLoop` 将该次异常记入 `model_response` 证据与 `protocol_feedback` 后保持 `history` 停留在上一个合法边界不变（完整保留前缀缓存），通过局部状态 `last_truncated = truncated(raw)` 标记下一回合的 `retry` 状态（非截断异常置 `False`）并继续重发至多至 `effective_turn_limit`；耗尽仍未产生合法调用时抛出 `ProtocolError`。交给引擎或模型客户端的请求字典、消息列表与其中每条消息，交出之后都不再被原地改动。
 
 人物一侧的三个失败阶段码指向实际调用位置，不声称失败的调用已经执行：工具服务失败是 `TOOL_SERVICE_FAILED`，明细路径 `["tool_calls", 调用位置]`，同一回复里先执行的调用已在沙盒中记录；模型证据写入失败是 `EVIDENCE_WRITE_FAILED`；模型服务失败是 `MODEL_SERVICE_FAILED`，明细路径 `["tool_calls"]`。前两种以 `RuntimeError` 抛出，模型服务失败写完失败草稿后原样上抛。
 
 <a name="agent-llm-search-session"></a>
 ### LLM Search Session 与 `Fact Guard`
 
-`LLM Search Session` 是在 `ActivityKind.SEARCH` 到达 `planned_end_at` 时由 `RunHost` 通过 `SearchSessionRunner`（位于 `src/worldmock/agents/search/`）并发执行的独立轻量级子会话，通过共享的通用 `AgentLoop` 引擎与 `ModelRegistry.resolve("search", agent_id)` 绑定的搜索模型档运行。
+`LLM Search Session` 是在 `ActivityKind.SEARCH` 到达 `planned_end_at` 时由 `RunHost` 通过 `SearchSessionRunner`（位于 `src/worldmock/agents/search/`）并发执行的独立轻量级子会话，通过共享的通用 `AgentLoop` 引擎与 `ModelRegistry.resolve("search", agent_id)` 绑定的搜索模型档运行（`allow_thinking = False`、全回合恒定 4 个搜索工具、不启用日内 Compaction 钩子、不注入 `prompt_cache_key`，并使用无观察黑名单的紧凑 JSON `render_tool_content` 以允许子会话使用 `goods_id` 与 `location_id`）。
 
 ```mermaid
 sequenceDiagram

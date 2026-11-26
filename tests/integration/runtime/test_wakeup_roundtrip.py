@@ -96,7 +96,9 @@ async def test_suspended_loop_checkpoints_resumes_and_completes_causal_chain(eng
         tool_msg = m_buy.requests[0]["messages"][-1]
         assert tool_msg["role"] == "tool" and tool_msg["tool_call_id"] == "call-sw-suspend"
         payload = json.loads(tool_msg["content"])
-        assert payload["activity_id"] == sup.activity_id and payload["search"]["goods_rows"][0]["product"] == "柠檬茶"
+        assert payload["ok"] is True and "activity_id" not in payload
+        assert payload["search"]["goods_rows"][0]["product"] == "柠檬茶"
+        assert "boundary" in payload and "changes" in payload
 
         all_events = [e for e in reopened.context.store.iter_events(reopened.context.store.last_event_seq)]
         req_tools = [e.data["tool_name"] for e in all_events if e.event_type == "action_requested"]
@@ -104,7 +106,7 @@ async def test_suspended_loop_checkpoints_resumes_and_completes_causal_chain(eng
         purposes = [e.data.get("purpose") for e in all_events if e.event_type == "model_request"]
         assert "search_session" in purposes and None in purposes
         # 同日同一 wakeup_id 在 memory_layer["今天"] 中归并成唯一条目
-        obs_after, _, _ = reopened.observations.build_wakeup_observation(reopened.context.state.agents[1])
+        obs_after, _ = reopened.observations.build_wakeup_observation(reopened.context.state.agents[1])
         today_list = obs_after["memory_layer"]["今天"]
         assert len(today_list) == 1 and "柠檬茶" in json.dumps(today_list, ensure_ascii=False)
     finally:
@@ -122,7 +124,7 @@ async def test_early_conclude_and_counterfactual_clear_suspended_loop(engine_fac
     assert e_cancel.context.state.agents[1].suspended_loop is not None
     search_name = activity_name(e_cancel, res.activity_id)
     conclude_req = conclude_request(search_name, summary="不搜了。").model_dump(mode="json")
-    obs_running, _, _ = e_cancel.observations.build_wakeup_observation(e_cancel.context.state.agents[1])
+    obs_running, _ = e_cancel.observations.build_wakeup_observation(e_cancel.context.state.agents[1])
     inv = ToolInvocation(
         1, "wakeup-cancel", "wakeup-cancel:action:0001", "conclude_activity", conclude_req,
         sha256_json({"tool_name": "conclude_activity", "request": conclude_req}),
@@ -156,6 +158,7 @@ async def test_early_conclude_and_counterfactual_clear_suspended_loop(engine_fac
     try:
         reopened_cf.apply_counterfactual(intervention)
         assert reopened_cf.context.state.agents[1].suspended_loop is None
+        assert reopened_cf.context.state.agents[1].day_session is None
     finally:
         reopened_cf.close()
 
@@ -203,7 +206,7 @@ async def test_cross_midnight_search_resume_splits_today_entries_by_local_date(e
     assert [(e.data["tool_name"], local_date(e.occurred_at, tz)) for e in reqs] == [
         (SEARCH_TOOL, "2026-01-05"), (SIDE_TOOL, "2026-01-06"),
     ]
-    obs_day2, _, _ = engine.observations.build_wakeup_observation(engine.context.state.agents[1])
+    obs_day2, _ = engine.observations.build_wakeup_observation(engine.context.state.agents[1])
     today_list = obs_day2["memory_layer"]["今天"]
     assert len(today_list) == 1
     serialized = json.dumps(today_list, ensure_ascii=False)
@@ -257,11 +260,10 @@ async def test_conclude_with_memories_before_search_suspend_persists_memory_upda
 
 
 @pytest.mark.asyncio
-async def test_progress_report_wakeup_finishes_cleanly_on_stop_reply_after_report_status(
+async def test_progress_report_wakeup_finishes_cleanly_on_continue_activity_after_report_status(
     engine_factory, host_factory,
 ) -> None:
-    """长活动进行中途因 progress_report_due 唤醒：调用 report_status 后以无工具调用回复直接结束唤醒并推进时钟。"""
-    from types import SimpleNamespace
+    """长活动进行中途因 progress_report_due 唤醒：调用 report_status 后以 continue_activity 退出唤醒并推进时钟。"""
     from tests.life.conftest import MAIN_TOOL, main_arguments, report_request
 
     engine = engine_factory(mutate=lambda _p, c: c.__setitem__("progress_report_interval_seconds", 60))
@@ -278,13 +280,13 @@ async def test_progress_report_wakeup_finishes_cleanly_on_stop_reply_after_repor
     act = next(iter(engine.context.state.activities.values()))
     now = engine.context.state.current_time
     assert "progress_report_due" in engine.context.state.agents[1].pending_wake_reasons
-    stop_msg = SimpleNamespace(tool_calls=[], content="正在专注做完手头的事。", reasoning_content="")
     model.responses.extend([
         _ModelResponse("c-report", "report_status", json.dumps(
             report_request(act.name, summary="已做一会，继续推进。").model_dump(mode="json"), ensure_ascii=False)),
-        SimpleNamespace(choices=[SimpleNamespace(finish_reason="stop", message=stop_msg)]),
+        _ModelResponse("c-continue", "continue_activity", json.dumps({"reason": None})),
     ])
     await host.step()
     assert engine.context.state.current_time > now
-    assert any(e.event_type == "action_requested" and e.data.get("tool_name") == "report_status"
-               for e in engine.context.store.iter_events(engine.context.store.last_event_seq))
+    tools = [e.data.get("tool_name") for e in engine.context.store.iter_events(engine.context.store.last_event_seq)
+             if e.event_type == "action_requested"]
+    assert "report_status" in tools and "continue_activity" in tools

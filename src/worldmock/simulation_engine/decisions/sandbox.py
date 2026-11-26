@@ -11,6 +11,8 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ValidationError
 
+from worldmock.agents.prompt.tool_groups import compact
+from worldmock.exchange_engine.definitions.types import GOODS_CATEGORY_LABELS
 from worldmock.foundation.errors import BusinessRuleError, PreconditionError, ProtocolError
 from worldmock.foundation.serialization import sha256_json
 from worldmock.recording_engine.events.models import RESOURCE_FLOWS_FIELD, EventDraft
@@ -31,6 +33,14 @@ from worldmock.simulation_engine.evidence.model import FAILED_EVIDENCE_TYPES
 from worldmock.simulation_engine.observation.layers.observe import ObservationBuilder, layer_changes
 from worldmock.simulation_engine.observation.layers.result_projection import public_result
 from worldmock.simulation_engine.observation.memory import search as memory_search
+from worldmock.simulation_engine.observation.targets import discovery
+from worldmock.simulation_engine.observation.targets.tool_layer import (
+    LayerContext,
+    _binding_target,
+    _travel_visible,
+    annotated_bindings,
+    with_bindings,
+)
 from worldmock.simulation_engine.observation.wording.activity_titles import activity_snapshot, title_index
 from worldmock.simulation_engine.observation.wording.guidance import (
     Refusal,
@@ -43,12 +53,18 @@ from worldmock.simulation_engine.scheduling.clock.rhythm import next_decision_at
 from worldmock.simulation_engine.world.context import EngineContext
 from worldmock.simulation_engine.world.world_updates import _put_agent, _request_sha, _resource_flows_data
 from worldmock.state.decisions.barrier import AgentWakeupInput, SandboxOutcome, ToolDispatchResult
+from worldmock.state.decisions.day_session import FIVE_LAYER_KEYS, DaySessionState
 from worldmock.state.decisions.results import ActionResult
 from worldmock.state.decisions.suspended import SuspendedLoopState
 from worldmock.state.interaction.actions import SEARCH_TOOL, START_TOOLS
 from worldmock.state.interaction.control_items import control_items
 from worldmock.state.interaction.request_errors import argument_report
-from worldmock.state.interaction.requests import REQUEST_MODELS, RecallTaskSummaryRequest, SearchMemoryRequest
+from worldmock.state.interaction.requests import (
+    REQUEST_MODELS,
+    LookupTargetsRequest,
+    RecallTaskSummaryRequest,
+    SearchMemoryRequest,
+)
 from worldmock.state.model.exchange import ModelCallEvidence
 from worldmock.state.world.kinds import ActionStatus, ActivityKind, ActivityStatus
 from worldmock.state.world.world import WorldState, active_activities
@@ -97,6 +113,13 @@ class AgentSandbox:
         self._operations: list[dict[str, Any]] = []
         self._request_records: dict[tuple[str, str], tuple[str, str]] = {}
         self._pending_start: _PendingStart | None = None
+        self._loaded_target_keys: list[tuple[str, str]] = (
+            list(wakeup.day_session.loaded_target_keys) if wakeup.day_session is not None else []
+        )
+        self._delivered_layers: dict[str, Any] = {
+            key: copy.deepcopy(wakeup.observation[key])
+            for key in FIVE_LAYER_KEYS if key in wakeup.observation
+        }
         self._finished = False
 
     def search_memory(self, request: SearchMemoryRequest | Mapping[str, Any]) -> dict[str, Any]:
@@ -126,6 +149,41 @@ class AgentSandbox:
             return self._actions.read_task_summary_on(self._state, self._agent_id, req, self._baseline_obs)
         except BusinessRuleError as error:
             return query_rejection(error)
+
+    def lookup_targets(self, request: BaseModel | Mapping[str, Any]) -> dict[str, Any]:
+        """@brief 零耗时只读检索地点、内容应用或商品目标，并将命中目标载入当前日会话工具层。"""
+        self._require_open()
+        self._pending_start = None
+        req = (request if isinstance(request, LookupTargetsRequest)
+               else LookupTargetsRequest.model_validate(request))
+        pairs = self._lookup_pairs(req.kind, req.keyword)
+        total = len(pairs)
+        page = pairs[req.offset:req.offset + req.limit]
+        self._record_loaded_targets(row for row, _ in page)
+        targets = [compact(target) for _, target in page]
+        has_more = req.offset + len(targets) < total
+        next_offset = req.offset + len(targets) if has_more else None
+        return {
+            "ok": True,
+            "result": {
+                "total": total,
+                "has_more": has_more,
+                "next_offset": next_offset,
+                "targets": targets,
+                "loaded_count": len(targets),
+            },
+        }
+
+    def compact_snapshot(self) -> dict[str, Any]:
+        """@brief 清空会话已载入目标并按沙盒当前状态刷新权威五层与进度元数据，供日内 Compaction 使用。"""
+        self._require_open()
+        self._pending_start = None
+        self._loaded_target_keys.clear()
+        refreshed = self._observations.sandbox_layers(self._state, self._baseline_obs, ())
+        self._baseline_obs = {**self._baseline_obs, **refreshed}
+        layers = {key: copy.deepcopy(self._baseline_obs[key]) for key in FIVE_LAYER_KEYS if key in self._baseline_obs}
+        self._delivered_layers = copy.deepcopy(layers)
+        return {**layers, "progress_meta": copy.deepcopy(self._baseline_obs.get("progress_meta", []))}
 
     def dispatch_world_tool(self, tool_name: str, arguments: BaseModel | Mapping[str, Any],
                             call_id: str, note: str | None = None) -> ToolDispatchResult:
@@ -183,34 +241,88 @@ class AgentSandbox:
         self._request_records.pop(key)
         self._drafts.append(_exchange_draft(exchange, self._now, uuid4().hex, [recorded[0]], False))
 
-    def finish_wakeup(self, suspended: SuspendedLoopState | None) -> SandboxOutcome:
-        """@brief 封口沙盒状态与唤醒调度时间并返回不可变唤醒产出。"""
+    def finish_wakeup(
+        self,
+        suspended: SuspendedLoopState | None,
+        day_session: DaySessionState,
+        compaction_records: tuple[dict[str, Any], ...] = (),
+    ) -> SandboxOutcome:
+        """@brief 封口沙盒状态、补全会话载入集与已交付基准并返回不可变唤醒产出。"""
         self._require_open()
         self._pending_start = None
         self._finished = True
+        updated_session = day_session.model_copy(update={
+            "loaded_target_keys": tuple(self._loaded_target_keys),
+            "last_observed_layers": copy.deepcopy(self._delivered_layers),
+        })
         if suspended is not None:
             final_state = self._apply_suspend(suspended)
-            return self._build_outcome("suspended", final_state, {})
+            return self._build_outcome("suspended", final_state, updated_session, compaction_records)
         agent = self._state.agents[self._agent_id]
         loop = agent.suspended_loop if _has_active_search(self._state, self._agent_id) else None
         cleared = agent.model_copy(update={"suspended_loop": loop, "pending_wake_reasons": []}, deep=True)
         snapped = self._observations.snapshot_decision_references(_put_agent(self._state, cleared), [self._agent_id])
         refreshed = snapped.agents[self._agent_id]
-        next_at = (
-            self._now if _keep_agent_ready(snapped, self._operations, self._drafts, self._agent_id)
-            else next_decision_at(self._context, snapped, refreshed)
-        )
+        next_at = next_decision_at(self._context, snapped, refreshed)
         final_state = _put_agent(snapped, refreshed.model_copy(update={"next_decision_at": next_at}))
-        return self._build_outcome("completed", final_state, dict(self._wakeup.pending_presentation))
-
-    def can_finish_idle(self) -> bool:
-        """@brief 当前存在进行中活动且无待收尾与未解拒绝时，允许无工具调用回复直接结束唤醒。"""
-        return bool(active_activities(self._state, self._agent_id)) and not _keep_agent_ready(
-            self._state, self._operations, self._drafts, self._agent_id)
+        return self._build_outcome("completed", final_state, updated_session, compaction_records)
 
     def drain_evidence(self) -> tuple[EventDraft, ...]:
         """@brief 返回异常退出时允许落库的纯模型与唤醒证据草稿。"""
         return tuple(draft for draft in self._drafts if draft.event_type in FAILED_EVIDENCE_TYPES)
+
+    def _lookup_pairs(self, kind: str | None, keyword: str | None) -> list[tuple[dict, dict]]:
+        """@brief 在沙盒当前状态下构建符合分类与关键词过滤条件的候选目标对。"""
+        agent = self._state.agents[self._agent_id]
+        catalog_rows = self._observations._catalog_bindings(agent, self._state)
+        base_ctx = self._observations._layer_context(
+            agent, catalog_rows, self._state, frozenset(self._loaded_target_keys),
+        )
+        scoped = self._scoped_lookup_rows(base_ctx, catalog_rows, kind)
+        annotated = annotated_bindings(with_bindings(base_ctx, scoped))
+        target_ctx = with_bindings(base_ctx, annotated)
+        pairs = [(row, _binding_target(target_ctx, row)) for row in annotated]
+        if keyword is None:
+            return pairs
+        needle = keyword.strip().casefold()
+        return [(row, target) for row, target in pairs
+                if _matches_lookup_keyword(self._context.catalog, row, target, needle)]
+
+    def _scoped_lookup_rows(self, ctx: LayerContext, catalog_rows: list[dict], kind: str | None) -> list[dict]:
+        """@brief 按指定分类或默认顺序收集当前位置可达范围内的绑定行并排序。"""
+        agent = self._state.agents[self._agent_id]
+        origin = agent.location_id
+        graph = self._context.catalog.graph
+        current_city = graph.city_of(origin)
+        hubs = dict(graph.intercity_edges_from(origin))
+        loc_rows = [
+            row for row in catalog_rows
+            if row["kind"] == "location"
+            and (graph.city_of(row["object_id"]) == current_city or row["object_id"] in hubs)
+        ]
+        loc_rows.sort(key=lambda r: (not _location_reachable(ctx, origin, r), r["object"], r["object_id"]))
+        app_rows = sorted((r for r in catalog_rows if r["kind"] == "app"), key=lambda r: (r["object"], r["object_id"]))
+        prod_rows = sorted(discovery.product_bindings(ctx), key=lambda r: (r["object"], r["object_id"]))
+        buckets = {"location": loc_rows, "app": app_rows, "product": prod_rows}
+        if kind is not None:
+            return buckets[kind]
+        return [*loc_rows, *app_rows, *prod_rows]
+
+    def _record_loaded_targets(self, rows) -> None:
+        """@brief 将命中目标并入会话已载入键集并同步刷新沙盒工具层与已交付基准。"""
+        changed = False
+        for row in rows:
+            public_kind = "product" if row["kind"] == "supply" else row["kind"]
+            key = (public_kind, row["object_id"])
+            if key not in self._loaded_target_keys:
+                self._loaded_target_keys.append(key)
+                changed = True
+        if changed:
+            after = self._observations.sandbox_layers(self._state, self._baseline_obs, self._loaded_target_keys)
+            self._baseline_obs = {**self._baseline_obs, **after}
+            self._delivered_layers.update(
+                {name: copy.deepcopy(after[name]) for name in FIVE_LAYER_KEYS if name in after}
+            )
 
     def _require_open(self) -> None:
         """@brief 禁止在封口之后继续对同一个沙盒写入或查询。"""
@@ -266,7 +378,7 @@ class AgentSandbox:
         self._actions.drain_causes()
         changed, _ = settle_navigation(self._state, changed, self._context.catalog)
         self._drafts.extend(drafts)
-        changes = self._advance_layers(changed)
+        changes = self._advance_layers(changed, update_delivered=False)
         m1 = self._record_operation(inv1, pair_ids[0], baseline_before)
         m2 = self._record_operation(inv2, pair_ids[1], baseline_before)
         return (self._dispatch_result(inv1.tool_name, results[0], changes, m1),
@@ -299,7 +411,8 @@ class AgentSandbox:
         changed, _ = settle_navigation(self._state, changed, self._context.catalog)
         self._drafts.extend(drafts)
         prior_obs = copy.deepcopy(self._baseline_obs)
-        changes = self._advance_layers(changed)
+        boundary = inv.tool_name in (*START_TOOLS, SEARCH_TOOL, "continue_activity")
+        changes = self._advance_layers(changed, update_delivered=not boundary)
         memories = self._record_operation(inv, (acc_id, res_id), prior_obs)
         return self._dispatch_result(inv.tool_name, result, changes, memories)
 
@@ -320,15 +433,15 @@ class AgentSandbox:
 
     def _dispatch_result(self, tool_name: str, result: ActionResult, changes: dict[str, Any],
                          memories: tuple[dict[str, Any], ...]) -> ToolDispatchResult:
-        """@brief 将单条动作受理结果封装为供循环层消费的 ToolDispatchResult。"""
+        """@brief 将单条动作受理结果封装为供循环层消费的 ToolDispatchResult，严禁将 activity_id 混入工具消息载荷。"""
         pub = public_result(result.model_dump(mode="json"), self._context.inputs, {})
         suspended = tool_name == SEARCH_TOOL
-        terminal = suspended or tool_name in START_TOOLS
-        payload: dict[str, Any] = {"result": pub, "changes": changes, "events": []}
-        if result.activity_id:
-            payload["activity_id"] = result.activity_id
-        return ToolDispatchResult(accepted=True, terminal_exit=terminal, suspended=suspended,
-                                  tool_message_payload=payload, pending_memories=memories)
+        terminal = suspended or tool_name in START_TOOLS or tool_name == "continue_activity"
+        payload: dict[str, Any] = {"ok": True, "result": pub, "changes": changes, "events": []}
+        return ToolDispatchResult(
+            accepted=True, terminal_exit=terminal, suspended=suspended,
+            activity_id=result.activity_id, tool_message_payload=payload, pending_memories=memories,
+        )
 
     def _reject(self, invs: Sequence[ToolInvocation], error: BusinessRuleError) -> ToolDispatchResult:
         """@brief 将单条或成组业务拒绝转为拒绝脉冲、带请求回链的拒绝证据与公开工具响应。"""
@@ -355,9 +468,11 @@ class AgentSandbox:
             last_payload = public_result(result.model_dump(mode="json"), self._context.inputs, {})
         if flows and first_result is not None:
             first_result.data[RESOURCE_FLOWS_FIELD] = flows
-        return ToolDispatchResult(accepted=False, terminal_exit=False, suspended=False,
-                                  tool_message_payload={"result": last_payload, "changes": changes, "events": []},
-                                  pending_memories=())
+        return ToolDispatchResult(
+            accepted=False, terminal_exit=False, suspended=False,
+            tool_message_payload={"ok": False, "result": last_payload, "changes": changes, "events": []},
+            pending_memories=(),
+        )
 
     def _apply_rejection_pulse(self) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """@brief 同一人物同一模拟秒首次服务拒绝时施加 0.05 放松需要脉冲并返回资源分录与层差量。"""
@@ -369,12 +484,16 @@ class AgentSandbox:
         changed = _put_agent(self._state, agent.model_copy(update={"body": updated_body}, deep=True))
         return flows, self._advance_layers(changed)
 
-    def _advance_layers(self, changed: WorldState) -> dict[str, Any]:
-        """@brief 计算世界状态变更前后观察层差量，并滚动更新沙盒基准观察层。"""
-        after = self._observations.sandbox_layers(changed, self._baseline_obs)
+    def _advance_layers(self, changed: WorldState, *, update_delivered: bool = True) -> dict[str, Any]:
+        """@brief 计算世界状态变更前后观察层差量，并滚动更新沙盒基准观察与已交付基准。"""
+        after = self._observations.sandbox_layers(changed, self._baseline_obs, self._loaded_target_keys)
         diff = layer_changes(self._baseline_obs, after)
         self._state = changed
         self._baseline_obs = {**self._baseline_obs, **after}
+        if update_delivered:
+            self._delivered_layers.update(
+                {name: copy.deepcopy(after[name]) for name in FIVE_LAYER_KEYS if name in after}
+            )
         return diff
 
     def _apply_suspend(self, suspended: SuspendedLoopState) -> WorldState:
@@ -390,19 +509,22 @@ class AgentSandbox:
         return _put_agent(snapped, refreshed.model_copy(
             update={"next_decision_at": next_decision_at(self._context, snapped, refreshed)}))
 
-    def _build_outcome(self, status: str, state: WorldState,
-                       presentation: dict[str, int]) -> SandboxOutcome:
+    def _build_outcome(
+        self, status: str, state: WorldState,
+        day_session: DaySessionState, compaction_records: tuple[dict[str, Any], ...],
+    ) -> SandboxOutcome:
         """@brief 组装交回时钟屏障提交的不可变唤醒结果对象。"""
         return SandboxOutcome(
             wakeup_id=self._wakeup.wakeup_id, agent_id=self._agent_id, status=status,
             state=state, evidence_drafts=tuple(self._drafts),
             observation_parts=dict(self._wakeup.observation_parts),
-            pending_presentation=presentation, accepted_action_ids=tuple(self._accepted_ids),
+            accepted_action_ids=tuple(self._accepted_ids),
             pending_memories=tuple(self._pending_memories),
             verified_experiences=tuple(copy.deepcopy(self._wakeup.observation.get("verified_experiences", ()))),
             observation_event_id=self._obs_event_id,
             observation_payload=copy.deepcopy(self._wakeup.observation),
             memory_evidence=None, action_operations=tuple(self._operations),
+            day_session=day_session, compaction_records=tuple(compaction_records),
         )
 
 
@@ -552,25 +674,39 @@ def _prior_pulse_applied(context: EngineContext, drafts: Sequence[EventDraft], a
     )
 
 
+def _location_reachable(ctx: LayerContext, origin: str, row: dict[str, Any]) -> bool:
+    """@brief 判断从当前停留或锚定地点是否存在直达或可用出行路线到达目标地点。"""
+    destination = row["object_id"]
+    if destination == origin:
+        return True
+    return any(
+        _travel_visible(ctx, destination, action["travel_method_id"])
+        for action in row.get("actions", ()) if action.get("action") == "travel"
+    )
+
+
+def _matches_lookup_keyword(catalog: Any, row: dict[str, Any], target: dict[str, Any], needle: str) -> bool:
+    """@brief 忽略大小写匹配目标名称、地点或商品类别、动作描述与时段摘要。"""
+    fields: list[str] = [str(target.get("name") or ""), str(target.get("state") or "")]
+    if row["kind"] == "location":
+        fields.append(catalog.locations[row["object_id"]].kind)
+    elif row["kind"] == "supply":
+        category = catalog.goods[row["object_id"]].category
+        fields.extend((category, GOODS_CATEGORY_LABELS.get(category, "")))
+    for action in target.get("actions", ()):
+        for key in ("action", "detail", "note", "reason"):
+            value = action.get(key)
+            if value:
+                fields.append(str(value))
+    return any(needle in value.casefold() for value in fields if value)
+
+
 def _has_active_search(state: WorldState, agent_id: int) -> bool:
     """@brief 判断人物当前是否存在尚未结束或取消的进行中搜索活动。"""
     return any(
         act.agent_id == agent_id and act.kind == ActivityKind.SEARCH and act.status == ActivityStatus.ACTIVE
         for act in state.activities.values()
     )
-
-
-def _keep_agent_ready(
-    state: WorldState, outcome_ops: Sequence[Any], drafts: Sequence[EventDraft], agent_id: int,
-) -> bool:
-    """@brief 判断唤醒完成后当前时刻是否仍应保持就绪（未以开始工具收口且待收尾/空活动/拒绝）。"""
-    if any(item.get("tool_name") in START_TOOLS for item in outcome_ops):
-        return False
-    if activity_control.pending_conclusions(activity_control.open_activities(state, agent_id)):
-        return True
-    if outcome_ops and not active_activities(state, agent_id):
-        return True
-    return not outcome_ops and any(draft.event_type == "action_rejected" for draft in drafts)
 
 
 def _finalize_invocation(

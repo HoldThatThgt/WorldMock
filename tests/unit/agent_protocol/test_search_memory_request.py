@@ -16,6 +16,7 @@ from worldmock.state.interaction.requests import (  # noqa: E402
     QUERY_MODELS,
     REQUEST_MODELS,
     ActionRequest,
+    LookupTargetsRequest,
     SearchMemoryRequest,
 )
 from worldmock.state.interaction.schema import deepseek_strict_schema  # noqa: E402
@@ -95,7 +96,9 @@ def test_search_memory_argument_errors_use_the_host_argument_contract() -> None:
 
 
 def test_query_models_hold_only_search_memory_outside_request_models() -> None:
-    """QUERY_MODELS 只有 search_memory；它与 REQUEST_MODELS 不相交，也不是 ActionRequest 联合类型的成员。"""
-    assert QUERY_MODELS == {"search_memory": SearchMemoryRequest}
+    """QUERY_MODELS 仅含只读查询模型；与 REQUEST_MODELS 不相交，也不是 ActionRequest 联合类型的成员。"""
+    assert QUERY_MODELS == {"search_memory": SearchMemoryRequest, "lookup_targets": LookupTargetsRequest}
     assert set(QUERY_MODELS).isdisjoint(REQUEST_MODELS)
-    assert SearchMemoryRequest not in get_args(get_args(ActionRequest)[0])
+    action_members = get_args(get_args(ActionRequest)[0])
+    assert SearchMemoryRequest not in action_members
+    assert LookupTargetsRequest not in action_members

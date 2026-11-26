@@ -127,15 +127,42 @@ def display_context(conn: sqlite3.Connection, run_dir: Path) -> Display:
                    ZoneInfo(manifest["window"]["timezone"]))
 
 
+def _summary_cache_and_compaction(conn: sqlite3.Connection) -> tuple[int | None, int | None, int | None, int]:
+    """@brief 汇总运行库已落盘模型响应的输入/缓存令牌和日内压缩事件次数；缺失缓存明细时返回 None。"""
+    cached_expr = (
+        "COALESCE(json_extract(body,'$.data.response.usage.prompt_cache_hit_tokens'),"
+        " json_extract(body,'$.data.response.usage.prompt_tokens_details.cached_tokens'))"
+    )
+    row = conn.execute(
+        f"SELECT sum(json_extract(body,'$.data.response.usage.prompt_tokens')), "
+        f"sum({cached_expr}), "
+        f"sum(COALESCE(json_extract(body,'$.data.response.usage.prompt_cache_miss_tokens'),"
+        f" json_extract(body,'$.data.response.usage.prompt_tokens') - {cached_expr})) "
+        "FROM events WHERE json_extract(body,'$.event_type')='model_response' "
+        "AND json_extract(body,'$.data.phase')='response'"
+    ).fetchone()
+    compactions = conn.execute(
+        "SELECT count(*) FROM events WHERE json_extract(body,'$.event_type')='environment_event' "
+        "AND json_extract(body,'$.data.kind')='day_session_compacted'"
+    ).fetchone()[0]
+    prompt, cached, uncached = row if row is not None else (None, None, None)
+    return prompt, cached, uncached, compactions
+
+
 def cmd_summary(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
     """@brief 打印运行摘要；运行目录里的两份 JSON 一律按 UTF-8 读；条数走类型表达式索引，不读事件正文。"""
     total = conn.execute("SELECT count(*) FROM events").fetchone()[0]
     counts = sorted(event_type_counts(conn), key=lambda item: (-item[1], item[2]))
     manifest = _manifest(a.run_dir)
     status = json.loads((a.run_dir / "status.json").read_text(encoding="utf-8"))
+    prompt, cached, uncached, compactions = _summary_cache_and_compaction(conn)
+    ratio = f"{cached / prompt:.1%}" if prompt and cached is not None else "—"
     print(f"run_id     : {manifest.get('run_id')}")
     print(f"状态       : {status.get('status')} ({status.get('phase')})")
     print(f"事件总数   : {total}")
+    print(f"缓存令牌   : 命中 {cached if cached is not None else '—'} / "
+          f"未命中 {uncached if uncached is not None else '—'} / 命中率 {ratio}")
+    print(f"日内压缩   : {compactions} 次")
     for name, count, _ in counts:
         print(f"  {name:24s} {count}")
 
@@ -202,6 +229,10 @@ def _environment_brief(d: dict, display: Display) -> str:
         return f"{phone_phrase(display.names, d)} {' '.join(d['order_ids'])}"
     if kind in ("location_entered", "location_left"):
         return f"{kind} {d['location_id']} {d.get('entry_kind', '')}".rstrip()
+    if kind == "day_session_compacted":
+        return (f"day_session_compacted #{d.get('compaction_count', '?')} "
+                f"{d.get('before_tokens')}->{d.get('after_tokens')}t "
+                f"folded={d.get('folded_groups')} kept={d.get('kept_tail_groups')}")
     return f"{kind} {d.get('scheduled_id','')}"
 
 

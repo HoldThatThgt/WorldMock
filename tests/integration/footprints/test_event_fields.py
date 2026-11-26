@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from typing import get_args
 
 from tests.engine_fixture import engine_factory  # noqa: F401
+from tests.life.conftest import stub_day_session
 from tests.life.environment_runtime import events
 from worldmock.recording_engine.events.models import (
     DECISION_OFFERED_FIELD,
@@ -109,7 +110,7 @@ def test_unknown_wake_reason_is_rejected_on_decision_started_write(engine_factor
         [item] = fresh.prepare_barrier((1,))
         good = item.model_copy(
             update={"observation": {**item.observation, WAKE_REASONS_FIELD: reasons}}, deep=True)
-        outcome = fresh.open_sandbox(good).finish_wakeup(None)
+        outcome = fresh.open_sandbox(good).finish_wakeup(None, stub_day_session(good))
         fresh.commit_barrier([outcome])
         [started] = events(fresh, "decision_started")
         assert started.wakeup_id == good.wakeup_id

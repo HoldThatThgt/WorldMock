@@ -95,7 +95,7 @@ def of_kind(events, kind):
 
 def test_day_with_every_phone_record_exports_six_artifacts_and_certifies(phone_export):
     manifest, events = phone_export["manifest"], phone_export["events"]
-    assert manifest["schema_version"] == 9 and manifest["experiment_completed"] is True
+    assert manifest["schema_version"] == 10 and manifest["experiment_completed"] is True
     assert set(manifest["artifacts"]) == {"events", "activities", "verified_experiences", "purchases", "app_usage",
                                           "location_stays"}
     directory, ids = phone_export["directory"], phone_export["activities"]
@@ -172,7 +172,7 @@ def test_exported_stays_match_the_stay_sessions_of_the_final_checkpoint(phone_ex
 
 def test_quality_report_gains_nothing_from_the_phone_records(phone_export):
     quality = json.loads((phone_export["directory"] / "quality.json").read_bytes())
-    assert quality["schema_version"] == 11
+    assert quality["schema_version"] == 12
     assert not [key for key in quality if any(word in key for word in ("stay", "navigation", "notification"))]
 
 
@@ -331,7 +331,7 @@ def test_rewritten_artifacts_and_the_old_manifest_are_refused(exported, fault, r
         usage[0]["segments"][0]["ended_at"] -= 1
         write_rows(exported, manifest, "app_usage", usage)
     elif fault == "old_manifest":
-        manifest["schema_version"] = 8
+        manifest["schema_version"] = 9
     else:
         del manifest["artifacts"]["location_stays"]
     write_manifest(exported, manifest)

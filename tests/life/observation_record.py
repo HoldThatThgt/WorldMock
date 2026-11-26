@@ -27,10 +27,10 @@ def record_observations(monkeypatch) -> list[tuple[str, dict]]:
     recorded: list[tuple[str, dict]] = []
     build, prepare_barrier = ObservationBuilder._observation_bundle, LifeEngine.prepare_barrier
 
-    def recording_build(self, agent, state):
-        data, stamps = build(self, agent, state)
+    def recording_build(self, agent, state, loaded_target_keys=()):
+        data = build(self, agent, state, loaded_target_keys)
         built.append(copy.deepcopy(data))
-        return data, stamps
+        return data
 
     def recording_prepare_barrier(self, *args, **kwargs):
         start = len(built)

@@ -5,11 +5,12 @@ from worldmock.state.interaction.requests import QUERY_MODELS, REQUEST_MODELS
 
 
 def test_agent_and_engine_share_one_tool_surface():
-    """请求模型恰为八个工具名；人物侧动作工具集等于它；人物侧只读查询工具集恰为回看任务与检索记忆，类型与 REQUEST_MODELS、QUERY_MODELS 一致。"""
+    """请求模型恰为九个工具名，查询模型为两个工具名；人物侧动作工具集与查询工具集与引擎一致。"""
     assert frozenset(REQUEST_MODELS) == frozenset({
         "start_main_activity",
         "start_side_activity",
         "search_world",
+        "continue_activity",
         "recall_task_summary",
         "report_status",
         "pause_activity",
@@ -17,6 +18,6 @@ def test_agent_and_engine_share_one_tool_surface():
         "revise_day_plan",
     })
     assert life_action_tool_names() == frozenset(REQUEST_MODELS)
-    assert life_query_tool_names() == frozenset({"recall_task_summary", "search_memory"})
-    assert frozenset(QUERY_MODELS) == {"search_memory"}
+    assert life_query_tool_names() == frozenset({"recall_task_summary", "search_memory", "lookup_targets"})
+    assert frozenset(QUERY_MODELS) == {"search_memory", "lookup_targets"}
     assert "recall_task_summary" in REQUEST_MODELS

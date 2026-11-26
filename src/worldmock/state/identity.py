@@ -16,7 +16,7 @@ from worldmock.foundation.serialization import is_sha256
 from worldmock.state.logging import _LOGGER
 
 #: 运行清单结构版本：顶层字段集合或 ModelIdentity 结构变化时升级，不迁移旧版本。
-RUN_MANIFEST_SCHEMA_VERSION = 8
+RUN_MANIFEST_SCHEMA_VERSION = 9
 
 
 def validate_persona_sha256s_input(value: Any) -> Any:
@@ -57,6 +57,8 @@ class StageProfileIdentity(FrozenModel):
     context_window: int = Field(strict=True, ge=262144)
     thinking: StrictBool
     max_output_tokens: int = Field(strict=True, gt=0)
+    compact_trigger_tokens: int = Field(strict=True, ge=16384)
+    prompt_cache_key: StrictBool = False
     max_retries: int = Field(strict=True, ge=0, le=10)
     transport_max_retries: int = Field(strict=True, ge=0, le=10)
     max_react_turns: int = Field(strict=True, ge=1, le=64)
@@ -67,12 +69,16 @@ class StageProfileIdentity(FrozenModel):
 
     @model_validator(mode="after")
     def validate_profile_metadata(self) -> StageProfileIdentity:
-        """@brief 核对冻结元数据与模型档标识、容量及有效输出上限一致。"""
+        """@brief 核对冻结元数据与模型档标识、容量、压缩阈值及有效输出上限一致。"""
         meta = self.model_metadata
         if (meta.requested_model != self.requested_model or meta.metadata_url != self.metadata_url
                 or meta.context_window < self.context_window):
             _LOGGER.error("Stage profile %s disagrees with its frozen model_metadata", self.requested_model)
             raise ValueError("stage profile model metadata disagrees with profile")
+        if self.compact_trigger_tokens >= int(self.context_window * 0.85):
+            _LOGGER.error("Stage profile %s compact_trigger_tokens %d exceeds 85%% of context_window %d",
+                          self.requested_model, self.compact_trigger_tokens, self.context_window)
+            raise ValueError("compact_trigger_tokens must be strictly less than int(context_window * 0.85)")
         expected_tokens = min(self.max_output_tokens, meta.max_output_tokens)
         if self.effective_max_tokens != expected_tokens:
             _LOGGER.error("effective_max_tokens %d disagrees with expected %d",

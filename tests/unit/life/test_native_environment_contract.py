@@ -115,7 +115,13 @@ def test_compact_groups_conserve_false_zero_and_all_new_action_fields():
     target_row = {"name": "饼干", "kind": "product", "phase": None, "state": None,
                   "actions": [action_row()], "tools": []}
     target_row["actions"][0].update(available=False, reason="Closed.", price="0 元")
-    layer = {"layer": "工具层", "targets": [target_row], "callable_index": {"goods": []}}
+    layer = {
+        "layer": "工具层",
+        "gate": {"main_slot_busy": False, "side_slot_busy": False, "sleeping": False,
+                 "in_transit": False, "pending_conclusions": []},
+        "targets": [target_row],
+        "callable_index": {"goods": []},
+    }
     grouped = compact_tool_layer(layer)
     assert "way" not in grouped["groups"][0]
     assert expand_tool_layer(grouped) == layer

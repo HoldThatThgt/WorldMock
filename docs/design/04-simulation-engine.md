@@ -2,8 +2,8 @@
 
 ## 世界与请求
 
-一个运行承载一名或多名数字人（由 `personas/*.toml` 声明）、一个全局离散时钟和一份唯一已提交世界 `WorldState`（结构版本 `WORLD_SCHEMA_VERSION = 17`）。加载完整环境并验证全部被 `[model_routing]` 引用的模型档案实际服务元数据后才创建运行资产。
-公开引擎创建入口 `LifeEngine.create` 与恢复入口 `LifeEngine.open` 逐项核对环境身份 `environment_identity`、配置摘要 `config_sha256`、多人物 `persona_sha256s` 以及运行清单 `RUN_MANIFEST_SCHEMA_VERSION = 8` 中冻结的模型档案与路由表（`ModelIdentity.profiles` 与 `routing`）；派生及核对完整 `ModelIdentity`（含提示指纹 `prompt_sha256s`、工具指纹 `tool_schema_sha256s`）与代码指纹 `code_sha256` 则在运行装配边界（`setup.py` 与 `runner.py`）执行，确保 `simulation_engine` 不反向导入 `agents`。
+一个运行承载一名或多名数字人（由 `personas/*.toml` 声明）、一个全局离散时钟和一份唯一已提交世界 `WorldState`（结构版本 `WORLD_SCHEMA_VERSION = 18`）。加载完整环境并验证全部被 `[model_routing]` 引用的模型档案实际服务元数据后才创建运行资产。
+公开引擎创建入口 `LifeEngine.create` 与恢复入口 `LifeEngine.open` 逐项核对环境身份 `environment_identity`、配置摘要 `config_sha256`、多人物 `persona_sha256s` 以及运行清单 `RUN_MANIFEST_SCHEMA_VERSION = 9` 中冻结的模型档案与路由表（`ModelIdentity.profiles` 与 `routing`，含 `compact_trigger_tokens` 与 `prompt_cache_key`）；派生及核对完整 `ModelIdentity`（含提示指纹 `prompt_sha256s`、工具指纹 `tool_schema_sha256s`）与代码指纹 `code_sha256` 则在运行装配边界（`setup.py` 与 `runner.py`）执行，确保 `simulation_engine` 不反向导入 `agents`。
 结构合法但与实际输入不同的模型、端点、容量、预算、人物集合或提示工具身份同样拒绝；拒绝发生在创建任何运行文件之前。
 运行开始时的初始 `session_open` 唤醒仅提供正常决策：那一刻没有一段睡眠结束，不触发唤醒类别回调；`run_start` 回调只执行一次。
 
@@ -26,8 +26,9 @@ flowchart LR
 
 ## 动作、名称与并行
 
-开始主活动、开始副活动与发起世界搜索使用三个原生工具：`start_main_activity` 开始占**主槽位**的活动，`start_side_activity` 开始占**副槽位**的购买或内容 app 活动，`search_world` 在**副槽位**发起 `ActivityKind.SEARCH` 搜索活动并挂起当前唤醒会话。
-每个请求工具的每个参数都必须出现，多余字段拒绝；缺少必填字段时，纠错原因写明它在参数里的位置（`items.0.views`、`errands.0.item`），只写位置，不写该写什么。主工具的三个参数是 `action`、`target`、`detail`，副工具的三个参数是 `action`、`target`、`prefer`，`search_world` 的参数是 `query` 与 `prefer`（配合工具回复信封携带 `self_note`）。删除 `start_activity`、旧 `start_side_activity` 的 `query` 分支、请求里的四个出行动作以及 `way`、`app`、`to`、`pay_app`。
+开始主活动、开始副活动、发起世界搜索与显式维持当前活动使用四个边界退出原生工具（`BOUNDARY_TOOLS`）：`start_main_activity` 开始占**主槽位**的活动，`start_side_activity` 开始占**副槽位**的购买或内容 app 活动，`search_world` 在**副槽位**发起 `ActivityKind.SEARCH` 搜索活动并挂起当前唤醒会话，`continue_activity` 在已有进行中活动且无待收尾活动时显式结束本次唤醒并保持现有活动继续推进（已彻底废除 `can_finish_idle` 纯文本空闲退出）。
+此外，只读查询工具集（`QUERY_TOOLS`）包含 `recall_task_summary`、`search_memory` 与零耗时按需目标检索工具 `lookup_targets`。
+每个请求工具的每个参数都必须出现，多余字段拒绝；缺少必填字段时，纠错原因写明它在参数里的位置（`items.0.views`、`errands.0.item`），只写位置，不写该写什么。主工具的三个参数是 `action`、`target`、`detail`，副工具的三个参数是 `action`、`target`、`prefer`，`search_world` 的参数是 `query` 与 `prefer`，`continue_activity` 的参数是 `reason: str | None`（无默认值；非 `None` 时去除首尾空白后长度须在 `1..200` 之间），`lookup_targets` 的参数是 `kind: Literal["location", "app", "product"] | None`、`keyword: str | None`（非 `None` 时去除首尾空白后长度 `1..100`）、`limit: int`（`1..30`）与 `offset: int`（`>= 0`）（均无默认值，配合工具回复信封携带 `self_note`）。删除 `start_activity`、旧 `start_side_activity` 的 `query` 分支、请求里的四个出行动作以及 `way`、`app`、`to`、`pay_app`。
 
 | 工具 | `action` | `target` / `query` | `detail` | `prefer` |
 | --- | --- | --- | --- | --- |
@@ -37,6 +38,8 @@ flowchart LR
 | `start_side_activity` | `purchase` | 商品名数组，一份一项 | 没有这个参数 | 想用来下单的 app 名称，没有想法写 `null` |
 | `start_side_activity` | `interact` | 恰含一个登记了内容的内容 app 名的数组 | 没有这个参数 | 必须是 `null` |
 | `search_world` | 没有这个参数 | `query`：非空白自然语言搜索意图，不超过 200 字 | 没有这个参数 | 意向使用且合法登记的下单 app 显示名，没有想法写 `null` |
+| `continue_activity` | 没有这个参数 | 没有这个参数 | `reason`：继续原因或 `null`（非空时 1 至 200 字） | 没有这个参数 |
+| `lookup_targets` | 没有这个参数 | `kind`（`location`/`app`/`product`/`null`）与 `keyword`（检索词或 `null`） | `limit`（1 至 30）与 `offset`（`>= 0`） | 没有这个参数 |
 
 出行只有一个动作 `travel`，出行方式写在 `detail`：引擎自带步行，其余方式由数据集在 `travel-method.jsonl` 里定义（见[资源引擎](03-resource-engine.md)的「出行方式」），没有这个文件的环境包里人物只能步行。
 `travel` 的 `detail` 只在出行方式的名称里解析；`walk`、`drive`、`take_taxi`、`take_bus` 不再是动作。
@@ -84,7 +87,15 @@ flowchart LR
 | 出行、睡眠、在地点做事之间两两组合 | 不可以，同占主槽位 |
 | 睡眠 + 任何副槽位活动 | 不可以 |
 
-开始组是模型同一次回复里的两个开始工具调用（`start_main_activity` 与 `start_side_activity` 各一次，先后不限）。`search_world` 不参与开始组，只能单独提交。
+开始组是模型同一次回复里的两个开始工具调用（`start_main_activity` 与 `start_side_activity` 各一次，先后不限）。`search_world` 与 `continue_activity` 不参与开始组，各自只能单独提交，严禁与 `START_TOOLS`、`CONTROL_TOOLS` 或只读查询混批。
+`continue_activity` 受理时按顺序执行两项前置检查：若存在任何待收尾活动（`activity_control.pending_conclusions` 非空），以 `ACTIVITY_CONCLUSION_REQUIRED` 拒绝；若当前没有任何进行中活动（`not active_activities(state, agent_id)`），以 `ACTIVITY_PRECONDITION_UNMET` 拒绝（禁止无活动空转）。受理后不改变活动槽位与身体资源状态，记录 `action_requested`、`action_accepted` 与 `action_result`（`status="completed"`，`data` 含维持中的 `activity_ids` 与可选 `reason`），返回 `ToolDispatchResult(accepted=True, terminal_exit=True, suspended=False)`。静默 `continue_activity`（唤醒提交窗口内仅有受理的 `continue_activity`、无已结算事实且 `reason is None` 与 `self_note is None`）在 `entries.py` 中过滤为 `TodayEntry | None = None` 并照常推进窗口下界；携带非空 `reason` 时渲染 `"续行：<reason>"` 并按主活动推导类别。
+
+`lookup_targets` 在 `AgentSandbox` 内存中以零耗时、零足迹方式检索并分页返回当前城市可达地点、全部内容 app 或当前城市门店商品，不消费槽位、不推进时钟、不写事件也不改变世界状态，可与 `search_memory`、`recall_task_summary` 同批并行调用（严禁与 `START_TOOLS`、`search_world`、`continue_activity` 或 `CONTROL_TOOLS` 混批）：
+- `location`：当前城市全部地点及当前地点一步直达的异地枢纽，按直达可达性与显示名称排序；
+- `app`：目录全部内容应用（`app.role == "content"` 且目录含对应内容），按应用名称排序；
+- `product`：当前城市在售店铺商品（`discovery.product_bindings(layer)`），按商品名称排序；
+- `kind is None`：按 `("location", "app", "product")` 顺序合并并按 `keyword`（忽略大小写子串匹配名称、类别、动作描述或时段摘要）过滤后分页切片 `[offset : offset + limit]`。
+返回 `{"ok": true, "result": {"total": total, "has_more": offset + len(targets) < total, "next_offset": ..., "targets": [...], "loaded_count": len(targets)}}`（每项由 `_binding_target` 叠加 `intrinsic_refusal` 与 `compact_render` 压缩构造，严禁出现 `location_id`、`app_id`、`goods_id` 等黑名单键）；`AgentSandbox` 将命中条目的 `(kind, object_id)` 有序去重并入 `self._loaded_target_keys` 并同步刷新沙盒基准 `tool_layer`（持久化到 `DaySessionState.loaded_target_keys`，直至日内 Compaction 或跨日重置清零）。`search_world` 保持绝对正交：占副槽位、消耗 180–420 秒并执行 `LLM Search Session` 与 `Fact Guard`。
 沙盒为每次开始动作登记一条请求，同一开始组的动作成一组，在同一个沙盒世界副本上整组核验。
 
 ```mermaid
@@ -225,9 +236,9 @@ stateDiagram-v2
 同一开始组里出发并购买时，开始前的余额核对用所选出行方式的车费。
 不能把途中地点改成目的地。到达按真实计划结束时间登记，不提前结束同行的购买或内容活动；跨城出行到达目的枢纽并提交后切换停留会话、工具层城市视野及环境层城市天气。
 
-工具层出行视野与门户提示按当前停留地点所属城市隔离：
-- **可见地点集合**：人物停留时，工具层仅列出**当前城市全部地点**，以及**与当前停留地点 `agent.location_id` 存在直接跨城声明边相连的异地枢纽**；未直接相连的异地地点不出现在工具层清单中，名称解析仍认得全部登记地点名称，以便直接对非邻接异地地点发起 `travel` 时由准入返回前往本城枢纽的指引。
-- **可选出行方式**：当前城市其他地点下列出 `walking` 与 `city_wide: true` 的方式（若与当前位置存在同城直接声明边，则补充含该边允许的 `city_wide: false` 方式并受该边 `opens` 与 `consumes_state` 约束；不列出未直连的 `city_wide: false` 干线方式），自带的步行在前，其余按 `travel_method_id` 升序；直连的异地枢纽下仅列出该跨城声明边的 `travel_method_ids`。每行带车费、按起终两城较差天气系数算出的用时和「轻松」或「费力」：体力档位是 `idle`、`light` 的方式写轻松，`moderate`、`heavy` 的方式和步行写费力。余额不够付车费、发车窗口外或缺少票证状态的声明边方式照样列出，标为此刻不可用，原因与受理一致。关闭的地点照旧可以前往（受边 `opens` 发车窗口限制的直达边见下文）。
+核心常驻工具层出行视野与门户提示按当前停留地点所属城市隔离，并由顶层 `工具层.gate` 统一承载槽位、睡眠、在途与待收尾全局约束：
+- **可见地点集合（`_target_visible` 核心常驻过滤）**：人物停留时，工具层仅收入满足以下任一条件的地点：人物当前所在地点（`agent.location_id`）、居住地（`home_location_ids[agent_id]`）或工作地点（`workplace_location_ids[agent_id]`，非 `None` 时）、当前所在城市全部驿站（`location.kind == "parcel_station"` 或目录定义的包裹自提站）及具备跨城直达出边的城市枢纽（`bool(graph.intercity_edges_from(location_id))`）、从当前地点存在跨城声明直达边的异地枢纽，以及位于本周期 `DaySessionState.loaded_target_keys` 中的地点（`("location", object_id)`）。其余同城与非邻接异地地点不占常驻篇幅，可通过 `lookup_targets` 零耗时按需加载，且 `catalog_bindings` 保留全量目录供名称解析直呼。
+- **可选出行方式**：同城其他地点下列出 `walking` 与 `city_wide: true` 的方式（若与当前位置存在同城直接声明边，则补充含该边允许的 `city_wide: false` 方式并受该边 `opens` 与 `consumes_state` 约束；不列出未直连的 `city_wide: false` 干线方式），自带的步行在前，其余按 `travel_method_id` 升序；直连的异地枢纽下仅列出该跨城声明边的 `travel_method_ids`。每行带车费、按起终两城较差天气系数算出的用时和「轻松」或「费力」：体力档位是 `idle`、`light` 的方式写轻松，`moderate`、`heavy` 的方式和步行写费力。余额不够付车费、发车窗口外或缺少票证状态的声明边方式照样列出，标为此刻不可用，原因与受理一致；行级 `available` 与 `reason` 通过 `admission.intrinsic_refusal` 仅评估目标自身固有条件（跳过待收尾与全局槽位/睡眠检查）。关闭的地点照旧可以前往（受边 `opens` 发车窗口限制的直达边见下文）。
 - **本城枢纽门户说明**：当前城市中连有跨城声明边的地点，其工具层 `state` 在营业时段之后自动追加 `；城际可达：<dest1>（<method1>、<method2>）、...`，按目的地点 `location_id` 升序排列。
 
 出发受理（`_travel_refusal`）按下表次序检查对象条件，先遇到不成立的项即给出拒绝（紧接整组其余槽位与余额检查规则）：
@@ -521,7 +532,7 @@ flowchart TD
 每一项用 app 的活动都有内容，活动数据的 `content_id` 不为空；登记了内容而此刻都不合格的 app 不可用。
 打开 app 的结果不带商品。想找这个 app 卖的东西或同城门店，用原生工具 `search_world` 搜索，用 `start_side_activity(purchase)` 加 `prefer` 买。
 
-本城地点和当前地点的内容单元完整呈现（凭状态未开放或 `repeatable: false` 已耗尽的单元除外），不轮转、不截断。商品呈现经 `discovery.py` 筛选仅在当前城市有门店销售的店铺商品（`store.city_id == current_city`）后保留实际曝光轮转，异地特产不进入本地曝光窗口。
+核心常驻工具层仅保留上述锚点地点、进行中与待收尾活动、当前地点内容单元（凭状态未开放或 `repeatable: false` 已耗尽的单元除外）、当前具备有效内容或含置顶推送（`pinned_push_content(...) is not None`）的内容 app，以及通过 `lookup_targets` 显式载入 `DaySessionState.loaded_target_keys` 的目标。已彻底删除商品轮转窗口（原 `rotation.py`、`presentation.py`、`ObservationBuilder._product_window` 及 `pending_presentation`）：工具层不再主动列出静态商品窗口，仅保留 `loaded_target_keys` 中的商品与 `callable_index` 汇总；全量 `catalog_bindings` 仍保留在内部观察证据中，支持人物按完整名称直接调用。
 
 ### 搜索（`search_world` 与 `LLM Search Session`）
 
@@ -542,7 +553,7 @@ flowchart TD
     Fact --> Resume["注入结构化结果与事件差量，唤醒原挂起上下文"]
 ```
 
-受理 `search_world` 后，沙盒保存无栈挂起载荷 `AgentState.suspended_loop`（包含 `wakeup_id`、`action_id`、`activity_id`、`pending_tool_call_id`、`messages`、`turn_used` 与沙盒连续恢复字段）并交由 `BarrierMerger` 原子提交，随后推进全局时钟。
+受理 `search_world` 后，沙盒保存无栈挂起载荷 `AgentState.suspended_loop`（含 `wakeup_id`、`action_id`、`activity_id`、`pending_tool_call_id`、`turn_used`、`memory_search_count` 及沙盒连续恢复字段；对话消息流与五层基准分别保存在 `AgentState.day_session.messages` 与 `DaySessionState.last_observed_layers`，`SuspendedLoopState` 不再冗余持有 `messages` 与 `base_layers`）连同 `AgentState.day_session` 交由 `BarrierMerger` 原子提交，随后推进全局时钟。
 
 搜索活动有四种结局：
 
@@ -561,7 +572,7 @@ flowchart TD
 
 - **`Fact Guard` 事实投影**：对子会话提交的 `goods_ids` 与 `place_ids` 执行二次白名单核验（校验门店商品在当前城市有售、地点属于当前城市或从当前地点直达的异地枢纽、线上商品与店铺商品均符合 `scoped_app_id` 约束），按搜索结束那一秒的实时 `WorldState` 调用 `quote_goods` 统一生成结构化商品报价行 `goods_rows`（与实时购买报价共用价格、商铺评分、当前城市当天天气一半延长与同城不可下单原因口径；`instant: true` 线上商品走 `fulfillment="instant"` 即时到账、`store_id=None`、`delivery_fee_fen=0`、`rating=None`；搜索恰在本地日期切换时完结则按当前城市新一天的天气报价）和地点行 `place_rows`（含营业状态、当日营业时段、商铺评分、已过滤未开放及已耗尽状态的当前可点名地点单元及从当前位置出发受 `city_wide` 与 `MapEdge` 限制的可行出行方式概览）；子会话自身不被允许输出价格、运费、评分、时长或可买状态。
 - **`app_use` 归属结算**：若开始时 `data.app_id` 已由 `prefer` 锁定，沿用该 `app_id`；若开始时 `data.app_id` 为 `None`（`prefer` 为空或未匹配到合法下单应用），完成阶段按返回 `goods_rows` 中可下单商品所属 `selling_app_id` 的众数归属 `data.app_id`（平手按字典序取最小）；若仍没有任何可下单 `selling_app_id` 可归属，则通过 `random_stream(random_state, f"search-app:{action_id}")` 从当前范围可用下单应用中确定性抽取并写入 `data.app_id`（无可用应用时保持 `None`）。凡 `data.app_id` 非空者，按该 `search` 活动执行区间登记 `app_use` 足迹（不写 `app_foreground`）。
-- **释放副槽位与安排恢复唤醒**：同时写入 `ended_at = current_time` 与 `concluded_at = current_time` 立刻释放副槽位，置 `agent.next_decision_at = current_time`，将权威结果与经过搜索这段时间产生的世界事件差量注入 `pending_tool_call_id` 对应的 `tool` 消息，随后由下一次屏障按 `mode = "resume_search"` 恢复人物原唤醒上下文直接衔接下单或出行。
+- **释放副槽位与安排恢复唤醒**：同时写入 `ended_at = current_time` 与 `concluded_at = current_time` 立刻释放副槽位，置 `agent.next_decision_at = current_time`。在同日恢复（`day_session` 非 `None`）时，`BarrierMerger._resume_search_payload` 直接以 `day_session.last_observed_layers` 为基准调用 `ObservationBuilder.layer_changes(day_session.last_observed_layers, obs)` 生成 `{"ok": true, "result": public_result(...), "search": search_details(...), "boundary": ..., "changes": ...}` 并经 `pending_tool_call_id` 对应的 `role: "tool"` 消息恢复原挂起上下文；若搜索跨越本地零点在 `D+1` 完成恢复（此时 `decide_midnight_rhythm` 已将 `day_session` 置为 `None`），则以当日纯净 `[system, init_user]` 开启新日会话（`进度层` 已直接包含本次完成的搜索结果），不追加孤立的 `role: "tool"` 消息。
 
 人在路上不能搜索，发起或挂起的搜索未结束前也不能出发：
 
@@ -743,7 +754,7 @@ flowchart TD
 日历同样在实际本地午夜登记，时间回调只在数据集声明的时间登记；
 绝对时钟在夏令时变化时仍单调推进。停止时先完成真实结算和正常 run_end 回调，再写终态。
 
-零点边界（不是运行终点）的推进提交之后依次执行：日回顾、月回顾（每月第一个零点）、年回顾（每年第一个零点）、零点计划，
+零点边界（不是运行终点）的推进提交之后依次执行：日回顾、月回顾（每月第一个零点）、年回顾（每年第一个零点）、零点计划，随后 `LifeEngine.decide_midnight_rhythm()` 在提交新一天世界状态时将全员 `agent.day_session` 置为 `None` 完成跨日重置；`prepare_plan_day` 与 `memory_digest` 均不使用 `sort_keys=True`，保留静态字段前置、动态字段置后的构造顺序以配合网关前缀缓存。
 最后判定这一秒的唤醒与下一次唤醒时间，所以这一秒的第一次唤醒看得到刚登记的回顾与计划；运行宿主每次提交共同检查点之后（新建运行的初始检查点、反事实分支的干预检查点与每一步的检查点），以及普通恢复启动时、首次唤醒之前，
 按同一次序补做（触发点见[运行装配与决策循环](10-runtime.md)「时钟屏障与并发唤醒循环」）；运行到终点时都不做。回顾与计划都不是决策、不经人物，规则见[人物](06-agent.md#agent-日月年回顾)
 「日、月、年回顾」与[人物](06-agent.md#agent-零点计划)「零点计划」。
@@ -794,14 +805,17 @@ B_D 只有时钟到达 D 日零点之后才确定，在那之前读取是完整�
 报 `Engine world differs from the committed world`，不写这条观察、不调用模型、不提交这一步；运行失败事件不比较，
 照常写入。模型请求与响应、记忆更新、行动请求和零点计划与回顾失败时的模型证据只追加证据，不比较。
 
-`AgentSandbox` 为每位就绪人物持有深拷贝沙盒世界（候选世界）：活动与已处理动作两个集合各换一个新容器，与当前世界共享没有变的条目，其余部分完整复制。
+`AgentSandbox` 为每位就绪人物持有深拷贝沙盒世界（候选世界）：活动与已处理动作两个集合各换一个新容器，与当前世界共享没有变的条目，其余部分完整复制，并通过 `lookup_targets`、`compact_snapshot` 与 `finish_wakeup` 同步接口维护 `_loaded_target_keys` 与 `_delivered_layers`（仅在初始化、`lookup_targets`、非终结 `dispatch_world_tool` 与 Compaction 时更新，终结边界工具不覆盖）。
 候选世界改动条目一律换成新条目、从不原地修改（见[状态与序列化](09-io-formats.md)「世界、人物与活动」），所以沙盒尝试
 被丢弃、冲突回滚或正常提交，已提交世界都保持原样，推进与提交前后的比较（阈值回调、导航前台、购买前台区间、停留进出）总能看到真实的
-提交前世界。各人物在 `AgentLoop` 内部仅把草稿缓存在私有沙盒 `AgentSandbox` 内，待并发协程全部退出后交由 `BarrierMerger.commit_barrier` 按 `agent_id` 升序依次核验跨人物冲突：
-无冲突分支连同证据草稿在单次 SQLite 事务中原子合入；若后位人物的前置条件已被前位人物的提交改变，则整体回滚该后位人物的本次沙盒变更并重置其 `next_decision_at = current_time`（写入拒绝反馈，不写入工作区 `MEMORY.md`），由下一次同刻屏障重新观察改选。
+提交前世界。`ObservationBuilder.layer_changes(before, after)` 将内部观察键 `("environment_layer", "memory_layer", "todo_layer", "progress_layer", "tool_layer")` 映射为公开层键 `("环境层", "记忆层", "待办层", "进度层", "工具层")` 计算精细子键级差量（全等层完全省略）：`环境层` 逐键比对 `observed_at`、`body`（仅含发生分级变化的体感子键）、`location`、`weather`、`duty`、`tomorrow`；`记忆层` 比对 `可查`、`近三天` 与 `今天`（严格前缀追加输出 `今天_append`，同日搜索恢复尾部覆写输出 `今天_tail`）；`待办层` 逐键比对 `paused_activities`、`errands`、`orders`、`day_plan`；`进度层` 逐键比对 `session_started_at`、`events`（严格前缀追加输出 `events_append`）与 `rejected_today`（严格前缀追加输出 `rejected_today_append`）；`工具层` 比对 `gate`、`callable_index` 并按 `(kind, name)` 对比 `targets` 生成 `group_deltas`（对 `added`/`updated` 显式调用 `tool_groups.compact` 压缩并省去空列表键）。
 
-共享时钟结算与事件在同一事务提交，共同检查点保存共同世界（含各人物 `AgentState.suspended_loop`）和全体人物工作区。
-恢复严格核对原始 `personas/*.toml`、`config.toml`、目录、内存地图和完整 `ModelIdentity`；反事实干预 `apply_counterfactual` 强制清空全部人物的 `suspended_loop = None`；只读重放只消费冻结事实。
+各人物在 `AgentLoop` 内部仅把草稿缓存在私有沙盒 `AgentSandbox` 内，待并发协程全部退出后交由 `BarrierMerger` 处理：
+- `BarrierMerger._build_wakeup`：从只读存储预装配 `AgentWakeupInput`（含 `run_id`、`local_date`、`day_session`、`boundary_delta_payload` 与 `settled_day_events`），若检测到 `agent.day_session` 存在且 `local_date != 当前本地日期`，一律按过期会话丢弃置为 `None`。
+- `BarrierMerger.commit_barrier`：按 `agent_id` 升序依次核验跨人物冲突。无冲突分支将 `SandboxOutcome.day_session`（`AgentState.day_session`）连同证据草稿在单次 SQLite 事务中原子合入，并将 `SandboxOutcome.compaction_records` 写为 `environment_event`（`kind="day_session_compacted"`，`visibility="system"`，`source_kind="environment"`）及 `"DAY_SESSION_COMPACTED"` 运维日志。若后位人物的前置条件已被前位人物的提交改变，`_conflict_rollback(before, agent_id)` 直接保留回滚基准 `before.agents[agent_id]` 中本轮唤醒开始前的 `day_session`，彻底丢弃失败沙盒内的全部中间推理、Compaction 变更与局部目标加载，重置 `next_decision_at = before.current_time`（附加 `"rejection_feedback"` 唤醒原因，不写入工作区 `MEMORY.md`），由下一次同刻屏障重新以干净的唤醒前会话状态重算。
+
+共享时钟结算与事件在同一事务提交，共同检查点保存共同世界（含各人物 `AgentState.suspended_loop` 与 `AgentState.day_session`）和全体人物工作区。
+恢复严格核对原始 `personas/*.toml`、`config.toml`、目录、内存地图和完整 `ModelIdentity`；反事实干预 `apply_counterfactual` 强制清空全部人物的 `suspended_loop = None` 与 `day_session = None`；只读重放只消费冻结事实。
 
 唤醒身份 `wakeup_id` 为 `f"{run_id}:wake:{current_time}:v{state.version}:a{agent_id}"`，动作身份 `action_id` 为 `{wakeup_id}:action:{序号:04d}`，由人物一侧在唤醒会话内形成（见[人物](06-agent.md)「宿主模型协议」）。沙盒与屏障登记时
 核对这个形式，不符直接抛出 `ProtocolError`。由于移除了批处理决策轮外壳与同秒续接重建，废弃 `decision_id`、`round_id`、`same_moment_rounds`、`same_moment_stage` 与 `DECISION_ROUND_ABORTED`；单次唤醒会话内的回合预算统一由对应模型档案的 `max_react_turns` 约束，用尽直接抛出 `ProtocolError`。

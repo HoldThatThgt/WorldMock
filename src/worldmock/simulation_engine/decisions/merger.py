@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import copy
 import logging
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from datetime import datetime
 from typing import Any
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 from worldmock.foundation.errors import BusinessRuleError, ProtocolError
 from worldmock.foundation.serialization import sha256_json
+from worldmock.foundation.time.readable import local_date
 from worldmock.recording_engine.events.models import RESOURCE_FLOWS_FIELD, EventDraft
 from worldmock.recording_engine.storage.observation_parts import insert_parts
 from worldmock.simulation_engine.actions.dispatcher import ActionHandlers
@@ -22,7 +26,6 @@ from worldmock.simulation_engine.commerce.purchase.purchase_phases import foregr
 from worldmock.simulation_engine.decisions.sandbox import (
     AgentSandbox,
     _has_active_search,
-    _keep_agent_ready,
     _rejected_draft,
     execute_invocation,
     execute_start_group,
@@ -37,7 +40,7 @@ from worldmock.simulation_engine.evidence.stays import stay_events
 from worldmock.simulation_engine.observation.layers.observe import ObservationBuilder, layer_changes
 from worldmock.simulation_engine.observation.layers.result_projection import public_result
 from worldmock.simulation_engine.observation.layers.search_projection import search_details
-from worldmock.simulation_engine.observation.targets.presentation import merge_presentation
+from worldmock.simulation_engine.observation.memory.days import day_bound
 from worldmock.simulation_engine.observation.wording.activity_titles import title_index
 from worldmock.simulation_engine.observation.wording.guidance import rejection_guidance
 from worldmock.simulation_engine.scheduling.callbacks.callbacks import compare_callback_states
@@ -54,9 +57,10 @@ from worldmock.state.decisions.barrier import (
     SearchSessionOutcome,
     SearchTaskSpec,
 )
+from worldmock.state.decisions.day_session import DaySessionState
 from worldmock.state.decisions.results import ActionResult
 from worldmock.state.decisions.suspended import SuspendedLoopState
-from worldmock.state.interaction.actions import START_TOOLS
+from worldmock.state.interaction.actions import BOUNDARY_TOOLS, START_TOOLS
 from worldmock.state.world.kinds import ActionStatus, ActivityKind, ActivityStatus
 from worldmock.state.world.world import WorldState, active_activities
 
@@ -111,18 +115,25 @@ class BarrierMerger:
         parts: dict[str, str] = {}
         committed: list[int] = []
         conflicts: list[int] = []
+        compaction_batches: list[SandboxOutcome] = []
         for outcome in ordered:
             self._staged_parts.pop(outcome.wakeup_id, None)
             parts.update(outcome.observation_parts)
             staged, ag_drafts, ok = self._merge_one_outcome(staged, outcome)
             drafts.extend(ag_drafts)
-            (committed if ok else conflicts).append(outcome.agent_id)
+            if ok:
+                committed.append(outcome.agent_id)
+                if outcome.compaction_records:
+                    compaction_batches.append(outcome)
+            else:
+                conflicts.append(outcome.agent_id)
         staged, all_drafts = self._finalize_barrier(staged, drafts)
         with self._context.store.connection:
             if parts:
                 insert_parts(self._context.store.connection, parts)
             self._context.commit_step(staged, all_drafts)
         self._write_commit_logs(staged.current_time, committed, conflicts)
+        self._write_compaction_logs(staged.current_time, compaction_batches)
         return BarrierCommitReceipt(
             committed_agent_ids=tuple(committed), conflict_requeued_agent_ids=tuple(conflicts),
             world_state_version=staged.version, event_seq_last=self._context.store.last_event_seq,
@@ -170,30 +181,40 @@ class BarrierMerger:
         )
 
     def _build_wakeup(self, agent_id: int) -> AgentWakeupInput:
-        """@brief 为单个人物生成常规唤醒或搜索恢复唤醒的只读输入快照。"""
+        """@brief 为单个人物生成常规唤醒或搜索恢复唤醒的只读输入快照，校验跨日会话并装配当日事件与边界增量。"""
         state = self._context.state
         agent = state.agents[agent_id]
-        obs, parts, presentation = self._observations.build_wakeup_observation(agent)
+        today = local_date(state.current_time, self._context.config.timezone)
+        raw_session = agent.day_session
+        day_session = raw_session if raw_session is not None and raw_session.local_date == today else None
+        loaded_keys = () if day_session is None else day_session.loaded_target_keys
+        obs, parts = self._observations.build_wakeup_observation(agent, loaded_keys)
         obs["observation_event_id"] = uuid4().hex
+        settled_events = _settled_day_events(self._context, agent_id, today, state.current_time)
         loop = agent.suspended_loop
         search_act = None if loop is None else state.activities.get(loop.activity_id)
         if loop is None or (search_act is not None and search_act.status == ActivityStatus.ACTIVE):
             wakeup_id = f"{state.run_id}:wake:{state.current_time}:v{state.version}:a{agent_id}"
+            delta = None if day_session is None else _regular_boundary_delta(day_session, obs)
             return AgentWakeupInput(
                 wakeup_id=wakeup_id, agent_id=agent_id, observed_at=state.current_time,
                 world_state_version=state.version, mode="regular", observation=obs,
-                observation_parts=parts, pending_presentation=presentation, action_seq_start=1,
+                observation_parts=parts, action_seq_start=1, run_id=state.run_id,
+                local_date=today, day_session=day_session,
+                boundary_delta_payload=delta, settled_day_events=settled_events,
             )
         if search_act is None or search_act.status != ActivityStatus.COMPLETED:
             _LOGGER.error("Agent %d resume_search lacks completed search activity %s", agent_id, loop.activity_id)
             raise ProtocolError("Resumed search requires completed search activity")
-        payload = _resume_search_payload(self._context, search_act, loop, obs)
+        payload = None if day_session is None else _resume_search_payload(self._context, search_act, day_session, obs)
         seq = _next_action_seq(loop)
         return AgentWakeupInput(
             wakeup_id=loop.wakeup_id, agent_id=agent_id, observed_at=state.current_time,
             world_state_version=state.version, mode="resume_search", observation=obs,
-            observation_parts=parts, pending_presentation=presentation, action_seq_start=seq,
+            observation_parts=parts, action_seq_start=seq,
             suspended_loop=loop, search_result_payload=payload,
+            run_id=state.run_id, local_date=today, day_session=day_session,
+            boundary_delta_payload=None, settled_day_events=settled_events,
         )
 
     def _validate_outcomes(self, outcomes: Sequence[SandboxOutcome]) -> list[SandboxOutcome]:
@@ -235,6 +256,7 @@ class BarrierMerger:
         if outcome.action_operations:
             staged = _apply_prelude_relaxation(staged, outcome.agent_id, prelude)
         staged = self._finish_committed_agent(staged, outcome)
+        all_agent_drafts.extend(_compaction_drafts(staged.current_time, outcome))
         return staged, all_agent_drafts, True
 
     def _replay_agent_ops(self, staged: WorldState,
@@ -272,7 +294,7 @@ class BarrierMerger:
         return changed
 
     def _finish_committed_agent(self, staged: WorldState, outcome: SandboxOutcome) -> WorldState:
-        """@brief 为无冲突人物更新挂起/完成态、消费播报与反馈时机及产品曝光参照。"""
+        """@brief 为无冲突人物更新挂起/完成态、日会话状态、消费播报与反馈时机。"""
         aid = outcome.agent_id
         staged = consume_progress_report_opportunity(staged, aid, self._context.config.progress_report_interval_seconds)
         for act in staged.activities.values():
@@ -285,20 +307,23 @@ class BarrierMerger:
         agent = staged.agents[aid]
         if outcome.status == "suspended":
             loop = outcome.state.agents[aid].suspended_loop
-            agent = agent.model_copy(update={"suspended_loop": loop, "pending_wake_reasons": []}, deep=True)
+            agent = agent.model_copy(
+                update={"suspended_loop": loop, "day_session": outcome.day_session, "pending_wake_reasons": []},
+                deep=True,
+            )
             return _put_agent(staged, agent.model_copy(update={
                 "next_decision_at": next_decision_at(self._context, staged, agent)}))
         keep_loop = agent.suspended_loop if _has_active_search(staged, aid) else None
-        agent = agent.model_copy(update={"suspended_loop": keep_loop, "pending_wake_reasons": []}, deep=True)
+        agent = agent.model_copy(
+            update={"suspended_loop": keep_loop, "day_session": outcome.day_session, "pending_wake_reasons": []},
+            deep=True,
+        )
         next_at = (
             staged.current_time
-            if _keep_agent_ready(staged, outcome.action_operations, outcome.evidence_drafts, aid)
+            if _needs_follow_up(staged, outcome, aid)
             else next_decision_at(self._context, staged, agent)
         )
-        staged = _put_agent(staged, agent.model_copy(update={"next_decision_at": next_at}))
-        if outcome.pending_presentation:
-            staged = merge_presentation(staged, {aid: outcome.pending_presentation})
-        return staged
+        return _put_agent(staged, agent.model_copy(update={"next_decision_at": next_at}))
 
     def _finalize_barrier(self, staged: WorldState, drafts: list[EventDraft]) -> tuple[WorldState, list[EventDraft]]:
         """@brief 在屏障提交末尾统一结算个人事务、阈下回调、导航前台、购买前台与地点停留事件。"""
@@ -321,19 +346,143 @@ class BarrierMerger:
              "committed_agent_ids": committed, "conflict_requeued_agent_ids": conflicts},
         )
 
+    def _write_compaction_logs(self, moment: int, outcomes: Sequence[SandboxOutcome]) -> None:
+        """@brief 为已提交唤醒中发生的日内 Compaction 写入运维日志。"""
+        for outcome in outcomes:
+            for record in outcome.compaction_records:
+                self._context.ops.log(
+                    moment, "day_session", "info",
+                    {
+                        "code": "DAY_SESSION_COMPACTED",
+                        "detail": f"Agent {outcome.agent_id} day session compacted",
+                        "agent_id": outcome.agent_id,
+                        **dict(record),
+                    },
+                )
 
-def _resume_search_payload(context: EngineContext, act: Any, loop: SuspendedLoopState,
+
+def _needs_follow_up(staged: WorldState, outcome: SandboxOutcome, agent_id: int) -> bool:
+    """@brief 无边界收口动作但发生拒绝、仍待收尾或无进行中活动时，保持当前时刻就绪。"""
+    ops = outcome.action_operations
+    if any(item.get("tool_name") in BOUNDARY_TOOLS for item in ops):
+        return False
+    if not ops:
+        return any(draft.event_type == "action_rejected" for draft in outcome.evidence_drafts)
+    return bool(
+        activity_control.pending_conclusions(activity_control.open_activities(staged, agent_id))
+        or not active_activities(staged, agent_id)
+    )
+
+
+def _compaction_drafts(occurred_at: int, outcome: SandboxOutcome) -> list[EventDraft]:
+    """@brief 为已提交唤醒的日内 Compaction 构造系统环境事件草稿。"""
+    return [
+        EventDraft(
+            event_type="environment_event",
+            occurred_at=occurred_at,
+            agent_id=outcome.agent_id,
+            wakeup_id=outcome.wakeup_id,
+            caused_by=[outcome.observation_event_id],
+            visibility="system",
+            source_kind="environment",
+            data={"kind": "day_session_compacted", **dict(record)},
+        )
+        for record in outcome.compaction_records
+    ]
+
+
+def _settled_day_events(context: EngineContext, agent_id: int, today: str, now: int) -> tuple[dict[str, Any], ...]:
+    """@brief 从只读存储预先装配当日已提交的动作与环境事件供日内 Compaction 摘要使用。"""
+    store = context.store
+    bound = day_bound(store, today, context.config.timezone, now)
+    if store.last_event_seq <= bound:
+        return ()
+    zone = ZoneInfo(context.config.timezone)
+    rows: list[dict[str, Any]] = []
+    for event in store.iter_events(store.last_event_seq, bound):
+        if event.agent_id not in (None, agent_id):
+            continue
+        if event.event_type not in {"action_result", "activity_progress", "environment_event"}:
+            continue
+        rows.append({
+            "event_seq": event.event_seq,
+            "event_type": event.event_type,
+            "occurred_at": event.occurred_at,
+            "clock": datetime.fromtimestamp(event.occurred_at, zone).strftime("%H:%M"),
+            "activity_id": event.activity_id,
+            "visibility": event.visibility,
+            "data": copy.deepcopy(event.data),
+            "resource_changes": dict(event.resource_changes),
+        })
+    return tuple(rows)
+
+
+def _regular_boundary_delta(day_session: DaySessionState, obs: Mapping[str, Any]) -> dict[str, Any]:
+    """@brief 为同日后续常规唤醒构造配对 role=tool 边界增量载荷。"""
+    observed_at = obs["environment_layer"]["observed_at"]
+    return {
+        "ok": True,
+        "result": {"status": "settled", "observed_at": observed_at},
+        "boundary": _boundary_info(day_session, obs),
+        "changes": layer_changes(day_session.last_observed_layers, obs),
+    }
+
+
+def _boundary_info(day_session: DaySessionState, obs: Mapping[str, Any]) -> dict[str, Any]:
+    """@brief 构造跨唤醒及搜索恢复增量载荷中的 boundary 描述块。"""
+    return {
+        "observed_at": obs["environment_layer"]["observed_at"],
+        "wake_reasons": list(obs.get("wake_reasons", ())),
+        "events": _boundary_events(day_session, obs),
+    }
+
+
+def _boundary_events(day_session: DaySessionState, obs: Mapping[str, Any]) -> list[str]:
+    """@brief 提取与本次唤醒边界推进相关的简短结算描述列表。"""
+    prev = day_session.last_observed_layers
+    prev_pending = set(prev.get("tool_layer", {}).get("gate", {}).get("pending_conclusions", ()))
+    items = [
+        f"{name}结束"
+        for name in obs.get("tool_layer", {}).get("gate", {}).get("pending_conclusions", ())
+        if name not in prev_pending
+    ]
+    prev_events = prev.get("progress_layer", {}).get("events", ())
+    for event in obs.get("progress_layer", {}).get("events", ()):
+        if event in prev_events or not isinstance(event, Mapping):
+            continue
+        summary = _progress_event_summary(event)
+        if summary:
+            items.append(summary)
+    return list(dict.fromkeys(items))
+
+
+def _progress_event_summary(event: Mapping[str, Any]) -> str | None:
+    """@brief 将单条进度层事件简化为不含内部身份的边界提示短语。"""
+    kind = event.get("type")
+    if kind == "delivery":
+        return str(event.get("message") or "")
+    if kind == "app_push":
+        return f"{event.get('app')}：{event.get('title')}"
+    if kind == "plan_reminder":
+        return str(event.get("goal") or "")
+    if kind in {"errand_reminder", "errand_completed"}:
+        return str(event.get("errand") or "")
+    if kind in {"callback_reminder", "balance_decreased"}:
+        return str(event.get("text") or event.get("message") or "")
+    return None
+
+
+def _resume_search_payload(context: EngineContext, act: Any, day_session: DaySessionState,
                            obs: dict[str, Any]) -> dict[str, Any]:
-    """@brief 为搜索到期后恢复原对话构造包含 Fact Guard 报价、详情与观察层差量的工具结果载荷。"""
+    """@brief 为搜索到期后恢复原对话构造包含 Fact Guard 报价、详情与基于会话基准层差量的工具结果载荷。"""
     index = title_index(context.catalog)
     term = _activity_terminal_result(context.state, act, act.ended_at or context.state.current_time, index)
-    base_map = {key: value for row in loop.base_layers for key, value in row.items()}
     return {
-        "activity_id": act.activity_id,
+        "ok": True,
         "result": public_result(term.model_dump(mode="json"), context.inputs, {}),
         "search": search_details(act.model_dump(mode="json"), context.inputs),
-        "changes": layer_changes(base_map, obs),
-        "events": [],
+        "boundary": _boundary_info(day_session, obs),
+        "changes": layer_changes(day_session.last_observed_layers, obs),
     }
 
 

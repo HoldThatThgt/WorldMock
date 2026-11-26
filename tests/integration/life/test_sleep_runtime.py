@@ -17,6 +17,7 @@ from tests.life.conftest import (
     sleep,
     stage_day_plan,
     stage_errands,
+    stub_day_session,
     travel,
 )
 from tests.life.environment_inputs import copy_environment, write_catalog_rows
@@ -109,7 +110,7 @@ def _observe_and_conclude(engine, label: str, activity_id: str) -> dict:
     sandbox = engine.open_sandbox(wakeup)
     aid = action_identity(label, 1, wakeup.agent_id)
     sandbox.dispatch_world_tool("conclude_activity", conclude_request(name), aid)
-    engine.commit_barrier([sandbox.finish_wakeup(None)])
+    engine.commit_barrier([sandbox.finish_wakeup(None, stub_day_session(wakeup))])
     assert action_result(engine, aid).status == "completed"
     return observed
 

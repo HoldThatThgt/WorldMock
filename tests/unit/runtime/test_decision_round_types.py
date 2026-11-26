@@ -6,6 +6,9 @@ from datetime import datetime, timezone
 
 import pytest
 
+from pydantic import ValidationError
+
+from worldmock.foundation.serialization import canonical_json
 from worldmock.state.decisions import barrier
 from worldmock.state.decisions import results as decision_results
 from worldmock.state.decisions import round as decision_round
@@ -13,6 +16,7 @@ from worldmock.state.decisions import state as decision_state
 from worldmock.state.decisions.barrier import (
     AgentWakeupInput,
     BarrierCommitReceipt,
+    DaySessionState,
     SandboxOutcome,
     SearchCommitReceipt,
     SearchSessionOutcome,
@@ -21,6 +25,7 @@ from worldmock.state.decisions.barrier import (
     SuspendedLoopState,
     ToolDispatchResult,
 )
+from worldmock.state.decisions.day_session import FIVE_LAYER_KEYS
 from worldmock.state.decisions.round import SchedulingState
 from worldmock.state.world import agent as world_agent
 from worldmock.state.world import kinds as world_kinds
@@ -44,7 +49,6 @@ def _suspended() -> SuspendedLoopState:
         action_id="act-1",
         activity_id="activity-1",
         pending_tool_call_id="call-search-1",
-        messages=({"role": "assistant", "content": None},),
         turn_used=2,
         memory_search_count=1,
         accepted_action_ids=("act-1",),
@@ -54,11 +58,35 @@ def _suspended() -> SuspendedLoopState:
         observation_event_id="evt-obs-1",
         observation_parts={"locations": "sha-1"},
         suspended_at=100,
-        base_layers=(),
     )
 
 
-def _world_state() -> WorldState:
+def _day_session(**updates) -> DaySessionState:
+    values = {
+        "local_date": "2026-01-05",
+        "system_prompt": '{"layer":"系统层"}',
+        "tools_digest": _SHA,
+        "messages": (
+            {"role": "system", "content": '{"layer":"系统层"}'},
+            {"role": "user", "content": '{"layer":"环境层"}'},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [{"id": "call-1", "type": "function", "function": {"name": "continue_activity", "arguments": "{}"}}],
+            },
+        ),
+        "pending_boundary_calls": ("call-1",),
+        "last_observed_layers": {"environment_layer": {"observed_at": "2026-01-05T08:00:00+08:00"}},
+        "loaded_target_keys": (("location", "home"),),
+        "compaction_count": 0,
+        "compacted_through_seq": 0,
+        "last_prompt_tokens": 1200,
+    }
+    values.update(updates)
+    return DaySessionState(**values)
+
+
+def _world_state(day_session: DaySessionState | None = None) -> WorldState:
     agent = AgentState(
         agent_id=1,
         name="林舟",
@@ -76,6 +104,7 @@ def _world_state() -> WorldState:
         ),
         body_settled_at=0,
         next_decision_at=0,
+        day_session=day_session,
     )
     return WorldState(
         schema_version=WORLD_SCHEMA_VERSION,
@@ -140,37 +169,48 @@ def test_scheduling_state_rejects_each_invalid_field_with_its_text(build, text) 
 
 
 def test_barrier_dtos_and_resume_validation() -> None:
-    """屏障、沙盒与搜索会话边界载荷全部冻结且校验严格。"""
+    """屏障、沙盒与搜索会话边界载荷全部冻结且校验严格，退役字段彻底删除。"""
     assert set(barrier.__all__) == {
-        "AgentWakeupInput", "BarrierCommitReceipt", "SandboxOutcome", "SearchCommitReceipt",
+        "AgentWakeupInput", "BarrierCommitReceipt", "DaySessionState", "SandboxOutcome", "SearchCommitReceipt",
         "SearchSessionOutcome", "SearchTaskSpec", "StateModel", "SuspendedLoopState", "ToolDispatchResult",
     }
+    assert WORLD_SCHEMA_VERSION == 18
+    assert "presentation_state" not in WorldState.model_fields
+    assert "pending_presentation" not in AgentWakeupInput.model_fields
+    assert "pending_presentation" not in SandboxOutcome.model_fields
+    assert not {"base_layers", "messages"} & set(SuspendedLoopState.model_fields)
+
     suspended = _suspended()
+    session = _day_session()
     assert suspended.pending_tool_call_id == "call-search-1"
     regular = AgentWakeupInput(
-        wakeup_id="w-1", agent_id=1, observed_at=0, world_state_version=0,
-        mode="regular", observation={"ok": True}, action_seq_start=0,
+        wakeup_id="w-1", run_id="run-1", agent_id=1, observed_at=0, local_date="2026-01-05",
+        world_state_version=0, mode="regular", observation={"ok": True}, action_seq_start=0,
+        day_session=session, boundary_delta_payload={"ok": True},
+        settled_day_events=({"event_seq": 1, "kind": "action_result"},),
     )
     assert issubclass(AgentWakeupInput, StateModel)
     assert regular.suspended_loop is None
+    assert regular.day_session == session
 
     with pytest.raises(ValueError, match="resume_search wakeup requires suspended_loop"):
         AgentWakeupInput(
-            wakeup_id="w-2", agent_id=1, observed_at=100, world_state_version=1,
-            mode="resume_search", observation={}, action_seq_start=1,
+            wakeup_id="w-2", run_id="run-1", agent_id=1, observed_at=100, local_date="2026-01-05",
+            world_state_version=1, mode="resume_search", observation={}, action_seq_start=1,
         )
 
     resumed = AgentWakeupInput(
-        wakeup_id="w-2", agent_id=1, observed_at=300, world_state_version=1,
-        mode="resume_search", observation={"ok": True}, action_seq_start=2,
+        wakeup_id="w-2", run_id="run-1", agent_id=1, observed_at=300, local_date="2026-01-05",
+        world_state_version=1, mode="resume_search", observation={"ok": True}, action_seq_start=2,
         suspended_loop=suspended, search_result_payload={"goods_ids": ["g-1"]},
     )
     assert resumed.suspended_loop == suspended
 
     dispatch = ToolDispatchResult(accepted=True, terminal_exit=False, suspended=True,
-                                  tool_message_payload={"status": "suspended"})
+                                  tool_message_payload={"status": "suspended"}, activity_id="activity-1")
     outcome = SandboxOutcome(
-        wakeup_id="w-1", agent_id=1, status="suspended", state=_world_state(),
+        wakeup_id="w-1", agent_id=1, status="suspended", state=_world_state(session),
+        day_session=session, compaction_records=({"compaction_count": 1},),
         observation_event_id="evt-obs-1",
     )
     spec = SearchTaskSpec(
@@ -187,6 +227,65 @@ def test_barrier_dtos_and_resume_validation() -> None:
     barrier_receipt = BarrierCommitReceipt(
         committed_agent_ids=(1,), conflict_requeued_agent_ids=(), world_state_version=1, event_seq_last=6,
     )
-    assert (dispatch.suspended, outcome.state.schema_version, spec.turn_budget,
+    assert (dispatch.suspended, dispatch.activity_id, outcome.state.schema_version, spec.turn_budget,
             session_out.goods_ids, search_receipt.completed_count, barrier_receipt.world_state_version) == (
-        True, WORLD_SCHEMA_VERSION, 6, ("g-1",), 1, 1)
+        True, "activity-1", WORLD_SCHEMA_VERSION, 6, ("g-1",), 1, 1)
+
+
+def test_day_session_state_invariants_and_world_json_roundtrip() -> None:
+    """DaySessionState 强制消息角色前缀、无第二条 user、挂起 ID 配对与五层基准键集，并支持 WorldState JSON 无损往返。"""
+    assert FIVE_LAYER_KEYS == frozenset({
+        "tool_layer", "todo_layer", "environment_layer", "memory_layer", "progress_layer",
+    })
+    session = _day_session(
+        messages=(
+            {"role": "system", "content": "sys"},
+            {"role": "user", "content": "init"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {"id": "c-main", "type": "function", "function": {"name": "start_main_activity", "arguments": "{}"}},
+                    {"id": "c-side", "type": "function", "function": {"name": "start_side_activity", "arguments": "{}"}},
+                ],
+            },
+        ),
+        pending_boundary_calls=("c-main", "c-side"),
+        loaded_target_keys=(("location", "home"), ("app", "bilibili"), ("product", "tea")),
+    )
+    world = _world_state(session)
+    dumped = world.model_dump(mode="json")
+    assert canonical_json(dumped)
+    restored = WorldState.model_validate(dumped)
+    assert restored.agents[1].day_session == session
+
+    for kwargs in (
+        {"local_date": "2026-02-30"},
+        {"tools_digest": "short"},
+        {"messages": ({"role": "system", "content": "sys"},)},
+        {"messages": ({"role": "user", "content": "u"}, {"role": "user", "content": "u2"})},
+        {"messages": ({"role": "system", "content": "s"}, {"role": "assistant", "content": "a"})},
+        {
+            "messages": (
+                {"role": "system", "content": "s"},
+                {"role": "user", "content": "u"},
+                {"role": "user", "content": "second user"},
+            ),
+            "pending_boundary_calls": (),
+        },
+        {"pending_boundary_calls": (" ",)},
+        {"pending_boundary_calls": ("call-1", "call-1")},
+        {"pending_boundary_calls": ("missing-id",)},
+        {
+            "messages": ({"role": "system", "content": "s"}, {"role": "user", "content": "u"}),
+            "pending_boundary_calls": ("call-1",),
+        },
+        {"last_observed_layers": {"unknown_layer": {}}},
+        {"loaded_target_keys": (("activity", "act-1"),)},
+        {"loaded_target_keys": (("location", " "),)},
+        {"compaction_count": -1},
+        {"compacted_through_seq": -1},
+        {"last_prompt_tokens": -1},
+    ):
+        with pytest.raises((ValueError, ValidationError)):
+            _day_session(**kwargs)

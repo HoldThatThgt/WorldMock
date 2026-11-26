@@ -8,6 +8,7 @@ from pydantic import Field, field_serializer, field_validator, model_validator
 from worldmock.state.planning.errands import ErrandState
 from worldmock.state.planning.schedule import DayPlan
 
+from worldmock.state.decisions.day_session import DaySessionState
 from worldmock.state.decisions.suspended import SuspendedLoopState
 from worldmock.state.world.kinds import SessionKind, SessionStatus
 from worldmock.state.logging import _LOGGER
@@ -128,6 +129,8 @@ class AgentState(StrictModel):
     next_decision_at: int = Field(ge=0)
     #: 挂起搜索等待恢复时的主循环上下文快照。
     suspended_loop: SuspendedLoopState | None = None
+    #: 当日日会话连续上下文状态；跨午夜零点重置与反事实干预时置为 None。
+    day_session: DaySessionState | None = None
     #: 各内容的消费位置与完成轮数映射。
     content_progress: dict[str, ContentProgress] = Field(default_factory=dict)
     #: 上一次决策发生的时刻（UTC 纪元秒）。

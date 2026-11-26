@@ -78,9 +78,10 @@ def test_running_series_row_names_the_episode_and_the_meal_episode(engine_factor
         target = _target(observed, _DINNER)
         assert (target["kind"], target["phase"], target["state"]) == ("activity", "进行中", state)
         row = _dinner_row(observed)
-        assert (row["available"], row["note"]) == (False, note)
+        assert observed["tool_layer"]["gate"]["main_slot_busy"] is True
+        assert (row["available"], row["note"]) == (True, note)
         if offset == 2100:
-            assert row["reason"] == f"The first activity slot is occupied by {_DINNER}."
+            assert row["reason"] is None
             assert row["duration"] == "约 20 分钟"
         _round_trips(observed["tool_layer"])
 

@@ -493,8 +493,11 @@ def _without_order_apps(tmp_path):
 def test_goods_row_previews_the_route_without_prefer(engine_factory):
     """人在公司时柠檬茶一行按没有意向的路线写运费和预计到达；紧接着写饿了么购买，实际送达更晚，以购买结果为准。"""
     engine = engine_factory(mutate=_at_office)
-    observed, result = act(engine, "tea", purchase("柠檬茶", prefer="饿了么"))
+    observed = engine.observations._observation_data(
+        engine.context.state.agents[1], loaded_target_keys=(("product", "lemon-tea"),),
+    )
     row = next(item for item in tool_targets(observed)["柠檬茶"]["actions"] if item["action"] == "purchase")
+    _, result = act(engine, "tea", purchase("柠檬茶", prefer="饿了么"))
     assert row["note"] == "一心面馆（评分 4），运费5 元，预计01月05日 08:15:53到达"
     assert result.status == "in_progress" and _routes(engine, result) == [("lemon-tea", "cafe", "eleme", FAR)]
     (sold,) = _side_record(engine, "ordered")["result"]["details"]["purchases"]

@@ -32,10 +32,11 @@ from scripts.recorded_response_run import (
 RUN1, RUN2, CHECKPOINT = "1" * 32, "2" * 32, "c" * 32
 BASE_URL, METADATA_URL = "https://api.example.invalid/beta", "https://api.example.invalid/models"
 T0 = 1767571200
-CONFIG = ('schema_version = 3\nseed = 7\n\n[models.reasoner]\nprovider = "openai_compatible"\n'
+CONFIG = ('schema_version = 4\nseed = 7\n\n[models.reasoner]\nprovider = "openai_compatible"\n'
           f'base_url = "{BASE_URL}"\nrequested_model = "test-model"\napi_key_env = "TEST_MODEL_KEY"\n'
           f'metadata_url = "{METADATA_URL}"\ncontext_window = 262144\n'
-          'thinking = true\nmax_output_tokens = 16000\n\n'
+          'thinking = true\nmax_output_tokens = 16000\n'
+          'compact_trigger_tokens = 80000\nprompt_cache_key = true\n\n'
           '[model_routing]\naction = "reasoner"\nsearch = "reasoner"\nplan_day = "reasoner"\ndigest = "reasoner"\n')
 PERSONA = 'schema_version = 3\nagent_id = 1\nname = "林舟"\n'
 CHAT = "/beta/chat/completions"
@@ -213,8 +214,24 @@ def restarted(tmp_path):
 
 def test_expected_body_carries_exactly_the_visible_fields():
     assert set(expected_body(_request())) == {"model", "messages", "tools", "tool_choice", "max_tokens", "thinking"}
+    with_cache = {**_request(), "extra_body": {"thinking": {"type": "enabled"}, "prompt_cache_key": "r:a1:2026-01-05"}}
+    assert expected_body(with_cache)["prompt_cache_key"] == "r:a1:2026-01-05"
     memory = {key: value for key, value in _request().items() if key not in ("tools", "tool_choice")}
     assert set(expected_body(memory)) == {"model", "messages", "max_tokens", "thinking"}
+
+
+def test_day_session_multi_turn_tool_messages_compare_byte_for_byte():
+    base = _sent(_request())
+    base["messages"] = [
+        *base["messages"],
+        {"role": "assistant", "content": "", "tool_calls": [{"id": "c1", "type": "function"}]},
+        {"role": "tool", "tool_call_id": "c1", "content": '{"ok":true,"boundary":{"observed_at":"09:00"}}'},
+    ]
+    assert first_difference(base, json.loads(json.dumps(base))) is None
+    changed = json.loads(json.dumps(base))
+    changed["messages"][3]["content"] = '{"ok":true,"boundary":{"observed_at":"09:05"}}'
+    diff = first_difference(base, changed) or {}
+    assert (diff.get("fields"), diff.get("layer"), diff.get("message_index")) == (["messages"], "tool", 3)
 
 
 def test_equal_values_in_another_key_order_match():

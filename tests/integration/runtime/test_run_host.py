@@ -27,6 +27,7 @@ from tests.life.conftest import (
     report_request,
     sleep,
     stage_day_plan,
+    stub_day_session,
     tool_of,
     travel,
 )
@@ -72,7 +73,7 @@ class _ScriptedAgent:
             tool, request = _settling(sandbox._state, wakeup.agent_id, sandbox._context)
         req_dict = request.model_dump(mode="json") if hasattr(request, "model_dump") else dict(request)
         sandbox.dispatch_world_tool(tool, req_dict, f"{wakeup.wakeup_id}:action:0001")
-        return sandbox.finish_wakeup(None)
+        return sandbox.finish_wakeup(None, stub_day_session(wakeup))
 
 
 def _settling(state, agent_id: int, context) -> tuple[str, object]:
@@ -656,7 +657,7 @@ async def test_start_time_disagreement_closes_the_engine_without_recording_a_fai
 def _counterfactual_branch(engine_factory, tmp_path: Path) -> SimpleNamespace:
     parent = engine_factory()
     [wakeup] = parent.prepare_barrier((1,))
-    parent.commit_barrier([parent.open_sandbox(wakeup).finish_wakeup(None)])
+    parent.commit_barrier([parent.open_sandbox(wakeup).finish_wakeup(None, stub_day_session(wakeup))])
     intervention = CounterfactualIntervention(
         kind="set_balance_fen", agent_id=1, balance_fen=654_321,
         hypothesis="Higher liquidity changes purchase choices.",

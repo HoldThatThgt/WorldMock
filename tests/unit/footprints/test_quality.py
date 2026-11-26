@@ -552,7 +552,7 @@ def test_decision_rhythm_counts_silent_boundaries_and_wake_reasons():
     report = build_quality_report(events, [], _manifest(), sample_display_names())
     rhythm = report["decision_rhythm"]
 
-    assert report["schema_version"] == 11
+    assert report["schema_version"] == 12
     assert "decision_budget_exhausted_events" not in rhythm
     assert rhythm["body_settlement_events"] == 4
     assert rhythm["boundaries_with_decision_field"] == 3
@@ -570,7 +570,7 @@ def test_decision_rhythm_counts_silent_boundaries_and_wake_reasons():
 
 def test_report_sections_are_the_documented_grouping_without_a_language_count():
     """报告的分组恰是记录引擎设计「质量报告」登记的十九组（docs/design/05-recording-engine.md），顺序相同，另有版本与
-    运行身份；报告版本为 11。"""
+    运行身份；报告版本为 12。"""
     report = build_quality_report([_event(1, "run_ended", occurred_at=200)], [], _manifest(end=200), sample_display_names())
     documented = ['event_range', 'run_outcome', 'actions', 'activities', 'content_contact', 'app_pushes', 'conversion_efficiency', 'decision_rhythm', 'memory_references', 'model_usage', 'acceleration', 'lineage', 'day_plan_metrics', 'errand_metrics', 'conclusion_memories', 'input_warnings', 'timeline_labels', 'name_rejections', 'truncations']
     assert len(documented) == len(set(documented)) == 19
@@ -579,7 +579,7 @@ def test_report_sections_are_the_documented_grouping_without_a_language_count():
     assert documented[plan:plan + 3] == ["day_plan_metrics", "errand_metrics", "conclusion_memories"]
     assert list(report)[3:] == documented
     assert set(report) == {"schema_version", "run_id", "source_group_id", *documented}
-    assert report["schema_version"] == 11
+    assert report["schema_version"] == 12
     assert (report["errand_metrics"], report["conclusion_memories"]) == (None, None)
     assert [key for key in report if any(word in key for word in ("language", "english", "chinese"))] == []
 
@@ -997,7 +997,7 @@ def _class_request(name):
 
 
 def test_memory_digest_requests_form_their_own_call_class():
-    """purpose 为 memory_digest / search_session 的请求各归对应一类，不看工具名；报告结构号是 11。"""
+    """purpose 为 memory_digest / search_session 的请求各归对应一类，不看工具名；报告结构号是 12。"""
     for tools in ([{"function": {"name": "submit_memory_digest"}}], [{"function": {"name": "start_main_activity"}}],
                   [{"function": {"name": "submit_reflection"}}], []):
         data = {"call_id": "digest", "purpose": "memory_digest",
@@ -1010,18 +1010,26 @@ def test_memory_digest_requests_form_their_own_call_class():
     events = [_event(1, "model_request", data=_class_request("memory_digest")),
               _event(2, "model_response", data=_tool_response("memory_digest", _usage()))]
     report = build_quality_report(events, [], _manifest(), sample_display_names())
-    assert report["schema_version"] == 11
+    assert report["schema_version"] == 12
     [row] = [row for row in report["model_usage"]["by_call_class"] if row["call_class"] == "memory_digest"]
     assert row["request_events"] == row["provider_responses"] == 1
 
 
 def test_model_usage_lists_every_call_class_from_the_recorded_request_shape():
     events = []
-    for index, name in enumerate((*CALL_CLASSES, "unrecognized")):
+    sequence = 1
+    for name in (*CALL_CLASSES, "unrecognized"):
         data = {"call_id": name} if name == "unrecognized" else _class_request(name)
         stamp = "2026-09-15T07:00:00+00:00" if name in {"fresh_decision_turn", "plan_day"} else "2026-09-15T12:00:00+00:00"
-        events += [_event(index * 2 + 1, "model_request", data=data, recorded_at=stamp),
-                   _event(index * 2 + 2, "model_response", data=_tool_response(name, _usage()))]
+        wakeup = "wake-trunc" if name in {"turn_with_history", "truncation_retry"} else f"wake-{name}"
+        response = _tool_response(name, _usage())
+        if name == "turn_with_history":
+            response["protocol_feedback"] = _feedback("OUTPUT_TRUNCATED", ("tool_calls", 0))
+        events += [
+            _event(sequence, "model_request", agent_id=1, wakeup_id=wakeup, data=data, recorded_at=stamp),
+            _event(sequence + 1, "model_response", agent_id=1, wakeup_id=wakeup, data=response),
+        ]
+        sequence += 2
     usage = _model_quality(events)
     rows = usage["by_call_class"]
     assert [row["call_class"] for row in rows] == [*CALL_CLASSES, "unrecognized"]
@@ -1051,18 +1059,43 @@ def test_call_class_comes_from_the_request_event_not_the_response():
     assert rows["reflection"]["provider_responses"] == 0
 
 
-def test_a_start_tool_request_without_the_retry_switch_is_unrecognized():
+def test_a_start_tool_request_without_preceding_truncation_is_not_truncation_retry():
     events = []
-    for index, switch in enumerate((None, {"thinking": {"type": "enabled", "budget": 1}})):
-        data = _class_request("truncation_retry")
-        data["request"].pop("extra_body")
-        if switch is not None:
-            data["request"]["extra_body"] = switch
-        events.append(_event(index + 1, "model_request", data=data))
+    for index, choice in enumerate(("required", "auto")):
+        data = _class_request("turn_with_history")
+        data["call_id"] = f"c-{index}"
+        data["request"]["tool_choice"] = choice
+        events.append(_event(index + 1, "model_request", agent_id=1, wakeup_id="w-clean", data=data))
     rows = {row["call_class"]: row for row in _model_quality(events)["by_call_class"]}
-    assert "unrecognized" in rows
-    assert rows["unrecognized"]["request_events"] == 2
+    assert rows["unrecognized"]["request_events"] == 1
+    assert rows["turn_with_history"]["request_events"] == 1
     assert rows["truncation_retry"]["request_events"] == 0
+
+
+def test_truncation_retry_supports_auto_with_thinking_and_compaction_count_and_cached_details():
+    details_usage = {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120,
+                     "prompt_tokens_details": {"cached_tokens": 30}}
+    trunc_resp = _tool_response("c-1", details_usage)
+    trunc_resp["protocol_feedback"] = _feedback("OUTPUT_TRUNCATED", ("tool_calls", 0))
+    retry_req = _class_request("turn_with_history")
+    retry_req["call_id"] = "c-2"
+    events = [
+        _event(1, "model_request", agent_id=1, wakeup_id="w-1", data={**_class_request("fresh_decision_turn"), "call_id": "c-1"}),
+        _event(2, "model_response", agent_id=1, wakeup_id="w-1", data=trunc_resp),
+        _event(3, "model_request", agent_id=1, wakeup_id="w-1", data=retry_req),
+        _event(4, "model_response", agent_id=1, wakeup_id="w-1", data=_tool_response("c-2", details_usage)),
+        _event(5, "environment_event", agent_id=1, data={"kind": "day_session_compacted", "compaction_count": 1}),
+    ]
+    usage = _model_quality(events)
+    rows = {row["call_class"]: row for row in usage["by_call_class"]}
+    assert rows["fresh_decision_turn"]["request_events"] == 1
+    assert rows["truncation_retry"]["request_events"] == 1
+    assert usage["compaction_count"] == 1
+    assert usage["token_usage"]["cached_input_tokens"] == 60
+    assert usage["token_usage"]["uncached_input_tokens"] == 140
+    assert usage["token_usage"]["cache_hit_ratio"] == 0.3
+    assert usage["estimated_cost"]["complete"] is True
+    assert usage["estimated_cost"]["known_estimate_usd"] is not None
 
 
 def test_call_classes_without_priced_responses_stay_unknown():

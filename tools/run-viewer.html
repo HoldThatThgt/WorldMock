@@ -321,6 +321,7 @@ const TYPE_LABELS = {
 };
 const KIND_LABELS = {sleep:'睡眠', travel:'出行', interact:'互动', purchase:'购买', search:'搜索'};
 const TOOL_LABELS = {start_main_activity:'开始主槽位活动', start_side_activity:'开始副槽位活动',
+  continue_activity:'继续当前活动', lookup_targets:'检索目标',
   search_world:'搜索世界', recall_task_summary:'回看任务', search_memory:'检索记忆',
   report_status:'播报进展', pause_activity:'暂停活动', conclude_activity:'结束活动', revise_day_plan:'调整当日目标'};
 const STATUS_LABELS = { active:'进行中', completed:'已完成', in_progress:'进行中', rejected:'被拒绝',
@@ -335,7 +336,8 @@ const ENVK_LABELS = { initial_funds_injected:'初始资金注入', time_trigger:
   location_entered:'进入地点', location_left:'离开地点',
   delivery_arrival:'配送到达', app_push:'app 推送',
   goods_received:'商品收货', memory_digest_generated:'回顾生成',
-  day_plan_generated:'零点计划生成', activity_concluded:'活动收尾', activity_paused:'活动暂停',
+  day_plan_generated:'零点计划生成', day_session_compacted:'日内上下文压缩',
+  activity_concluded:'活动收尾', activity_paused:'活动暂停',
   activity_resumed:'活动恢复', activity_truncated:'活动截断',
   errand_registered:'事务记下', errand_updated:'事务更新', errand_cancelled:'事务取消',
   errand_progressed:'事务进展', errand_completed:'事务办成', errand_reminded:'事务提醒' };
@@ -666,6 +668,11 @@ function readableReq(tool, reqRaw){
     case 'start_side_activity':
       return `${ViewerContext.actionWord(req.action, 'app')} · ${(Array.isArray(req.target)?req.target:[]).join('、')}`
         + (req.prefer!=null ? ` · 想用 ${req.prefer}` : '');
+    case 'continue_activity':
+      return req.summary ? String(req.summary) : '';
+    case 'lookup_targets':
+      return [req.kind, req.query].filter(Boolean).join(' · ')
+        + (req.page!=null ? ` · 第 ${req.page} 页` : '');
     case 'search_world':
       return `${ViewerContext.actionWord('search', 'app')} · ${req.query ?? ''}`
         + (req.prefer!=null ? ` · 想用 ${req.prefer}` : '');
@@ -886,16 +893,27 @@ function renderOverview(){
   const types = Object.entries(typeCounts).sort((a,b)=>b[1]-a[1]);
   const maxN = types[0]?.[1]||1;
 
-  let modelRows=[], modelTot={n:0,p:0,c:0,t:0};
+  let modelRows=[], modelTot={n:0,p:0,c:0,t:0,ch:null,cm:null};
   try{
     modelRows = q(`SELECT json_extract(body,'$.agent_id') AS agent, COUNT(*) AS n,
       SUM(json_extract(body,'$.data.response.usage.prompt_tokens')) AS p,
       SUM(json_extract(body,'$.data.response.usage.completion_tokens')) AS c,
-      SUM(json_extract(body,'$.data.response.usage.total_tokens')) AS t
+      SUM(json_extract(body,'$.data.response.usage.total_tokens')) AS t,
+      SUM(COALESCE(json_extract(body,'$.data.response.usage.prompt_cache_hit_tokens'),
+        json_extract(body,'$.data.response.usage.prompt_tokens_details.cached_tokens'))) AS ch,
+      SUM(COALESCE(json_extract(body,'$.data.response.usage.prompt_cache_miss_tokens'),
+        json_extract(body,'$.data.response.usage.prompt_tokens') - COALESCE(
+          json_extract(body,'$.data.response.usage.prompt_cache_hit_tokens'),
+          json_extract(body,'$.data.response.usage.prompt_tokens_details.cached_tokens')))) AS cm
       FROM events WHERE json_extract(body,'$.event_type')='model_response' GROUP BY 1 ORDER BY 1`);
     if (agent) modelRows = modelRows.filter(r=>String(r.agent)===agent);
-    for (const r of modelRows){ modelTot.n+=r.n; modelTot.p+=r.p||0; modelTot.c+=r.c||0; modelTot.t+=r.t||0; }
+    for (const r of modelRows){
+      modelTot.n+=r.n; modelTot.p+=r.p||0; modelTot.c+=r.c||0; modelTot.t+=r.t||0;
+      if (r.ch != null) modelTot.ch = (modelTot.ch ?? 0) + r.ch;
+      if (r.cm != null) modelTot.cm = (modelTot.cm ?? 0) + r.cm;
+    }
   }catch(e){}
+  const cacheRate = (p, ch) => (p > 0 && ch != null) ? (ch / p * 100).toFixed(1) + '%' : '—';
   const nReq = typeCounts['action_requested']||0;
   const nAcc = typeCounts['action_accepted']||0;
   const nRej = typeCounts['action_rejected']||0;
@@ -928,8 +946,11 @@ function renderOverview(){
       <div class="kv"><span class="k">prompt tokens</span><span class="v">${nf(modelTot.p)}</span></div>
       <div class="kv"><span class="k">completion tokens</span><span class="v">${nf(modelTot.c)}</span></div>
       <div class="kv"><span class="k">总 tokens</span><span class="v">${nf(modelTot.t)}</span></div>
-      <table style="margin-top:8px"><tr><th>Agent</th><th class="num">次数</th><th class="num">prompt</th><th class="num">completion</th><th class="num">合计</th></tr>
-      ${modelRows.map(r=>`<tr><td>${esc(agentName(r.agent))}</td><td class="num">${nf(r.n)}</td><td class="num">${nf(r.p)}</td><td class="num">${nf(r.c)}</td><td class="num">${nf(r.t)}</td></tr>`).join('')}
+      <div class="kv"><span class="k">缓存命中令牌</span><span class="v">${modelTot.ch==null?'—':nf(modelTot.ch)}</span></div>
+      <div class="kv"><span class="k">未命中令牌</span><span class="v">${modelTot.cm==null?'—':nf(modelTot.cm)}</span></div>
+      <div class="kv"><span class="k">缓存命中率</span><span class="v">${cacheRate(modelTot.p, modelTot.ch)}</span></div>
+      <table style="margin-top:8px"><tr><th>Agent</th><th class="num">次数</th><th class="num">prompt</th><th class="num">completion</th><th class="num">合计</th><th class="num">命中</th><th class="num">未命中</th><th class="num">命中率</th></tr>
+      ${modelRows.map(r=>`<tr><td>${esc(agentName(r.agent))}</td><td class="num">${nf(r.n)}</td><td class="num">${nf(r.p)}</td><td class="num">${nf(r.c)}</td><td class="num">${nf(r.t)}</td><td class="num">${r.ch==null?'—':nf(r.ch)}</td><td class="num">${r.cm==null?'—':nf(r.cm)}</td><td class="num">${cacheRate(r.p, r.ch)}</td></tr>`).join('')}
       </table>
     </div>
     <div class="card">

@@ -10,7 +10,7 @@ from litellm.exceptions import APIConnectionError, AuthenticationError, BadGatew
 
 from tests.integration.runtime.current_contract_fixtures import resolved_binding
 from tests.integration.runtime.test_life_agent_protocol import _ModelResponse
-from tests.life.conftest import MAIN_TOOL, main_arguments, plan_day_response, stage_day_plan
+from tests.life.conftest import MAIN_TOOL, main_arguments, plan_day_response, stage_day_plan, stub_day_session
 from tests.life.environment_runtime import events
 from tests.unit.runtime.model_client_fixtures import provider_error, scripted_client
 from worldmock.agents.life_agent import LifeAgent, person_inputs
@@ -49,11 +49,11 @@ def _opened_sandbox(engine_factory):
 @pytest.mark.parametrize("phase", ["response", "failure"])
 def test_response_and_failure_events_carry_transport_attempts_in_the_envelope(engine_factory, phase):
     """沙盒证据草稿在响应或失败信封中保留 transport_attempts，供应商原始 response 不增加字段。"""
-    engine, _, sandbox, request = _opened_sandbox(engine_factory)
+    engine, wakeup, sandbox, request = _opened_sandbox(engine_factory)
     sandbox.record_model_exchange(request)
     raw = {"choices": [], "usage": {"prompt_tokens": 11, "completion_tokens": 3}}
     sandbox.record_model_exchange(replace(request, phase=phase, response=raw, transport_attempts=ATTEMPTS))
-    outcome = sandbox.finish_wakeup(None)
+    outcome = sandbox.finish_wakeup(None, stub_day_session(wakeup))
     engine.commit_barrier([outcome])
     [stored_request] = events(engine, "model_request")
     [stored_response] = events(engine, "model_response")

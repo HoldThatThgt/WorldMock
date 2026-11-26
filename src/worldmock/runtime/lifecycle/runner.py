@@ -175,7 +175,7 @@ def _prepare_new_run(request: RunRequest) -> _PreparedRun:
 
 
 def _run_identity(request: RunRequest, inputs: EnvironmentInputs) -> RunIdentity:
-    """@brief 冻结多人物标识、人设摘要、配置时间、v8 模型身份与锁定代码身份。"""
+    """@brief 冻结多人物标识、人设摘要、配置时间、v9 模型身份与锁定代码身份。"""
     from worldmock.runtime.framework import setup as run_setup
     from worldmock.state.identity import RunIdentity
 
@@ -195,7 +195,7 @@ def _run_identity(request: RunRequest, inputs: EnvironmentInputs) -> RunIdentity
 def _prepare_resume(
     request: ResumeRequest, intervention: CounterfactualIntervention | None = None,
 ) -> _PreparedRun:
-    """@brief 先开父运行并校验检查点与 v8 身份，核验凭据通过后才原子恢复全员工作区与世界分支。"""
+    """@brief 先开父运行并校验检查点与 v9 身份，核验凭据通过后才原子恢复全员工作区与世界分支。"""
     from worldmock.configuration.inputs.environment import load_environment
     from worldmock.recording_engine.storage.store import FootprintStore
     from worldmock.simulation_engine.world.run_identity import require_environment_identity
@@ -238,7 +238,7 @@ def _intervention_sha256(intervention: CounterfactualIntervention) -> str:
 
 
 def _require_runtime_identity(manifest: dict[str, Any], inputs: EnvironmentInputs) -> None:
-    """@brief 恢复与反事实启动前核对清单 v8 的版本、全员标识、人设摘要、多模型身份与代码指纹。"""
+    """@brief 恢复与反事实启动前核对清单 v9 的版本、全员标识、人设摘要、多模型身份与代码指纹。"""
     from worldmock.runtime.framework import setup as run_setup
     from worldmock.state.identity import (
         RUN_MANIFEST_SCHEMA_VERSION,

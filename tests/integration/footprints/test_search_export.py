@@ -25,7 +25,7 @@ from worldmock.simulation_engine.activities.search.search_activity import (
 from worldmock.simulation_engine.commerce.purchase.order_apps import order_app_ids, selling_app_ids
 from worldmock.state.decisions.barrier import SearchSessionOutcome
 
-#: 质量报告的顶层键：结构号 11 的完整键集。
+#: 质量报告的顶层键：结构号 12 的完整键集。
 QUALITY_KEYS = {
     "schema_version", "run_id", "source_group_id", "event_range", "run_outcome", "actions", "activities",
     "content_contact", "app_pushes", "conversion_efficiency", "decision_rhythm", "memory_references",
@@ -163,7 +163,7 @@ def test_search_is_exported_as_the_fifth_activity_type(search_export):
     assert SEARCH_SECONDS_MIN <= row["elapsed_seconds"] <= SEARCH_SECONDS_MAX
     assert row["data"]["action"] == "search" and row["data"]["answer"]["goods_rows"]
     assert (rows[ids["rest"]]["activity_type"], rows[ids["rest"]]["resource_claims"]) == ("interact", ["first"])
-    assert search_export["manifest"]["schema_version"] == 9
+    assert search_export["manifest"]["schema_version"] == 10
     assert sum(item["activity_type"] == "search" for item in rows.values()) == 4
 
 
@@ -239,7 +239,7 @@ def test_search_then_purchase_in_the_same_second_keeps_one_app_in_the_foreground
 
 
 def test_search_leaves_no_foreground_event_order_attempt_experience_or_content_contact(search_export):
-    """搜索不写 app_foreground，不是下单尝试，没有已核验经历，没有 content_consumed；quality.json 结构号 11。"""
+    """搜索不写 app_foreground，不是下单尝试，没有已核验经历，没有 content_consumed；quality.json 结构号 12。"""
     searches = {search_export["ids"][key] for key in ("with_app", "tissue", "stopped", "cut")}
     foreground = [row for row in search_export["events"] if row["data"].get("kind") == "app_foreground"
                   and row["data"].get("activity_id") in searches]
@@ -250,7 +250,7 @@ def test_search_leaves_no_foreground_event_order_attempt_experience_or_content_c
     assert not [row for row in artifact_rows(directory, "app_usage")
                 if row["fact_kind"] == "content_consumed" and row.get("activity_id") in searches]
     quality = json.loads((directory / "quality.json").read_bytes())
-    assert quality["schema_version"] == 11 and set(quality) == QUALITY_KEYS
+    assert quality["schema_version"] == 12 and set(quality) == QUALITY_KEYS
 
 
 def test_search_line_of_the_timeline_is_chinese(search_export):

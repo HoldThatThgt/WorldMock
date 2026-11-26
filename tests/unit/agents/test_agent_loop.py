@@ -1,4 +1,4 @@
-"""@brief 通用 AgentLoop、LifeAgent 单次唤醒执行、search_world 无栈挂起恢复与错误配对纯单元测试。"""
+"""@brief 通用 AgentLoop、LifeAgent 日会话唤醒、search_world 无栈挂起恢复与错误配对纯单元测试。"""
 
 from __future__ import annotations
 
@@ -35,11 +35,11 @@ from worldmock.agents.protocol.agent_loop import (
     validate_model_request,
     validate_single_tool_call,
 )
-from worldmock.agents.protocol.life_truncation import TRUNCATION_CONTENT
 from worldmock.configuration.inputs.models import ModelMetadata, ModelProfileConfig, PersonaConfig
 from worldmock.configuration.model.model_registry import ResolvedModelBinding
 from worldmock.foundation.errors import ProtocolError
 from worldmock.state.decisions.barrier import AgentWakeupInput, SandboxOutcome, ToolDispatchResult
+from worldmock.state.decisions.day_session import DaySessionState
 from worldmock.state.interaction.requests import SearchMemoryRequest
 from worldmock.state.world.agent import AgentState, BodyState
 from worldmock.state.world.world import WORLD_SCHEMA_VERSION, WorldState
@@ -77,13 +77,15 @@ class _ScriptedClient:
         return item
 
 
-def _binding(client: Any, *, thinking: bool = True, max_turns: int = 4) -> ResolvedModelBinding:
+def _binding(client: Any, *, thinking: bool = True, max_turns: int = 4,
+             prompt_cache_key: bool = False) -> ResolvedModelBinding:
     """@brief 构造纯内存 ResolvedModelBinding。"""
     profile = ModelProfileConfig(
         provider="openai_compatible", base_url="https://api.example.invalid/v1",
         requested_model="deepseek-reasoner", api_key_env="WORLDMOCK_API_KEY",
         metadata_url="https://api.example.invalid/v1/models", context_window=262144,
         thinking=thinking, max_output_tokens=4096, max_react_turns=max_turns,
+        prompt_cache_key=prompt_cache_key,
     )
     meta = ModelMetadata(
         requested_model="deepseek-reasoner", metadata_url="https://api.example.invalid/v1/models",
@@ -101,7 +103,13 @@ def _observation() -> dict[str, Any]:
         "wake_reasons": ["planned_end"],
         "memory_layer": {"layer": "记忆层", "可查": {}, "近三天": {}, "今天": []},
         "todo_layer": {"layer": "待办层", "paused_activities": [], "errands": [], "orders": [], "day_plan": None},
-        "tool_layer": {"layer": "工具层", "targets": [], "callable_index": {"goods": [], "prefer_apps": []}},
+        "tool_layer": {
+            "layer": "工具层",
+            "gate": {"main_slot_busy": False, "side_slot_busy": False, "sleeping": False,
+                     "in_transit": False, "pending_conclusions": []},
+            "targets": [],
+            "callable_index": {"goods": [], "prefer_apps": []},
+        },
         "environment_layer": {
             "layer": "环境层", "observed_at": "2026-01-05T08:00:00+08:00",
             "body": {k: v[0] for k, v in BODY_LEVELS.items()},
@@ -113,7 +121,7 @@ def _observation() -> dict[str, Any]:
 
 
 class _FakeSandbox:
-    """@brief 纯内存 SandboxHandle 替身：脚本化调度与记录全部模型交换与调用。"""
+    """@brief 纯内存 SandboxHandle 替身：脚本化调度与记录全部模型交换、查询与日会话产出。"""
 
     def __init__(self, world_results: list[ToolDispatchResult], *,
                  query_results: dict[str, list[dict[str, Any]]] | None = None,
@@ -125,12 +133,17 @@ class _FakeSandbox:
         self.dispatched: list[tuple[str, Any, str, str | None]] = []
         self.exchanges: list[Any] = []
         self.finished: Any = None
+        self.saved_session: DaySessionState | None = None
+        self.compaction_records: tuple[dict[str, Any], ...] = ()
 
     def search_memory(self, request) -> dict[str, Any]:
         return self._queries["search_memory"].pop(0)
 
     def recall_task_summary(self, request) -> dict[str, Any]:
         return self._queries["recall_task_summary"].pop(0)
+
+    def lookup_targets(self, request) -> dict[str, Any]:
+        return self._queries["lookup_targets"].pop(0)
 
     def dispatch_world_tool(self, tool_name, arguments, call_id, note=None) -> ToolDispatchResult:
         if tool_name == self._fail_world_on:
@@ -143,8 +156,20 @@ class _FakeSandbox:
             raise OSError("disk full")
         self.exchanges.append(exchange)
 
-    def finish_wakeup(self, suspended) -> SandboxOutcome:
+    def compact_snapshot(self) -> dict[str, Any]:
+        obs = _observation()
+        return {key: obs[key] for key in (
+            "memory_layer", "todo_layer", "tool_layer", "environment_layer", "progress_layer", "progress_meta")}
+
+    def finish_wakeup(
+        self,
+        suspended,
+        day_session: DaySessionState,
+        compaction_records: tuple[dict[str, Any], ...] = (),
+    ) -> SandboxOutcome:
         self.finished = suspended
+        self.saved_session = day_session
+        self.compaction_records = compaction_records
         status = "suspended" if suspended is not None else "completed"
         agent = AgentState(
             agent_id=1, name="林舟", location_id="home", balance_account_id="agent:1",
@@ -161,12 +186,9 @@ class _FakeSandbox:
         )
         return SandboxOutcome(
             wakeup_id="run:wake:1000:v1:a1", agent_id=1, status=status,
-            state=dummy_state,
+            state=dummy_state, day_session=day_session, compaction_records=compaction_records,
             observation_event_id="obs-evt-1",
         )
-
-    def can_finish_idle(self) -> bool:
-        return False
 
 
 def _persona() -> PersonaConfig:
@@ -203,14 +225,20 @@ def test_agent_loop_public_helpers_cover_parsing_validation_and_dispatch():
 
 @pytest.mark.asyncio
 async def test_life_agent_regular_wakeup_runs_queries_control_limit_truncation_and_completion():
-    """@brief 完整覆盖常规唤醒：记忆查询上限、控制动作沙盒回传、思考配对纠错、输出截断关闭思考重试与开始组完成。"""
+    """@brief 覆盖常规唤醒：记忆查询上限、控制回传、思考配对纠错、截断保持恒定工具与思考、无第二 user 及开始组完成。"""
     inputs = person_inputs(_persona())
     agent = LifeAgent(inputs)
     assert USER_LAYER_NAMES[-1] == "进度层"
     assert "search_world" in life_action_tool_names()
-    assert life_query_tool_names() == frozenset({"recall_task_summary", "search_memory"})
+    assert "continue_activity" in life_action_tool_names()
+    assert life_query_tool_names() == frozenset({"recall_task_summary", "search_memory", "lookup_targets"})
     assert len(life_tool_schema_sha256()) == 64
 
+    mem_err = {
+        "error_code": "MEMORY_TIME_INVALID",
+        "items": [{"path": ["tool_calls", 0, "time"], "written": "坏时间", "error_code": "MEMORY_TIME_INVALID",
+                   "allowed_values": [], "expected": "valid time", "why": "invalid time", "candidates": []}],
+    }
     sandbox = _FakeSandbox(
         world_results=[
             ToolDispatchResult(accepted=True, terminal_exit=False, suspended=False,
@@ -221,11 +249,7 @@ async def test_life_agent_regular_wakeup_runs_queries_control_limit_truncation_a
                                tool_message_payload={"result": {"started": True}}),
         ],
         query_results={
-            "search_memory": [
-                {"items": [{"text": "昨天的饭"}]},
-                {"items": []},
-                {"error_code": "MEMORY_TIME_INVALID", "items": [{"path": ["tool_calls", 0, "time"]}]},
-            ],
+            "search_memory": [{"items": [{"text": "昨天的饭"}]}, {"items": []}, mem_err],
             "recall_task_summary": [{"summary": "买菜进度"}],
         },
     )
@@ -245,26 +269,28 @@ async def test_life_agent_regular_wakeup_runs_queries_control_limit_truncation_a
         ], content="开始睡觉并刷会手机"),
     ])
     wakeup = AgentWakeupInput(
-        wakeup_id="run:wake:1000:v1:a1", agent_id=1, observed_at=1000, world_state_version=1,
-        mode="regular", observation=_observation(), observation_parts={}, pending_presentation={},
-        action_seq_start=1,
+        wakeup_id="run:wake:1000:v1:a1", run_id="run", agent_id=1, observed_at=1000,
+        local_date="2026-01-05", world_state_version=1,
+        mode="regular", observation=_observation(), observation_parts={}, action_seq_start=1,
     )
     outcome = await agent.decide_wakeup(wakeup, sandbox, _binding(client, thinking=True, max_turns=6))
     assert outcome.status == "completed" and sandbox.finished is None
-    assert client.requests[3]["tool_choice"] == "required"
-    assert client.requests[3]["extra_body"] == {"thinking": {"type": "disabled"}}
-    assert len(client.requests[3]["tools"]) == 6
+    assert client.requests[3]["tool_choice"] == "auto"
+    assert client.requests[3]["extra_body"] == {"thinking": {"type": "enabled"}}
+    assert len(client.requests[3]["tools"]) == 11
+    assert client.requests[3]["messages"] == client.requests[2]["messages"]
+    assert all(msg["role"] != "user" for msg in outcome.day_session.messages[2:])
+    assert outcome.day_session.pending_boundary_calls == ("s1", "s2")
     assert sandbox.dispatched[0][2] == "run:wake:1000:v1:a1:action:0001"
     assert sandbox.dispatched[1][2] == "run:wake:1000:v1:a1:action:0002"
     assert sandbox.dispatched[1][3] == "开始睡觉并刷会手机"
     assert sandbox.dispatched[2][2] == "run:wake:1000:v1:a1:action:0003" and sandbox.dispatched[2][3] is None
     assert "MEMORY_SEARCH_LIMIT" in client.requests[1]["messages"][-2]["content"]
-    assert TRUNCATION_CONTENT == client.requests[3]["messages"][-1]["content"]
 
 
 @pytest.mark.asyncio
-async def test_life_agent_search_world_suspend_and_resume_grants_forced_final_turn():
-    """@brief search_world 挂起保留 pending_tool_call_id 与上下文；最后一回合挂起恢复时授予恰 1 次非挂起终结机会。"""
+async def test_life_agent_search_world_suspend_and_resume_preserves_constant_tools():
+    """@brief search_world 挂起保留 pending_tool_call_id 与日会话；恢复时保持恒定 11 工具与连续消息流。"""
     agent = LifeAgent(person_inputs(_persona()))
     suspend_sandbox = _FakeSandbox(
         world_results=[
@@ -272,7 +298,8 @@ async def test_life_agent_search_world_suspend_and_resume_grants_forced_final_tu
                                tool_message_payload={"result": {"error_code": "ACTION_NOT_OFFERED"},
                                                      "changes": {}, "events": []}),
             ToolDispatchResult(accepted=True, terminal_exit=False, suspended=True,
-                               tool_message_payload={"result": {"activity_id": "act-search-9"}},
+                               activity_id="act-search-9",
+                               tool_message_payload={"result": {"status": "accepted"}},
                                pending_memories=({"type": "routine", "text": "记住先比价"},)),
         ],
     )
@@ -282,9 +309,9 @@ async def test_life_agent_search_world_suspend_and_resume_grants_forced_final_tu
                reasoning="先搜一下"),
     ])
     wakeup_1 = AgentWakeupInput(
-        wakeup_id="run:wake:1000:v1:a1", agent_id=1, observed_at=1000, world_state_version=1,
-        mode="regular", observation=_observation(), observation_parts={"p": "sha"}, pending_presentation={},
-        action_seq_start=1,
+        wakeup_id="run:wake:1000:v1:a1", run_id="run", agent_id=1, observed_at=1000,
+        local_date="2026-01-05", world_state_version=1,
+        mode="regular", observation=_observation(), observation_parts={"p": "sha"}, action_seq_start=1,
     )
     suspended_outcome = await agent.decide_wakeup(
         wakeup_1, suspend_sandbox, _binding(suspend_client, thinking=True, max_turns=3),
@@ -295,6 +322,7 @@ async def test_life_agent_search_world_suspend_and_resume_grants_forced_final_tu
     assert saved.action_id == "run:wake:1000:v1:a1:action:0002"
     assert saved.activity_id == "act-search-9" and saved.turn_used == 2
     assert saved.local_rejection_counts == {"ACTION_NOT_OFFERED": 1}
+    assert suspended_outcome.day_session.pending_boundary_calls == ("sw-call-1",)
 
     resume_sandbox = _FakeSandbox(world_results=[
         ToolDispatchResult(accepted=True, terminal_exit=True, suspended=False, tool_message_payload={"ok": True}),
@@ -304,16 +332,18 @@ async def test_life_agent_search_world_suspend_and_resume_grants_forced_final_tu
             "action": "purchase", "target": ["苹果"], "prefer": "盒马"})]),
     ])
     wakeup_2 = AgentWakeupInput(
-        wakeup_id=saved.wakeup_id, agent_id=1, observed_at=1300, world_state_version=2,
+        wakeup_id=saved.wakeup_id, run_id="run", agent_id=1, observed_at=1300,
+        local_date="2026-01-05", world_state_version=2,
         mode="resume_search", observation={**_observation(), "current_time": 1300},
-        observation_parts={"p": "sha"}, pending_presentation={}, action_seq_start=3,
+        observation_parts={"p": "sha"}, action_seq_start=3,
+        day_session=suspended_outcome.day_session,
         suspended_loop=saved, search_result_payload={"goods_rows": [{"product": "苹果"}]},
     )
     resumed_outcome = await agent.decide_wakeup(
         wakeup_2, resume_sandbox, _binding(resume_client, thinking=False, max_turns=2),
     )
     assert resumed_outcome.status == "completed" and resume_sandbox.finished is None
-    assert len(resume_client.requests[0]["tools"]) == 6
+    assert len(resume_client.requests[0]["tools"]) == 11
     injected_msg = resume_client.requests[0]["messages"][-1]
     assert injected_msg["role"] == "tool" and injected_msg["tool_call_id"] == "sw-call-1"
     assert "苹果" in injected_msg["content"]
@@ -322,12 +352,13 @@ async def test_life_agent_search_world_suspend_and_resume_grants_forced_final_tu
 
 @pytest.mark.asyncio
 async def test_agent_loop_error_paths_failures_cancellations_and_budget_exhaustion():
-    """@brief 核验模型失败写入 failure 证据、任务取消不写 failure、证据写库失败与预算耗尽抛 ProtocolError。"""
+    """@brief 核验模型失败写入 failure 证据、任务取消不写 failure、证据写库失败、非思考截断 required 与预算耗尽。"""
     agent = LifeAgent(person_inputs(_persona()))
     fail_sandbox = _FakeSandbox([])
     fail_wakeup = AgentWakeupInput(
-        wakeup_id="w-fail", agent_id=1, observed_at=100, world_state_version=1,
-        mode="regular", observation=_observation(), observation_parts={}, pending_presentation={}, action_seq_start=1,
+        wakeup_id="w-fail", run_id="run", agent_id=1, observed_at=100,
+        local_date="2026-01-05", world_state_version=1,
+        mode="regular", observation=_observation(), observation_parts={}, action_seq_start=1,
     )
     with pytest.raises(RuntimeError, match="network down"):
         await agent.decide_wakeup(fail_wakeup, fail_sandbox, _binding(_ScriptedClient([RuntimeError("network down")])))
@@ -343,9 +374,12 @@ async def test_agent_loop_error_paths_failures_cancellations_and_budget_exhausti
         await agent.decide_wakeup(fail_wakeup, bad_ev_sandbox, _binding(_ScriptedClient([_reply([])])))
 
     exhaust_sandbox = _FakeSandbox([])
+    trunc_client = _ScriptedClient([_reply([], content=" ", finish_reason="length"), _reply([])])
     with pytest.raises(ProtocolError, match="Model turn limit exhausted"):
-        await agent.decide_wakeup(fail_wakeup, exhaust_sandbox,
-                                  _binding(_ScriptedClient([_reply([])]), thinking=False, max_turns=1))
+        await agent.decide_wakeup(fail_wakeup, exhaust_sandbox, _binding(trunc_client, thinking=False, max_turns=2))
+    assert trunc_client.requests[1]["tool_choice"] == "required"
+    assert trunc_client.requests[1]["messages"] == trunc_client.requests[0]["messages"]
+
     loop = AgentLoop(
         LoopConfig("s", "w", 1, "model", _binding(_ScriptedClient([_reply([])]), max_turns=1), allow_thinking=False),
         LoopCallbacks(
@@ -367,8 +401,9 @@ async def test_agent_loop_error_paths_failures_cancellations_and_budget_exhausti
     ):
         bad_obs = {**_observation(), **bad_patch}
         bad_wake = AgentWakeupInput(
-            wakeup_id="w-bad", agent_id=1, observed_at=100, world_state_version=1,
-            mode="regular", observation=bad_obs, observation_parts={}, pending_presentation={}, action_seq_start=1,
+            wakeup_id="w-bad", run_id="run", agent_id=1, observed_at=100,
+            local_date="2026-01-05", world_state_version=1,
+            mode="regular", observation=bad_obs, observation_parts={}, action_seq_start=1,
         )
         with pytest.raises(RuntimeError):
             await agent.decide_wakeup(bad_wake, _FakeSandbox([]), _binding(_ScriptedClient([])))

@@ -32,11 +32,11 @@ def test_each_frozen_input_identity_is_required(engine_factory, field):
         require_environment_identity(manifest, engine.context.inputs)
 
 
-@pytest.mark.parametrize("version", [1, 2, 3, 4, 5, 6, 7, 9, "8", 8.5, None])
+@pytest.mark.parametrize("version", [1, 2, 3, 4, 5, 6, 7, 8, 10, "9", 9.5, None])
 def test_retired_or_unknown_run_manifest_versions_are_rejected(engine_factory, version):
-    """运行清单的结构版本是 8：上一版的 7、更早的值、没见过的 9 和不是这个整数的写法都按环境身份不符拒绝。"""
+    """运行清单的结构版本是 9：上一版的 8、更早的值、没见过的 10 和不是这个整数的写法都按环境身份不符拒绝。"""
     engine = engine_factory()
-    assert engine.context.store.manifest["schema_version"] == 8
+    assert engine.context.store.manifest["schema_version"] == 9
     require_environment_identity(engine.context.store.manifest, engine.context.inputs)
     manifest = {**engine.context.store.manifest, "schema_version": version}
     with pytest.raises(IntegrityError, match="^Runtime environment identity mismatch$"):
@@ -44,15 +44,15 @@ def test_retired_or_unknown_run_manifest_versions_are_rejected(engine_factory, v
 
 
 def test_run_whose_stored_manifest_carries_the_previous_structure_number_cannot_be_opened(engine_factory, caplog):
-    """磁盘上的运行清单写着上一版结构号 7 时，打开这个运行在存储打开之后、读世界状态之前就被拒绝，并留下英文错误日志；
-    把清单写回 8 后同一个目录照常打开。"""
+    """磁盘上的运行清单写着上一版结构号 8 时，打开这个运行在存储打开之后、读世界状态之前就被拒绝，并留下英文错误日志；
+    把清单写回 9 后同一个目录照常打开。"""
     from worldmock.foundation.serialization import canonical_json
 
     engine = engine_factory()
     store, frozen = engine.context.store, engine.context.inputs
     path = store.run_dir / "manifest.json"
     current = path.read_bytes()
-    path.write_bytes(canonical_json({**store.manifest, "schema_version": 7}))
+    path.write_bytes(canonical_json({**store.manifest, "schema_version": 8}))
     with caplog.at_level("ERROR"), pytest.raises(IntegrityError, match="^Runtime environment identity mismatch$"):
         LifeEngine.open(frozen, store.run_dir)
     assert "Runtime environment identity mismatch" in caplog.text

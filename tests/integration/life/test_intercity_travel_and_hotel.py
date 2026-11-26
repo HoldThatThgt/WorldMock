@@ -148,7 +148,7 @@ def test_tool_layer_city_isolation_portal_suffix_and_city_wide_false(engine_fact
 
     # 在 city-b 的乙城小馆检验 city_wide=False 的摆渡专车：未在直连两端时隐藏且拒载，移至乙城中心站后可用。
     engine_b = engine_factory(environment_root=root, mutate=_start_at("乙城小馆"))
-    obs_b = observe_only(engine_b, "obs-b-cafe")
+    obs_b = observe_only(engine_b, "obs-b-cafe", (("location", "b-shuttle-dest"), ("location", "b-hotel-1")))
     assert "摆渡专车" not in travel_rows(obs_b, "乙城空港")
     assert "乙城云栖酒店" in tool_targets(obs_b) and "家" not in tool_targets(obs_b)
 
@@ -157,7 +157,7 @@ def test_tool_layer_city_isolation_portal_suffix_and_city_wide_false(engine_fact
 
     _, to_hub = act(engine_b, "walk-hub", travel("乙城中心站", "步行"))
     finish_activity(engine_b, to_hub, "reach-hub")
-    obs_hub = observe_only(engine_b, "obs-hub")
+    obs_hub = observe_only(engine_b, "obs-hub", (("location", "b-shuttle-dest"),))
     assert "摆渡专车" in travel_rows(obs_hub, "乙城空港")
     _, ok_shuttle = act(engine_b, "take-shuttle", travel("乙城空港", "摆渡专车"))
     assert ok_shuttle.status == "in_progress"

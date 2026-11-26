@@ -50,6 +50,8 @@ SHA-256，存储的正文是它的 zlib 流（见「冻结输入、检查点与�
 受理、拒绝、动作结果、活动生命周期事件和运行截止时写下的截断快照（`environment_event`）里的快照，以及观察作为证据记下的进行中活动，照旧带完整的 `data.played`；世界状态只存完整列表。
 `activities.jsonl` 取哪一份快照见「完整导出认证」。
 
+日内 Compaction 触发时由 `BarrierMerger.commit_barrier` 写入 `environment_event`（`visibility="system"`、来源 `environment`、没有资金变化），`data.kind` 为 `day_session_compacted`，载荷含 `compaction_count`、`compacted_through_seq`、`before_tokens`、`after_tokens`、`folded_groups` 与 `kept_tail_groups`，供质量报告与评估工具审计日内上下文折叠，不进入任何提示层或人物记忆。
+
 `callback_effect`、`callback_reminder`、`time_trigger`、`weather` 使用闭合字段合同。
 效果包含一项实际触发原因和完整类型化结果；收入支出方向与信封资金变化一致，未支付结果没有资金变化。
 独立时间事实不能伪装成上游事件的附加效果；`weather` 的 `data` 闭合字段为 `{kind, city_id, local_date, condition, speed_factor, scheduled_id}`，在本地午夜按目录已登记城市升序各记一条（`scheduled_id` 为 `weather-{city_id}-{local_date}`），天气条件与速度系数必须来自固定世界天气表。
@@ -150,7 +152,7 @@ SHA-256，存储的正文是它的 zlib 流（见「冻结输入、检查点与�
 模型请求与观察里的大表各只存一次，读出的证据与写入前相同：
 
 - **模型证据**：模型调用逐次留证。
-  - 请求事件 `model_request` 的 `data.request` 是交给模型客户端的完整请求：人物唤醒回合、搜索子会话、零点计划与回顾都恰为 `model`、`messages`、`tools`、`tool_choice`、`max_tokens`、`extra_body` 六个键，消息与工具原样；HTTP 正文由 litellm 从这六个键生成，`extra_body` 的键并入正文顶层。两类重试次数不在请求里，记在运行清单的 `model_identity`（按档案表逐档冻结）。存储层的 `last_agent_action_request_seq` 查询不依赖 `thinking` 开关，精确匹配 `data.purpose IS NULL`、`tool_choice = 'auto'` 且 `tools` 含 `start_main_activity` 的主循环请求；`read_wakeup_observations(agent_id, wakeup_id, observed_at)` 替代旧的 `read_decision_observations`。
+  - 请求事件 `model_request` 的 `data.request` 是交给模型客户端的完整请求：人物唤醒回合、搜索子会话、零点计划与回顾都恰为 `model`、`messages`、`tools`、`tool_choice`、`max_tokens`、`extra_body` 六个键，消息与工具原样（主唤醒请求发出前已过日内 Compaction 校验与必要重建）；HTTP 正文由 litellm 从这六个键生成，`extra_body` 的键并入正文顶层。当绑定档案的 `prompt_cache_key` 为 `True` 时，仅主循环 `action` 请求在 `extra_body` 内注入 `"prompt_cache_key": f"{run_id}:a{agent_id}:{local_date}"`（与 `"thinking"` 并存）；`plan_day`、`memory_digest` 与 `search_session` 不注入 `prompt_cache_key`。两类重试次数不在请求里，记在运行清单的 `model_identity`（按档案表逐档冻结）。存储层的 `last_agent_action_request_seq` 查询不依赖 `thinking` 开关，精确匹配 `data.purpose IS NULL`、`tool_choice = 'auto'` 且 `tools` 含 `start_main_activity` 的主循环请求；`read_wakeup_observations(agent_id, wakeup_id, observed_at)` 替代旧的 `read_decision_observations`。
   - 搜索子会话 `LLM Search Session` 内部产生的所有 `model_request` 与 `model_response`，在事件信封上填写 `activity_id = search_activity_id`，`data.purpose` 写 `"search_session"`，`call_id` 写 `{action_id}:search:{turn:04d}:attempt:1`，自动纳入 `token_stats` 与 `by_call_class` 计量。
   - 同一调用的响应或失败事件 `model_response` 的 `data.request` 恒为 null（键照常出现），`caused_by` 恰一项，指向它的请求事件。请求只存一次；零点计划与回顾的证据本就如此。其余键照旧：`phase`、`call_id`、`attempt`、`response`、`error`，响应带 `protocol_feedback` 时也照旧。
   - 环境登记请求时记下请求规范 JSON 的 sha256；登记响应或失败时，核对它带来的请求与之相同。比较按规范内容，内容相同、只是重新构造（例如键的插入次序不同）的请求照常接受。
@@ -428,10 +430,10 @@ Python 一侧取不到名称时：`render_day.py` 的命令行不写出时间线
   | 事件 | 索引里的 body |
   | --- | --- |
   | observation | 信封全留；data 只留 `balance_fen`、`body`、`active_activities`、`calendar_context` |
-  | model_request | 信封与 data 全留；`data.request.messages` 只留第一条 |
+  | model_request | 信封与 data 全留；`data.request.messages` 保留完整日会话多轮消息序列（不截断为首条） |
   | model_response | 信封与 data 全留，去掉 `data.request` |
 
-  这张表只在 `tools/run-viewer-index.js` 维护一处，SQL 控制台的说明由它生成。
+  这张表只在 `tools/run-viewer-index.js` 维护一处，SQL 控制台的说明由它生成。运行查看器在 `TOOL_LABELS` 纳入 `continue_activity`（「继续当前活动」）与 `lookup_targets`（「检索目标」），`renderOverview()` 令牌总表新增缓存命中令牌、未命中令牌与缓存命中率展示；上下文面板按日会话模式解释 `工具层.gate`、追加 `role: "tool"` 差量与日内 Compaction 节点。
 - **全文。** 时间线展开一行、「上下文」读请求与响应时，按 `event_lines` 的字节区间从 `events.jsonl` 读原行，与导出文件逐字节相同；
   读不到（文件被移走或改动）时在该处写读取失败和英文错误日志。
 - **不完整导出。** 没有最终存档时，对象名称、运行输入警告和当地时刻照常；期末账户与世界状态版本显示「无 world_state」，
@@ -558,8 +560,8 @@ flowchart LR
 
 | 子命令 | 打印什么 |
 | --- | --- |
-| `summary` | 运行身份、状态与各类事件的条数 |
-| `events [--type] [--agent] [--tail] [--full]` | 一行一事件的事件流，可按类型和人物过滤；`--full` 打印全文 |
+| `summary` | 运行身份、状态、缓存命中/未命中令牌与各类事件的条数 |
+| `events [--type] [--agent] [--tail] [--full]` | 一行一事件的事件流，含 `continue_activity`、`lookup_targets` 与 `day_session_compacted` 摘要，可按类型和人物过滤；`--full` 打印全文 |
 | `event <序号>` | 一条事件的全文 |
 | `money` | 全部资金流水与期末余额 |
 | `body [--agent]` | 观察里的身体轨迹：能量、睡眠不足、饥饿与困意分级 |
@@ -609,8 +611,8 @@ flowchart LR
 冻结清单的文件表必须包含全部必需文件、且不含必需与可选文件名以外的路径，目录摘要按文件表里的全部文件重算。
 清单保存原始字节摘要（含多人物 `persona_sha256s`）、五项环境身份、多模型档 `ModelIdentity` 元数据与非密模型参数。凭据正文不进入清单、事件或报告。
 
-检查点绑定准确事件前缀、共同世界（含 `AgentState.suspended_loop` 无栈挂起载荷）和全体人物工作区素材。
-运行宿主的每一步之后写一个共同检查点，只推进不唤醒的步也写（见[运行装配与决策循环](10-runtime.md)「时钟屏障与并发唤醒循环」）；检查点不更新、不删除，每一步都能恢复，恢复从失败的那一秒继续；反事实分支干预清空全部人物 `suspended_loop`。
+检查点绑定准确事件前缀、共同世界（含 `AgentState.suspended_loop` 无栈挂起载荷与 `AgentState.day_session` 日会话状态，`WORLD_SCHEMA_VERSION = 18`）和全体人物工作区素材。
+运行宿主的每一步之后写一个共同检查点，只推进不唤醒的步也写（见[运行装配与决策循环](10-runtime.md)「时钟屏障与并发唤醒循环」）；检查点不更新、不删除，每一步都能恢复，恢复从失败的那一秒继续；反事实分支干预清空全部人物 `suspended_loop` 与 `day_session`。
 检查点表的一行是 `(checkpoint_id, body, record_sha256)`：`body` 是 zlib 流（RFC 1950，压缩级别 1，头两字节 `78 01`），
 解压后恰为检查点载荷的规范 JSON 字节；`record_sha256` 是这些未压缩字节的 SHA-256。检查点记录、恢复分支写出的
 `restored-checkpoint.json`、导出清单里的最终检查点和它的认证因此都与压缩无关。读取检查点先解压、再核对摘要：行不存在、
@@ -622,7 +624,7 @@ gzip 头部固定为 `1f 8b 08 00 00 00 00 00 00 ff`：修改时刻为 0、不�
 素材，不打开它。
 分支复制全部冻结环境素材和所需快照，
 恢复前认证归档成员，拒绝绝对路径、符号链接、别名与覆盖已有目标文件。
-人物工作区恢复只校验一次：每个人物的快照展开后，工作区里的普通文件恰为空集，或恰为 `MEMORY.md` 与 `memory/episodes.jsonl`，否则报 `Restored agent workspace members are invalid`；不为空时 `MEMORY.md` 去掉空白后不能为空，条目文件按[状态与序列化](09-io-formats.md)「人物工作区」逐行严格读回，任一不成立报 `Restored agent memory is invalid`；检查点缺某个人物的快照报 `Checkpoint is missing an agent workspace snapshot`。全部人物通过之后才发布子目录。人物卡片、名字与模型身份不在工作区里，恢复不另核它们：冻结的 `personas/*.toml` 与父运行的一致由运行清单的 `persona_sha256s` 核对，模型身份与代码身份由运行清单（v8）核对。
+人物工作区恢复只校验一次：每个人物的快照展开后，工作区里的普通文件恰为空集，或恰为 `MEMORY.md` 与 `memory/episodes.jsonl`，否则报 `Restored agent workspace members are invalid`；不为空时 `MEMORY.md` 去掉空白后不能为空，条目文件按[状态与序列化](09-io-formats.md)「人物工作区」逐行严格读回，任一不成立报 `Restored agent memory is invalid`；检查点缺某个人物的快照报 `Checkpoint is missing an agent workspace snapshot`。全部人物通过之后才发布子目录。人物卡片、名字与模型身份不在工作区里，恢复不另核它们：冻结的 `personas/*.toml` 与父运行的一致由运行清单的 `persona_sha256s` 核对，模型身份与代码身份由运行清单（v9）核对。
 
 分支按存储字节复制父库截止前缀。先按事件序号分页经唯一的行解码器逐条校验父事件，核对每行的序号、身份与正文一致，逐个
 读取并核对每条事件引用的素材，同时记下前缀里出现的运行身份；`source_run_ids` 仍是这些运行身份加新运行身份的升序集合。
@@ -644,27 +646,27 @@ gzip 头部固定为 `1f 8b 08 00 00 00 00 00 00 ff`：修改时刻为 0、不�
 ## 完整导出认证
 
 导出固定事件截止、摘要素材、活动、app 使用、购买、已核验经历、地点停留、日时间线及质量报告。
-导出清单的结构号 `EXPORT_SCHEMA_VERSION` 是 9（由于事件采用 `wakeup_id`、`activity_id` 与多人物冻结输入清单）。`artifacts` 的键恰为 `events`、`activities`、`verified_experiences`、`purchases`、`app_usage`、`location_stays`，
+导出清单的结构号 `EXPORT_SCHEMA_VERSION` 是 10（对接日会话连续上下文、日内 Compaction 证据与缓存令牌明细）。`artifacts` 的键恰为 `events`、`activities`、`verified_experiences`、`purchases`、`app_usage`、`location_stays`，
 每个值是 `{path, rows, sha256}`，`location_stays` 的 `path` 是 `location-stays.jsonl`；
 结构号不符报 `Export manifest is not a committed supported version`，键集不符报 `Export artifact set is invalid`。
 app 的开关、订单通知和地点停留只进事件与这些工件，不进质量报告。
-质量报告 `quality.json` 的结构号是 11。它的 `input_warnings.code_counts` 的键恰为运行输入警告码闭集的两个值
+质量报告 `quality.json` 的结构号是 12。它的 `input_warnings.code_counts` 的键恰为运行输入警告码闭集的两个值
 `CONTENT_EMPTY_WITH_MEDIA_TASTES` 与 `LOCATION_NAME_SUSPICIOUS`（见[配置](08-configuration.md)「校验与输入冻结」），
 闭集之外的码只计入 `unrecognized_code_counts`。
 质量报告的 `lineage` 节只读冻结清单：父运行各段 `parents`（身份、检查点、结束原因、错误、丢弃事件数、停机秒数 =
-分出时刻减父运行最后一条事件的落盘时刻）、按结束原因的计数、停机总秒数与段数 `segment_count`；`decision_rhythm` 去除已退役的 `same_moment_round_counts` 字段并统计 `decision_started` 的 `wakeup_id` 计数；`errand_metrics.conclusion_memories` 从 `(agent_id, decision_id)` 切换为 `(agent_id, wakeup_id)`；`CALL_CLASSES` 纳入 `"search_session"`（在导出统计中单独分列而不污染主决策轮指标），这些变更是质量报告结构号升到 11 的原因。冻结清单的 `lineage` 不是数组时报 `Quality report manifest has no lineage`。它不计入
+分出时刻减父运行最后一条事件的落盘时刻）、按结束原因的计数、停机总秒数与段数 `segment_count`；`decision_rhythm` 统计 `decision_started` 的 `wakeup_id` 计数；`errand_metrics.conclusion_memories` 按 `(agent_id, wakeup_id)` 关联；`CALL_CLASSES` 单列 `"search_session"`，汇总 `kind == "day_session_compacted"` 环境事件次数为 `compaction_count`（移除对已退场记忆回填 `_backstop` 的检查），同步统计 `cached_input_tokens`、`uncached_input_tokens` 与 `cache_hit_ratio` 并按日会话与截断序列判定调用分类，这是质量报告结构号升到 12 的原因。冻结清单的 `lineage` 不是数组时报 `Quality report manifest has no lineage`。它不计入
 `transport_or_terminal_failures`，该统计仍只数导出事件里失败阶段的模型证据。导出认证按已认证的事件重算整份质量报告并逐值比较，
 结构号或任何一个键与当前代码算出的不同，都报 `Export quality report disagrees with authoritative events`。
 
-质量报告的 `model_usage.by_call_class` 按调用类分列模型用量。一次调用的类只凭它的 `model_request` 事件判定，
-不读响应事件里的请求副本；读的是事件的 `purpose` 与 `call_id`，以及请求里的 `purpose`、`tool_choice`、`extra_body`、各工具的
+质量报告的 `model_usage.by_call_class` 按调用类分列模型用量。一次调用的类结合事件序列与它的 `model_request` 事件判定，
+不读响应事件里的请求副本；读的是同 `wakeup_id` 前序紧邻 `model_response` 的 `protocol_feedback.error_code`、事件的 `purpose` 与 `call_id`，以及请求里的 `purpose`、`tool_choice`、`extra_body`、各工具的
 `function.name` 与各消息的 `role`：
 
-| 类 | 请求形状 |
+| 类 | 请求形状与判定条件 |
 | --- | --- |
-| `fresh_decision_turn` | 没有 `purpose` 的行动请求（`tool_choice == "auto"`、工具含 `start_main_activity`、不属于 `truncation_retry`），消息恰为 system、user 两条 |
-| `turn_with_history` | 同样的行动请求，消息角色序列不是恰好 system、user 两条；正常运行包括同一唤醒会话的后续沙盒回传与搜索恢复回合 |
-| `truncation_retry` | 没有 `purpose`，工具含 `start_main_activity`，`tool_choice == "required"` 且 `extra_body` 恰为关闭思考 `{"thinking": {"type": "disabled"}}`：截断之后的那一次重试 |
+| `fresh_decision_turn` | 没有 `purpose` 的行动请求（`tools` 含 `start_main_activity`、不属于 `truncation_retry`），消息角色序列恰为 `["system", "user"]`（日初首轮） |
+| `turn_with_history` | 同样的行动请求，消息长度大于 2（同日后续唤醒、唤醒内多轮、搜索恢复或 Compaction 后带尾部历史轮） |
+| `truncation_retry` | 没有 `purpose`，`tools` 含 `start_main_activity`，且同一 `wakeup_id` 内前序紧邻 `model_response` 的 `protocol_feedback.error_code == "OUTPUT_TRUNCATED"`（无论 `thinking` 开启与否及 `tool_choice` 取值） |
 | `search_session` | `purpose` 为 `"search_session"`：隔离上下文的 `LLM Search Session` 内部检索调用（不污染主唤醒统计） |
 | `consolidation` | 没有 purpose，不带工具：记忆巩固；只出现在历史运行里，新运行恒为 0 |
 | `reflection` | 没有 purpose，工具恰为 `submit_reflection`：就寝反思及其校验重试；只出现在历史运行里，新运行恒为 0 |
@@ -672,8 +674,8 @@ app 的开关、订单通知和地点停留只进事件与这些工件，不进�
 | `memory_digest` | `purpose` 为 `memory_digest`：日、月、年回顾及其校验重试 |
 
 上述八类按上表次序总是列出；请求形状不属于任何一类、或终态响应没有对应请求事件的调用归入 `unrecognized`，这一行只在出现时
-列在最后。每行给出请求事件数、提供商响应数、已知 token（与 `model_usage.token_usage` 同一口径）、可计价响应数、
-可计价响应的缓存命中输入、未命中输入与输出 token 合计、峰时响应数、峰时占比（峰时响应数除以可计价响应数，保留六位小数）
+列在最后。每行给出请求事件数、提供商响应数、已知 token（与 `model_usage.token_usage` 同一口径，兼容从 `usage.prompt_cache_hit_tokens` 或 `usage.prompt_tokens_details.cached_tokens` 提取 `cached_input_tokens`、`uncached_input_tokens` 与 `cache_hit_ratio`）、可计价响应数、
+可计价响应的缓存命中输入（网关仅提供 `prompt_tokens_details.cached_tokens` 时同样按两者之和等于 `prompt_tokens` 派生 `prompt_cache_hit_tokens` 与 `prompt_cache_miss_tokens`）、未命中输入与输出 token 合计、峰时响应数、峰时占比（峰时响应数除以可计价响应数，保留六位小数）
 与估算成本；没有可计价响应时，按计价拆开的 token、峰时占比和估算成本为 null，峰时响应数为零。
 各行请求事件数与提供商响应数之和等于 `model_usage` 顶层的同名计数。
 这一节只读已认证事件，不改变任何事件或请求。
@@ -746,7 +748,7 @@ app 的开关、订单通知和地点停留只进事件与这些工件，不进�
 
 ## 运行比对
 
-两次运行是否给了人物同样的经历按记录比对。字段分类只在这里定义，`scripts/compare_runs.py` 照此实现：
+两次运行是否给了人物同样的经历按记录比对。字段分类只在这里定义，`scripts/compare_runs.py` 照此实现（支持 `WORLD_SCHEMA_VERSION = 18`、`RUN_MANIFEST_SCHEMA_VERSION = 9`、`EXPORT_SCHEMA_VERSION = 10` 与 `quality.json` v12，移除已退场 `presentation_state` 与商品轮转检查）：
 
 质量报告的 `day_plan_metrics.<代码摘要>.external_constraints` 下，`source_event_ids`、
 `other_rejections.source_event_ids` 与 `missing_evidence_event_ids` 由报告生成器按随机事件身份排序。
@@ -772,4 +774,4 @@ app 的开关、订单通知和地点停留只进事件与这些工件，不进�
   不把头一侧的原始事件身份放入基一侧再查询，也不规范化已剪掉的历史条目；动作条目的其他字段和必留键检查保持不变。
   此顺序用于恢复点、日终、全部检查点、终态与导出清单中的检查点；原始输入里的 `<event:序号>` 仍不是合法事件身份。
 
-模型证据是录音应答运行的录音带：`model_request.data.request` 与 `model_response.data.response` 完整保存提供商原文，含推理，不得裁剪。
+模型证据是录音应答运行的录音带：`model_request.data.request` 与 `model_response.data.response` 完整保存提供商原文，含推理，不得裁剪；`scripts/recorded_response_run.py` 兼容 `RunConfig` v4、`RUN_MANIFEST_SCHEMA_VERSION = 9`、`WORLD_SCHEMA_VERSION = 18`、`extra_body.prompt_cache_key` 及日会话连续 `messages` 的逐字节比较。

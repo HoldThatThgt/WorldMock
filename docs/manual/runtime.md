@@ -30,11 +30,31 @@ status 的 `liveness` 是 `stale` 时驱动进程已经不在（例如被结束�
 <a name="runtime-编写-config-toml"></a>
 ## 编写 config.toml
 
-在环境根的 `config.toml` 声明时间、唯一种子、活动结算、重估与进度播报节奏、商品呈现轮转、日历以及具名模型档案表 `[models.*]` 和阶段路由表 `[model_routing]`。
-顶层先写 `schema_version = 3`；写其他值的文件被 `worldmock validate` 以 `RUN_CONFIG_INVALID` 拒绝，原因是 `schema_version: Input should be 3`。
+在环境根的 `config.toml` 声明时间、唯一种子、活动结算、重估与进度播报节奏、日历以及具名模型档案表 `[models.*]` 和阶段路由表 `[model_routing]`。
+顶层先写 `schema_version = 4`；写其他值（含旧版 `3` 或已删除的商品轮转字段 `candidate_presentation_limit`、`rotation_quota_ratio`、`rotation_stale_seconds`）的文件被 `worldmock validate` 以 `RUN_CONFIG_INVALID` 拒绝，原因是 `schema_version: Input should be 4`。
 模型档里没有 `persona_validation_max_retries`：全员人物卡片由 `personas/*.toml` 直接填写，写了这个键的文件同样被拒绝。
-完整字段、模型档参数（`thinking`、`max_output_tokens`、`max_react_turns` 等）、路由器（含可选 `[model_routing.agent_overrides."<agent_id>"]`）和合法范围见[配置设计](../design/08-configuration.md)。
+完整字段、模型档参数（`thinking`、`max_output_tokens`、`compact_trigger_tokens`、`prompt_cache_key`、`max_react_turns` 等）、路由器（含可选 `[model_routing.agent_overrides."<agent_id>"]`）和合法范围见[配置设计](../design/08-configuration.md)。
 工作安排和每日差异在[人物](personas.md#personas-编写-persona-toml)声明。
+
+```toml
+schema_version = 4
+seed = 20261019
+timezone = "Asia/Shanghai"
+start_time = 2026-10-19T07:00:00+08:00
+stop_time = 2026-10-20T00:00:00+08:00
+
+[models.primary]
+provider = "openai_compatible"
+base_url = "https://api.example.com/v1"
+requested_model = "deepseek-chat"
+api_key_env = "WORLDMOCK_API_KEY"
+metadata_url = "https://api.example.com/v1/models"
+context_window = 262144
+thinking = true
+max_output_tokens = 8192
+compact_trigger_tokens = 80000
+prompt_cache_key = false
+```
 
 `start_time` 与 `stop_time` 使用带偏移的 TOML 原生日期时间，按自身偏移整点并与 `timezone` 一致。
 `stop_time` 必须晚于开始时刻。唯一整数 `seed` 控制地图、天气、内容、功能 app、购买时长、搜索时长（`search-duration:{action_id}`）、搜索默认下单 app（`search-app:{action_id}`）与推送。
@@ -46,13 +66,13 @@ status 的 `liveness` 是 `stale` 时驱动进程已经不在（例如被结束�
 ```mermaid
 flowchart LR
     Config["运行、模型档与路由声明"] --> Metadata["核验全部引用模型档的实际服务容量"]
-    Metadata --> Identity["冻结全员输入和 ModelIdentity v8"]
+    Metadata --> Identity["冻结全员输入和 ModelIdentity v9"]
     Identity --> Run["并发屏障运行"]
 ```
 
 ## 检查工具交互
 
-人物主唤醒循环开放九个原生工具，使用 `start_main_activity`、`start_side_activity` 与 `search_world` 开始活动或搜索，使用四个控制工具管理进行中或待收尾活动与日计划，并使用两个只读工具回看任务与检索记忆；要同时开始主、副槽位两项活动，就在同一次回复里相应工具各调用一次。
+人物主唤醒循环全回合恒定开放十一个原生工具：使用 `start_main_activity`、`start_side_activity`、`search_world` 与 `continue_activity` 四个边界工具开启活动、搜索或显式维持当前活动并结束唤醒；使用四个控制工具（`report_status`、`pause_activity`、`conclude_activity`、`revise_day_plan`）管理进行中或待收尾活动与日计划；使用三个只读工具（`recall_task_summary`、`search_memory`、`lookup_targets`）回看任务、检索记忆或分页按需加载核心常驻工具层未列出的同城地点、内容 app 与门店商品。要同时开始主、副槽位两项活动，就在同一次回复里相应工具各调用一次。
 
 ```text
 start_main_activity  {"action": "travel",   "target": "公司", "detail": "驾车"}
@@ -61,24 +81,27 @@ start_main_activity  {"action": "sleep",    "target": "470",  "detail": null}
 start_side_activity  {"action": "purchase", "target": ["牛肉面", "柠檬茶", "柠檬茶"], "prefer": "美团"}
 search_world         {"query": "想点一份热汤面，有没有还在营业的店", "prefer": null}
 start_side_activity  {"action": "interact", "target": ["哔哩哔哩"], "prefer": null}
+continue_activity    {"reason": "继续手头安排，暂不调整"}
+lookup_targets       {"kind": "product", "keyword": "咖啡", "limit": 10, "offset": 0}
 ```
 
 出行的 `detail` 照工具层该目的地下列出的出行方式名称写（步行，以及数据集定义的方式）；在地点做事的 `detail` 照工具层当前地点下列出的名称写。
 睡眠的 `target` 写 10 到 720 的分钟数，只写数字，`detail` 写 `null`。购买逐份写商品名，同一个名称写两次就是两份。
 购买和 `search_world` 的 `prefer` 写想用的下单 app 完整名称，照工具层 `prefer_apps` 列出的写，没有想法写 `null`；使用内容 app 时 `prefer` 写 `null`。
 `search_world` 的 `query` 用自然语言描述想找的商品特征、预算或同城与直达枢纽地点诉求（1 至 200 字）。
+`continue_activity` 在没有待收尾活动且已有进行中活动时调用，`reason` 填简短说明或 `null`（已废除纯文本空闲退出）；`lookup_targets` 支持按 `kind`（`location`、`app`、`product` 或 `null`）与 `keyword` 分页检索并将命中目标载入 `loaded_target_keys`。
 例子里的地点、内容、商品和 app 名称取自所用的环境数据集。
 `search_world` 占**副槽位**，时长从 `180` 至 `420` 秒（`3` 至 `7` 分钟）确定性抽取，不能暂停；受理后当前唤醒无栈挂起，到期时系统运行上下文隔离的 `LLM Search Session` 子会话并通过 `Fact Guard` 二次核对实时报价与营业状态，完结当秒释放副槽位并恢复原挂起上下文直接衔接下单或出行。
-记忆查询（`search_memory`）和回看任务（`recall_task_summary`）仍然当场只读完成。
+记忆查询（`search_memory`）、回看任务（`recall_task_summary`）与按需目标检索（`lookup_targets`）均当场零耗时只读完成。
 用内容 app 时看到什么由环境选择，功能 app 由环境执行，人物按真实活动名称报告、暂停与结束。
 工具字段、名称解析、槽位与提醒规则见[模拟引擎](../design/04-simulation-engine.md)。
 
 实际模型请求和事件可在**运行查看器**（`tools/run-viewer.html`）中核对：先用 `worldmock export` 导出（运行中或中途停下的运行加
-`--cutoff` 导出到某个事件），再把导出目录拖进去；查看器在页面里从 `events.jsonl` 建索引，拖放区显示读取进度。对象名称取自
-导出冻结的环境目录；全部数字人的 `MEMORY.md` 总结按需拖入对应工作区所在运行目录查看。SQL 控制台查的是这个索引，三类大事件的正文已裁剪，完整的行用
+`--cutoff` 导出到某个事件），再把导出目录拖进去；查看器在页面里从 `events.jsonl` 建索引，拖放区显示读取进度，保留完整日会话多轮 `messages` 索引。对象名称取自
+导出冻结的环境目录；全部数字人的 `MEMORY.md` 总结按需拖入对应工作区所在运行目录查看。SQL 控制台查的是这个索引，观察与响应的大字段已裁剪，完整的行用
 `sqlite3` 或 `scripts/inspect_run.py` 读。分发查看器时带上同目录的全部 run-viewer 脚本和样式文件。
 载入后顶栏显示本次拖入或选择到总览准备好的秒数，首次加载 sql.js 的等待也计入。
-查看器按 `agent_id` 支持多人物切换，并在模型请求筛选面板提供 `all`、`action`、`search_session`、`other` 四个阶段视图（其中 `LLM Search Session` 子会话依据 `purpose === 'search_session'` 与 `activity_id` 折叠归并展示而不污染主唤醒列表）；提取 SQL 采用 `wakeup_id` 与 `activity_id` 关联事件（已移除退役的 `round_order`、`same_moment` 与 `continuation` 列），`ACTION_WORDS` 将 `search` 活动展示为「搜索」。
+查看器按 `agent_id` 支持多人物切换，并在总览令牌表展示缓存命中令牌、未命中令牌与缓存命中率；`TOOL_LABELS` 包含 `continue_activity`（「继续当前活动」）与 `lookup_targets`（「检索目标」），模型请求筛选面板提供 `all`、`action`、`search_session`、`other` 四个阶段视图（其中 `LLM Search Session` 子会话依据 `purpose === 'search_session'` 与 `activity_id` 折叠归并展示而不污染主唤醒列表），上下文画面支持解析 `工具层.gate`、追加的 `role: "tool"` 差量及日内 Compaction 节点；提取 SQL 采用 `wakeup_id` 与 `activity_id` 关联事件，`ACTION_WORDS` 将 `search` 活动展示为「搜索」。`worldmock status` 的 `observed_model_usage` 与 `result.json` 的 `token_stats` 同步输出 `cached_input_tokens`、`uncached_input_tokens` 与 `cache_hit_ratio`。
 活动日历按运行当地日期切换，默认总览全天，顺序执行的活动复用显示行；可放大到六小时或一小时并前后移动。
 点击条块或搜索选择当天活动可读完整名称、准确时段和相关事件；短活动与没有结算区间的活动也可通过选择器访问。
 时间图、活动表、活动数量和地点会话共用所选日期；展开「当天活动表」可查看当天起止与结算时长。

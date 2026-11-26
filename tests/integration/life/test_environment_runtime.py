@@ -422,7 +422,8 @@ def test_person_on_the_road_cannot_open_an_app_whose_content_needs_a_place(engin
     """已经在路上的人物没有停留地点，既不算在出发地也不算在目的地：带地点前提的钉钉不可用，提交被同一句原因拒绝。"""
     engine, departure = _on_the_road_home(engine_factory, tmp_path)
     before = engine.context.state.model_copy(deep=True)
-    observed, refused = act(engine, "on-the-road", use_app("钉钉"))
+    observed = engine.observations._observation_data(engine.context.state.agents[1], (("app", "dingtalk"),))
+    _, refused = act(engine, "on-the-road", use_app("钉钉"))
     reason = f"Nothing in 钉钉 can start here now: it requires presence at {OFFICE}."
     row = target_actions(observed, "钉钉")["interact"]
     assert (row["available"], row["reason"], row["duration"], row["note"]) == (False, reason, None, None)
@@ -442,7 +443,8 @@ def test_time_only_app_content_follows_the_clock_on_the_road(engine_factory, tmp
     reminder = app_content("dingtalk-reminder", "日报提醒", {"opens": weekday_hours(hours)})
     engine, _ = _on_the_road_home(engine_factory, tmp_path, reminder)
     now = engine.context.state.current_time
-    observed, result = act(engine, "on-the-road", use_app("钉钉"))
+    observed = engine.observations._observation_data(engine.context.state.agents[1], (("app", "dingtalk"),))
+    _, result = act(engine, "on-the-road", use_app("钉钉"))
     row = target_actions(observed, "钉钉")["interact"]
     if accepted:
         assert (row["available"], row["reason"], row["duration"]) == (True, None, "每条约 1 分钟")

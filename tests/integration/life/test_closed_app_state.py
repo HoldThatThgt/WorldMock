@@ -50,7 +50,8 @@ def _dingtalk(observed: dict) -> dict:
 def _refused_with(engine, reason: str, next_step: str, state: str | None) -> None:
     """此刻打开钉钉：工具层钉钉一行的原因、提交后拒绝的原因与下一步、钉钉目标的 state 如给定；拒绝不改世界。"""
     before = engine.context.state.model_copy(deep=True)
-    observed, result = act(engine, "clock", use_app("钉钉"))
+    observed = observe_only(engine, "clock-look", (("app", "dingtalk"),))
+    _, result = act(engine, "clock", use_app("钉钉"))
     assert dingtalk_row(observed)["reason"] == reason and dingtalk_row(observed)["available"] is False
     assert _dingtalk(observed)["state"] == state
     assert result.status == "rejected" and result.error_code == "CONTENT_PREREQUISITE_UNMET"
@@ -77,7 +78,7 @@ def test_clock_in_app_state_names_todays_hours_or_the_next_opening(engine_factor
     """只有打卡的钉钉：内容此刻不合格时目标 state 写打卡的开放时间（今天有时段写今天的，周六写下周一的），只差地点时
     也写；可以打卡时为 null。别的内容 app 的 state 都是 null；工具层通过层校验，紧凑渲染能还原。"""
     engine = _staged(engine_factory, tmp_path, when, location)
-    observed = observe_only(engine, "look")
+    observed = observe_only(engine, "look", (("app", "dingtalk"),))
     assert _dingtalk(observed)["state"] == state
     assert dingtalk_row(observed)["available"] is (state is None)
     others = {row["name"]: row["state"] for row in observed["tool_layer"]["targets"]
@@ -138,21 +139,21 @@ def test_state_names_only_contents_that_declare_opening_hours(engine_factory, tm
 
 
 def test_opening_state_stays_visible_behind_slot_and_conclusion_messages(engine_factory, tmp_path):
-    """周六 09:00 在办公室，重估间隔 300 秒，09:00 打开 Keep（「测试慢跑」1200 秒）：钉钉一行的原因依次是前提原因、槽位 2
-    被占、先收尾，准入次序不变；目标 state 三次都是下周一的开放时间。"""
+    """周六 09:00 在办公室，重估间隔 300 秒，09:00 打开 Keep（「测试慢跑」1200 秒）：gate 依次记下槽位 2 被占与先收尾，
+    钉钉一行保留自身前提原因；目标 state 三次都是下周一的开放时间。"""
     engine = _staged(engine_factory, tmp_path, (17, 9, 0), "office", reconsideration_interval_seconds=300)
     keep = "进行Keep（10月17日 09:00 起）"
-    observed, opened = act(engine, "keep", use_app("Keep"))
+    before = observe_only(engine, "before", (("app", "dingtalk"),))
+    _, opened = act(engine, "keep", use_app("Keep"))
     assert opened.status == "in_progress", opened.error_code
     assert engine.context.state.activities[opened.activity_id].name == keep
-    rows = [observed]
+    rows = [before]
     for offset in (300, 1200):
         reach(engine, moment(17, 9) + offset)
         assert engine.context.state.current_time == moment(17, 9) + offset
-        rows.append(observe_only(engine, "behind"))
+        rows.append(observe_only(engine, "behind", (("app", "dingtalk"),)))
     assert engine.context.state.activities[opened.activity_id].status == "completed"
-    assert [dingtalk_row(row)["reason"] for row in rows] == [
-        f"Nothing in 钉钉 can start now: it is {NEXT_MONDAY}.",
-        f"The second activity slot is occupied by {keep}.",
-        f"Conclude the finished activities {keep} first."]
+    assert [row["tool_layer"]["gate"]["side_slot_busy"] for row in rows] == [False, True, True]
+    assert [row["tool_layer"]["gate"]["pending_conclusions"] for row in rows] == [[], [], [keep]]
+    assert [dingtalk_row(row)["reason"] for row in rows] == [f"Nothing in 钉钉 can start now: it is {NEXT_MONDAY}."] * 3
     assert [_dingtalk(row)["state"] for row in rows] == [NEXT_MONDAY] * 3

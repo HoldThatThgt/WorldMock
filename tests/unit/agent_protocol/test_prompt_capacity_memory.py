@@ -31,7 +31,13 @@ def _layers() -> list[dict]:
     built = {"人设层": {"layer": "人设层", "identity": {"name": "林舟"}},
              "记忆层": assemble_layer("2026-01-05", {}, today),
              "待办层": {"layer": "待办层", "paused_activities": [], "errands": [], "day_plan": None},
-             "工具层": {"layer": "工具层", "targets": [], "callable_index": {"goods": [], "prefer_apps": []}},
+             "工具层": {
+                 "layer": "工具层",
+                 "gate": {"main_slot_busy": False, "side_slot_busy": False, "sleeping": False,
+                          "in_transit": False, "pending_conclusions": []},
+                 "targets": [],
+                 "callable_index": {"goods": [], "prefer_apps": []},
+             },
              "环境层": {"layer": "环境层", "observed_at": "2026-01-05T09:05:00+08:00"},
              "进度层": {"layer": "进度层", "session_started_at": "2026-01-05T08:00:00+08:00", "events": records}}
     return [built[name] for name in USER_LAYER_NAMES]
@@ -77,3 +83,16 @@ def test_capacity_failure_logs_the_memory_layer_by_name(monkeypatch, caplog):
                   record.getMessage()]
     assert "'记忆层':" in message
     assert layers == original
+
+
+def test_capacity_failure_parses_layers_from_request_when_budget_is_none(monkeypatch, caplog):
+    """budget 为 None 时（如日会话续行唤醒），容量故障日志仍从 request.messages[1] 解析六层分量。"""
+    monkeypatch.setattr(prompt_capacity, "token_counter", _characters)
+    monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model, metadata: 100)
+    layers = _layers()
+    request, _ = _request(layers)
+    with pytest.raises(RuntimeError, match="^model request capacity exceeded$"):
+        fit_request(request, METADATA, None)
+    (message,) = [record.getMessage() for record in caplog.records if "Model request capacity exceeded" in
+                  record.getMessage()]
+    assert "'记忆层':" in message and "'工具层.callable_index':" in message
